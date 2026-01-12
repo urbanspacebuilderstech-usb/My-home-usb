@@ -1,30 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Upload, FileText, Image as ImageIcon, Download } from 'lucide-react';
+import { Building2, LogOut, Home, DollarSign, Image, FileText, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { toast } from 'sonner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function ClientPortal() {
   const { projectId } = useParams();
-  const [data, setData] = useState(null);
-  const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
-  const [docDialogOpen, setDocDialogOpen] = useState(false);
-  const [photoFile, setPhotoFile] = useState(null);
-  const [photoCaption, setPhotoCaption] = useState('');
-  const [photoCategory, setPhotoCategory] = useState('progress');
-  const [docFile, setDocFile] = useState(null);
-  const [docTitle, setDocTitle] = useState('');
-  const [docCategory, setDocCategory] = useState('plans');
+  const [user, setUser] = useState(null);
+  const [project, setProject] = useState(null);
+  const [payments, setPayments] = useState([]);
+  const [stages, setStages] = useState([]);
+  const [photos, setPhotos] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
     fetchData();
@@ -32,257 +26,285 @@ export default function ClientPortal() {
 
   const fetchData = async () => {
     try {
-      const response = await axios.get(`${API}/client-portal/project/${projectId}`);
-      setData(response.data);
+      const userRes = await axios.get(`${API}/auth/me`);
+      setUser(userRes.data);
+
+      const projRes = await axios.get(`${API}/projects/${projectId}`);
+      setProject(projRes.data);
+
+      const paymentsRes = await axios.get(`${API}/payments?project_id=${projectId}`);
+      setPayments(paymentsRes.data || []);
+
+      try {
+        const photosRes = await axios.get(`${API}/site-photos/${projectId}`);
+        setPhotos(photosRes.data || []);
+      } catch (e) {
+        setPhotos([]);
+      }
+
+      try {
+        const docsRes = await axios.get(`${API}/documents/${projectId}`);
+        setDocuments(docsRes.data || []);
+      } catch (e) {
+        setDocuments([]);
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
     }
   };
 
-  const handlePhotoUpload = async (e) => {
-    e.preventDefault();
-    if (!photoFile) return;
-
-    const formData = new FormData();
-    formData.append('file', photoFile);
-    formData.append('project_id', projectId);
-    formData.append('caption', photoCaption);
-    formData.append('category', photoCategory);
-
+  const handleLogout = async () => {
     try {
-      await axios.post(`${API}/site-photos/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success('Photo uploaded successfully');
-      setPhotoDialogOpen(false);
-      setPhotoFile(null);
-      setPhotoCaption('');
-      fetchData();
+      await axios.post(`${API}/auth/logout`);
+      window.location.href = '/login';
     } catch (error) {
-      toast.error('Failed to upload photo');
+      console.error('Logout failed');
     }
   };
 
-  const handleDocumentUpload = async (e) => {
-    e.preventDefault();
-    if (!docFile) return;
+  if (!user || !project) {
+    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  }
 
-    const formData = new FormData();
-    formData.append('file', docFile);
-    formData.append('project_id', projectId);
-    formData.append('title', docTitle);
-    formData.append('category', docCategory);
-
-    try {
-      await axios.post(`${API}/documents/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success('Document uploaded successfully');
-      setDocDialogOpen(false);
-      setDocFile(null);
-      setDocTitle('');
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to upload document');
-    }
-  };
-
-  if (!data) return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  const balance = project.total_value - totalPaid;
+  const progressPercent = Math.min(100, Math.round((totalPaid / project.total_value) * 100));
 
   return (
-    <div className="min-h-screen bg-muted/30 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-8">
-          <h1 data-testid="client-portal-title" className="text-3xl font-bold mb-2">{data.project.name}</h1>
-          <p className="text-muted-foreground">{data.project.location}</p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Project Value</CardTitle></CardHeader>
-            <CardContent><p className="text-2xl font-bold">₹{(data.project.total_value / 100000).toFixed(2)}L</p></CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Total Paid</CardTitle></CardHeader>
-            <CardContent><p data-testid="total-paid" className="text-2xl font-bold text-green-500">₹{(data.total_paid / 100000).toFixed(2)}L</p></CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle className="text-sm">Balance</CardTitle></CardHeader>
-            <CardContent><p data-testid="balance" className="text-2xl font-bold text-amber-500">₹{(data.balance / 100000).toFixed(2)}L</p></CardContent>
-          </Card>
-        </div>
-
-        <Card className="mb-8">
-          <CardHeader><CardTitle>Construction Stages</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {data.stages.map((stage) => (
-                <div key={stage.stage_id} data-testid={`stage-${stage.stage_id}`} className="flex items-center justify-between p-3 border rounded">
-                  <span className="font-medium">{stage.name}</span>
-                  <Badge variant={stage.status === 'completed' ? 'default' : stage.status === 'in_progress' ? 'secondary' : 'outline'}>
-                    {stage.status.replace('_', ' ')}
-                  </Badge>
-                </div>
-              ))}
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-lg">
+              <Building2 className="h-6 w-6 text-white" />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-8">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Site Photos</CardTitle>
-            <Dialog open={photoDialogOpen} onOpenChange={setPhotoDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="upload-photo-btn" size="sm" className="gap-2">
-                  <Upload className="h-4 w-4" />Upload Photo
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader><DialogTitle>Upload Site Photo</DialogTitle></DialogHeader>
-                <form onSubmit={handlePhotoUpload} className="space-y-4">
-                  <div>
-                    <Label>Photo</Label>
-                    <Input
-                      data-testid="photo-file-input"
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => setPhotoFile(e.target.files[0])}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label>Caption</Label>
-                    <Input
-                      data-testid="photo-caption-input"
-                      value={photoCaption}
-                      onChange={(e) => setPhotoCaption(e.target.value)}
-                      placeholder="Optional caption"
-                    />
-                  </div>
-                  <div>
-                    <Label>Category</Label>
-                    <Select value={photoCategory} onValueChange={setPhotoCategory}>
-                      <SelectTrigger data-testid="photo-category-select"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="progress">Progress</SelectItem>
-                        <SelectItem value="milestone">Milestone</SelectItem>
-                        <SelectItem value="issue">Issue</SelectItem>
-                        <SelectItem value="completion">Completion</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button data-testid="submit-photo-btn" type="submit">Upload Photo</Button>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </CardHeader>
-          <CardContent>
-            {data.photos.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No photos uploaded yet</p>
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {data.photos.map((photo) => (
-                  <div key={photo.photo_id} data-testid={`photo-${photo.photo_id}`} className="relative group">
-                    <img
-                      src={`${API}/files/${photo.file_id}`}
-                      alt={photo.caption || 'Site photo'}
-                      className="w-full h-48 object-cover rounded border"
-                    />
-                    {photo.caption && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white text-xs p-2 rounded-b">
-                        {photo.caption}
-                      </div>
-                    )}
-                    <Badge className="absolute top-2 right-2">{photo.category}</Badge>
-                  </div>
-                ))}
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500">Client Portal</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 pl-4">
+              <div className="text-right">
+                <p className="text-sm font-semibold text-gray-900">{user.name}</p>
+                <p className="text-xs text-gray-500">Client</p>
               </div>
-            )}
-          </CardContent>
-        </Card>
+              <Button variant="ghost" size="icon" onClick={handleLogout}>
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </nav>
 
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Project Header */}
+        <div className="mb-8">
+          <h2 data-testid="client-portal-title" className="text-3xl font-bold text-gray-900">{project.name}</h2>
+          <div className="flex items-center gap-4 mt-2">
+            <span className="text-gray-600">{project.location}</span>
+            <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
+              {project.status}
+            </Badge>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Project Value</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-700">₹{(project.total_value / 100000).toFixed(2)}L</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Amount Paid</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-700">₹{(totalPaid / 100000).toFixed(2)}L</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Balance Due</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-700">₹{(balance / 100000).toFixed(2)}L</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Payment Progress</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-700">{progressPercent}%</div>
+              <div className="w-full bg-purple-200 rounded-full h-2 mt-2">
+                <div 
+                  className="bg-purple-600 h-2 rounded-full transition-all" 
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabs */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Project Documents</CardTitle>
-            <Dialog open={docDialogOpen} onOpenChange={setDocDialogOpen}>
-              <DialogTrigger asChild>
-                <Button data-testid="upload-doc-btn" size="sm" variant="outline" className="gap-2">
-                  <FileText className="h-4 w-4" />Upload Document
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader><DialogTitle>Upload Document</DialogTitle></DialogHeader>
-                <form onSubmit={handleDocumentUpload} className="space-y-4">
-                  <div>
-                    <Label>Document</Label>
-                    <Input
-                      data-testid="doc-file-input"
-                      type="file"
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.dwg"
-                      onChange={(e) => setDocFile(e.target.files[0])}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label>Title</Label>
-                    <Input
-                      data-testid="doc-title-input"
-                      value={docTitle}
-                      onChange={(e) => setDocTitle(e.target.value)}
-                      placeholder="Document title"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label>Category</Label>
-                    <Select value={docCategory} onValueChange={setDocCategory}>
-                      <SelectTrigger data-testid="doc-category-select"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="plans">Site Plans</SelectItem>
-                        <SelectItem value="drawings">Drawings</SelectItem>
-                        <SelectItem value="permits">Permits</SelectItem>
-                        <SelectItem value="contracts">Contracts</SelectItem>
-                        <SelectItem value="invoices">Invoices</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button data-testid="submit-doc-btn" type="submit">Upload Document</Button>
-                </form>
-              </DialogContent>
-            </Dialog>
-          </CardHeader>
-          <CardContent>
-            {data.documents.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No documents uploaded yet</p>
-            ) : (
-              <div className="space-y-2">
-                {data.documents.map((doc) => (
-                  <div
-                    key={doc.document_id}
-                    data-testid={`doc-${doc.document_id}`}
-                    className="flex items-center justify-between p-4 border rounded hover:bg-muted/50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-5 w-5 text-muted-foreground" />
-                      <div>
-                        <p className="font-medium">{doc.title}</p>
-                        <p className="text-xs text-muted-foreground">{doc.category}</p>
-                      </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <CardHeader className="border-b">
+              <TabsList>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="payments">Payments</TabsTrigger>
+                <TabsTrigger value="photos">Photos</TabsTrigger>
+                <TabsTrigger value="documents">Documents</TabsTrigger>
+              </TabsList>
+            </CardHeader>
+
+            <TabsContent value="overview" className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h3 className="text-lg font-bold mb-4">Project Details</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Project Name</span>
+                      <span className="font-medium">{project.name}</span>
                     </div>
-                    <Button
-                      data-testid={`download-doc-${doc.document_id}`}
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => window.open(`${API}/files/${doc.file_id}`, '_blank')}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Location</span>
+                      <span className="font-medium">{project.location}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Start Date</span>
+                      <span className="font-medium">{new Date(project.start_date).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Expected Completion</span>
+                      <span className="font-medium">{new Date(project.expected_completion).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Status</span>
+                      <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
+                        {project.status}
+                      </Badge>
+                    </div>
                   </div>
-                ))}
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold mb-4">Financial Summary</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Total Value</span>
+                      <span className="font-medium">₹{project.total_value.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Amount Paid</span>
+                      <span className="font-medium text-green-600">₹{totalPaid.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Balance</span>
+                      <span className="font-medium text-orange-600">₹{balance.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Payments Made</span>
+                      <span className="font-medium">{payments.length}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-          </CardContent>
+            </TabsContent>
+
+            <TabsContent value="payments" className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Date</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {payments.length === 0 ? (
+                      <tr>
+                        <td colSpan="3" className="px-6 py-8 text-center text-gray-500">
+                          No payments recorded yet
+                        </td>
+                      </tr>
+                    ) : (
+                      payments.map((payment) => (
+                        <tr key={payment.payment_id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">{new Date(payment.payment_date).toLocaleDateString()}</td>
+                          <td className="px-6 py-4">{payment.description}</td>
+                          <td className="px-6 py-4 font-semibold text-green-600">₹{payment.amount.toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="photos" className="p-6">
+              {photos.length === 0 ? (
+                <div className="text-center py-12">
+                  <Image className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                  <p className="text-gray-500">No photos uploaded yet</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {photos.map((photo) => (
+                    <div key={photo.photo_id} className="rounded-lg overflow-hidden bg-gray-100">
+                      <img
+                        src={`${API}/files/${photo.file_id}`}
+                        alt={photo.caption || 'Site photo'}
+                        className="w-full h-40 object-cover"
+                      />
+                      {photo.caption && (
+                        <p className="p-2 text-sm text-gray-600">{photo.caption}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="documents" className="p-6">
+              {documents.length === 0 ? (
+                <div className="text-center py-12">
+                  <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                  <p className="text-gray-500">No documents uploaded yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {documents.map((doc) => (
+                    <div key={doc.document_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-8 w-8 text-blue-600" />
+                        <div>
+                          <p className="font-medium">{doc.title}</p>
+                          <p className="text-sm text-gray-500">{doc.category}</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`${API}/files/${doc.file_id}`, '_blank')}
+                      >
+                        Download
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </Card>
       </div>
     </div>
