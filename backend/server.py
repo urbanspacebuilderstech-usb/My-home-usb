@@ -781,6 +781,32 @@ async def get_expenses(project_id: Optional[str] = None, user: User = Depends(ge
     return expenses
 
 
+@api_router.get("/payments")
+async def get_payments(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    
+    payments = await db.payments.find(query, {"_id": 0}).to_list(1000)
+    for payment in payments:
+        if isinstance(payment.get("payment_date"), str):
+            payment["payment_date"] = datetime.fromisoformat(payment["payment_date"])
+        if isinstance(payment.get("created_at"), str):
+            payment["created_at"] = datetime.fromisoformat(payment["created_at"])
+    return payments
+
+
+@api_router.post("/payments")
+async def create_payment(payment: Payment, user: User = Depends(get_current_user)):
+    payment_dict = payment.model_dump()
+    payment_dict["payment_date"] = payment_dict["payment_date"].isoformat()
+    payment_dict["created_at"] = payment_dict["created_at"].isoformat()
+    await db.payments.insert_one(payment_dict)
+    
+    await create_audit_log(user.user_id, "create", "payment", payment.payment_id, {"amount": payment.amount})
+    return payment
+
+
 @api_router.post("/expenses")
 async def create_expense(expense: Expense, user: User = Depends(get_current_user)):
     if user.role != UserRole.ACCOUNTANT:
