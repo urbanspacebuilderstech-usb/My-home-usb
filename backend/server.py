@@ -1272,6 +1272,302 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
     }
 
 
+# ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
+
+# Project Update/Delete
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    client_name: Optional[str] = None
+    location: Optional[str] = None
+    total_value: Optional[float] = None
+    status: Optional[str] = None
+
+
+@api_router.patch("/projects/{project_id}")
+async def update_project(project_id: str, update_data: ProjectUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if not update_dict:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    await db.projects.update_one({"project_id": project_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "project", project_id, update_dict)
+    return {"message": "Project updated"}
+
+
+@api_router.delete("/projects/{project_id}")
+async def delete_project(project_id: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete projects")
+    
+    await db.projects.delete_one({"project_id": project_id})
+    await create_audit_log(user.user_id, "delete", "project", project_id, {})
+    return {"message": "Project deleted"}
+
+
+# BOQ Update/Delete
+class BOQUpdate(BaseModel):
+    item_name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit_rate: Optional[float] = None
+    locked: Optional[bool] = None
+
+
+@api_router.patch("/boq/{boq_id}")
+async def update_boq_item(boq_id: str, update_data: BOQUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can update BOQ")
+    
+    # Check if BOQ is locked
+    boq_item = await db.boq_items.find_one({"boq_id": boq_id}, {"_id": 0})
+    if boq_item and boq_item.get("locked") and not update_data.locked:
+        raise HTTPException(status_code=400, detail="BOQ item is locked")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    # Recalculate total_cost if quantity or rate changed
+    if "quantity" in update_dict or "unit_rate" in update_dict:
+        qty = update_dict.get("quantity", boq_item.get("quantity", 0))
+        rate = update_dict.get("unit_rate", boq_item.get("unit_rate", 0))
+        update_dict["total_cost"] = qty * rate
+    
+    await db.boq_items.update_one({"boq_id": boq_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "boq", boq_id, update_dict)
+    return {"message": "BOQ item updated"}
+
+
+@api_router.delete("/boq/{boq_id}")
+async def delete_boq_item(boq_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete BOQ")
+    
+    boq_item = await db.boq_items.find_one({"boq_id": boq_id}, {"_id": 0})
+    if boq_item and boq_item.get("locked"):
+        raise HTTPException(status_code=400, detail="Cannot delete locked BOQ item")
+    
+    await db.boq_items.delete_one({"boq_id": boq_id})
+    await create_audit_log(user.user_id, "delete", "boq", boq_id, {})
+    return {"message": "BOQ item deleted"}
+
+
+# Vendor Update/Delete
+class VendorUpdate(BaseModel):
+    name: Optional[str] = None
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+
+
+@api_router.patch("/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, update_data: VendorUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    await db.vendors.update_one({"vendor_id": vendor_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "vendor", vendor_id, update_dict)
+    return {"message": "Vendor updated"}
+
+
+@api_router.delete("/vendors/{vendor_id}")
+async def delete_vendor(vendor_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    await db.vendors.delete_one({"vendor_id": vendor_id})
+    await create_audit_log(user.user_id, "delete", "vendor", vendor_id, {})
+    return {"message": "Vendor deleted"}
+
+
+# Expense Update/Delete
+class ExpenseUpdate(BaseModel):
+    category: Optional[str] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+
+
+@api_router.patch("/expenses/{expense_id}")
+async def update_expense(expense_id: str, update_data: ExpenseUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can update expenses")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    await db.expenses.update_one({"expense_id": expense_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "expense", expense_id, update_dict)
+    return {"message": "Expense updated"}
+
+
+@api_router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can delete expenses")
+    
+    await db.expenses.delete_one({"expense_id": expense_id})
+    await create_audit_log(user.user_id, "delete", "expense", expense_id, {})
+    return {"message": "Expense deleted"}
+
+
+# Payment Update/Delete
+class PaymentUpdate(BaseModel):
+    amount: Optional[float] = None
+    description: Optional[str] = None
+
+
+@api_router.patch("/payments/{payment_id}")
+async def update_payment(payment_id: str, update_data: PaymentUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can update payments")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    await db.payments.update_one({"payment_id": payment_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "payment", payment_id, update_dict)
+    return {"message": "Payment updated"}
+
+
+@api_router.delete("/payments/{payment_id}")
+async def delete_payment(payment_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can delete payments")
+    
+    await db.payments.delete_one({"payment_id": payment_id})
+    await create_audit_log(user.user_id, "delete", "payment", payment_id, {})
+    return {"message": "Payment deleted"}
+
+
+# Purchase Order Update
+class POUpdate(BaseModel):
+    status: Optional[str] = None
+    vehicle_number: Optional[str] = None
+    dispatch_date: Optional[str] = None
+
+
+@api_router.patch("/purchase-orders/{po_id}")
+async def update_purchase_order(po_id: str, update_data: POUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.VENDOR]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    if "dispatch_date" in update_dict and update_dict["dispatch_date"]:
+        update_dict["dispatch_date"] = datetime.fromisoformat(update_dict["dispatch_date"]).isoformat()
+    
+    await db.purchase_orders.update_one({"po_id": po_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "purchase_order", po_id, update_dict)
+    return {"message": "Purchase order updated"}
+
+
+# User Delete
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete users")
+    
+    if user_id == current_user.user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    
+    await db.users.delete_one({"user_id": user_id})
+    await create_audit_log(current_user.user_id, "delete", "user", user_id, {})
+    return {"message": "User deleted"}
+
+
+# ==================== VENDOR PORTAL ENDPOINTS ====================
+
+@api_router.get("/vendor-portal/dashboard")
+async def get_vendor_dashboard(user: User = Depends(get_current_user)):
+    if user.role != UserRole.VENDOR:
+        raise HTTPException(status_code=403, detail="Vendor access only")
+    
+    # Get vendor linked to this user
+    vendor = await db.vendors.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not vendor:
+        return {
+            "vendor": None,
+            "purchase_orders": [],
+            "stats": {"total_orders": 0, "pending": 0, "dispatched": 0, "completed": 0}
+        }
+    
+    # Get all POs for this vendor
+    pos = await db.purchase_orders.find({"vendor_id": vendor["vendor_id"]}, {"_id": 0}).to_list(1000)
+    for po in pos:
+        if isinstance(po.get("expected_delivery"), str):
+            po["expected_delivery"] = datetime.fromisoformat(po["expected_delivery"])
+        if po.get("dispatch_date") and isinstance(po["dispatch_date"], str):
+            po["dispatch_date"] = datetime.fromisoformat(po["dispatch_date"])
+        if isinstance(po.get("created_at"), str):
+            po["created_at"] = datetime.fromisoformat(po["created_at"])
+    
+    stats = {
+        "total_orders": len(pos),
+        "pending": len([p for p in pos if p.get("status") == "pending"]),
+        "dispatched": len([p for p in pos if p.get("status") == "dispatched"]),
+        "completed": len([p for p in pos if p.get("status") == "completed"])
+    }
+    
+    return {
+        "vendor": vendor,
+        "purchase_orders": pos,
+        "stats": stats
+    }
+
+
+@api_router.patch("/vendor-portal/purchase-orders/{po_id}/dispatch")
+async def vendor_dispatch_order(po_id: str, vehicle_number: str, user: User = Depends(get_current_user)):
+    if user.role != UserRole.VENDOR:
+        raise HTTPException(status_code=403, detail="Vendor access only")
+    
+    # Verify this PO belongs to the vendor
+    vendor = await db.vendors.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    po = await db.purchase_orders.find_one({"po_id": po_id, "vendor_id": vendor["vendor_id"]}, {"_id": 0})
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    
+    await db.purchase_orders.update_one(
+        {"po_id": po_id},
+        {"$set": {
+            "status": "dispatched",
+            "vehicle_number": vehicle_number,
+            "dispatch_date": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify procurement
+    procurement_users = await db.users.find({"role": UserRole.PROCUREMENT}, {"_id": 0}).to_list(100)
+    for proc_user in procurement_users:
+        notif = Notification(
+            user_id=proc_user["user_id"],
+            title="Order Dispatched",
+            message=f"PO {po_id} has been dispatched. Vehicle: {vehicle_number}",
+            link="/procurement"
+        )
+        notif_dict = notif.model_dump()
+        notif_dict["created_at"] = notif_dict["created_at"].isoformat()
+        await db.notifications.insert_one(notif_dict)
+    
+    await create_audit_log(user.user_id, "dispatch", "purchase_order", po_id, {"vehicle_number": vehicle_number})
+    return {"message": "Order dispatched successfully"}
+
+
+# Link vendor to user account
+@api_router.patch("/vendors/{vendor_id}/link-user")
+async def link_vendor_to_user(vendor_id: str, target_user_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Update user role to vendor
+    await db.users.update_one({"user_id": target_user_id}, {"$set": {"role": UserRole.VENDOR}})
+    
+    # Link vendor to user
+    await db.vendors.update_one({"vendor_id": vendor_id}, {"$set": {"user_id": target_user_id}})
+    
+    await create_audit_log(user.user_id, "link", "vendor", vendor_id, {"linked_user": target_user_id})
+    return {"message": "Vendor linked to user"}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
