@@ -617,9 +617,9 @@ async def upload_image(file: UploadFile = File(...), user: User = Depends(get_cu
         raise HTTPException(status_code=403, detail="Only Site Engineer can upload")
     
     contents = await file.read()
-    file_id = fs.upload_from_stream(
+    file_id = await fs.upload_from_stream(
         file.filename,
-        io.BytesIO(contents),
+        contents,
         metadata={"contentType": file.content_type, "uploaded_by": user.user_id}
     )
     
@@ -630,8 +630,10 @@ async def upload_image(file: UploadFile = File(...), user: User = Depends(get_cu
 async def get_image(file_id: str):
     from bson.objectid import ObjectId
     try:
-        grid_out = fs.open_download_stream(ObjectId(file_id))
-        return StreamingResponse(grid_out, media_type=grid_out.metadata.get("contentType", "image/jpeg"))
+        grid_out = await fs.open_download_stream(ObjectId(file_id))
+        contents = await grid_out.read()
+        content_type = grid_out.metadata.get("contentType", "image/jpeg") if grid_out.metadata else "image/jpeg"
+        return Response(content=contents, media_type=content_type)
     except Exception as e:
         raise HTTPException(status_code=404, detail="Image not found")
 
