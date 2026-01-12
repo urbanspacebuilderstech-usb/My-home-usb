@@ -23,7 +23,7 @@ Build a Construction Accounting CRM with:
 4. **Planning Department** - Create and manage BOQ
 5. **Procurement Department** - Create POs, manage vendors
 6. **Site Engineer** - Submit site receipts with GPS + photos
-7. **Vendor** - View assigned orders (portal)
+7. **Vendor** - View assigned orders via Vendor Portal
 8. **Client** - Read-only project portal
 
 ### Tech Stack
@@ -46,13 +46,14 @@ Build a Construction Accounting CRM with:
 - [x] Demo login system (no password required)
 
 #### Project Management
-- [x] Projects CRUD operations
+- [x] Projects CRUD operations (Create, Read, Update, Delete)
 - [x] Project detail page with tabs
 - [x] Project stats (Agreement Value, Received, Spent, Balance)
 
 #### BOQ (Bill of Quantities)
 - [x] BOQ management page
-- [x] Create/view BOQ items
+- [x] Create/Edit/Delete BOQ items
+- [x] Lock/Unlock BOQ items
 - [x] Category support (Material, Labour)
 - [x] Total budget calculation
 
@@ -62,14 +63,14 @@ Build a Construction Accounting CRM with:
 - [x] Status tracking (draft, submitted, approved, rejected, closed)
 - [x] Stats cards (Total, Pending, Approved, Rejected)
 
-#### ✅ NEW: Work Order Assignments (P0 - January 12, 2026)
+#### Work Order Assignments (P0 - January 12, 2026)
 - [x] Backend endpoints for assignments
 - [x] Create assignments with priority and due dates
 - [x] Assign work orders to Site Engineers/Procurement
 - [x] UI in Project Detail page (Assignments tab)
 - [x] Notifications sent to assigned users
 
-#### ✅ NEW: Project Commitments (P1 - January 12, 2026)
+#### Project Commitments (P1 - January 12, 2026)
 - [x] Backend endpoints for commitments
 - [x] Track committed resources/materials per project
 - [x] Calculate total committed value
@@ -82,11 +83,20 @@ Build a Construction Accounting CRM with:
 - [x] Rejection with reason
 - [x] Notifications on approval/rejection
 
-#### Procurement
-- [x] Vendor management (CRUD)
+#### Procurement (P2 - January 12, 2026)
+- [x] Vendor management (Create, Read, Update, Delete)
 - [x] Purchase Order creation
 - [x] Link POs to work orders
 - [x] Vendor table with contact details
+- [x] **NEW**: Edit/Delete vendors
+- [x] **NEW**: Link vendor to user account for portal access
+
+#### ✅ Vendor Portal (P2 - January 12, 2026)
+- [x] Dedicated vendor portal page (`/vendor-portal`)
+- [x] Vendor dashboard with order stats
+- [x] View assigned purchase orders
+- [x] Dispatch orders with vehicle number
+- [x] Notifications to procurement on dispatch
 
 #### Site Receipt
 - [x] Site receipt submission page
@@ -94,15 +104,17 @@ Build a Construction Accounting CRM with:
 - [x] Image upload support
 - [x] Link to POs and work orders
 
-#### Expenses & Accounting
+#### Expenses & Accounting (P2 - January 12, 2026)
 - [x] Expense tracking page
 - [x] Filter by project
 - [x] Category breakdown (Material, Labour, etc.)
-- [x] Auto-expense creation from site receipts
+- [x] **NEW**: Edit/Delete expenses
+- [x] **NEW**: Edit/Delete payments
 
 #### User Management
 - [x] User listing with roles
 - [x] Create new users
+- [x] Delete users
 - [x] Role-based access control
 - [x] User stats by role type
 
@@ -112,42 +124,20 @@ Build a Construction Accounting CRM with:
 - [x] Super Admin pending approvals view
 - [x] Notification creation on key events
 
-#### ✅ UI Consistency Update (P1 - January 12, 2026)
+#### UI Consistency Update (P1 - January 12, 2026)
 - [x] Dashboard - Modern card-based layout
 - [x] Projects page - Table with stats
 - [x] Project Detail - Tabbed interface with 5 tabs
 - [x] Work Orders - Stats cards + table
 - [x] Approval Queue - Modern approval interface
-- [x] Procurement - Vendors + POs tabs
-- [x] BOQ Management - Budget breakdown
-- [x] Expenses - Filterable table
+- [x] Procurement - Vendors + POs tabs with edit/delete
+- [x] BOQ Management - Budget breakdown with edit/delete/lock
+- [x] Expenses - Filterable table with edit/delete
 - [x] Site Receipt - GPS status + pending POs
 - [x] User Management - Role-based grouping
 - [x] Notifications - Unread badges + actions
 - [x] Client Portal - Read-only project view
-
-#### Client Portal
-- [x] Project overview for clients
-- [x] Payment history view
-- [x] Photo gallery support
-- [x] Document downloads
-
-### 🔄 IN PROGRESS
-
-#### P2 Features (Next)
-- [ ] Full CRUD for all modules (edit/delete)
-- [ ] Vendor Portal (vendor-specific login and order management)
-- [ ] Enhanced reporting and analytics
-
-### 📋 BACKLOG (Future)
-
-#### P3 Features
-- [ ] Email notifications via Resend (requires API key)
-- [ ] Enhanced Client Portal with file uploads
-- [ ] Mobile-optimized UI for Site Engineers
-- [ ] Advanced audit log viewing
-- [ ] Export to Excel/PDF
-- [ ] Dashboard charts and graphs
+- [x] Vendor Portal - Order management + dispatch
 
 ---
 
@@ -162,10 +152,14 @@ Build a Construction Accounting CRM with:
 - `GET /api/projects` - List projects
 - `POST /api/projects` - Create project
 - `GET /api/projects/{id}` - Get project
+- `PATCH /api/projects/{id}` - Update project
+- `DELETE /api/projects/{id}` - Delete project
 
 ### BOQ
 - `GET /api/boq/{project_id}` - Get BOQ items
 - `POST /api/boq` - Create BOQ item
+- `PATCH /api/boq/{boq_id}` - Update BOQ item
+- `DELETE /api/boq/{boq_id}` - Delete BOQ item
 
 ### Work Orders
 - `GET /api/work-orders` - List work orders
@@ -174,13 +168,13 @@ Build a Construction Accounting CRM with:
 - `PATCH /api/work-orders/{id}/approve` - Approve
 - `PATCH /api/work-orders/{id}/reject` - Reject
 
-### Work Order Assignments (NEW)
+### Work Order Assignments
 - `GET /api/work-order-assignments/{project_id}` - Get assignments
 - `GET /api/work-order-assignments` - Get all assignments
 - `POST /api/work-order-assignments` - Create assignment
 - `PATCH /api/work-order-assignments/{id}/status` - Update status
 
-### Project Commitments (NEW)
+### Project Commitments
 - `GET /api/project-commitments/{project_id}` - Get commitments
 - `POST /api/project-commitments` - Create commitment
 - `DELETE /api/project-commitments/{id}` - Delete commitment
@@ -188,8 +182,16 @@ Build a Construction Accounting CRM with:
 ### Procurement
 - `GET /api/vendors` - List vendors
 - `POST /api/vendors` - Create vendor
+- `PATCH /api/vendors/{vendor_id}` - Update vendor
+- `DELETE /api/vendors/{vendor_id}` - Delete vendor
+- `PATCH /api/vendors/{vendor_id}/link-user` - Link vendor to user
 - `GET /api/purchase-orders` - List POs
 - `POST /api/purchase-orders` - Create PO
+- `PATCH /api/purchase-orders/{po_id}` - Update PO
+
+### Vendor Portal
+- `GET /api/vendor-portal/dashboard` - Get vendor dashboard
+- `PATCH /api/vendor-portal/purchase-orders/{po_id}/dispatch` - Dispatch order
 
 ### Site Receipts
 - `POST /api/site-receipts/upload-image` - Upload image
@@ -198,12 +200,17 @@ Build a Construction Accounting CRM with:
 ### Expenses & Payments
 - `GET /api/expenses` - List expenses
 - `POST /api/expenses` - Create expense
+- `PATCH /api/expenses/{expense_id}` - Update expense
+- `DELETE /api/expenses/{expense_id}` - Delete expense
 - `GET /api/payments` - List payments
 - `POST /api/payments` - Create payment
+- `PATCH /api/payments/{payment_id}` - Update payment
+- `DELETE /api/payments/{payment_id}` - Delete payment
 
 ### Users & Notifications
 - `GET /api/users` - List users
 - `POST /api/users` - Create user
+- `DELETE /api/users/{user_id}` - Delete user
 - `GET /api/notifications` - Get notifications
 - `PATCH /api/notifications/{id}/read` - Mark read
 
@@ -223,6 +230,7 @@ Build a Construction Accounting CRM with:
 | Planning | planning@constructionos.com | BOQ management |
 | Procurement | procurement@constructionos.com | Vendors, POs |
 | Site Engineer | engineer@constructionos.com | Site receipts |
+| Vendor | vendor@balaji.com | Vendor portal (after linking) |
 | Client | raj@client.com | Read-only portal |
 
 ---
@@ -238,14 +246,41 @@ Build a Construction Accounting CRM with:
 │   └── .env
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/         # All page components
-│   │   ├── components/    # UI components
-│   │   └── App.js         # Router
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Projects.jsx
+│   │   │   ├── ProjectDetail.jsx
+│   │   │   ├── BOQManagement.jsx
+│   │   │   ├── WorkOrders.jsx
+│   │   │   ├── ApprovalQueue.jsx
+│   │   │   ├── Procurement.jsx
+│   │   │   ├── SiteReceipt.jsx
+│   │   │   ├── Expenses.jsx
+│   │   │   ├── UserManagement.jsx
+│   │   │   ├── Notifications.jsx
+│   │   │   ├── ClientPortal.jsx
+│   │   │   ├── VendorPortal.jsx  # NEW
+│   │   │   └── Login.jsx
+│   │   ├── components/
+│   │   └── App.js
 │   ├── package.json
 │   └── .env
 └── memory/
-    └── PRD.md             # This file
+    └── PRD.md
 ```
+
+---
+
+## What's Next (P3 - Backlog)
+
+### Future Enhancements
+- [ ] Email notifications via Resend (requires API key)
+- [ ] Enhanced Client Portal with file uploads
+- [ ] Mobile-optimized UI for Site Engineers
+- [ ] Advanced audit log viewing
+- [ ] Export to Excel/PDF
+- [ ] Dashboard charts and graphs
+- [ ] Project Timeline/Gantt view
 
 ---
 
