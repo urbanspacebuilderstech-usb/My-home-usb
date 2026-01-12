@@ -124,6 +124,14 @@ Build a Construction Accounting CRM with:
 - [x] Super Admin pending approvals view
 - [x] Notification creation on key events
 
+#### Dashboard Enhancements (January 12, 2026)
+- [x] **Pending Approvals Alert**: Yellow banner showing pending work orders
+- [x] **New Tabs**: Overview, Pending Approvals (with badge), Notifications
+- [x] **Pending Approvals Card**: Shows count of items waiting for approval
+- [x] **Inline Approve/Reject**: Quick action buttons on pending items
+- [x] **Notifications Tab**: Shows recent notifications from all users
+- [x] **Bell Icon in Nav**: With unread notification count badge
+
 #### UI Consistency Update (P1 - January 12, 2026)
 - [x] Dashboard - Modern card-based layout
 - [x] Projects page - Table with stats
