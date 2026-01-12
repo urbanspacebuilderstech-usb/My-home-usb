@@ -1,0 +1,151 @@
+{
+  "identity": {
+    "name": "ConstructionOS",
+    "persona": "E1 - The Anti-AI Designer",
+    "tone": "Professional, Industrial, High-Contrast, Safety-First",
+    "principles": [
+      "Fusion: Swiss Style x Industrial Safety",
+      "Emotion: Trust, Precision, Durability",
+      "Content: Data is the hero, UI is the scaffold",
+      "Zoom: Focus on critical site metrics",
+      "Negative Space: High density for data, breathing room for decisions"
+    ]
+  },
+  "typography": {
+    "primary_font": "Manrope",
+    "secondary_font": "Inter",
+    "mono_font": "JetBrains Mono",
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+      "h2": "text-3xl font-semibold tracking-tight",
+      "h3": "text-2xl font-semibold",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm font-medium text-muted-foreground",
+      "tiny": "text-xs font-bold uppercase tracking-wider"
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#FFD700",
+        "foreground": "#1A1A1A",
+        "hover": "#E6C200"
+      },
+      "secondary": {
+        "DEFAULT": "#1A1A1A",
+        "foreground": "#FFFFFF"
+      },
+      "background": "#FFFFFF",
+      "foreground": "#171717",
+      "muted": {
+        "DEFAULT": "#F4F4F5",
+        "foreground": "#71717A"
+      },
+      "accent": {
+        "DEFAULT": "#FEFCE8",
+        "foreground": "#854D0E"
+      },
+      "border": "#E4E4E7",
+      "input": "#E4E4E7",
+      "ring": "#1A1A1A"
+    },
+    "status": {
+      "success": "#22C55E",
+      "warning": "#F59E0B",
+      "error": "#EF4444",
+      "info": "#3B82F6"
+    },
+    "gradients": {
+      "subtle": "bg-gradient-to-b from-white to-zinc-50",
+      "warning_stripe": "repeating-linear-gradient(45deg, #FFD700, #FFD700 10px, #F59E0B 10px, #F59E0B 20px)"
+    }
+  },
+  "layout": {
+    "grid_system": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6",
+      "form": "grid grid-cols-1 md:grid-cols-2 gap-6",
+      "card_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+    },
+    "spacing": {
+      "container_padding": "p-4 md:p-8 lg:p-12",
+      "section_gap": "gap-8 md:gap-12",
+      "component_gap": "gap-4"
+    },
+    "radius": {
+      "default": "rounded-none",
+      "button": "rounded-sm",
+      "card": "rounded-sm"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 rounded-sm font-bold shadow-sm uppercase tracking-wide text-xs md:text-sm h-10 px-6",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/90 rounded-sm font-medium shadow-sm h-10 px-6",
+      "outline": "border-2 border-input bg-background hover:bg-accent hover:text-accent-foreground rounded-sm font-medium h-10 px-6",
+      "ghost": "hover:bg-accent hover:text-accent-foreground rounded-sm font-medium h-10 px-4"
+    },
+    "cards": {
+      "base": "bg-card text-card-foreground border border-border shadow-sm rounded-sm",
+      "hover": "hover:shadow-md transition-shadow duration-200",
+      "interactive": "cursor-pointer hover:border-primary/50 transition-colors"
+    },
+    "inputs": {
+      "base": "flex h-10 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "soft": "shadow-[0_2px_8px_rgba(0,0,0,0.04)]",
+      "sharp": "shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+    },
+    "borders": {
+      "default": "border border-border",
+      "thick": "border-2 border-primary"
+    },
+    "textures": {
+      "noise": "bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-1",
+    "page_enter": "animate-in fade-in slide-in-from-bottom-4 duration-500"
+  },
+  "images": {
+    "login_bg": "https://images.unsplash.com/photo-1644411813513-ad77c1b77581?crop=entropy&cs=srgb&fm=jpg&q=85",
+    "project_covers": [
+      "https://images.unsplash.com/photo-1645434926657-6b03be95310d?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "https://images.unsplash.com/photo-1645434897689-af222b85993e?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "https://images.unsplash.com/photo-1650630718105-497674381f3c?crop=entropy&cs=srgb&fm=jpg&q=85"
+    ],
+    "blueprints": [
+      "https://images.unsplash.com/photo-1742415106102-77bbfe14b872?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "https://images.unsplash.com/photo-1742415106160-594d07f6cc23?crop=entropy&cs=srgb&fm=jpg&q=85"
+    ],
+    "workers": [
+      "https://images.unsplash.com/photo-1694522362256-6c907336af43?crop=entropy&cs=srgb&fm=jpg&q=85",
+      "https://images.unsplash.com/photo-1694521787162-5373b598945c?crop=entropy&cs=srgb&fm=jpg&q=85"
+    ]
+  },
+  "icons": {
+    "library": "lucide-react",
+    "style": "stroke-width={1.5}"
+  },
+  "instructions_to_main_agent": [
+    "1. THEME SETUP: Update tailwind.config.js and index.css immediately to use the defined color palette. The 'Yellow' must be #FFD700.",
+    "2. FONT SETUP: Import Manrope and Inter from Google Fonts in index.css.",
+    "3. COMPONENT STYLE: Override default Shadcn radius to 'rounded-sm' or 'rounded-none' for a more industrial/construction look.",
+    "4. MOBILE FIRST: Ensure all forms and dashboards stack vertically on mobile. Use 'hidden md:block' for complex tables on mobile, replacing them with card views.",
+    "5. NAVIGATION: Use a Sidebar for Desktop and a Bottom Sheet or Hamburger menu for Mobile.",
+    "6. CLIENT PORTAL: Must be read-only. Use the 'blueprints' images as backgrounds for the portal login.",
+    "7. SITE RECEIPT: This is a critical mobile flow. Make the buttons LARGE (h-14) for fat fingers/gloves.",
+    "8. DATA-TESTID: Add data-testid to every interactive element."
+  ],
+  "universal_guidelines": [
+    "Avoid gradients for backgrounds, use solid colors or subtle noise.",
+    "Use 2-3x more spacing than typical designs.",
+    "Every interaction needs micro-animations.",
+    "Never use generic centered layouts.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for overlays."
+  ]
+}
