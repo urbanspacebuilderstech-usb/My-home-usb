@@ -204,6 +204,27 @@ class SiteStage(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class SitePhoto(BaseModel):
+    photo_id: str = Field(default_factory=lambda: f"photo_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    file_id: str
+    caption: Optional[str] = None
+    category: str = "progress"
+    uploaded_by_user_id: str
+    captured_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProjectDocument(BaseModel):
+    document_id: str = Field(default_factory=lambda: f"doc_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    file_id: str
+    title: str
+    category: str
+    uploaded_by_user_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class Notification(BaseModel):
     notification_id: str = Field(default_factory=lambda: f"notif_{uuid.uuid4().hex[:12]}")
     user_id: str
