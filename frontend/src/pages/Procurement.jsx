@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Plus, Package, Truck } from 'lucide-react';
+import { Building2, LogOut, Plus, Package, Truck, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,9 +19,14 @@ export default function Procurement() {
   const [vendors, setVendors] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
+  const [users, setUsers] = useState([]);
   const [activeTab, setActiveTab] = useState('vendors');
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const [poDialogOpen, setPODialogOpen] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [selectedVendorForLink, setSelectedVendorForLink] = useState(null);
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   const [vendorFormData, setVendorFormData] = useState({
     name: '',
@@ -45,16 +50,18 @@ export default function Procurement() {
 
   const fetchData = async () => {
     try {
-      const [userRes, vendorsRes, posRes, woRes] = await Promise.all([
+      const [userRes, vendorsRes, posRes, woRes, usersRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/vendors`),
         axios.get(`${API}/purchase-orders`),
-        axios.get(`${API}/work-orders`)
+        axios.get(`${API}/work-orders`),
+        axios.get(`${API}/users`).catch(() => ({ data: [] }))
       ]);
       setUser(userRes.data);
       setVendors(vendorsRes.data);
       setPurchaseOrders(posRes.data);
       setWorkOrders(woRes.data.filter(wo => wo.status === 'approved'));
+      setUsers(usersRes.data || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     }
@@ -69,16 +76,49 @@ export default function Procurement() {
     }
   };
 
-  const handleAddVendor = async (e) => {
+  const resetVendorForm = () => {
+    setVendorFormData({ name: '', contact_person: '', phone: '', email: '', address: '' });
+    setEditingVendor(null);
+  };
+
+  const openEditVendor = (vendor) => {
+    setEditingVendor(vendor);
+    setVendorFormData({
+      name: vendor.name,
+      contact_person: vendor.contact_person,
+      phone: vendor.phone,
+      email: vendor.email || '',
+      address: vendor.address || ''
+    });
+    setVendorDialogOpen(true);
+  };
+
+  const handleAddOrUpdateVendor = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/vendors`, vendorFormData);
-      toast.success('Vendor added successfully');
+      if (editingVendor) {
+        await axios.patch(`${API}/vendors/${editingVendor.vendor_id}`, vendorFormData);
+        toast.success('Vendor updated successfully');
+      } else {
+        await axios.post(`${API}/vendors`, vendorFormData);
+        toast.success('Vendor added successfully');
+      }
       setVendorDialogOpen(false);
-      setVendorFormData({ name: '', contact_person: '', phone: '', email: '', address: '' });
+      resetVendorForm();
       fetchData();
     } catch (error) {
-      toast.error('Failed to add vendor');
+      toast.error(editingVendor ? 'Failed to update vendor' : 'Failed to add vendor');
+    }
+  };
+
+  const handleDeleteVendor = async (vendorId) => {
+    if (!confirm('Are you sure you want to delete this vendor?')) return;
+    try {
+      await axios.delete(`${API}/vendors/${vendorId}`);
+      toast.success('Vendor deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete vendor');
     }
   };
 
@@ -99,6 +139,27 @@ export default function Procurement() {
     }
   };
 
+  const openLinkDialog = (vendor) => {
+    setSelectedVendorForLink(vendor);
+    setSelectedUserId('');
+    setLinkDialogOpen(true);
+  };
+
+  const handleLinkVendor = async () => {
+    if (!selectedUserId) {
+      toast.error('Please select a user');
+      return;
+    }
+    try {
+      await axios.patch(`${API}/vendors/${selectedVendorForLink.vendor_id}/link-user?target_user_id=${selectedUserId}`);
+      toast.success('Vendor linked to user successfully');
+      setLinkDialogOpen(false);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to link vendor');
+    }
+  };
+
   const getVendorName = (vendorId) => {
     const vendor = vendors.find(v => v.vendor_id === vendorId);
     return vendor?.name || vendorId;
@@ -109,6 +170,7 @@ export default function Procurement() {
   }
 
   const canManage = user.role === 'procurement' || user.role === 'super_admin';
+  const availableUsersForLink = users.filter(u => u.role !== 'vendor' && u.role !== 'super_admin');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -191,7 +253,7 @@ export default function Procurement() {
         <Card>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-4">
                 <TabsList>
                   <TabsTrigger value="vendors">Vendors</TabsTrigger>
                   <TabsTrigger value="purchase-orders">Purchase Orders</TabsTrigger>
@@ -199,7 +261,7 @@ export default function Procurement() {
                 {canManage && (
                   <div className="flex gap-2">
                     {activeTab === 'vendors' && (
-                      <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
+                      <Dialog open={vendorDialogOpen} onOpenChange={(open) => { setVendorDialogOpen(open); if (!open) resetVendorForm(); }}>
                         <DialogTrigger asChild>
                           <Button data-testid="add-vendor-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
                             <Plus className="h-4 w-4" />Add Vendor
@@ -207,10 +269,10 @@ export default function Procurement() {
                         </DialogTrigger>
                         <DialogContent>
                           <DialogHeader>
-                            <DialogTitle>Add Vendor</DialogTitle>
-                            <DialogDescription>Add a new vendor to the system</DialogDescription>
+                            <DialogTitle>{editingVendor ? 'Edit Vendor' : 'Add Vendor'}</DialogTitle>
+                            <DialogDescription>{editingVendor ? 'Update vendor details' : 'Add a new vendor to the system'}</DialogDescription>
                           </DialogHeader>
-                          <form onSubmit={handleAddVendor} className="space-y-4">
+                          <form onSubmit={handleAddOrUpdateVendor} className="space-y-4">
                             <div>
                               <Label>Company Name</Label>
                               <Input
@@ -255,7 +317,9 @@ export default function Procurement() {
                                 onChange={(e) => setVendorFormData({...vendorFormData, address: e.target.value})}
                               />
                             </div>
-                            <Button data-testid="submit-vendor-btn" type="submit" className="w-full">Add Vendor</Button>
+                            <Button data-testid="submit-vendor-btn" type="submit" className="w-full">
+                              {editingVendor ? 'Update Vendor' : 'Add Vendor'}
+                            </Button>
                           </form>
                         </DialogContent>
                       </Dialog>
@@ -357,13 +421,14 @@ export default function Procurement() {
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Contact Person</th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Phone</th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Email</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Address</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Portal Access</th>
+                      {canManage && <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {vendors.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 6 : 5} className="px-6 py-8 text-center text-gray-500">
                           No vendors found
                         </td>
                       </tr>
@@ -374,7 +439,45 @@ export default function Procurement() {
                           <td className="px-6 py-4">{vendor.contact_person}</td>
                           <td className="px-6 py-4">{vendor.phone}</td>
                           <td className="px-6 py-4">{vendor.email || '-'}</td>
-                          <td className="px-6 py-4 text-gray-600">{vendor.address || '-'}</td>
+                          <td className="px-6 py-4">
+                            {vendor.user_id ? (
+                              <Badge variant="default" className="bg-green-600">Linked</Badge>
+                            ) : (
+                              <Badge variant="secondary">Not Linked</Badge>
+                            )}
+                          </td>
+                          {canManage && (
+                            <td className="px-6 py-4">
+                              <div className="flex gap-2">
+                                <Button
+                                  data-testid={`edit-vendor-${vendor.vendor_id}`}
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => openEditVendor(vendor)}
+                                >
+                                  <Edit className="h-4 w-4 text-blue-600" />
+                                </Button>
+                                <Button
+                                  data-testid={`delete-vendor-${vendor.vendor_id}`}
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteVendor(vendor.vendor_id)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                                {!vendor.user_id && (
+                                  <Button
+                                    data-testid={`link-vendor-${vendor.vendor_id}`}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => openLinkDialog(vendor)}
+                                  >
+                                    Link User
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
@@ -393,13 +496,14 @@ export default function Procurement() {
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Item</th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Quantity</th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Expected Delivery</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Vehicle</th>
                       <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {purchaseOrders.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
+                        <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
                           No purchase orders found
                         </td>
                       </tr>
@@ -411,8 +515,13 @@ export default function Procurement() {
                           <td className="px-6 py-4">{po.item_name}</td>
                           <td className="px-6 py-4">{po.quantity}</td>
                           <td className="px-6 py-4">{new Date(po.expected_delivery).toLocaleDateString()}</td>
+                          <td className="px-6 py-4">{po.vehicle_number || '-'}</td>
                           <td className="px-6 py-4">
-                            <Badge variant={po.status === 'completed' ? 'default' : 'secondary'}>
+                            <Badge variant={
+                              po.status === 'completed' ? 'default' :
+                              po.status === 'dispatched' ? 'secondary' :
+                              'outline'
+                            }>
                               {po.status}
                             </Badge>
                           </td>
@@ -425,6 +534,51 @@ export default function Procurement() {
             </TabsContent>
           </Tabs>
         </Card>
+
+        {/* Link Vendor Dialog */}
+        <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Link Vendor to User Account</DialogTitle>
+              <DialogDescription>
+                Link {selectedVendorForLink?.name} to a user account for portal access
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Select User</Label>
+                <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                  <SelectTrigger data-testid="link-user-select">
+                    <SelectValue placeholder="Select a user" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableUsersForLink.map(u => (
+                      <SelectItem key={u.user_id} value={u.user_id}>
+                        {u.name} ({u.email})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  data-testid="confirm-link-btn"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  onClick={handleLinkVendor}
+                >
+                  Link Vendor
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setLinkDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
