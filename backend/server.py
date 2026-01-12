@@ -14,7 +14,6 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 import uuid
 from datetime import datetime, timezone, timedelta
-import io
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
