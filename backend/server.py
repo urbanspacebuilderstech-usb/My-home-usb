@@ -444,16 +444,35 @@ async def get_work_orders(user: User = Depends(get_current_user)):
     return work_orders
 
 
+class WorkOrderCreate(BaseModel):
+    project_id: str
+    boq_id: str
+    requested_quantity: float
+    purpose: str
+
+
 @api_router.post("/work-orders")
-async def create_work_order(work_order: WorkOrder, user: User = Depends(get_current_user)):
+async def create_work_order(work_order_input: WorkOrderCreate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    boq_item = await db.boq_items.find_one({"boq_id": work_order.boq_id}, {"_id": 0})
+    boq_item = await db.boq_items.find_one({"boq_id": work_order_input.boq_id}, {"_id": 0})
     if not boq_item:
         raise HTTPException(status_code=404, detail="BOQ item not found")
     
-    work_order.created_by_user_id = user.user_id
+    # Calculate estimated cost
+    estimated_cost = boq_item["unit_rate"] * work_order_input.requested_quantity
+    
+    work_order = WorkOrder(
+        project_id=work_order_input.project_id,
+        boq_id=work_order_input.boq_id,
+        created_by_user_id=user.user_id,
+        requested_quantity=work_order_input.requested_quantity,
+        estimated_cost=estimated_cost,
+        purpose=work_order_input.purpose,
+        status=WorkOrderStatus.DRAFT
+    )
+    
     wo_dict = work_order.model_dump()
     wo_dict["created_at"] = wo_dict["created_at"].isoformat()
     
