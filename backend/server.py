@@ -128,6 +128,13 @@ class WorkOrder(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class WorkOrderCreate(BaseModel):
+    project_id: str
+    boq_id: str
+    requested_quantity: float
+    purpose: str
+
+
 class Vendor(BaseModel):
     vendor_id: str = Field(default_factory=lambda: f"vendor_{uuid.uuid4().hex[:12]}")
     name: str
