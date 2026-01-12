@@ -225,6 +225,33 @@ class ProjectDocument(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class WorkOrderAssignment(BaseModel):
+    assignment_id: str = Field(default_factory=lambda: f"assign_{uuid.uuid4().hex[:12]}")
+    work_order_id: str
+    project_id: str
+    assigned_to_user_id: str
+    assigned_by_user_id: str
+    assignment_date: datetime
+    due_date: datetime
+    priority: str = "medium"
+    status: str = "assigned"
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProjectCommitment(BaseModel):
+    commitment_id: str = Field(default_factory=lambda: f"commit_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    item_name: str
+    quantity: float
+    units: str
+    unit_rate: float
+    total_cost: float
+    category: str
+    committed_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class Notification(BaseModel):
     notification_id: str = Field(default_factory=lambda: f"notif_{uuid.uuid4().hex[:12]}")
     user_id: str
