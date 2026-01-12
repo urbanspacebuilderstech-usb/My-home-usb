@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Plus, DollarSign, TrendingUp, TrendingDown } from 'lucide-react';
+import { Building2, LogOut, Plus, DollarSign, TrendingDown, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ export default function Expenses() {
   const [projects, setProjects] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState('all');
+  const [editingExpense, setEditingExpense] = useState(null);
   const [formData, setFormData] = useState({
     project_id: '',
     category: 'Material',
@@ -54,21 +55,57 @@ export default function Expenses() {
     }
   };
 
-  const handleAddExpense = async (e) => {
+  const resetForm = () => {
+    setFormData({ project_id: '', category: 'Material', amount: '', description: '' });
+    setEditingExpense(null);
+  };
+
+  const openEditDialog = (expense) => {
+    setEditingExpense(expense);
+    setFormData({
+      project_id: expense.project_id,
+      category: expense.category,
+      amount: expense.amount.toString(),
+      description: expense.description
+    });
+    setDialogOpen(true);
+  };
+
+  const handleAddOrUpdateExpense = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/expenses`, {
-        project_id: formData.project_id,
-        category: formData.category,
-        amount: parseFloat(formData.amount),
-        description: formData.description
-      });
-      toast.success('Expense added successfully');
+      if (editingExpense) {
+        await axios.patch(`${API}/expenses/${editingExpense.expense_id}`, {
+          category: formData.category,
+          amount: parseFloat(formData.amount),
+          description: formData.description
+        });
+        toast.success('Expense updated successfully');
+      } else {
+        await axios.post(`${API}/expenses`, {
+          project_id: formData.project_id,
+          category: formData.category,
+          amount: parseFloat(formData.amount),
+          description: formData.description
+        });
+        toast.success('Expense added successfully');
+      }
       setDialogOpen(false);
-      setFormData({ project_id: '', category: 'Material', amount: '', description: '' });
+      resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add expense');
+      toast.error(editingExpense ? 'Failed to update expense' : 'Failed to add expense');
+    }
+  };
+
+  const handleDeleteExpense = async (expenseId) => {
+    if (!confirm('Are you sure you want to delete this expense?')) return;
+    try {
+      await axios.delete(`${API}/expenses/${expenseId}`);
+      toast.success('Expense deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete expense');
     }
   };
 
@@ -81,7 +118,7 @@ export default function Expenses() {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  const canAddExpense = user.role === 'accountant' || user.role === 'super_admin';
+  const canManage = user.role === 'accountant' || user.role === 'super_admin';
   
   const filteredExpenses = selectedProject === 'all' 
     ? expenses 
@@ -131,8 +168,8 @@ export default function Expenses() {
             <h2 data-testid="expenses-title" className="text-3xl font-bold text-gray-900">Overall Expenses</h2>
             <p className="text-gray-600 mt-1">Track and manage all project expenses</p>
           </div>
-          {canAddExpense && (
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          {canManage && (
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
               <DialogTrigger asChild>
                 <Button data-testid="add-expense-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
                   <Plus className="h-4 w-4" />Add Expense
@@ -140,26 +177,28 @@ export default function Expenses() {
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add Expense</DialogTitle>
-                  <DialogDescription>Record a new expense entry</DialogDescription>
+                  <DialogTitle>{editingExpense ? 'Edit Expense' : 'Add Expense'}</DialogTitle>
+                  <DialogDescription>{editingExpense ? 'Update expense details' : 'Record a new expense entry'}</DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleAddExpense} className="space-y-4">
-                  <div>
-                    <Label>Project</Label>
-                    <Select
-                      value={formData.project_id}
-                      onValueChange={(v) => setFormData({...formData, project_id: v})}
-                    >
-                      <SelectTrigger data-testid="expense-project-select">
-                        <SelectValue placeholder="Select project" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {projects.map(p => (
-                          <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <form onSubmit={handleAddOrUpdateExpense} className="space-y-4">
+                  {!editingExpense && (
+                    <div>
+                      <Label>Project</Label>
+                      <Select
+                        value={formData.project_id}
+                        onValueChange={(v) => setFormData({...formData, project_id: v})}
+                      >
+                        <SelectTrigger data-testid="expense-project-select">
+                          <SelectValue placeholder="Select project" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {projects.map(p => (
+                            <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div>
                     <Label>Category</Label>
                     <Select
@@ -198,7 +237,9 @@ export default function Expenses() {
                       required
                     />
                   </div>
-                  <Button data-testid="submit-expense-btn" type="submit" className="w-full">Add Expense</Button>
+                  <Button data-testid="submit-expense-btn" type="submit" className="w-full">
+                    {editingExpense ? 'Update Expense' : 'Add Expense'}
+                  </Button>
                 </form>
               </DialogContent>
             </Dialog>
@@ -274,12 +315,13 @@ export default function Expenses() {
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Category</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                    {canManage && <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={canManage ? 6 : 5} className="px-6 py-8 text-center text-gray-500">
                         No expenses recorded yet
                       </td>
                     </tr>
@@ -295,6 +337,28 @@ export default function Expenses() {
                         </td>
                         <td className="px-6 py-4 text-gray-600">{expense.description}</td>
                         <td className="px-6 py-4 font-semibold text-orange-600">₹{expense.amount.toLocaleString()}</td>
+                        {canManage && (
+                          <td className="px-6 py-4">
+                            <div className="flex gap-2">
+                              <Button
+                                data-testid={`edit-expense-${expense.expense_id}`}
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditDialog(expense)}
+                              >
+                                <Edit className="h-4 w-4 text-blue-600" />
+                              </Button>
+                              <Button
+                                data-testid={`delete-expense-${expense.expense_id}`}
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteExpense(expense.expense_id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
