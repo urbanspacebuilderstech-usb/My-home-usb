@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Building2, LogOut, Plus, ArrowLeft, Lock, Unlock } from 'lucide-react';
+import { Building2, LogOut, Plus, ArrowLeft, Lock, Unlock, Edit, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ export default function BOQManagement() {
   const [project, setProject] = useState(null);
   const [boqItems, setBoqItems] = useState([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({
     item_name: '',
     category: 'material',
@@ -56,27 +57,83 @@ export default function BOQManagement() {
     }
   };
 
+  const resetForm = () => {
+    setFormData({ item_name: '', category: 'material', unit: '', quantity: '', unit_rate: '' });
+    setEditingItem(null);
+  };
+
+  const openEditDialog = (item) => {
+    if (item.locked) {
+      toast.error('Cannot edit locked BOQ item');
+      return;
+    }
+    setEditingItem(item);
+    setFormData({
+      item_name: item.item_name,
+      category: item.category,
+      unit: item.unit,
+      quantity: item.quantity.toString(),
+      unit_rate: item.unit_rate.toString()
+    });
+    setDialogOpen(true);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const quantity = parseFloat(formData.quantity);
       const unitRate = parseFloat(formData.unit_rate);
       
-      await axios.post(`${API}/boq`, {
-        project_id: projectId,
-        item_name: formData.item_name,
-        category: formData.category,
-        unit: formData.unit,
-        quantity: quantity,
-        unit_rate: unitRate,
-        total_cost: quantity * unitRate
-      });
-      toast.success('BOQ item added successfully');
+      if (editingItem) {
+        await axios.patch(`${API}/boq/${editingItem.boq_id}`, {
+          item_name: formData.item_name,
+          quantity: quantity,
+          unit_rate: unitRate
+        });
+        toast.success('BOQ item updated successfully');
+      } else {
+        await axios.post(`${API}/boq`, {
+          project_id: projectId,
+          item_name: formData.item_name,
+          category: formData.category,
+          unit: formData.unit,
+          quantity: quantity,
+          unit_rate: unitRate,
+          total_cost: quantity * unitRate
+        });
+        toast.success('BOQ item added successfully');
+      }
       setDialogOpen(false);
-      setFormData({ item_name: '', category: 'material', unit: '', quantity: '', unit_rate: '' });
+      resetForm();
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add BOQ item');
+      toast.error(error.response?.data?.detail || (editingItem ? 'Failed to update' : 'Failed to add') + ' BOQ item');
+    }
+  };
+
+  const handleDelete = async (boqId) => {
+    const item = boqItems.find(b => b.boq_id === boqId);
+    if (item?.locked) {
+      toast.error('Cannot delete locked BOQ item');
+      return;
+    }
+    if (!confirm('Are you sure you want to delete this BOQ item?')) return;
+    try {
+      await axios.delete(`${API}/boq/${boqId}`);
+      toast.success('BOQ item deleted');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete BOQ item');
+    }
+  };
+
+  const handleToggleLock = async (boqId, currentLocked) => {
+    try {
+      await axios.patch(`${API}/boq/${boqId}`, { locked: !currentLocked });
+      toast.success(currentLocked ? 'BOQ item unlocked' : 'BOQ item locked');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update lock status');
     }
   };
 
@@ -179,7 +236,7 @@ export default function BOQManagement() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>BOQ Items</CardTitle>
             {canEdit && (
-              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
                 <DialogTrigger asChild>
                   <Button data-testid="add-boq-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
                     <Plus className="h-4 w-4" />Add BOQ Item
@@ -187,8 +244,8 @@ export default function BOQManagement() {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Add BOQ Item</DialogTitle>
-                    <DialogDescription>Add a new item to the Bill of Quantities</DialogDescription>
+                    <DialogTitle>{editingItem ? 'Edit BOQ Item' : 'Add BOQ Item'}</DialogTitle>
+                    <DialogDescription>{editingItem ? 'Update the BOQ item details' : 'Add a new item to the Bill of Quantities'}</DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -201,31 +258,35 @@ export default function BOQManagement() {
                         required
                       />
                     </div>
-                    <div>
-                      <Label>Category</Label>
-                      <Select
-                        value={formData.category}
-                        onValueChange={(v) => setFormData({...formData, category: v})}
-                      >
-                        <SelectTrigger data-testid="boq-category-select">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="material">Material</SelectItem>
-                          <SelectItem value="labour">Labour</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Unit</Label>
-                      <Input
-                        data-testid="boq-unit-input"
-                        value={formData.unit}
-                        onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                        placeholder="e.g., bags, tons, days"
-                        required
-                      />
-                    </div>
+                    {!editingItem && (
+                      <>
+                        <div>
+                          <Label>Category</Label>
+                          <Select
+                            value={formData.category}
+                            onValueChange={(v) => setFormData({...formData, category: v})}
+                          >
+                            <SelectTrigger data-testid="boq-category-select">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="material">Material</SelectItem>
+                              <SelectItem value="labour">Labour</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Unit</Label>
+                          <Input
+                            data-testid="boq-unit-input"
+                            value={formData.unit}
+                            onChange={(e) => setFormData({...formData, unit: e.target.value})}
+                            placeholder="e.g., bags, tons, days"
+                            required
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label>Quantity</Label>
@@ -256,7 +317,9 @@ export default function BOQManagement() {
                         </p>
                       </div>
                     )}
-                    <Button data-testid="submit-boq-btn" type="submit" className="w-full">Add BOQ Item</Button>
+                    <Button data-testid="submit-boq-btn" type="submit" className="w-full">
+                      {editingItem ? 'Update BOQ Item' : 'Add BOQ Item'}
+                    </Button>
                   </form>
                 </DialogContent>
               </Dialog>
@@ -274,12 +337,13 @@ export default function BOQManagement() {
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Total Cost</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                    {canEdit && <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {boqItems.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={canEdit ? 8 : 7} className="px-6 py-8 text-center text-gray-500">
                         No BOQ items defined yet
                       </td>
                     </tr>
@@ -307,6 +371,42 @@ export default function BOQManagement() {
                             </span>
                           )}
                         </td>
+                        {canEdit && (
+                          <td className="px-6 py-4">
+                            <div className="flex gap-2">
+                              <Button
+                                data-testid={`edit-boq-${item.boq_id}`}
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openEditDialog(item)}
+                                disabled={item.locked}
+                              >
+                                <Edit className={`h-4 w-4 ${item.locked ? 'text-gray-300' : 'text-blue-600'}`} />
+                              </Button>
+                              <Button
+                                data-testid={`delete-boq-${item.boq_id}`}
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDelete(item.boq_id)}
+                                disabled={item.locked}
+                              >
+                                <Trash2 className={`h-4 w-4 ${item.locked ? 'text-gray-300' : 'text-red-500'}`} />
+                              </Button>
+                              <Button
+                                data-testid={`lock-boq-${item.boq_id}`}
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleToggleLock(item.boq_id, item.locked)}
+                              >
+                                {item.locked ? (
+                                  <Unlock className="h-4 w-4 text-green-600" />
+                                ) : (
+                                  <Lock className="h-4 w-4 text-orange-600" />
+                                )}
+                              </Button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -316,7 +416,7 @@ export default function BOQManagement() {
                     <tr>
                       <td colSpan="5" className="px-6 py-3 text-right font-semibold">Total BOQ Budget:</td>
                       <td className="px-6 py-3 font-bold text-blue-700">₹{totalBudget.toLocaleString()}</td>
-                      <td></td>
+                      <td colSpan={canEdit ? 2 : 1}></td>
                     </tr>
                   </tfoot>
                 )}
