@@ -296,6 +296,53 @@ async def send_notification_email(to_email: str, subject: str, html_content: str
         logger.error(f"Failed to send email: {str(e)}")
 
 
+class DemoLoginRequest(BaseModel):
+    email: str
+
+
+@api_router.post("/auth/demo-login")
+async def demo_login(login_request: DemoLoginRequest, response: Response):
+    """Demo login - bypasses Google OAuth for easy testing"""
+    email = login_request.email.lower()
+    
+    # Find user by email
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found. Available demo users: admin@constructionos.com, accountant@constructionos.com, pm@constructionos.com, etc.")
+    
+    if isinstance(user_doc.get("created_at"), str):
+        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
+    
+    # Create session token
+    session_token = f"demo_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    
+    session = UserSession(
+        user_id=user_doc["user_id"],
+        session_token=session_token,
+        expires_at=expires_at,
+        created_at=datetime.now(timezone.utc)
+    )
+    
+    session_dict = session.model_dump()
+    session_dict["expires_at"] = session_dict["expires_at"].isoformat()
+    session_dict["created_at"] = session_dict["created_at"].isoformat()
+    await db.user_sessions.insert_one(session_dict)
+    
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    return User(**user_doc)
+
+
 @api_router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
     session_id = request.headers.get("X-Session-ID")
