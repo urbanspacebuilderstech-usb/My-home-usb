@@ -3,7 +3,6 @@ from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from gridfs import GridFSBucket
 import os
 import logging
 import asyncio
