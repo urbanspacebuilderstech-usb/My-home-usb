@@ -1281,6 +1281,83 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
     }
 
 
+@api_router.get("/admin/financial-overview")
+async def get_financial_overview(user: User = Depends(get_current_user)):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    
+    projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+    
+    # Calculate totals
+    summary = {
+        "total_project_value": 0,
+        "total_additional_cost": 0,
+        "total_value": 0,
+        "total_income_project": 0,
+        "total_income_additional": 0,
+        "total_income": 0,
+        "total_balance_project": 0,
+        "total_balance_additional": 0,
+        "total_balance": 0,
+        "total_expense": 0,
+        "total_cash_in_book": 0
+    }
+    
+    project_details = []
+    for idx, p in enumerate(projects):
+        project_value = p.get("total_value", 0)
+        additional_cost = p.get("additional_cost", 0)
+        income_project = p.get("income_project", 0)
+        income_additional = p.get("income_additional", 0)
+        total_expense = p.get("total_expense", 0)
+        
+        # Auto-calculated fields
+        value_total = project_value + additional_cost
+        income_total = income_project + income_additional
+        balance_project = project_value - income_project
+        balance_additional = additional_cost - income_additional
+        balance_total = balance_project + balance_additional
+        cash_in_book = income_total - total_expense
+        
+        project_details.append({
+            "sno": idx + 1,
+            "project_id": p.get("project_id"),
+            "name": p.get("name"),
+            "status": p.get("status", "planning"),
+            # Input fields (red)
+            "project_value": project_value,
+            "additional_cost": additional_cost,
+            "income_project": income_project,
+            "income_additional": income_additional,
+            "total_expense": total_expense,
+            # Calculated fields
+            "value_total": value_total,
+            "income_total": income_total,
+            "balance_project": balance_project,
+            "balance_additional": balance_additional,
+            "balance_total": balance_total,
+            "cash_in_book": cash_in_book
+        })
+        
+        # Update summary
+        summary["total_project_value"] += project_value
+        summary["total_additional_cost"] += additional_cost
+        summary["total_value"] += value_total
+        summary["total_income_project"] += income_project
+        summary["total_income_additional"] += income_additional
+        summary["total_income"] += income_total
+        summary["total_balance_project"] += balance_project
+        summary["total_balance_additional"] += balance_additional
+        summary["total_balance"] += balance_total
+        summary["total_expense"] += total_expense
+        summary["total_cash_in_book"] += cash_in_book
+    
+    return {
+        "summary": summary,
+        "projects": project_details
+    }
+
+
 # ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
 
 # Project Update/Delete
