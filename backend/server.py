@@ -51,6 +51,11 @@ class ProjectStatus(str, Enum):
     PLANNING = "planning"
     ACTIVE = "active"
     COMPLETED = "completed"
+    DOCUMENTATION = "documentation"
+    SUB_STRUCTURE = "sub_structure"
+    SUPER_STRUCTURE = "super_structure"
+    FINISHING = "finishing"
+    HANDOVER = "handover"
 
 
 class WorkOrderStatus(str, Enum):
