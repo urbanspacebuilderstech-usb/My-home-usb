@@ -98,7 +98,11 @@ class Project(BaseModel):
     location: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    total_value: float
+    total_value: float  # Project Total Value (INPUT)
+    additional_cost: float = 0  # Additional Cost (INPUT)
+    income_project: float = 0  # Income from Project (INPUT)
+    income_additional: float = 0  # Additional Income (INPUT)
+    total_expense: float = 0  # Total Expense (INPUT)
     start_date: datetime
     expected_completion: datetime
     status: ProjectStatus = ProjectStatus.PLANNING
