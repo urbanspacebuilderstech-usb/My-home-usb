@@ -281,6 +281,32 @@ class AuditLog(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# ==================== PAYMENT SCHEDULE MODELS ====================
+
+class PaymentStage(BaseModel):
+    stage_id: str = Field(default_factory=lambda: f"ps_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    stage_name: str  # e.g., "Agreement", "Foundation", "1st Floor", "2nd Floor", "Finishing"
+    percentage: float  # Percentage of project value
+    amount: float  # Calculated or manual amount
+    amount_received: float = 0  # Amount received for this stage
+    status: str = "pending"  # pending, partial, completed
+    due_date: Optional[datetime] = None
+    completed_date: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AdditionalCostItem(BaseModel):
+    cost_id: str = Field(default_factory=lambda: f"ac_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    description: str  # e.g., "Extra flooring", "Additional electrical"
+    estimated_amount: float
+    actual_amount: float = 0
+    income_received: float = 0
+    status: str = "pending"  # pending, in_progress, completed
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 async def get_current_user(request: Request) -> User:
     session_token = request.cookies.get("session_token")
     if not session_token:
