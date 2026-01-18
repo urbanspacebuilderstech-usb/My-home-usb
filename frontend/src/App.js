@@ -20,6 +20,7 @@ import Notifications from '@/pages/Notifications';
 import UserManagement from '@/pages/UserManagement';
 import VendorPortal from '@/pages/VendorPortal';
 import FinancialOverview from '@/pages/FinancialOverview';
+import ComprehensiveProjectView from '@/pages/ComprehensiveProjectView';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -39,6 +40,7 @@ function AppRouter() {
       <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
       <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+      <Route path="/projects/:projectId/comprehensive" element={<ProtectedRoute><ComprehensiveProjectView /></ProtectedRoute>} />
       <Route path="/boq/:projectId" element={<ProtectedRoute><BOQManagement /></ProtectedRoute>} />
       <Route path="/work-orders" element={<ProtectedRoute><WorkOrders /></ProtectedRoute>} />
       <Route path="/approvals" element={<ProtectedRoute><ApprovalQueue /></ProtectedRoute>} />
