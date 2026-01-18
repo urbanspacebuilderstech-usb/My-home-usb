@@ -129,6 +129,13 @@ export default function Dashboard() {
               Dashboard
             </Button>
             <Button
+              data-testid="financial-btn"
+              variant="ghost"
+              onClick={() => window.location.href = '/financial-overview'}
+            >
+              Financial Overview
+            </Button>
+            <Button
               data-testid="expenses-btn"
               variant="ghost"
               onClick={() => window.location.href = '/expenses'}
