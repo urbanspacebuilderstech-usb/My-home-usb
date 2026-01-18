@@ -250,29 +250,39 @@ export default function ProjectDetail() {
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         <div className="mb-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => window.location.href = '/dashboard'}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h2 data-testid="project-detail-title" className="text-3xl font-bold text-gray-900">
-                {project.name}
-              </h2>
-              <div className="flex items-center gap-4 mt-1">
-                <span className="text-gray-600 flex items-center gap-1">
-                  <FileText className="h-4 w-4" />
-                  {project.client_name}
-                </span>
-                <span className="text-gray-600">• {project.location}</span>
-                <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-                  {project.status}
-                </Badge>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => window.location.href = '/dashboard'}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div>
+                <h2 data-testid="project-detail-title" className="text-3xl font-bold text-gray-900">
+                  {project.name}
+                </h2>
+                <div className="flex items-center gap-4 mt-1">
+                  <span className="text-gray-600 flex items-center gap-1">
+                    <FileText className="h-4 w-4" />
+                    {project.client_name}
+                  </span>
+                  <span className="text-gray-600">• {project.location}</span>
+                  <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
+                    {project.status}
+                  </Badge>
+                </div>
               </div>
             </div>
+            <Button
+              data-testid="comprehensive-view-btn"
+              className="bg-blue-600 hover:bg-blue-700"
+              onClick={() => window.location.href = `/projects/${projectId}/comprehensive`}
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Comprehensive View
+            </Button>
           </div>
         </div>
 
