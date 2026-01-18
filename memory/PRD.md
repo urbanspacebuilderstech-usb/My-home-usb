@@ -147,6 +147,27 @@ Build a Construction Accounting CRM with:
 - [x] Client Portal - Read-only project view
 - [x] Vendor Portal - Order management + dispatch
 
+#### ✅ Comprehensive Project View (P0 - January 18, 2026)
+- [x] New route `/projects/{id}/comprehensive` with dedicated page
+- [x] Project header with 6 summary cards (Project Value, Total Received, Expenses, Cash in Book, Additional Cost, Balance Due)
+- [x] **Overview Tab**: Project Value Summary, Income Summary, Expense Summary, Quick Stats
+- [x] **BOQ/Project Value Tab**: Full BOQ breakdown with quantities, rates, and totals
+- [x] **Payment Schedule Tab**: Milestone-based payment tracking
+  - Create payment stages with percentage and amount
+  - Track amount received per stage
+  - Status tracking (pending, partial, completed)
+  - Inline editing for received amounts
+  - Delete payment stages
+- [x] **Additional Costs Tab**: Track extra work and variations
+  - Create additional cost items with estimated amount
+  - Track actual amount and income received
+  - Calculate balance due
+  - Inline editing for actual/income values
+  - Delete cost items
+- [x] Backend models: PaymentStage, AdditionalCostItem
+- [x] Backend endpoints: GET/POST/PATCH/DELETE for payment-stages and additional-costs
+- [x] "Comprehensive View" button added to ProjectDetail page
+
 ---
 
 ## API Endpoints
