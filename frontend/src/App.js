@@ -36,6 +36,7 @@ function AppRouter() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
       <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
       <Route path="/boq/:projectId" element={<ProtectedRoute><BOQManagement /></ProtectedRoute>} />
