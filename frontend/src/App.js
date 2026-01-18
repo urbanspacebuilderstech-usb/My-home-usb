@@ -19,6 +19,7 @@ import ClientPortal from '@/pages/ClientPortal';
 import Notifications from '@/pages/Notifications';
 import UserManagement from '@/pages/UserManagement';
 import VendorPortal from '@/pages/VendorPortal';
+import FinancialOverview from '@/pages/FinancialOverview';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
