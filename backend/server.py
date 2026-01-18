@@ -1289,6 +1289,10 @@ class ProjectUpdate(BaseModel):
     client_name: Optional[str] = None
     location: Optional[str] = None
     total_value: Optional[float] = None
+    additional_cost: Optional[float] = None
+    income_project: Optional[float] = None
+    income_additional: Optional[float] = None
+    total_expense: Optional[float] = None
     status: Optional[str] = None
 
 
