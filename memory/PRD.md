@@ -247,6 +247,17 @@ Build a Construction Accounting CRM with:
 - `GET /api/admin/pending-approvals` - Pending items
 - `GET /api/admin/notifications` - All notifications
 
+### Comprehensive Project View (NEW)
+- `GET /api/projects/{id}/comprehensive` - Get comprehensive project data
+- `GET /api/projects/{id}/payment-stages` - Get payment stages
+- `POST /api/payment-stages` - Create payment stage
+- `PATCH /api/payment-stages/{stage_id}` - Update payment stage
+- `DELETE /api/payment-stages/{stage_id}` - Delete payment stage
+- `GET /api/projects/{id}/additional-costs` - Get additional costs
+- `POST /api/additional-costs` - Create additional cost
+- `PATCH /api/additional-costs/{cost_id}` - Update additional cost
+- `DELETE /api/additional-costs/{cost_id}` - Delete additional cost
+
 ---
 
 ## Demo Credentials
