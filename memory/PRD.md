@@ -300,6 +300,8 @@ Build a Construction Accounting CRM with:
 │   │   │   ├── Notifications.jsx
 │   │   │   ├── ClientPortal.jsx
 │   │   │   ├── VendorPortal.jsx  # NEW
+│   │   │   ├── FinancialOverview.jsx  # NEW
+│   │   │   ├── ComprehensiveProjectView.jsx  # NEW (Jan 18, 2026)
 │   │   │   └── Login.jsx
 │   │   ├── components/
 │   │   └── App.js
