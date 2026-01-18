@@ -1684,6 +1684,226 @@ async def link_vendor_to_user(vendor_id: str, target_user_id: str, user: User = 
     return {"message": "Vendor linked to user"}
 
 
+# ==================== COMPREHENSIVE PROJECT VIEW ENDPOINTS ====================
+
+class PaymentStageCreate(BaseModel):
+    project_id: str
+    stage_name: str
+    percentage: float
+    amount: float
+    due_date: Optional[str] = None
+
+
+class PaymentStageUpdate(BaseModel):
+    stage_name: Optional[str] = None
+    percentage: Optional[float] = None
+    amount: Optional[float] = None
+    amount_received: Optional[float] = None
+    status: Optional[str] = None
+    due_date: Optional[str] = None
+    completed_date: Optional[str] = None
+
+
+class AdditionalCostCreate(BaseModel):
+    project_id: str
+    description: str
+    estimated_amount: float
+
+
+class AdditionalCostUpdate(BaseModel):
+    description: Optional[str] = None
+    estimated_amount: Optional[float] = None
+    actual_amount: Optional[float] = None
+    income_received: Optional[float] = None
+    status: Optional[str] = None
+
+
+@api_router.get("/projects/{project_id}/comprehensive")
+async def get_comprehensive_project_view(project_id: str, user: User = Depends(get_current_user)):
+    """Get comprehensive project data including BOQ, payment schedule, and additional costs"""
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get BOQ items
+    boq_items = await db.boq_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    boq_total = sum(item.get("total_cost", 0) for item in boq_items)
+    
+    # Get payment schedule stages
+    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for stage in payment_stages:
+        if isinstance(stage.get("due_date"), str):
+            stage["due_date"] = datetime.fromisoformat(stage["due_date"])
+        if isinstance(stage.get("completed_date"), str):
+            stage["completed_date"] = datetime.fromisoformat(stage["completed_date"])
+        if isinstance(stage.get("created_at"), str):
+            stage["created_at"] = datetime.fromisoformat(stage["created_at"])
+    
+    # Get additional cost items
+    additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for cost in additional_costs:
+        if isinstance(cost.get("created_at"), str):
+            cost["created_at"] = datetime.fromisoformat(cost["created_at"])
+    
+    # Get payments and expenses for summary
+    payments = await db.payments.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    expenses = await db.expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    
+    total_payments = sum(p.get("amount", 0) for p in payments)
+    total_expenses = sum(e.get("amount", 0) for e in expenses)
+    
+    # Calculate payment schedule totals
+    payment_schedule_total = sum(s.get("amount", 0) for s in payment_stages)
+    payment_schedule_received = sum(s.get("amount_received", 0) for s in payment_stages)
+    
+    # Calculate additional cost totals
+    additional_estimated = sum(c.get("estimated_amount", 0) for c in additional_costs)
+    additional_actual = sum(c.get("actual_amount", 0) for c in additional_costs)
+    additional_income = sum(c.get("income_received", 0) for c in additional_costs)
+    
+    # Project summary calculations
+    project_value = project.get("total_value", 0)
+    
+    return {
+        "project": project,
+        "boq_items": boq_items,
+        "boq_total": boq_total,
+        "payment_stages": payment_stages,
+        "additional_costs": additional_costs,
+        "summary": {
+            "project_value": project_value,
+            "boq_total": boq_total,
+            "payment_schedule_total": payment_schedule_total,
+            "payment_schedule_received": payment_schedule_received,
+            "payment_schedule_balance": payment_schedule_total - payment_schedule_received,
+            "additional_estimated": additional_estimated,
+            "additional_actual": additional_actual,
+            "additional_income": additional_income,
+            "additional_balance": additional_estimated - additional_income,
+            "total_payments": total_payments,
+            "total_expenses": total_expenses,
+            "overall_balance": (project_value + additional_estimated) - (total_payments),
+            "cash_in_book": total_payments - total_expenses
+        }
+    }
+
+
+# Payment Stage CRUD
+@api_router.get("/projects/{project_id}/payment-stages")
+async def get_payment_stages(project_id: str, user: User = Depends(get_current_user)):
+    stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for stage in stages:
+        if isinstance(stage.get("due_date"), str):
+            stage["due_date"] = datetime.fromisoformat(stage["due_date"])
+        if isinstance(stage.get("completed_date"), str):
+            stage["completed_date"] = datetime.fromisoformat(stage["completed_date"])
+        if isinstance(stage.get("created_at"), str):
+            stage["created_at"] = datetime.fromisoformat(stage["created_at"])
+    return stages
+
+
+@api_router.post("/payment-stages")
+async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    stage = PaymentStage(
+        project_id=stage_input.project_id,
+        stage_name=stage_input.stage_name,
+        percentage=stage_input.percentage,
+        amount=stage_input.amount,
+        due_date=datetime.fromisoformat(stage_input.due_date) if stage_input.due_date else None
+    )
+    
+    stage_dict = stage.model_dump()
+    if stage_dict.get("due_date"):
+        stage_dict["due_date"] = stage_dict["due_date"].isoformat()
+    stage_dict["created_at"] = stage_dict["created_at"].isoformat()
+    
+    await db.payment_stages.insert_one(stage_dict)
+    await create_audit_log(user.user_id, "create", "payment_stage", stage.stage_id, {"stage_name": stage.stage_name})
+    return stage
+
+
+@api_router.patch("/payment-stages/{stage_id}")
+async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    if "due_date" in update_dict and update_dict["due_date"]:
+        update_dict["due_date"] = datetime.fromisoformat(update_dict["due_date"]).isoformat()
+    if "completed_date" in update_dict and update_dict["completed_date"]:
+        update_dict["completed_date"] = datetime.fromisoformat(update_dict["completed_date"]).isoformat()
+    
+    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "payment_stage", stage_id, update_dict)
+    return {"message": "Payment stage updated"}
+
+
+@api_router.delete("/payment-stages/{stage_id}")
+async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    await db.payment_stages.delete_one({"stage_id": stage_id})
+    await create_audit_log(user.user_id, "delete", "payment_stage", stage_id, {})
+    return {"message": "Payment stage deleted"}
+
+
+# Additional Cost CRUD
+@api_router.get("/projects/{project_id}/additional-costs")
+async def get_additional_costs(project_id: str, user: User = Depends(get_current_user)):
+    costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for cost in costs:
+        if isinstance(cost.get("created_at"), str):
+            cost["created_at"] = datetime.fromisoformat(cost["created_at"])
+    return costs
+
+
+@api_router.post("/additional-costs")
+async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    cost = AdditionalCostItem(
+        project_id=cost_input.project_id,
+        description=cost_input.description,
+        estimated_amount=cost_input.estimated_amount
+    )
+    
+    cost_dict = cost.model_dump()
+    cost_dict["created_at"] = cost_dict["created_at"].isoformat()
+    
+    await db.additional_costs.insert_one(cost_dict)
+    await create_audit_log(user.user_id, "create", "additional_cost", cost.cost_id, {"description": cost.description})
+    return cost
+
+
+@api_router.patch("/additional-costs/{cost_id}")
+async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "additional_cost", cost_id, update_dict)
+    return {"message": "Additional cost updated"}
+
+
+@api_router.delete("/additional-costs/{cost_id}")
+async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    await db.additional_costs.delete_one({"cost_id": cost_id})
+    await create_audit_log(user.user_id, "delete", "additional_cost", cost_id, {})
+    return {"message": "Additional cost deleted"}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
