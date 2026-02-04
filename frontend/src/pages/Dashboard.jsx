@@ -290,6 +290,28 @@ export default function Dashboard() {
                     placeholder="e.g., 5000000"
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Start Date</Label>
+                    <Input
+                      data-testid="start-date-input"
+                      type="date"
+                      value={projectForm.start_date}
+                      onChange={(e) => setProjectForm({...projectForm, start_date: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>Expected Completion</Label>
+                    <Input
+                      data-testid="completion-date-input"
+                      type="date"
+                      value={projectForm.expected_completion}
+                      onChange={(e) => setProjectForm({...projectForm, expected_completion: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
                 <div>
                   <Label>Status</Label>
                   <Select
