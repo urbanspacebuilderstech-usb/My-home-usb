@@ -202,6 +202,8 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <Button variant="ghost" className="text-blue-600 font-semibold">Dashboard</Button>
             <Button variant="ghost" onClick={() => window.location.href = '/projects'}>Projects</Button>
+            <Button variant="ghost" onClick={() => window.location.href = '/income'}>Income</Button>
+            <Button variant="ghost" onClick={() => window.location.href = '/expenses'}>Expenses</Button>
             <Button variant="ghost" onClick={() => window.location.href = '/users'}>Users</Button>
             <Button
               variant="ghost"
