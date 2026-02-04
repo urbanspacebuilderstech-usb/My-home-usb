@@ -2206,6 +2206,227 @@ async def delete_deduction(deduction_id: str, user: User = Depends(get_current_u
     return {"message": "Deduction deleted"}
 
 
+# ==================== INCOME MODULE ENDPOINTS ====================
+
+class IncomeCreate(BaseModel):
+    project_id: str
+    amount: float
+    payment_mode: str  # cash, cheque, bank_transfer, upi, petty_cash
+    payment_date: str  # ISO date string
+    cheque_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class IncomeUpdate(BaseModel):
+    amount: Optional[float] = None
+    payment_mode: Optional[str] = None
+    payment_date: Optional[str] = None
+    cheque_number: Optional[str] = None
+    bank_name: Optional[str] = None
+    reference_number: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@api_router.get("/income")
+async def get_all_income(
+    project_id: Optional[str] = None,
+    payment_mode: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all income entries with optional filters"""
+    query = {}
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if payment_mode:
+        query["payment_mode"] = payment_mode
+    
+    if start_date or end_date:
+        date_query = {}
+        if start_date:
+            date_query["$gte"] = start_date
+        if end_date:
+            date_query["$lte"] = end_date
+        if date_query:
+            query["payment_date"] = date_query
+    
+    income_entries = await db.income.find(query, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    # Get project names for display
+    project_ids = list(set(e.get("project_id") for e in income_entries if e.get("project_id")))
+    projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+    
+    for entry in income_entries:
+        entry["project_name"] = project_map.get(entry.get("project_id"), "Unknown")
+        if isinstance(entry.get("payment_date"), str):
+            entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
+        if isinstance(entry.get("created_at"), str):
+            entry["created_at"] = datetime.fromisoformat(entry["created_at"])
+    
+    return income_entries
+
+
+@api_router.get("/income/summary")
+async def get_income_summary(user: User = Depends(get_current_user)):
+    """Get income summary with totals by payment mode"""
+    income_entries = await db.income.find({}, {"_id": 0}).to_list(10000)
+    
+    summary = {
+        "total_income": 0,
+        "cash": 0,
+        "cheque": 0,
+        "bank_transfer": 0,
+        "upi": 0,
+        "petty_cash": 0,
+        "entry_count": len(income_entries)
+    }
+    
+    for entry in income_entries:
+        amount = entry.get("amount", 0)
+        mode = entry.get("payment_mode", "cash")
+        summary["total_income"] += amount
+        if mode in summary:
+            summary[mode] += amount
+    
+    return summary
+
+
+@api_router.get("/projects/{project_id}/income")
+async def get_project_income(project_id: str, user: User = Depends(get_current_user)):
+    """Get all income entries for a specific project"""
+    income_entries = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    
+    for entry in income_entries:
+        if isinstance(entry.get("payment_date"), str):
+            entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
+        if isinstance(entry.get("created_at"), str):
+            entry["created_at"] = datetime.fromisoformat(entry["created_at"])
+    
+    # Calculate project income summary
+    summary = {
+        "total_income": sum(e.get("amount", 0) for e in income_entries),
+        "cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cash"),
+        "cheque": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cheque"),
+        "bank_transfer": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "bank_transfer"),
+        "upi": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "upi"),
+        "petty_cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "petty_cash"),
+    }
+    
+    return {
+        "entries": income_entries,
+        "summary": summary
+    }
+
+
+@api_router.post("/income")
+async def create_income_entry(income_input: IncomeCreate, user: User = Depends(get_current_user)):
+    """Create a new income entry and update project payment received"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Validate project exists
+    project = await db.projects.find_one({"project_id": income_input.project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    income = IncomeEntry(
+        project_id=income_input.project_id,
+        amount=income_input.amount,
+        payment_mode=PaymentMode(income_input.payment_mode),
+        payment_date=datetime.fromisoformat(income_input.payment_date),
+        cheque_number=income_input.cheque_number,
+        bank_name=income_input.bank_name,
+        reference_number=income_input.reference_number,
+        remarks=income_input.remarks,
+        recorded_by=user.user_id
+    )
+    
+    income_dict = income.model_dump()
+    income_dict["payment_mode"] = income_dict["payment_mode"].value
+    income_dict["payment_date"] = income_dict["payment_date"].isoformat()
+    income_dict["created_at"] = income_dict["created_at"].isoformat()
+    
+    await db.income.insert_one(income_dict)
+    
+    # Update project's income_project field (payment received)
+    current_income = project.get("income_project", 0)
+    await db.projects.update_one(
+        {"project_id": income_input.project_id},
+        {"$set": {"income_project": current_income + income_input.amount}}
+    )
+    
+    await create_audit_log(user.user_id, "create", "income", income.income_id, {
+        "project_id": income_input.project_id,
+        "amount": income_input.amount,
+        "payment_mode": income_input.payment_mode
+    })
+    
+    return income
+
+
+@api_router.patch("/income/{income_id}")
+async def update_income_entry(income_id: str, update_data: IncomeUpdate, user: User = Depends(get_current_user)):
+    """Update an income entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    existing = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    # If amount changed, update project income
+    if "amount" in update_dict:
+        old_amount = existing.get("amount", 0)
+        new_amount = update_dict["amount"]
+        difference = new_amount - old_amount
+        
+        project = await db.projects.find_one({"project_id": existing["project_id"]}, {"_id": 0})
+        if project:
+            current_income = project.get("income_project", 0)
+            await db.projects.update_one(
+                {"project_id": existing["project_id"]},
+                {"$set": {"income_project": current_income + difference}}
+            )
+    
+    await db.income.update_one({"income_id": income_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "income", income_id, update_dict)
+    
+    return {"message": "Income entry updated"}
+
+
+@api_router.delete("/income/{income_id}")
+async def delete_income_entry(income_id: str, user: User = Depends(get_current_user)):
+    """Delete an income entry and update project payment received"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    existing = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    
+    # Update project's income_project field
+    project = await db.projects.find_one({"project_id": existing["project_id"]}, {"_id": 0})
+    if project:
+        current_income = project.get("income_project", 0)
+        await db.projects.update_one(
+            {"project_id": existing["project_id"]},
+            {"$set": {"income_project": max(0, current_income - existing.get("amount", 0))}}
+        )
+    
+    await db.income.delete_one({"income_id": income_id})
+    await create_audit_log(user.user_id, "delete", "income", income_id, {"amount": existing.get("amount", 0)})
+    
+    return {"message": "Income entry deleted"}
+
+
 # ==================== ENHANCED PROJECT VIEW ENDPOINT ====================
 
 @api_router.get("/projects/{project_id}/full-details")
