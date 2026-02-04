@@ -6,7 +6,17 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
+# Load from frontend .env file
+from pathlib import Path
+env_path = Path('/app/frontend/.env')
+if env_path.exists():
+    with open(env_path) as f:
+        for line in f:
+            if line.strip() and not line.startswith('#') and '=' in line:
+                key, value = line.strip().split('=', 1)
+                os.environ[key] = value
+
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://sitehub-38.preview.emergentagent.com').rstrip('/')
 PROJECT_ID = "proj_classic001"
 
 class TestAuth:
