@@ -389,12 +389,19 @@ export default function ProjectDetail() {
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />Payments Received
+                <TrendingUp className="h-3 w-3" />Income Received
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-lg font-bold text-green-700">{formatCurrency(summary.payment_received)}</div>
-              <p className="text-xs text-gray-500">Total Received</p>
+              <div className="text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
+              <p className="text-xs text-gray-500">
+                <span 
+                  className="text-blue-600 cursor-pointer hover:underline"
+                  onClick={() => window.location.href = '/income'}
+                >
+                  View Income Module
+                </span>
+              </p>
             </CardContent>
           </Card>
 
