@@ -329,6 +329,28 @@ class DeductionItem(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class PaymentMode(str, Enum):
+    CASH = "cash"
+    CHEQUE = "cheque"
+    BANK_TRANSFER = "bank_transfer"
+    UPI = "upi"
+    PETTY_CASH = "petty_cash"
+
+
+class IncomeEntry(BaseModel):
+    income_id: str = Field(default_factory=lambda: f"inc_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    amount: float
+    payment_mode: PaymentMode
+    payment_date: datetime
+    cheque_number: Optional[str] = None  # For cheque payments
+    bank_name: Optional[str] = None  # For cheque/bank transfer
+    reference_number: Optional[str] = None  # Transaction reference
+    remarks: Optional[str] = None
+    recorded_by: str  # User who recorded
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 async def get_current_user(request: Request) -> User:
     session_token = request.cookies.get("session_token")
     if not session_token:
