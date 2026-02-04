@@ -28,6 +28,8 @@ export default function Dashboard() {
     client_name: '',
     location: '',
     total_value: '',
+    start_date: new Date().toISOString().split('T')[0],
+    expected_completion: new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0],
     status: 'planning'
   });
 
