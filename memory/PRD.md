@@ -135,7 +135,7 @@ Build a Construction Accounting CRM with:
 #### UI Consistency Update (P1 - January 12, 2026)
 - [x] Dashboard - Modern card-based layout
 - [x] Projects page - Table with stats
-- [x] Project Detail - Tabbed interface with 5 tabs
+- [x] Project Detail - Tabbed interface with 4 tabs (Scope, Payments, Additions, Deductions)
 - [x] Work Orders - Stats cards + table
 - [x] Approval Queue - Modern approval interface
 - [x] Procurement - Vendors + POs tabs with edit/delete
@@ -147,26 +147,30 @@ Build a Construction Accounting CRM with:
 - [x] Client Portal - Read-only project view
 - [x] Vendor Portal - Order management + dispatch
 
-#### ✅ Comprehensive Project View (P0 - January 18, 2026)
-- [x] New route `/projects/{id}/comprehensive` with dedicated page
-- [x] Project header with 6 summary cards (Project Value, Total Received, Expenses, Cash in Book, Additional Cost, Balance Due)
-- [x] **Overview Tab**: Project Value Summary, Income Summary, Expense Summary, Quick Stats
-- [x] **BOQ/Project Value Tab**: Full BOQ breakdown with quantities, rates, and totals
-- [x] **Payment Schedule Tab**: Milestone-based payment tracking
-  - Create payment stages with percentage and amount
-  - Track amount received per stage
-  - Status tracking (pending, partial, completed)
+#### ✅ Enhanced Project Detail View (P0 - February 4, 2026)
+- [x] **Redesigned Project Detail Page** with 4-tab layout based on user's sketch
+- [x] **Project Header**: Name, Client, Location, Status
+- [x] **6 Summary Cards**: Project Value, Additions, Total Value, Payments Received, Deductions, Balance
+- [x] **Scope Tab**: Define N number of scope items
+  - Scope items sum to Project Value
+  - Fields: Item Name, Qty, Unit, Unit Rate, Total, Remarks
+  - Add/Delete scope items with auto-calculation
+- [x] **Payments Tab**: Milestone-based payment tracking
+  - Fields: Stage Name, %, Amount, Received, Balance, Status
   - Inline editing for received amounts
-  - Delete payment stages
-- [x] **Additional Costs Tab**: Track extra work and variations
-  - Create additional cost items with estimated amount
-  - Track actual amount and income received
-  - Calculate balance due
-  - Inline editing for actual/income values
-  - Delete cost items
-- [x] Backend models: PaymentStage, AdditionalCostItem
-- [x] Backend endpoints: GET/POST/PATCH/DELETE for payment-stages and additional-costs
-- [x] "Comprehensive View" button added to ProjectDetail page
+  - Auto-calculate percentage from project value
+- [x] **Additions Tab**: Track extra work and variations
+  - Fields: Description, Amount, Income, Balance, Status
+  - Inline editing for income received
+- [x] **Deductions Tab**: Track penalties, discounts, adjustments
+  - **Deductions reduce BALANCE only, NOT project value**
+  - Fields: Description, Amount, Status, Remarks
+- [x] **Backend Models**: ScopeItem, DeductionItem (new)
+- [x] **Backend Endpoints**: 
+  - GET/POST/PATCH/DELETE for /scope-items
+  - GET/POST/PATCH/DELETE for /deductions
+  - GET /projects/{id}/full-details (comprehensive data)
+- [x] **Balance Calculation**: Total Value - Payments Received - Deductions
 
 ---
 
