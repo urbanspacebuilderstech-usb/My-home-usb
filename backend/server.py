@@ -2471,9 +2471,26 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     additions_received = sum(cost.get("income_received", 0) for cost in additional_costs)
     deductions_total = sum(d.get("amount", 0) for d in deductions)
     
-    # Payment calculations
+    # Get income entries for this project (actual received payments)
+    income_entries = await db.income.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for entry in income_entries:
+        if isinstance(entry.get("payment_date"), str):
+            entry["payment_date"] = datetime.fromisoformat(entry["payment_date"])
+        if isinstance(entry.get("created_at"), str):
+            entry["created_at"] = datetime.fromisoformat(entry["created_at"])
+    
+    # Income summary by payment mode
+    income_total = sum(e.get("amount", 0) for e in income_entries)
+    income_by_mode = {
+        "cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cash"),
+        "cheque": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cheque"),
+        "bank_transfer": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "bank_transfer"),
+        "upi": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "upi"),
+        "petty_cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "petty_cash"),
+    }
+    
+    # Payment schedule totals (requested payments - milestones)
     payment_total = sum(stage.get("amount", 0) for stage in payment_stages)
-    payment_received = sum(stage.get("amount_received", 0) for stage in payment_stages)
     
     # Project value = Scope total (or original project value if no scope items)
     project_value = scope_total if scope_items else project.get("total_value", 0)
@@ -2481,8 +2498,8 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # Total value = Project Value + Additions
     total_value = project_value + additions_total
     
-    # Balance = Total Value - Payments Received - Deductions
-    balance = total_value - payment_received - additions_received - deductions_total
+    # Balance = Total Value - Income Received - Deductions
+    balance = total_value - income_total - additions_received - deductions_total
     
     return {
         "project": project,
@@ -2490,6 +2507,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "payment_stages": payment_stages,
         "additional_costs": additional_costs,
         "deductions": deductions,
+        "income_entries": income_entries,
         "summary": {
             "scope_total": scope_total,
             "project_value": project_value,
@@ -2497,7 +2515,8 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "additions_received": additions_received,
             "total_value": total_value,
             "payment_schedule_total": payment_total,
-            "payment_received": payment_received,
+            "income_total": income_total,
+            "income_by_mode": income_by_mode,
             "deductions_total": deductions_total,
             "balance": balance
         }
