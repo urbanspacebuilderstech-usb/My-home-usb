@@ -307,6 +307,28 @@ class AdditionalCostItem(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class ScopeItem(BaseModel):
+    scope_id: str = Field(default_factory=lambda: f"scope_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    item_name: str  # e.g., "Foundation Work", "Electrical", "Plumbing"
+    quantity: float = 1
+    unit: str = "Nos"
+    unit_rate: float
+    total_amount: float  # quantity * unit_rate
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DeductionItem(BaseModel):
+    deduction_id: str = Field(default_factory=lambda: f"ded_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    description: str  # e.g., "Penalty", "Discount", "Adjustment"
+    amount: float
+    status: str = "pending"  # pending, approved, rejected
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 async def get_current_user(request: Request) -> User:
     session_token = request.cookies.get("session_token")
     if not session_token:
