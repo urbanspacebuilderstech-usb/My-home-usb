@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Building2, LogOut, ArrowLeft, Plus, Edit, FileText, Trash2, Users, ClipboardList } from 'lucide-react';
+import { 
+  Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
+  DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,46 +21,37 @@ const API = `${BACKEND_URL}/api`;
 export default function ProjectDetail() {
   const { projectId } = useParams();
   const [user, setUser] = useState(null);
-  const [project, setProject] = useState(null);
-  const [payments, setPayments] = useState([]);
-  const [expenses, setExpenses] = useState([]);
-  const [boqItems, setBoqItems] = useState([]);
-  const [commitments, setCommitments] = useState([]);
-  const [assignments, setAssignments] = useState([]);
-  const [workOrders, setWorkOrders] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [activeTab, setActiveTab] = useState('payments');
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
-  const [commitmentDialogOpen, setCommitmentDialogOpen] = useState(false);
-  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
-
-  const [paymentFormData, setPaymentFormData] = useState({
-    amount: '',
-    payment_date: '',
-    description: ''
+  const [loading, setLoading] = useState(true);
+  const [projectData, setProjectData] = useState(null);
+  const [activeTab, setActiveTab] = useState('scope');
+  
+  // Dialog states
+  const [scopeDialog, setScopeDialog] = useState(false);
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [additionDialog, setAdditionDialog] = useState(false);
+  const [deductionDialog, setDeductionDialog] = useState(false);
+  
+  // Editing states
+  const [editingScope, setEditingScope] = useState(null);
+  const [editingPayment, setEditingPayment] = useState(null);
+  const [editingAddition, setEditingAddition] = useState(null);
+  const [editingDeduction, setEditingDeduction] = useState(null);
+  
+  // Form data
+  const [scopeForm, setScopeForm] = useState({
+    item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: ''
   });
-
-  const [expenseFormData, setExpenseFormData] = useState({
-    category: 'Material',
-    amount: '',
-    description: ''
+  
+  const [paymentForm, setPaymentForm] = useState({
+    stage_name: '', percentage: '', amount: '', due_date: ''
   });
-
-  const [commitmentFormData, setCommitmentFormData] = useState({
-    item_name: '',
-    quantity: '',
-    units: '',
-    unit_rate: '',
-    category: 'Material'
+  
+  const [additionForm, setAdditionForm] = useState({
+    description: '', estimated_amount: ''
   });
-
-  const [assignmentFormData, setAssignmentFormData] = useState({
-    work_order_id: '',
-    assigned_to_user_id: '',
-    due_date: '',
-    priority: 'medium',
-    notes: ''
+  
+  const [deductionForm, setDeductionForm] = useState({
+    description: '', amount: '', remarks: ''
   });
 
   useEffect(() => {
@@ -66,28 +60,18 @@ export default function ProjectDetail() {
 
   const fetchData = async () => {
     try {
-      const [userRes, projRes, paymentsRes, expensesRes, boqRes, commitmentsRes, assignmentsRes, woRes, usersRes] = await Promise.all([
+      setLoading(true);
+      const [userRes, projectRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/projects/${projectId}`),
-        axios.get(`${API}/payments?project_id=${projectId}`),
-        axios.get(`${API}/expenses?project_id=${projectId}`),
-        axios.get(`${API}/boq/${projectId}`),
-        axios.get(`${API}/project-commitments/${projectId}`),
-        axios.get(`${API}/work-order-assignments/${projectId}`),
-        axios.get(`${API}/work-orders`),
-        axios.get(`${API}/users`).catch(() => ({ data: [] }))
+        axios.get(`${API}/projects/${projectId}/full-details`)
       ]);
       setUser(userRes.data);
-      setProject(projRes.data);
-      setPayments(paymentsRes.data || []);
-      setExpenses(expensesRes.data || []);
-      setBoqItems(boqRes.data || []);
-      setCommitments(commitmentsRes.data || []);
-      setAssignments(assignmentsRes.data || []);
-      setWorkOrders(woRes.data?.filter(wo => wo.project_id === projectId) || []);
-      setUsers(usersRes.data || []);
+      setProjectData(projectRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
+      toast.error('Failed to load project data');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -100,117 +84,203 @@ export default function ProjectDetail() {
     }
   };
 
+  // ==================== SCOPE HANDLERS ====================
+  const handleAddScope = async (e) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API}/scope-items`, {
+        project_id: projectId,
+        item_name: scopeForm.item_name,
+        quantity: parseFloat(scopeForm.quantity) || 1,
+        unit: scopeForm.unit,
+        unit_rate: parseFloat(scopeForm.unit_rate) || 0,
+        remarks: scopeForm.remarks || null
+      });
+      toast.success('Scope item added');
+      setScopeDialog(false);
+      setScopeForm({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' });
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to add scope item');
+    }
+  };
+
+  const handleUpdateScope = async (scopeId, updates) => {
+    try {
+      await axios.patch(`${API}/scope-items/${scopeId}`, updates);
+      toast.success('Scope item updated');
+      setEditingScope(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update scope item');
+    }
+  };
+
+  const handleDeleteScope = async (scopeId) => {
+    if (!confirm('Delete this scope item?')) return;
+    try {
+      await axios.delete(`${API}/scope-items/${scopeId}`);
+      toast.success('Scope item deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete scope item');
+    }
+  };
+
+  // ==================== PAYMENT HANDLERS ====================
   const handleAddPayment = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/payments`, {
+      await axios.post(`${API}/payment-stages`, {
         project_id: projectId,
-        amount: parseFloat(paymentFormData.amount),
-        payment_date: new Date(paymentFormData.payment_date).toISOString(),
-        description: paymentFormData.description
+        stage_name: paymentForm.stage_name,
+        percentage: parseFloat(paymentForm.percentage) || 0,
+        amount: parseFloat(paymentForm.amount) || 0,
+        due_date: paymentForm.due_date || null
       });
-      toast.success('Payment added successfully');
-      setPaymentDialogOpen(false);
+      toast.success('Payment stage added');
+      setPaymentDialog(false);
+      setPaymentForm({ stage_name: '', percentage: '', amount: '', due_date: '' });
       fetchData();
-      setPaymentFormData({ amount: '', payment_date: '', description: '' });
     } catch (error) {
-      toast.error('Failed to add payment');
+      toast.error('Failed to add payment stage');
     }
   };
 
-  const handleAddExpense = async (e) => {
+  const handleUpdatePayment = async (stageId, updates) => {
+    try {
+      await axios.patch(`${API}/payment-stages/${stageId}`, updates);
+      toast.success('Payment updated');
+      setEditingPayment(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update payment');
+    }
+  };
+
+  const handleDeletePayment = async (stageId) => {
+    if (!confirm('Delete this payment stage?')) return;
+    try {
+      await axios.delete(`${API}/payment-stages/${stageId}`);
+      toast.success('Payment stage deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete payment stage');
+    }
+  };
+
+  // ==================== ADDITION HANDLERS ====================
+  const handleAddAddition = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/expenses`, {
+      await axios.post(`${API}/additional-costs`, {
         project_id: projectId,
-        category: expenseFormData.category,
-        amount: parseFloat(expenseFormData.amount),
-        description: expenseFormData.description
+        description: additionForm.description,
+        estimated_amount: parseFloat(additionForm.estimated_amount) || 0
       });
-      toast.success('Expense added successfully');
-      setExpenseDialogOpen(false);
+      toast.success('Addition added');
+      setAdditionDialog(false);
+      setAdditionForm({ description: '', estimated_amount: '' });
       fetchData();
-      setExpenseFormData({ category: 'Material', amount: '', description: '' });
     } catch (error) {
-      toast.error('Failed to add expense');
+      toast.error('Failed to add addition');
     }
   };
 
-  const handleAddCommitment = async (e) => {
+  const handleUpdateAddition = async (costId, updates) => {
+    try {
+      await axios.patch(`${API}/additional-costs/${costId}`, updates);
+      toast.success('Addition updated');
+      setEditingAddition(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update addition');
+    }
+  };
+
+  const handleDeleteAddition = async (costId) => {
+    if (!confirm('Delete this addition?')) return;
+    try {
+      await axios.delete(`${API}/additional-costs/${costId}`);
+      toast.success('Addition deleted');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete addition');
+    }
+  };
+
+  // ==================== DEDUCTION HANDLERS ====================
+  const handleAddDeduction = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/project-commitments`, {
+      await axios.post(`${API}/deductions`, {
         project_id: projectId,
-        item_name: commitmentFormData.item_name,
-        quantity: parseFloat(commitmentFormData.quantity),
-        units: commitmentFormData.units,
-        unit_rate: parseFloat(commitmentFormData.unit_rate),
-        category: commitmentFormData.category
+        description: deductionForm.description,
+        amount: parseFloat(deductionForm.amount) || 0,
+        remarks: deductionForm.remarks || null
       });
-      toast.success('Commitment added successfully');
-      setCommitmentDialogOpen(false);
+      toast.success('Deduction added');
+      setDeductionDialog(false);
+      setDeductionForm({ description: '', amount: '', remarks: '' });
       fetchData();
-      setCommitmentFormData({ item_name: '', quantity: '', units: '', unit_rate: '', category: 'Material' });
     } catch (error) {
-      toast.error('Failed to add commitment');
+      toast.error('Failed to add deduction');
     }
   };
 
-  const handleDeleteCommitment = async (commitmentId) => {
+  const handleUpdateDeduction = async (deductionId, updates) => {
     try {
-      await axios.delete(`${API}/project-commitments/${commitmentId}`);
-      toast.success('Commitment deleted');
+      await axios.patch(`${API}/deductions/${deductionId}`, updates);
+      toast.success('Deduction updated');
+      setEditingDeduction(null);
       fetchData();
     } catch (error) {
-      toast.error('Failed to delete commitment');
+      toast.error('Failed to update deduction');
     }
   };
 
-  const handleAddAssignment = async (e) => {
-    e.preventDefault();
+  const handleDeleteDeduction = async (deductionId) => {
+    if (!confirm('Delete this deduction?')) return;
     try {
-      await axios.post(`${API}/work-order-assignments`, {
-        work_order_id: assignmentFormData.work_order_id,
-        project_id: projectId,
-        assigned_to_user_id: assignmentFormData.assigned_to_user_id,
-        due_date: new Date(assignmentFormData.due_date).toISOString(),
-        priority: assignmentFormData.priority,
-        notes: assignmentFormData.notes
-      });
-      toast.success('Work order assigned successfully');
-      setAssignmentDialogOpen(false);
+      await axios.delete(`${API}/deductions/${deductionId}`);
+      toast.success('Deduction deleted');
       fetchData();
-      setAssignmentFormData({ work_order_id: '', assigned_to_user_id: '', due_date: '', priority: 'medium', notes: '' });
     } catch (error) {
-      toast.error('Failed to assign work order');
+      toast.error('Failed to delete deduction');
     }
   };
 
-  if (!user || !project) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  const formatCurrency = (amount) => {
+    if (amount >= 100000) {
+      return `₹${(amount / 100000).toFixed(2)}L`;
+    }
+    return `₹${amount?.toLocaleString() || 0}`;
+  };
+
+  const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning';
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-lg font-semibold text-gray-600">Loading project...</div>
+      </div>
+    );
   }
 
-  const totalPaid = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-  const totalSpent = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-  const balance = project.total_value - totalPaid;
-  const totalCommitted = commitments.reduce((sum, c) => sum + (c.total_cost || 0), 0);
+  if (!projectData || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-lg font-semibold text-red-600">Failed to load project</div>
+      </div>
+    );
+  }
 
-  const canManage = user.role === 'super_admin' || user.role === 'project_manager' || user.role === 'planning';
-  const canAssign = user.role === 'super_admin' || user.role === 'project_manager';
-
-  const getUserName = (userId) => {
-    const u = users.find(u => u.user_id === userId);
-    return u?.name || userId;
-  };
-
-  const getWorkOrderInfo = (woId) => {
-    const wo = workOrders.find(w => w.work_order_id === woId);
-    return wo?.purpose || woId;
-  };
+  const { project, scope_items, payment_stages, additional_costs, deductions, summary } = projectData;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      {/* Navigation */}
+      <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-lg">
@@ -218,7 +288,7 @@ export default function ProjectDetail() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Project Management System</p>
+              <p className="text-xs text-gray-500">Project View</p>
             </div>
           </div>
           
@@ -249,394 +319,219 @@ export default function ProjectDetail() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => window.location.href = '/dashboard'}
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div>
-                <h2 data-testid="project-detail-title" className="text-3xl font-bold text-gray-900">
-                  {project.name}
-                </h2>
-                <div className="flex items-center gap-4 mt-1">
-                  <span className="text-gray-600 flex items-center gap-1">
-                    <FileText className="h-4 w-4" />
-                    {project.client_name}
-                  </span>
-                  <span className="text-gray-600">• {project.location}</span>
-                  <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-                    {project.status}
-                  </Badge>
-                </div>
+        {/* Project Header */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => window.location.href = '/projects'}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+            <div className="flex-1">
+              <h2 data-testid="project-detail-title" className="text-3xl font-bold text-gray-900">
+                {project.name}
+              </h2>
+              <div className="flex items-center gap-4 mt-1 flex-wrap text-sm">
+                <span className="text-gray-600">
+                  <strong>Client:</strong> {project.client_name}
+                </span>
+                <span className="text-gray-600">
+                  <strong>Location:</strong> {project.location}
+                </span>
+                <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
+                  {project.status}
+                </Badge>
               </div>
             </div>
-            <Button
-              data-testid="comprehensive-view-btn"
-              className="bg-blue-600 hover:bg-blue-700"
-              onClick={() => window.location.href = `/projects/${projectId}/comprehensive`}
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              Comprehensive View
-            </Button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Agreement Value</CardTitle>
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <DollarSign className="h-3 w-3" />Project Value
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-gray-900">
-                ₹{(project.total_value / 100000).toFixed(2)}L
-              </div>
+              <div className="text-lg font-bold text-blue-700">{formatCurrency(summary.project_value)}</div>
+              <p className="text-xs text-gray-500">Scope Total</p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 border-cyan-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Received</CardTitle>
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <Plus className="h-3 w-3" />Additions
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-700">
-                ₹{(totalPaid / 100000).toFixed(2)}L
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Spent</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-orange-700">
-                ₹{(totalSpent / 100000).toFixed(2)}L
-              </div>
+              <div className="text-lg font-bold text-cyan-700">{formatCurrency(summary.additions_total)}</div>
+              <p className="text-xs text-gray-500">Extra Work</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Committed</CardTitle>
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <FileText className="h-3 w-3" />Total Value
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-700">
-                ₹{(totalCommitted / 100000).toFixed(2)}L
-              </div>
+              <div className="text-lg font-bold text-purple-700">{formatCurrency(summary.total_value)}</div>
+              <p className="text-xs text-gray-500">Scope + Additions</p>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Balance Due</CardTitle>
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <TrendingUp className="h-3 w-3" />Payments Received
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-700">
-                ₹{(balance / 100000).toFixed(2)}L
+              <div className="text-lg font-bold text-green-700">{formatCurrency(summary.payment_received)}</div>
+              <p className="text-xs text-gray-500">Total Received</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <MinusCircle className="h-3 w-3" />Deductions
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-lg font-bold text-orange-700">{formatCurrency(summary.deductions_total)}</div>
+              <p className="text-xs text-gray-500">Adjustments</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+                <Wallet className="h-3 w-3" />Balance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-lg font-bold ${summary.balance >= 0 ? 'text-red-700' : 'text-green-700'}`}>
+                {formatCurrency(summary.balance)}
               </div>
+              <p className="text-xs text-gray-500">Pending</p>
             </CardContent>
           </Card>
         </div>
 
+        {/* Main Tabs */}
         <Card>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b">
               <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-2">
                 <TabsTrigger 
-                  value="payments" 
+                  value="scope" 
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
+                >
+                  Scope
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="payments"
                   className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
                 >
                   Payments
                 </TabsTrigger>
                 <TabsTrigger 
-                  value="expenses"
+                  value="additions"
                   className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
                 >
-                  Expenses
+                  Additions
                 </TabsTrigger>
                 <TabsTrigger 
-                  value="commitments"
+                  value="deductions"
                   className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
                 >
-                  Commitments
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="assignments"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  Work Order Assignments
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="boq"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  BOQ
+                  Deductions
                 </TabsTrigger>
               </TabsList>
             </CardHeader>
 
-            {/* Payments Tab */}
-            <TabsContent value="payments" className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold">Payments Received</h3>
-                <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button data-testid="add-payment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                      <Plus className="h-4 w-4" />Add Payment
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add Payment</DialogTitle>
-                      <DialogDescription>Record a new payment received</DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleAddPayment} className="space-y-4">
-                      <div>
-                        <Label>Amount</Label>
-                        <Input
-                          data-testid="payment-amount-input"
-                          type="number"
-                          value={paymentFormData.amount}
-                          onChange={(e) => setPaymentFormData({...paymentFormData, amount: e.target.value})}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <Label>Date</Label>
-                        <Input
-                          data-testid="payment-date-input"
-                          type="date"
-                          value={paymentFormData.payment_date}
-                          onChange={(e) => setPaymentFormData({...paymentFormData, payment_date: e.target.value})}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <Label>Description</Label>
-                        <Input
-                          data-testid="payment-desc-input"
-                          value={paymentFormData.description}
-                          onChange={(e) => setPaymentFormData({...paymentFormData, description: e.target.value})}
-                          required
-                        />
-                      </div>
-                      <Button data-testid="submit-payment-btn" type="submit" className="w-full">Add Payment</Button>
-                    </form>
-                  </DialogContent>
-                </Dialog>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">DATE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">TYPE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">MODE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">AMOUNT</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">REMARKS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {payments.length === 0 ? (
-                      <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
-                          No payments recorded yet
-                        </td>
-                      </tr>
-                    ) : (
-                      payments.map((payment) => (
-                        <tr key={payment.payment_id} data-testid={`payment-row-${payment.payment_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">{new Date(payment.payment_date).toLocaleDateString()}</td>
-                          <td className="px-6 py-4"><Badge variant="outline">Advance</Badge></td>
-                          <td className="px-6 py-4">Bank Transfer</td>
-                          <td className="px-6 py-4 font-semibold text-green-600">₹{payment.amount.toLocaleString()}</td>
-                          <td className="px-6 py-4 text-gray-600">{payment.description}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </TabsContent>
-
-            {/* Expenses Tab */}
-            <TabsContent value="expenses" className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-lg font-bold">Project Expenses</h3>
-                {user.role === 'accountant' && (
-                  <Dialog open={expenseDialogOpen} onOpenChange={setExpenseDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="add-expense-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Plus className="h-4 w-4" />Add Expense
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Expense</DialogTitle>
-                        <DialogDescription>Record a new expense</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddExpense} className="space-y-4">
-                        <div>
-                          <Label>Category</Label>
-                          <Select
-                            value={expenseFormData.category}
-                            onValueChange={(value) => setExpenseFormData({...expenseFormData, category: value})}
-                          >
-                            <SelectTrigger data-testid="expense-category-select">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Material">Material</SelectItem>
-                              <SelectItem value="Labour">Labour</SelectItem>
-                              <SelectItem value="Transport">Transport</SelectItem>
-                              <SelectItem value="Machinery">Machinery</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Amount</Label>
-                          <Input
-                            data-testid="expense-amount-input"
-                            type="number"
-                            value={expenseFormData.amount}
-                            onChange={(e) => setExpenseFormData({...expenseFormData, amount: e.target.value})}
-                            required
-                          />
-                        </div>
-                        <div>
-                          <Label>Description</Label>
-                          <Input
-                            data-testid="expense-desc-input"
-                            value={expenseFormData.description}
-                            onChange={(e) => setExpenseFormData({...expenseFormData, description: e.target.value})}
-                            required
-                          />
-                        </div>
-                        <Button data-testid="submit-expense-btn" type="submit" className="w-full">Add Expense</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                )}
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">DATE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CATEGORY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">DESCRIPTION</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">AMOUNT</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {expenses.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
-                          No expenses recorded yet
-                        </td>
-                      </tr>
-                    ) : (
-                      expenses.map((expense) => (
-                        <tr key={expense.expense_id} data-testid={`expense-row-${expense.expense_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">{new Date(expense.created_at).toLocaleDateString()}</td>
-                          <td className="px-6 py-4"><Badge>{expense.category}</Badge></td>
-                          <td className="px-6 py-4 text-gray-600">{expense.description}</td>
-                          <td className="px-6 py-4 font-semibold text-orange-600">₹{expense.amount.toLocaleString()}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </TabsContent>
-
-            {/* Commitments Tab */}
-            <TabsContent value="commitments" className="p-6">
+            {/* ==================== SCOPE TAB ==================== */}
+            <TabsContent value="scope" className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="text-lg font-bold">Project Commitments</h3>
-                  <p className="text-sm text-gray-500">Track committed resources and materials for this project</p>
+                  <h3 className="text-lg font-bold">Project Scope</h3>
+                  <p className="text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 {canManage && (
-                  <Dialog open={commitmentDialogOpen} onOpenChange={setCommitmentDialogOpen}>
+                  <Dialog open={scopeDialog} onOpenChange={setScopeDialog}>
                     <DialogTrigger asChild>
-                      <Button data-testid="add-commitment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Plus className="h-4 w-4" />Add Commitment
+                      <Button data-testid="add-scope-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                        <Plus className="h-4 w-4" />Add Scope
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Add Commitment</DialogTitle>
-                        <DialogDescription>Record a new resource commitment</DialogDescription>
+                        <DialogTitle>Add Scope Item</DialogTitle>
+                        <DialogDescription>Define a new scope item for this project</DialogDescription>
                       </DialogHeader>
-                      <form onSubmit={handleAddCommitment} className="space-y-4">
+                      <form onSubmit={handleAddScope} className="space-y-4">
                         <div>
                           <Label>Item Name</Label>
                           <Input
-                            data-testid="commitment-item-input"
-                            value={commitmentFormData.item_name}
-                            onChange={(e) => setCommitmentFormData({...commitmentFormData, item_name: e.target.value})}
-                            placeholder="e.g., Cement, Steel, Labour"
+                            data-testid="scope-name-input"
+                            value={scopeForm.item_name}
+                            onChange={(e) => setScopeForm({...scopeForm, item_name: e.target.value})}
+                            placeholder="e.g., Foundation Work, Electrical, Plumbing"
                             required
                           />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-3 gap-4">
                           <div>
                             <Label>Quantity</Label>
                             <Input
-                              data-testid="commitment-qty-input"
+                              data-testid="scope-qty-input"
                               type="number"
-                              value={commitmentFormData.quantity}
-                              onChange={(e) => setCommitmentFormData({...commitmentFormData, quantity: e.target.value})}
+                              value={scopeForm.quantity}
+                              onChange={(e) => setScopeForm({...scopeForm, quantity: e.target.value})}
                               required
                             />
                           </div>
                           <div>
-                            <Label>Units</Label>
+                            <Label>Unit</Label>
                             <Input
-                              data-testid="commitment-units-input"
-                              value={commitmentFormData.units}
-                              onChange={(e) => setCommitmentFormData({...commitmentFormData, units: e.target.value})}
-                              placeholder="e.g., bags, tons, days"
+                              data-testid="scope-unit-input"
+                              value={scopeForm.unit}
+                              onChange={(e) => setScopeForm({...scopeForm, unit: e.target.value})}
+                              placeholder="Nos, Sqft, etc."
+                            />
+                          </div>
+                          <div>
+                            <Label>Unit Rate (₹)</Label>
+                            <Input
+                              data-testid="scope-rate-input"
+                              type="number"
+                              value={scopeForm.unit_rate}
+                              onChange={(e) => setScopeForm({...scopeForm, unit_rate: e.target.value})}
                               required
                             />
                           </div>
                         </div>
                         <div>
-                          <Label>Unit Rate (₹)</Label>
+                          <Label>Remarks (Optional)</Label>
                           <Input
-                            data-testid="commitment-rate-input"
-                            type="number"
-                            value={commitmentFormData.unit_rate}
-                            onChange={(e) => setCommitmentFormData({...commitmentFormData, unit_rate: e.target.value})}
-                            required
+                            data-testid="scope-remarks-input"
+                            value={scopeForm.remarks}
+                            onChange={(e) => setScopeForm({...scopeForm, remarks: e.target.value})}
                           />
                         </div>
-                        <div>
-                          <Label>Category</Label>
-                          <Select
-                            value={commitmentFormData.category}
-                            onValueChange={(value) => setCommitmentFormData({...commitmentFormData, category: value})}
-                          >
-                            <SelectTrigger data-testid="commitment-category-select">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Material">Material</SelectItem>
-                              <SelectItem value="Labour">Labour</SelectItem>
-                              <SelectItem value="Equipment">Equipment</SelectItem>
-                              <SelectItem value="Services">Services</SelectItem>
-                            </SelectContent>
-                          </Select>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <p className="text-sm text-gray-600">
+                            Total: <strong>₹{((parseFloat(scopeForm.quantity) || 0) * (parseFloat(scopeForm.unit_rate) || 0)).toLocaleString()}</strong>
+                          </p>
                         </div>
-                        <Button data-testid="submit-commitment-btn" type="submit" className="w-full">Add Commitment</Button>
+                        <Button data-testid="submit-scope-btn" type="submit" className="w-full">Add Scope Item</Button>
                       </form>
                     </DialogContent>
                   </Dialog>
@@ -647,52 +542,51 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ITEM</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CATEGORY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">QUANTITY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">UNIT RATE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">TOTAL COST</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">DATE</th>
-                      {canManage && <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ACTIONS</th>}
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Item</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Unit</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {commitments.length === 0 ? (
+                    {scope_items.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 7 : 6} className="px-6 py-8 text-center text-gray-500">
-                          No commitments recorded yet
+                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
+                          No scope items defined yet. Click "Add Scope" to define project scope.
                         </td>
                       </tr>
                     ) : (
-                      commitments.map((commitment) => (
-                        <tr key={commitment.commitment_id} data-testid={`commitment-row-${commitment.commitment_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-medium">{commitment.item_name}</td>
-                          <td className="px-6 py-4"><Badge variant="outline">{commitment.category}</Badge></td>
-                          <td className="px-6 py-4">{commitment.quantity} {commitment.units}</td>
-                          <td className="px-6 py-4">₹{commitment.unit_rate.toLocaleString()}</td>
-                          <td className="px-6 py-4 font-semibold text-purple-600">₹{commitment.total_cost.toLocaleString()}</td>
-                          <td className="px-6 py-4 text-gray-600">{new Date(commitment.committed_date).toLocaleDateString()}</td>
+                      scope_items.map((item, index) => (
+                        <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm">{index + 1}</td>
+                          <td className="px-4 py-3 font-medium">{item.item_name}</td>
+                          <td className="px-4 py-3 text-right">{item.quantity}</td>
+                          <td className="px-4 py-3 text-center">{item.unit}</td>
+                          <td className="px-4 py-3 text-right">₹{item.unit_rate?.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-blue-600">₹{item.total_amount?.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{item.remarks || '-'}</td>
                           {canManage && (
-                            <td className="px-6 py-4">
-                              <Button
-                                data-testid={`delete-commitment-${commitment.commitment_id}`}
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleDeleteCommitment(commitment.commitment_id)}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteScope(item.scope_id)}>
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </div>
                             </td>
                           )}
                         </tr>
                       ))
                     )}
                   </tbody>
-                  {commitments.length > 0 && (
-                    <tfoot className="bg-gray-50 border-t-2">
+                  {scope_items.length > 0 && (
+                    <tfoot className="bg-blue-50 border-t-2">
                       <tr>
-                        <td colSpan="4" className="px-6 py-3 text-right font-semibold">Total Committed:</td>
-                        <td className="px-6 py-3 font-bold text-purple-700">₹{totalCommitted.toLocaleString()}</td>
+                        <td colSpan="5" className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
+                        <td className="px-4 py-3 text-right font-bold text-blue-700">₹{summary.scope_total?.toLocaleString()}</td>
                         <td colSpan={canManage ? 2 : 1}></td>
                       </tr>
                     </tfoot>
@@ -701,99 +595,75 @@ export default function ProjectDetail() {
               </div>
             </TabsContent>
 
-            {/* Work Order Assignments Tab */}
-            <TabsContent value="assignments" className="p-6">
+            {/* ==================== PAYMENTS TAB ==================== */}
+            <TabsContent value="payments" className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="text-lg font-bold">Work Order Assignments</h3>
-                  <p className="text-sm text-gray-500">Track work order assignments to team members</p>
+                  <h3 className="text-lg font-bold">Payment Schedule</h3>
+                  <p className="text-sm text-gray-500">Track milestone-based payments</p>
                 </div>
-                {canAssign && workOrders.length > 0 && (
-                  <Dialog open={assignmentDialogOpen} onOpenChange={setAssignmentDialogOpen}>
+                {canManage && (
+                  <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
                     <DialogTrigger asChild>
-                      <Button data-testid="add-assignment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Users className="h-4 w-4" />Assign Work Order
+                      <Button data-testid="add-payment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                        <Plus className="h-4 w-4" />Add Payment
                       </Button>
                     </DialogTrigger>
                     <DialogContent>
                       <DialogHeader>
-                        <DialogTitle>Assign Work Order</DialogTitle>
-                        <DialogDescription>Assign a work order to a team member</DialogDescription>
+                        <DialogTitle>Add Payment Stage</DialogTitle>
+                        <DialogDescription>Define a payment milestone</DialogDescription>
                       </DialogHeader>
-                      <form onSubmit={handleAddAssignment} className="space-y-4">
+                      <form onSubmit={handleAddPayment} className="space-y-4">
                         <div>
-                          <Label>Work Order</Label>
-                          <Select
-                            value={assignmentFormData.work_order_id}
-                            onValueChange={(value) => setAssignmentFormData({...assignmentFormData, work_order_id: value})}
-                          >
-                            <SelectTrigger data-testid="assignment-wo-select">
-                              <SelectValue placeholder="Select work order" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {workOrders.map(wo => (
-                                <SelectItem key={wo.work_order_id} value={wo.work_order_id}>
-                                  {wo.purpose} ({wo.status})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Assign To</Label>
-                          <Select
-                            value={assignmentFormData.assigned_to_user_id}
-                            onValueChange={(value) => setAssignmentFormData({...assignmentFormData, assigned_to_user_id: value})}
-                          >
-                            <SelectTrigger data-testid="assignment-user-select">
-                              <SelectValue placeholder="Select team member" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {users.filter(u => u.role === 'site_engineer' || u.role === 'procurement').map(u => (
-                                <SelectItem key={u.user_id} value={u.user_id}>
-                                  {u.name} ({u.role.replace('_', ' ')})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label>Due Date</Label>
+                          <Label>Stage Name</Label>
                           <Input
-                            data-testid="assignment-due-date"
-                            type="date"
-                            value={assignmentFormData.due_date}
-                            onChange={(e) => setAssignmentFormData({...assignmentFormData, due_date: e.target.value})}
+                            data-testid="payment-name-input"
+                            value={paymentForm.stage_name}
+                            onChange={(e) => setPaymentForm({...paymentForm, stage_name: e.target.value})}
+                            placeholder="e.g., Advance, Foundation, Finishing"
                             required
                           />
                         </div>
-                        <div>
-                          <Label>Priority</Label>
-                          <Select
-                            value={assignmentFormData.priority}
-                            onValueChange={(value) => setAssignmentFormData({...assignmentFormData, priority: value})}
-                          >
-                            <SelectTrigger data-testid="assignment-priority-select">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="low">Low</SelectItem>
-                              <SelectItem value="medium">Medium</SelectItem>
-                              <SelectItem value="high">High</SelectItem>
-                              <SelectItem value="urgent">Urgent</SelectItem>
-                            </SelectContent>
-                          </Select>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label>Percentage (%)</Label>
+                            <Input
+                              data-testid="payment-pct-input"
+                              type="number"
+                              step="0.01"
+                              value={paymentForm.percentage}
+                              onChange={(e) => {
+                                const pct = parseFloat(e.target.value) || 0;
+                                setPaymentForm({
+                                  ...paymentForm, 
+                                  percentage: e.target.value,
+                                  amount: ((pct / 100) * summary.project_value).toFixed(0)
+                                });
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <Label>Amount (₹)</Label>
+                            <Input
+                              data-testid="payment-amount-input"
+                              type="number"
+                              value={paymentForm.amount}
+                              onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
+                              required
+                            />
+                          </div>
                         </div>
                         <div>
-                          <Label>Notes</Label>
+                          <Label>Due Date (Optional)</Label>
                           <Input
-                            data-testid="assignment-notes-input"
-                            value={assignmentFormData.notes}
-                            onChange={(e) => setAssignmentFormData({...assignmentFormData, notes: e.target.value})}
-                            placeholder="Optional notes..."
+                            data-testid="payment-due-input"
+                            type="date"
+                            value={paymentForm.due_date}
+                            onChange={(e) => setPaymentForm({...paymentForm, due_date: e.target.value})}
                           />
                         </div>
-                        <Button data-testid="submit-assignment-btn" type="submit" className="w-full">Assign Work Order</Button>
+                        <Button data-testid="submit-payment-btn" type="submit" className="w-full">Add Payment Stage</Button>
                       </form>
                     </DialogContent>
                   </Dialog>
@@ -804,94 +674,335 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">WORK ORDER</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ASSIGNED TO</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">DUE DATE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">PRIORITY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">STATUS</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">NOTES</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">%</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {assignments.length === 0 ? (
+                    {payment_stages.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                          No work order assignments yet
+                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
+                          No payment stages defined yet. Click "Add Payment" to define milestones.
                         </td>
                       </tr>
                     ) : (
-                      assignments.map((assignment) => (
-                        <tr key={assignment.assignment_id} data-testid={`assignment-row-${assignment.assignment_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-medium">{getWorkOrderInfo(assignment.work_order_id)}</td>
-                          <td className="px-6 py-4">{getUserName(assignment.assigned_to_user_id)}</td>
-                          <td className="px-6 py-4">{new Date(assignment.due_date).toLocaleDateString()}</td>
-                          <td className="px-6 py-4">
-                            <Badge variant={
-                              assignment.priority === 'urgent' ? 'destructive' :
-                              assignment.priority === 'high' ? 'default' :
-                              'secondary'
-                            }>
-                              {assignment.priority}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant="outline">{assignment.status}</Badge>
-                          </td>
-                          <td className="px-6 py-4 text-gray-600">{assignment.notes || '-'}</td>
-                        </tr>
-                      ))
+                      payment_stages.map((stage, index) => {
+                        const balance = stage.amount - (stage.amount_received || 0);
+                        const isEditing = editingPayment === stage.stage_id;
+                        
+                        return (
+                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm">{index + 1}</td>
+                            <td className="px-4 py-3 font-medium">{stage.stage_name}</td>
+                            <td className="px-4 py-3 text-right">{stage.percentage}%</td>
+                            <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">
+                              {isEditing ? (
+                                <Input
+                                  type="number"
+                                  className="w-28 text-right"
+                                  defaultValue={stage.amount_received}
+                                  onBlur={(e) => handleUpdatePayment(stage.stage_id, { amount_received: parseFloat(e.target.value) || 0 })}
+                                  autoFocus
+                                />
+                              ) : (
+                                <span className="text-green-600">₹{(stage.amount_received || 0).toLocaleString()}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={balance > 0 ? 'text-red-600' : 'text-green-600'}>
+                                ₹{balance.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge variant={balance <= 0 ? 'default' : balance < stage.amount ? 'secondary' : 'outline'}>
+                                {balance <= 0 ? 'Completed' : balance < stage.amount ? 'Partial' : 'Pending'}
+                              </Badge>
+                            </td>
+                            {canManage && (
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setEditingPayment(isEditing ? null : stage.stage_id)}
+                                  >
+                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                  </Button>
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeletePayment(stage.stage_id)}>
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
+                  {payment_stages.length > 0 && (
+                    <tfoot className="bg-green-50 border-t-2">
+                      <tr>
+                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
+                        <td className="px-4 py-3 text-right font-bold">₹{summary.payment_schedule_total?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{summary.payment_received?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{(summary.payment_schedule_total - summary.payment_received)?.toLocaleString()}</td>
+                        <td colSpan={canManage ? 2 : 1}></td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </TabsContent>
 
-            {/* BOQ Tab */}
-            <TabsContent value="boq" className="p-6">
+            {/* ==================== ADDITIONS TAB ==================== */}
+            <TabsContent value="additions" className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="text-lg font-bold">Bill of Quantities</h3>
-                  <p className="text-sm text-gray-500">Project budget breakdown</p>
+                  <h3 className="text-lg font-bold">Additional Work</h3>
+                  <p className="text-sm text-gray-500">Track extra work and variations</p>
                 </div>
-                <Button
-                  data-testid="manage-boq-btn"
-                  variant="outline"
-                  onClick={() => window.location.href = `/boq/${projectId}`}
-                >
-                  <ClipboardList className="h-4 w-4 mr-2" />Manage BOQ
-                </Button>
+                {canManage && (
+                  <Dialog open={additionDialog} onOpenChange={setAdditionDialog}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="add-addition-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                        <Plus className="h-4 w-4" />Add Addition
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add Additional Work</DialogTitle>
+                        <DialogDescription>Record extra work or variations</DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleAddAddition} className="space-y-4">
+                        <div>
+                          <Label>Description</Label>
+                          <Input
+                            data-testid="addition-desc-input"
+                            value={additionForm.description}
+                            onChange={(e) => setAdditionForm({...additionForm, description: e.target.value})}
+                            placeholder="e.g., Extra flooring, Additional electrical"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label>Estimated Amount (₹)</Label>
+                          <Input
+                            data-testid="addition-amount-input"
+                            type="number"
+                            value={additionForm.estimated_amount}
+                            onChange={(e) => setAdditionForm({...additionForm, estimated_amount: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <Button data-testid="submit-addition-btn" type="submit" className="w-full">Add Addition</Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ITEM</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">CATEGORY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">QUANTITY</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">UNIT RATE</th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">TOTAL</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Income</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {boqItems.length === 0 ? (
+                    {additional_costs.length === 0 ? (
                       <tr>
-                        <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
-                          No BOQ items defined yet
+                        <td colSpan={canManage ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
+                          No additions recorded yet. Click "Add Addition" for extra work.
                         </td>
                       </tr>
                     ) : (
-                      boqItems.map((item) => (
-                        <tr key={item.boq_id} data-testid={`boq-row-${item.boq_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-medium">{item.item_name}</td>
-                          <td className="px-6 py-4"><Badge variant="outline">{item.category}</Badge></td>
-                          <td className="px-6 py-4">{item.quantity} {item.unit}</td>
-                          <td className="px-6 py-4">₹{item.unit_rate.toLocaleString()}</td>
-                          <td className="px-6 py-4 font-semibold">₹{item.total_cost.toLocaleString()}</td>
+                      additional_costs.map((cost, index) => {
+                        const balance = cost.estimated_amount - (cost.income_received || 0);
+                        const isEditing = editingAddition === cost.cost_id;
+                        
+                        return (
+                          <tr key={cost.cost_id} data-testid={`addition-row-${cost.cost_id}`} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm">{index + 1}</td>
+                            <td className="px-4 py-3 font-medium">{cost.description}</td>
+                            <td className="px-4 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">
+                              {isEditing ? (
+                                <Input
+                                  type="number"
+                                  className="w-28 text-right"
+                                  defaultValue={cost.income_received}
+                                  onBlur={(e) => handleUpdateAddition(cost.cost_id, { income_received: parseFloat(e.target.value) || 0 })}
+                                  autoFocus
+                                />
+                              ) : (
+                                <span className="text-green-600">₹{(cost.income_received || 0).toLocaleString()}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={balance > 0 ? 'text-red-600' : 'text-green-600'}>
+                                ₹{balance.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge variant={cost.status === 'completed' ? 'default' : cost.status === 'in_progress' ? 'secondary' : 'outline'}>
+                                {cost.status}
+                              </Badge>
+                            </td>
+                            {canManage && (
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setEditingAddition(isEditing ? null : cost.cost_id)}
+                                  >
+                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                  </Button>
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)}>
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {additional_costs.length > 0 && (
+                    <tfoot className="bg-cyan-50 border-t-2">
+                      <tr>
+                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Totals:</td>
+                        <td className="px-4 py-3 text-right font-bold">₹{summary.additions_total?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{summary.additions_received?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{(summary.additions_total - summary.additions_received)?.toLocaleString()}</td>
+                        <td colSpan={canManage ? 2 : 1}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </TabsContent>
+
+            {/* ==================== DEDUCTIONS TAB ==================== */}
+            <TabsContent value="deductions" className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="text-lg font-bold">Deductions</h3>
+                  <p className="text-sm text-gray-500">Track penalties, discounts, and adjustments (reduces balance only)</p>
+                </div>
+                {canManage && (
+                  <Dialog open={deductionDialog} onOpenChange={setDeductionDialog}>
+                    <DialogTrigger asChild>
+                      <Button data-testid="add-deduction-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
+                        <MinusCircle className="h-4 w-4" />Add Deduction
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add Deduction</DialogTitle>
+                        <DialogDescription>Record penalty, discount or adjustment</DialogDescription>
+                      </DialogHeader>
+                      <form onSubmit={handleAddDeduction} className="space-y-4">
+                        <div>
+                          <Label>Description</Label>
+                          <Input
+                            data-testid="deduction-desc-input"
+                            value={deductionForm.description}
+                            onChange={(e) => setDeductionForm({...deductionForm, description: e.target.value})}
+                            placeholder="e.g., Penalty, Discount, Adjustment"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label>Amount (₹)</Label>
+                          <Input
+                            data-testid="deduction-amount-input"
+                            type="number"
+                            value={deductionForm.amount}
+                            onChange={(e) => setDeductionForm({...deductionForm, amount: e.target.value})}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <Label>Remarks (Optional)</Label>
+                          <Input
+                            data-testid="deduction-remarks-input"
+                            value={deductionForm.remarks}
+                            onChange={(e) => setDeductionForm({...deductionForm, remarks: e.target.value})}
+                          />
+                        </div>
+                        <Button data-testid="submit-deduction-btn" type="submit" className="w-full bg-orange-600 hover:bg-orange-700">Add Deduction</Button>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                )}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {deductions.length === 0 ? (
+                      <tr>
+                        <td colSpan={canManage ? 6 : 5} className="px-4 py-8 text-center text-gray-500">
+                          No deductions recorded yet. Click "Add Deduction" for penalties or adjustments.
+                        </td>
+                      </tr>
+                    ) : (
+                      deductions.map((d, index) => (
+                        <tr key={d.deduction_id} data-testid={`deduction-row-${d.deduction_id}`} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm">{index + 1}</td>
+                          <td className="px-4 py-3 font-medium">{d.description}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-orange-600">-₹{d.amount?.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge variant={d.status === 'approved' ? 'default' : d.status === 'rejected' ? 'destructive' : 'outline'}>
+                              {d.status}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
+                          {canManage && (
+                            <td className="px-4 py-3 text-center">
+                              <Button variant="ghost" size="icon" onClick={() => handleDeleteDeduction(d.deduction_id)}>
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
                   </tbody>
+                  {deductions.length > 0 && (
+                    <tfoot className="bg-orange-50 border-t-2">
+                      <tr>
+                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
+                        <td className="px-4 py-3 text-right font-bold text-orange-700">-₹{summary.deductions_total?.toLocaleString()}</td>
+                        <td colSpan={canManage ? 3 : 2}></td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
             </TabsContent>
