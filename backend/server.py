@@ -1926,6 +1926,235 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
     return {"message": "Additional cost deleted"}
 
 
+# ==================== SCOPE ITEMS CRUD ====================
+
+class ScopeItemCreate(BaseModel):
+    project_id: str
+    item_name: str
+    quantity: float = 1
+    unit: str = "Nos"
+    unit_rate: float
+    remarks: Optional[str] = None
+
+
+class ScopeItemUpdate(BaseModel):
+    item_name: Optional[str] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    unit_rate: Optional[float] = None
+    remarks: Optional[str] = None
+
+
+@api_router.get("/projects/{project_id}/scope-items")
+async def get_scope_items(project_id: str, user: User = Depends(get_current_user)):
+    items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for item in items:
+        if isinstance(item.get("created_at"), str):
+            item["created_at"] = datetime.fromisoformat(item["created_at"])
+    return items
+
+
+@api_router.post("/scope-items")
+async def create_scope_item(item_input: ScopeItemCreate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    total_amount = item_input.quantity * item_input.unit_rate
+    
+    item = ScopeItem(
+        project_id=item_input.project_id,
+        item_name=item_input.item_name,
+        quantity=item_input.quantity,
+        unit=item_input.unit,
+        unit_rate=item_input.unit_rate,
+        total_amount=total_amount,
+        remarks=item_input.remarks
+    )
+    
+    item_dict = item.model_dump()
+    item_dict["created_at"] = item_dict["created_at"].isoformat()
+    
+    await db.scope_items.insert_one(item_dict)
+    await create_audit_log(user.user_id, "create", "scope_item", item.scope_id, {"item_name": item.item_name})
+    return item
+
+
+@api_router.patch("/scope-items/{scope_id}")
+async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get existing item for recalculation
+    existing = await db.scope_items.find_one({"scope_id": scope_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Scope item not found")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    # Recalculate total_amount if quantity or rate changed
+    qty = update_dict.get("quantity", existing.get("quantity", 1))
+    rate = update_dict.get("unit_rate", existing.get("unit_rate", 0))
+    update_dict["total_amount"] = qty * rate
+    
+    await db.scope_items.update_one({"scope_id": scope_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "scope_item", scope_id, update_dict)
+    return {"message": "Scope item updated"}
+
+
+@api_router.delete("/scope-items/{scope_id}")
+async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    await db.scope_items.delete_one({"scope_id": scope_id})
+    await create_audit_log(user.user_id, "delete", "scope_item", scope_id, {})
+    return {"message": "Scope item deleted"}
+
+
+# ==================== DEDUCTION ITEMS CRUD ====================
+
+class DeductionCreate(BaseModel):
+    project_id: str
+    description: str
+    amount: float
+    remarks: Optional[str] = None
+
+
+class DeductionUpdate(BaseModel):
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    status: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+@api_router.get("/projects/{project_id}/deductions")
+async def get_deductions(project_id: str, user: User = Depends(get_current_user)):
+    deductions = await db.deductions.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for d in deductions:
+        if isinstance(d.get("created_at"), str):
+            d["created_at"] = datetime.fromisoformat(d["created_at"])
+    return deductions
+
+
+@api_router.post("/deductions")
+async def create_deduction(deduction_input: DeductionCreate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    deduction = DeductionItem(
+        project_id=deduction_input.project_id,
+        description=deduction_input.description,
+        amount=deduction_input.amount,
+        remarks=deduction_input.remarks
+    )
+    
+    deduction_dict = deduction.model_dump()
+    deduction_dict["created_at"] = deduction_dict["created_at"].isoformat()
+    
+    await db.deductions.insert_one(deduction_dict)
+    await create_audit_log(user.user_id, "create", "deduction", deduction.deduction_id, {"description": deduction.description})
+    return deduction
+
+
+@api_router.patch("/deductions/{deduction_id}")
+async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    
+    await db.deductions.update_one({"deduction_id": deduction_id}, {"$set": update_dict})
+    await create_audit_log(user.user_id, "update", "deduction", deduction_id, update_dict)
+    return {"message": "Deduction updated"}
+
+
+@api_router.delete("/deductions/{deduction_id}")
+async def delete_deduction(deduction_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    await db.deductions.delete_one({"deduction_id": deduction_id})
+    await create_audit_log(user.user_id, "delete", "deduction", deduction_id, {})
+    return {"message": "Deduction deleted"}
+
+
+# ==================== ENHANCED PROJECT VIEW ENDPOINT ====================
+
+@api_router.get("/projects/{project_id}/full-details")
+async def get_project_full_details(project_id: str, user: User = Depends(get_current_user)):
+    """Get complete project details with scope, payments, additions, and deductions"""
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get scope items
+    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for item in scope_items:
+        if isinstance(item.get("created_at"), str):
+            item["created_at"] = datetime.fromisoformat(item["created_at"])
+    
+    # Get payment stages
+    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for stage in payment_stages:
+        if isinstance(stage.get("due_date"), str):
+            stage["due_date"] = datetime.fromisoformat(stage["due_date"])
+        if isinstance(stage.get("completed_date"), str):
+            stage["completed_date"] = datetime.fromisoformat(stage["completed_date"])
+        if isinstance(stage.get("created_at"), str):
+            stage["created_at"] = datetime.fromisoformat(stage["created_at"])
+    
+    # Get additional costs
+    additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for cost in additional_costs:
+        if isinstance(cost.get("created_at"), str):
+            cost["created_at"] = datetime.fromisoformat(cost["created_at"])
+    
+    # Get deductions
+    deductions = await db.deductions.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    for d in deductions:
+        if isinstance(d.get("created_at"), str):
+            d["created_at"] = datetime.fromisoformat(d["created_at"])
+    
+    # Calculate totals
+    scope_total = sum(item.get("total_amount", 0) for item in scope_items)
+    additions_total = sum(cost.get("estimated_amount", 0) for cost in additional_costs)
+    additions_received = sum(cost.get("income_received", 0) for cost in additional_costs)
+    deductions_total = sum(d.get("amount", 0) for d in deductions)
+    
+    # Payment calculations
+    payment_total = sum(stage.get("amount", 0) for stage in payment_stages)
+    payment_received = sum(stage.get("amount_received", 0) for stage in payment_stages)
+    
+    # Project value = Scope total (or original project value if no scope items)
+    project_value = scope_total if scope_items else project.get("total_value", 0)
+    
+    # Total value = Project Value + Additions
+    total_value = project_value + additions_total
+    
+    # Balance = Total Value - Payments Received - Deductions
+    balance = total_value - payment_received - additions_received - deductions_total
+    
+    return {
+        "project": project,
+        "scope_items": scope_items,
+        "payment_stages": payment_stages,
+        "additional_costs": additional_costs,
+        "deductions": deductions,
+        "summary": {
+            "scope_total": scope_total,
+            "project_value": project_value,
+            "additions_total": additions_total,
+            "additions_received": additions_received,
+            "total_value": total_value,
+            "payment_schedule_total": payment_total,
+            "payment_received": payment_received,
+            "deductions_total": deductions_total,
+            "balance": balance
+        }
+    }
+
+
 app.include_router(api_router)
 
 app.add_middleware(
