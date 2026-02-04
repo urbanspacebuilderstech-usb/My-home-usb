@@ -262,6 +262,17 @@ Build a Construction Accounting CRM with:
 - `PATCH /api/additional-costs/{cost_id}` - Update additional cost
 - `DELETE /api/additional-costs/{cost_id}` - Delete additional cost
 
+### Enhanced Project Detail (NEW - Feb 4, 2026)
+- `GET /api/projects/{id}/full-details` - Get full project data with all tabs
+- `GET /api/projects/{id}/scope-items` - Get scope items
+- `POST /api/scope-items` - Create scope item
+- `PATCH /api/scope-items/{scope_id}` - Update scope item
+- `DELETE /api/scope-items/{scope_id}` - Delete scope item
+- `GET /api/projects/{id}/deductions` - Get deductions
+- `POST /api/deductions` - Create deduction
+- `PATCH /api/deductions/{deduction_id}` - Update deduction
+- `DELETE /api/deductions/{deduction_id}` - Delete deduction
+
 ---
 
 ## Demo Credentials
