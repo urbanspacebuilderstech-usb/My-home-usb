@@ -2786,7 +2786,7 @@ async def verify_deductions(data: VerifyRequest, user: User = Depends(get_curren
     # Notify super admin
     admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
     for admin in admins:
-        await create_notification(admin["user_id"], "deduction_approval", f"{result.modified_count} deductions pending your approval")
+        await create_notification(admin["user_id"], f"{result.modified_count} deductions pending your approval")
     
     return {"message": f"Verified {result.modified_count} deductions"}
 
