@@ -204,6 +204,7 @@ export default function Dashboard() {
             <Button variant="ghost" onClick={() => window.location.href = '/projects'}>Projects</Button>
             <Button variant="ghost" onClick={() => window.location.href = '/income'}>Income</Button>
             <Button variant="ghost" onClick={() => window.location.href = '/expenses'}>Expenses</Button>
+            <Button variant="ghost" onClick={() => window.location.href = '/expense-management'}>Expenses</Button>
             <Button variant="ghost" onClick={() => window.location.href = '/users'}>Users</Button>
             <Button
               variant="ghost"
