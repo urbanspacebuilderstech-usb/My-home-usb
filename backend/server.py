@@ -3923,6 +3923,8 @@ async def create_vendor_master(
     await db.vendor_master.insert_one(vend_dict)
     await create_audit_log(user.user_id, "create", "vendor_master", vendor.vendor_id, {"name": vendor.name})
     
+    # Remove _id if MongoDB added it
+    vend_dict.pop("_id", None)
     return vend_dict
 
 
