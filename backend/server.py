@@ -105,6 +105,137 @@ class PaymentStatus(str, Enum):
     CREDIT = "credit"
 
 
+# ==================== COMPANY & PROFILE MODELS ====================
+
+class CompanySettings(BaseModel):
+    settings_id: str = Field(default_factory=lambda: f"company_{uuid.uuid4().hex[:12]}")
+    company_name: str
+    logo_url: Optional[str] = None
+    address: Optional[str] = None
+    contact_number: Optional[str] = None
+    email: Optional[str] = None
+    gst_number: Optional[str] = None
+    default_currency: str = "INR"
+    financial_year_start: str = "April"  # Month name
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class UserProfile(BaseModel):
+    user_id: str
+    department: Optional[str] = None
+    profile_photo_url: Optional[str] = None
+    address: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    date_of_joining: Optional[datetime] = None
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ==================== PERMISSION MODELS ====================
+
+class Permission(BaseModel):
+    permission_id: str
+    name: str
+    description: str
+    module: str  # expense, material, user, project, etc.
+
+
+class RolePermission(BaseModel):
+    role: UserRole
+    permissions: List[str]  # List of permission_ids
+
+
+# ==================== MATERIAL & VENDOR MODELS ====================
+
+class MaterialCategory(str, Enum):
+    CEMENT = "cement"
+    SAND = "sand"
+    STEEL = "steel"
+    BRICKS = "bricks"
+    AGGREGATE = "aggregate"
+    TILES = "tiles"
+    ELECTRICAL = "electrical"
+    PLUMBING = "plumbing"
+    PAINT = "paint"
+    WOOD = "wood"
+    HARDWARE = "hardware"
+    OTHER = "other"
+
+
+class Material(BaseModel):
+    material_id: str = Field(default_factory=lambda: f"mat_{uuid.uuid4().hex[:12]}")
+    name: str
+    category: MaterialCategory
+    unit: str  # bag, ton, load, kg, nos, sqft, etc.
+    description: Optional[str] = None
+    hsn_code: Optional[str] = None  # For GST
+    is_active: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorMaster(BaseModel):
+    vendor_id: str = Field(default_factory=lambda: f"vend_{uuid.uuid4().hex[:12]}")
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    materials_supplied: List[str] = []  # List of material_ids
+    payment_terms: str = "full"  # credit, advance, full
+    credit_limit: float = 0
+    credit_days: int = 0
+    is_active: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorPrice(BaseModel):
+    price_id: str = Field(default_factory=lambda: f"vp_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    material_id: str
+    unit_price: float
+    min_quantity: float = 1
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    effective_to: Optional[datetime] = None
+    is_current: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PriceHistory(BaseModel):
+    history_id: str = Field(default_factory=lambda: f"ph_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    material_id: str
+    old_price: float
+    new_price: float
+    changed_by: str
+    changed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    reason: Optional[str] = None
+
+
+# ==================== ENHANCED USER MODEL ====================
+
+class EnhancedUser(BaseModel):
+    user_id: str = Field(default_factory=lambda: f"user_{uuid.uuid4().hex[:12]}")
+    email: EmailStr
+    name: str
+    phone: Optional[str] = None
+    role: UserRole
+    department: Optional[str] = None
+    password_hash: str
+    profile_photo_url: Optional[str] = None
+    is_active: bool = True
+    permissions: List[str] = []  # Custom permissions beyond role defaults
+    last_login: Optional[datetime] = None
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class User(BaseModel):
     user_id: str
     email: EmailStr
