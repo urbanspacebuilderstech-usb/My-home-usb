@@ -23,6 +23,9 @@ import FinancialOverview from '@/pages/FinancialOverview';
 import ComprehensiveProjectView from '@/pages/ComprehensiveProjectView';
 import Income from '@/pages/Income';
 import ExpenseManagement from '@/pages/ExpenseManagement';
+import Settings from '@/pages/Settings';
+import MaterialManagement from '@/pages/MaterialManagement';
+import VendorMasterManagement from '@/pages/VendorMasterManagement';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
