@@ -459,6 +459,9 @@ Build a Construction Accounting CRM with:
 │   │   │   ├── VendorPortal.jsx  # NEW
 │   │   │   ├── FinancialOverview.jsx  # NEW
 │   │   │   ├── ComprehensiveProjectView.jsx  # NEW (Jan 18, 2026)
+│   │   │   ├── Settings.jsx  # NEW (Feb 6, 2026)
+│   │   │   ├── MaterialManagement.jsx  # NEW (Feb 6, 2026)
+│   │   │   ├── VendorMasterManagement.jsx  # NEW (Feb 6, 2026)
 │   │   │   └── Login.jsx
 │   │   ├── components/
 │   │   └── App.js
