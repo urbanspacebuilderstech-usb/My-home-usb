@@ -215,6 +215,33 @@ Build a Construction Accounting CRM with:
 - [x] **Project Integration**: Income updates project.income_project field
 - [x] **Balance Calculation**: Total Value - Income Received - Deductions
 
+#### ✅ Expense Management Module (P0 - February 6, 2026)
+- [x] **Three Expense Types**: Material, Labour, Vendor/Service
+- [x] **Role-Based Approval Workflows**:
+  - Site Engineer → Planning → Procurement (Material only) → Accounts → Super Admin
+  - Each role sees only their assigned workflow stage
+- [x] **Material Expense Workflow**:
+  - Step 1: Site Engineer creates request (project, material, qty, date)
+  - Step 2: Planning approval/rejection
+  - Step 3: Procurement adds vendor quotes & pricing
+  - Step 4: Accounts final approval
+- [x] **Labour Expense Module**:
+  - Fields: Labour type, workers, days, rate, auto-total
+  - Approval: Planning → Accounts → Super Admin
+- [x] **Vendor/Service Expense Module**:
+  - Fields: Vendor, service type, amount, invoice
+  - Same approval workflow
+- [x] **Payment Options After Approval**:
+  - Credit (mark as payable, no payment)
+  - Advance/Partial (enter amount, auto-calculate balance)
+  - Full Settlement (mark completed)
+- [x] **Summary Cards**: Material, Labour, Vendor/Service, Total with paid amounts
+- [x] **Status Tracking**: Requested → Planning Approved → Procurement Priced → Accounts Approved → Completed
+- [x] **Payment Status**: Pending, Partial, Paid, Credit
+- [x] **Auto-update project expense totals**
+- [x] **Backend Models**: MaterialExpense, LabourExpense, VendorServiceExpense, ExpensePayment
+- [x] **Backend Endpoints**: Full CRUD + approval workflows for all 3 types
+
 ---
 
 ## API Endpoints
