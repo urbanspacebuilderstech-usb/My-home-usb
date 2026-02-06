@@ -188,6 +188,33 @@ Build a Construction Accounting CRM with:
 - [x] **Backend Endpoint**: GET /api/admin/dashboard-summary
 - [x] **Testing**: 13/13 backend tests passed, 100% frontend success
 
+#### ✅ Income Module (P0 - February 4, 2026)
+- [x] **Separate Income Module Page** at `/income`
+- [x] **6 Summary Cards**: Total Income, Cash, Cheque, Bank Transfer, UPI, Petty Cash
+- [x] **Add Income Dialog**: 
+  - Project selection
+  - Amount, Payment Date
+  - Payment Mode (Cash, Cheque, Bank Transfer, UPI, Petty Cash)
+  - Cheque Number & Bank Name (for cheque mode)
+  - Reference/Transaction ID (for bank/UPI)
+  - Remarks
+- [x] **Filters**: Project, Payment Mode, Date Range
+- [x] **Income Table**: S.No, Project (clickable), Mode, Amount, Date, Reference, Remarks, Delete
+- [x] **Flow**:
+  - Payment Tab = Request payments (milestones)
+  - Income Module = Record actual received payments
+  - Income reflects on project payment summary
+- [x] **Backend Model**: IncomeEntry with PaymentMode enum
+- [x] **Backend Endpoints**: 
+  - GET /api/income (with filters)
+  - GET /api/income/summary
+  - GET /api/projects/{id}/income
+  - POST /api/income
+  - PATCH /api/income/{id}
+  - DELETE /api/income/{id}
+- [x] **Project Integration**: Income updates project.income_project field
+- [x] **Balance Calculation**: Total Value - Income Received - Deductions
+
 ---
 
 ## API Endpoints
