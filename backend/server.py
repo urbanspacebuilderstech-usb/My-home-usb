@@ -3675,6 +3675,8 @@ async def create_or_update_company_settings(
         settings_dict["updated_at"] = settings_dict["updated_at"].isoformat()
         await db.company_settings.insert_one(settings_dict)
         await create_audit_log(user.user_id, "create", "company_settings", settings.settings_id, {"company_name": settings.company_name})
+        # Remove _id if MongoDB added it
+        settings_dict.pop("_id", None)
         return settings_dict
 
 
