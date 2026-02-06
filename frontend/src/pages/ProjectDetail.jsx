@@ -3,20 +3,53 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
-  DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock
+  DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
+  AlertTriangle, Check, XCircle, ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Initial empty rows for bulk add
+const createEmptyRows = (type, count = 10) => {
+  if (type === 'scope') {
+    return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
+  } else if (type === 'payment') {
+    return Array(count).fill(null).map(() => ({ stage_name: '', percentage: '', amount: '', due_date: '' }));
+  } else if (type === 'addition') {
+    return Array(count).fill(null).map(() => ({ description: '', estimated_amount: '' }));
+  } else if (type === 'deduction') {
+    return Array(count).fill(null).map(() => ({ description: '', amount: '', remarks: '' }));
+  }
+  return [];
+};
+
+const WorkflowBadge = ({ status }) => {
+  const config = {
+    draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700', icon: Clock },
+    pending_verification: { label: 'Pending Verification', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle },
+    pending_approval: { label: 'Pending Approval', color: 'bg-blue-100 text-blue-700', icon: ShieldCheck },
+    approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: Check },
+    rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: XCircle }
+  };
+  const cfg = config[status] || config.draft;
+  const Icon = cfg.icon;
+  
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${cfg.color}`}>
+      <Icon className="h-3 w-3" />
+      {cfg.label}
+    </span>
+  );
+};
 
 export default function ProjectDetail() {
   const { projectId } = useParams();
@@ -25,34 +58,25 @@ export default function ProjectDetail() {
   const [projectData, setProjectData] = useState(null);
   const [activeTab, setActiveTab] = useState('scope');
   
-  // Dialog states
-  const [scopeDialog, setScopeDialog] = useState(false);
-  const [paymentDialog, setPaymentDialog] = useState(false);
-  const [additionDialog, setAdditionDialog] = useState(false);
-  const [deductionDialog, setDeductionDialog] = useState(false);
+  // Bulk dialog states
+  const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
+  const [bulkPaymentDialog, setBulkPaymentDialog] = useState(false);
+  const [bulkAdditionDialog, setBulkAdditionDialog] = useState(false);
+  const [bulkDeductionDialog, setBulkDeductionDialog] = useState(false);
+  
+  // Verification dialog
+  const [verifyDialog, setVerifyDialog] = useState({ open: false, type: '', ids: [] });
+  const [verifyCode, setVerifyCode] = useState('');
+  
+  // Bulk form data
+  const [bulkScopeRows, setBulkScopeRows] = useState(createEmptyRows('scope'));
+  const [bulkPaymentRows, setBulkPaymentRows] = useState(createEmptyRows('payment'));
+  const [bulkAdditionRows, setBulkAdditionRows] = useState(createEmptyRows('addition'));
+  const [bulkDeductionRows, setBulkDeductionRows] = useState(createEmptyRows('deduction'));
   
   // Editing states
-  const [editingScope, setEditingScope] = useState(null);
   const [editingPayment, setEditingPayment] = useState(null);
   const [editingAddition, setEditingAddition] = useState(null);
-  const [editingDeduction, setEditingDeduction] = useState(null);
-  
-  // Form data
-  const [scopeForm, setScopeForm] = useState({
-    item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: ''
-  });
-  
-  const [paymentForm, setPaymentForm] = useState({
-    stage_name: '', percentage: '', amount: '', due_date: ''
-  });
-  
-  const [additionForm, setAdditionForm] = useState({
-    description: '', estimated_amount: ''
-  });
-  
-  const [deductionForm, setDeductionForm] = useState({
-    description: '', amount: '', remarks: ''
-  });
 
   useEffect(() => {
     fetchData();
@@ -84,38 +108,161 @@ export default function ProjectDetail() {
     }
   };
 
-  // ==================== SCOPE HANDLERS ====================
-  const handleAddScope = async (e) => {
-    e.preventDefault();
+  // ==================== BULK ADD HANDLERS ====================
+  const handleBulkAddScope = async () => {
+    const validItems = bulkScopeRows.filter(r => r.item_name && r.unit_rate);
+    if (validItems.length === 0) {
+      toast.error('Please fill at least one complete row');
+      return;
+    }
+    
     try {
-      await axios.post(`${API}/scope-items`, {
+      await axios.post(`${API}/scope-items/bulk`, {
         project_id: projectId,
-        item_name: scopeForm.item_name,
-        quantity: parseFloat(scopeForm.quantity) || 1,
-        unit: scopeForm.unit,
-        unit_rate: parseFloat(scopeForm.unit_rate) || 0,
-        remarks: scopeForm.remarks || null
+        items: validItems.map(r => ({
+          item_name: r.item_name,
+          quantity: parseFloat(r.quantity) || 1,
+          unit: r.unit || 'Nos',
+          unit_rate: parseFloat(r.unit_rate) || 0,
+          remarks: r.remarks || null
+        }))
       });
-      toast.success('Scope item added');
-      setScopeDialog(false);
-      setScopeForm({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' });
+      toast.success(`Added ${validItems.length} scope items`);
+      setBulkScopeDialog(false);
+      setBulkScopeRows(createEmptyRows('scope'));
       fetchData();
     } catch (error) {
-      toast.error('Failed to add scope item');
+      toast.error(error.response?.data?.detail || 'Failed to add scope items');
     }
   };
 
-  const handleUpdateScope = async (scopeId, updates) => {
+  const handleBulkAddPayment = async () => {
+    const validItems = bulkPaymentRows.filter(r => r.stage_name && r.amount);
+    if (validItems.length === 0) {
+      toast.error('Please fill at least one complete row');
+      return;
+    }
+    
     try {
-      await axios.patch(`${API}/scope-items/${scopeId}`, updates);
-      toast.success('Scope item updated');
-      setEditingScope(null);
+      await axios.post(`${API}/payment-stages/bulk`, {
+        project_id: projectId,
+        items: validItems.map(r => ({
+          stage_name: r.stage_name,
+          percentage: parseFloat(r.percentage) || 0,
+          amount: parseFloat(r.amount) || 0,
+          due_date: r.due_date || null
+        }))
+      });
+      toast.success(`Added ${validItems.length} payment stages`);
+      setBulkPaymentDialog(false);
+      setBulkPaymentRows(createEmptyRows('payment'));
       fetchData();
     } catch (error) {
-      toast.error('Failed to update scope item');
+      toast.error(error.response?.data?.detail || 'Failed to add payment stages');
     }
   };
 
+  const handleBulkAddAddition = async () => {
+    const validItems = bulkAdditionRows.filter(r => r.description && r.estimated_amount);
+    if (validItems.length === 0) {
+      toast.error('Please fill at least one complete row');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/additional-costs/bulk`, {
+        project_id: projectId,
+        items: validItems.map(r => ({
+          description: r.description,
+          estimated_amount: parseFloat(r.estimated_amount) || 0
+        }))
+      });
+      toast.success(`Added ${validItems.length} additions`);
+      setBulkAdditionDialog(false);
+      setBulkAdditionRows(createEmptyRows('addition'));
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add additions');
+    }
+  };
+
+  const handleBulkAddDeduction = async () => {
+    const validItems = bulkDeductionRows.filter(r => r.description && r.amount);
+    if (validItems.length === 0) {
+      toast.error('Please fill at least one complete row');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/deductions/bulk`, {
+        project_id: projectId,
+        items: validItems.map(r => ({
+          description: r.description,
+          amount: parseFloat(r.amount) || 0,
+          remarks: r.remarks || null
+        }))
+      });
+      toast.success(`Added ${validItems.length} deductions`);
+      setBulkDeductionDialog(false);
+      setBulkDeductionRows(createEmptyRows('deduction'));
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add deductions');
+    }
+  };
+
+  // ==================== VERIFICATION HANDLER ====================
+  const openVerifyDialog = (type, ids) => {
+    setVerifyDialog({ open: true, type, ids });
+    setVerifyCode('');
+  };
+
+  const handleVerify = async () => {
+    if (verifyCode !== 'VERIFY') {
+      toast.error("Please type 'VERIFY' exactly in capital letters");
+      return;
+    }
+    
+    try {
+      const endpoint = {
+        scope: '/scope-items/verify',
+        payment: '/payment-stages/verify',
+        addition: '/additional-costs/verify',
+        deduction: '/deductions/verify'
+      }[verifyDialog.type];
+      
+      await axios.post(`${API}${endpoint}`, {
+        item_ids: verifyDialog.ids,
+        verification_code: verifyCode
+      });
+      
+      toast.success('Items verified and sent for approval');
+      setVerifyDialog({ open: false, type: '', ids: [] });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Verification failed');
+    }
+  };
+
+  // ==================== APPROVAL HANDLER (Super Admin) ====================
+  const handleApprove = async (type, ids, action) => {
+    try {
+      const endpoint = {
+        scope: '/scope-items/approve',
+        payment: '/payment-stages/approve',
+        addition: '/additional-costs/approve',
+        deduction: '/deductions/approve'
+      }[type];
+      
+      await axios.post(`${API}${endpoint}`, { item_ids: ids, action });
+      toast.success(`Items ${action}d successfully`);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || `${action} failed`);
+    }
+  };
+
+  // ==================== DELETE HANDLERS ====================
   const handleDeleteScope = async (scopeId) => {
     if (!confirm('Delete this scope item?')) return;
     try {
@@ -124,37 +271,6 @@ export default function ProjectDetail() {
       fetchData();
     } catch (error) {
       toast.error('Failed to delete scope item');
-    }
-  };
-
-  // ==================== PAYMENT HANDLERS ====================
-  const handleAddPayment = async (e) => {
-    e.preventDefault();
-    try {
-      await axios.post(`${API}/payment-stages`, {
-        project_id: projectId,
-        stage_name: paymentForm.stage_name,
-        percentage: parseFloat(paymentForm.percentage) || 0,
-        amount: parseFloat(paymentForm.amount) || 0,
-        due_date: paymentForm.due_date || null
-      });
-      toast.success('Payment stage added');
-      setPaymentDialog(false);
-      setPaymentForm({ stage_name: '', percentage: '', amount: '', due_date: '' });
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to add payment stage');
-    }
-  };
-
-  const handleUpdatePayment = async (stageId, updates) => {
-    try {
-      await axios.patch(`${API}/payment-stages/${stageId}`, updates);
-      toast.success('Payment updated');
-      setEditingPayment(null);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to update payment');
     }
   };
 
@@ -169,35 +285,6 @@ export default function ProjectDetail() {
     }
   };
 
-  // ==================== ADDITION HANDLERS ====================
-  const handleAddAddition = async (e) => {
-    e.preventDefault();
-    try {
-      await axios.post(`${API}/additional-costs`, {
-        project_id: projectId,
-        description: additionForm.description,
-        estimated_amount: parseFloat(additionForm.estimated_amount) || 0
-      });
-      toast.success('Addition added');
-      setAdditionDialog(false);
-      setAdditionForm({ description: '', estimated_amount: '' });
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to add addition');
-    }
-  };
-
-  const handleUpdateAddition = async (costId, updates) => {
-    try {
-      await axios.patch(`${API}/additional-costs/${costId}`, updates);
-      toast.success('Addition updated');
-      setEditingAddition(null);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to update addition');
-    }
-  };
-
   const handleDeleteAddition = async (costId) => {
     if (!confirm('Delete this addition?')) return;
     try {
@@ -206,36 +293,6 @@ export default function ProjectDetail() {
       fetchData();
     } catch (error) {
       toast.error('Failed to delete addition');
-    }
-  };
-
-  // ==================== DEDUCTION HANDLERS ====================
-  const handleAddDeduction = async (e) => {
-    e.preventDefault();
-    try {
-      await axios.post(`${API}/deductions`, {
-        project_id: projectId,
-        description: deductionForm.description,
-        amount: parseFloat(deductionForm.amount) || 0,
-        remarks: deductionForm.remarks || null
-      });
-      toast.success('Deduction added');
-      setDeductionDialog(false);
-      setDeductionForm({ description: '', amount: '', remarks: '' });
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to add deduction');
-    }
-  };
-
-  const handleUpdateDeduction = async (deductionId, updates) => {
-    try {
-      await axios.patch(`${API}/deductions/${deductionId}`, updates);
-      toast.success('Deduction updated');
-      setEditingDeduction(null);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to update deduction');
     }
   };
 
@@ -250,6 +307,29 @@ export default function ProjectDetail() {
     }
   };
 
+  // ==================== UPDATE HANDLERS ====================
+  const handleUpdatePayment = async (stageId, updates) => {
+    try {
+      await axios.patch(`${API}/payment-stages/${stageId}`, updates);
+      toast.success('Payment updated');
+      setEditingPayment(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update payment');
+    }
+  };
+
+  const handleUpdateAddition = async (costId, updates) => {
+    try {
+      await axios.patch(`${API}/additional-costs/${costId}`, updates);
+      toast.success('Addition updated');
+      setEditingAddition(null);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to update addition');
+    }
+  };
+
   const formatCurrency = (amount) => {
     if (amount >= 100000) {
       return `₹${(amount / 100000).toFixed(2)}L`;
@@ -258,6 +338,7 @@ export default function ProjectDetail() {
   };
 
   const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning';
+  const isSuperAdmin = user?.role === 'super_admin';
 
   if (loading) {
     return (
@@ -277,6 +358,18 @@ export default function ProjectDetail() {
 
   const { project, scope_items, payment_stages, additional_costs, deductions, summary } = projectData;
 
+  // Get draft items for verification
+  const draftScopeItems = scope_items.filter(s => s.workflow_status === 'draft');
+  const draftPaymentItems = payment_stages.filter(p => p.workflow_status === 'draft');
+  const draftAdditions = additional_costs.filter(a => a.workflow_status === 'draft');
+  const draftDeductions = deductions.filter(d => d.workflow_status === 'draft');
+  
+  // Get pending approval items
+  const pendingApprovalScope = scope_items.filter(s => s.workflow_status === 'pending_approval');
+  const pendingApprovalPayment = payment_stages.filter(p => p.workflow_status === 'pending_approval');
+  const pendingApprovalAdditions = additional_costs.filter(a => a.workflow_status === 'pending_approval');
+  const pendingApprovalDeductions = deductions.filter(d => d.workflow_status === 'pending_approval');
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
@@ -293,11 +386,7 @@ export default function ProjectDetail() {
           </div>
           
           <div className="flex items-center gap-4">
-            <Button
-              data-testid="dashboard-btn"
-              variant="ghost"
-              onClick={() => window.location.href = '/dashboard'}
-            >
+            <Button data-testid="dashboard-btn" variant="ghost" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
             <div className="flex items-center gap-2 pl-4 border-l">
@@ -305,12 +394,7 @@ export default function ProjectDetail() {
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button
-                data-testid="logout-btn"
-                variant="ghost"
-                size="icon"
-                onClick={handleLogout}
-              >
+              <Button data-testid="logout-btn" variant="ghost" size="icon" onClick={handleLogout}>
                 <LogOut className="h-5 w-5" />
               </Button>
             </div>
@@ -322,11 +406,7 @@ export default function ProjectDetail() {
         {/* Project Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => window.location.href = '/projects'}
-            >
+            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/projects'}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex-1">
@@ -334,15 +414,9 @@ export default function ProjectDetail() {
                 {project.name}
               </h2>
               <div className="flex items-center gap-4 mt-1 flex-wrap text-sm">
-                <span className="text-gray-600">
-                  <strong>Client:</strong> {project.client_name}
-                </span>
-                <span className="text-gray-600">
-                  <strong>Location:</strong> {project.location}
-                </span>
-                <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-                  {project.status}
-                </Badge>
+                <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
+                <span className="text-gray-600"><strong>Location:</strong> {project.location}</span>
+                <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>{project.status}</Badge>
               </div>
             </div>
           </div>
@@ -395,10 +469,7 @@ export default function ProjectDetail() {
             <CardContent>
               <div className="text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
               <p className="text-xs text-gray-500">
-                <span 
-                  className="text-blue-600 cursor-pointer hover:underline"
-                  onClick={() => window.location.href = '/income'}
-                >
+                <span className="text-blue-600 cursor-pointer hover:underline" onClick={() => window.location.href = '/income'}>
                   View Income Module
                 </span>
               </p>
@@ -437,29 +508,17 @@ export default function ProjectDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b">
               <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-2">
-                <TabsTrigger 
-                  value="scope" 
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  Scope
+                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
+                  Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-2">{draftScopeItems.length} draft</Badge>}
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="payments"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  Payments
+                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
+                  Payments {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-2">{draftPaymentItems.length} draft</Badge>}
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="additions"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  Additions
+                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
+                  Additions {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-2">{draftAdditions.length} draft</Badge>}
                 </TabsTrigger>
-                <TabsTrigger 
-                  value="deductions"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
-                >
-                  Deductions
+                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
+                  Deductions {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-2">{draftDeductions.length} draft</Badge>}
                 </TabsTrigger>
               </TabsList>
             </CardHeader>
@@ -471,78 +530,142 @@ export default function ProjectDetail() {
                   <h3 className="text-lg font-bold">Project Scope</h3>
                   <p className="text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
-                {canManage && (
-                  <Dialog open={scopeDialog} onOpenChange={setScopeDialog}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="add-scope-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Plus className="h-4 w-4" />Add Scope
+                <div className="flex gap-2">
+                  {draftScopeItems.length > 0 && (
+                    <Button 
+                      data-testid="verify-scope-btn"
+                      variant="outline"
+                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
+                      onClick={() => openVerifyDialog('scope', draftScopeItems.map(s => s.scope_id))}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />Verify ({draftScopeItems.length})
+                    </Button>
+                  )}
+                  {isSuperAdmin && pendingApprovalScope.length > 0 && (
+                    <>
+                      <Button 
+                        className="gap-2 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'approve')}
+                      >
+                        <Check className="h-4 w-4" />Approve All ({pendingApprovalScope.length})
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Scope Item</DialogTitle>
-                        <DialogDescription>Define a new scope item for this project</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddScope} className="space-y-4">
-                        <div>
-                          <Label>Item Name</Label>
-                          <Input
-                            data-testid="scope-name-input"
-                            value={scopeForm.item_name}
-                            onChange={(e) => setScopeForm({...scopeForm, item_name: e.target.value})}
-                            placeholder="e.g., Foundation Work, Electrical, Plumbing"
-                            required
-                          />
+                      <Button 
+                        variant="destructive"
+                        className="gap-2"
+                        onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'reject')}
+                      >
+                        <XCircle className="h-4 w-4" />Reject
+                      </Button>
+                    </>
+                  )}
+                  {canManage && (
+                    <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="add-scope-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                          <Plus className="h-4 w-4" />Add Scope Items
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Add Multiple Scope Items</DialogTitle>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                        </DialogHeader>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-2 py-2 text-left">#</th>
+                                <th className="px-2 py-2 text-left">Item Name *</th>
+                                <th className="px-2 py-2 text-left w-20">Qty</th>
+                                <th className="px-2 py-2 text-left w-20">Unit</th>
+                                <th className="px-2 py-2 text-left w-28">Rate (₹) *</th>
+                                <th className="px-2 py-2 text-left w-28">Total</th>
+                                <th className="px-2 py-2 text-left">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkScopeRows.map((row, idx) => (
+                                <tr key={idx} className="border-b">
+                                  <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.item_name}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkScopeRows];
+                                        newRows[idx].item_name = e.target.value;
+                                        setBulkScopeRows(newRows);
+                                      }}
+                                      placeholder="e.g., Foundation Work"
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.quantity}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkScopeRows];
+                                        newRows[idx].quantity = e.target.value;
+                                        setBulkScopeRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.unit}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkScopeRows];
+                                        newRows[idx].unit = e.target.value;
+                                        setBulkScopeRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.unit_rate}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkScopeRows];
+                                        newRows[idx].unit_rate = e.target.value;
+                                        setBulkScopeRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1 text-blue-600 font-medium">
+                                    ₹{((parseFloat(row.quantity) || 0) * (parseFloat(row.unit_rate) || 0)).toLocaleString()}
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.remarks}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkScopeRows];
+                                        newRows[idx].remarks = e.target.value;
+                                        setBulkScopeRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <Label>Quantity</Label>
-                            <Input
-                              data-testid="scope-qty-input"
-                              type="number"
-                              value={scopeForm.quantity}
-                              onChange={(e) => setScopeForm({...scopeForm, quantity: e.target.value})}
-                              required
-                            />
+                        <div className="flex justify-between items-center">
+                          <Button type="button" variant="outline" onClick={() => setBulkScopeRows([...bulkScopeRows, ...createEmptyRows('scope', 5)])}>
+                            + Add More Rows
+                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setBulkScopeDialog(false)}>Cancel</Button>
+                            <Button data-testid="submit-bulk-scope-btn" onClick={handleBulkAddScope}>Submit All</Button>
                           </div>
-                          <div>
-                            <Label>Unit</Label>
-                            <Input
-                              data-testid="scope-unit-input"
-                              value={scopeForm.unit}
-                              onChange={(e) => setScopeForm({...scopeForm, unit: e.target.value})}
-                              placeholder="Nos, Sqft, etc."
-                            />
-                          </div>
-                          <div>
-                            <Label>Unit Rate (₹)</Label>
-                            <Input
-                              data-testid="scope-rate-input"
-                              type="number"
-                              value={scopeForm.unit_rate}
-                              onChange={(e) => setScopeForm({...scopeForm, unit_rate: e.target.value})}
-                              required
-                            />
-                          </div>
                         </div>
-                        <div>
-                          <Label>Remarks (Optional)</Label>
-                          <Input
-                            data-testid="scope-remarks-input"
-                            value={scopeForm.remarks}
-                            onChange={(e) => setScopeForm({...scopeForm, remarks: e.target.value})}
-                          />
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-sm text-gray-600">
-                            Total: <strong>₹{((parseFloat(scopeForm.quantity) || 0) * (parseFloat(scopeForm.unit_rate) || 0)).toLocaleString()}</strong>
-                          </p>
-                        </div>
-                        <Button data-testid="submit-scope-btn" type="submit" className="w-full">Add Scope Item</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -555,6 +678,7 @@ export default function ProjectDetail() {
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Unit</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Unit Rate</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Total</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
                       {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                     </tr>
@@ -562,8 +686,8 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {scope_items.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
-                          No scope items defined yet. Click "Add Scope" to define project scope.
+                        <td colSpan={canManage ? 9 : 8} className="px-4 py-8 text-center text-gray-500">
+                          No scope items defined yet. Click "Add Scope Items" to define project scope.
                         </td>
                       </tr>
                     ) : (
@@ -575,14 +699,15 @@ export default function ProjectDetail() {
                           <td className="px-4 py-3 text-center">{item.unit}</td>
                           <td className="px-4 py-3 text-right">₹{item.unit_rate?.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right font-semibold text-blue-600">₹{item.total_amount?.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-center">
+                            <WorkflowBadge status={item.workflow_status || 'draft'} />
+                          </td>
                           <td className="px-4 py-3 text-sm text-gray-500">{item.remarks || '-'}</td>
                           {canManage && (
                             <td className="px-4 py-3 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteScope(item.scope_id)}>
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
-                              </div>
+                              <Button variant="ghost" size="icon" onClick={() => handleDeleteScope(item.scope_id)}>
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
                             </td>
                           )}
                         </tr>
@@ -594,7 +719,7 @@ export default function ProjectDetail() {
                       <tr>
                         <td colSpan="5" className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
                         <td className="px-4 py-3 text-right font-bold text-blue-700">₹{summary.scope_total?.toLocaleString()}</td>
-                        <td colSpan={canManage ? 2 : 1}></td>
+                        <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
                     </tfoot>
                   )}
@@ -609,72 +734,126 @@ export default function ProjectDetail() {
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
                   <p className="text-sm text-gray-500">Track milestone-based payments</p>
                 </div>
-                {canManage && (
-                  <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="add-payment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Plus className="h-4 w-4" />Add Payment
+                <div className="flex gap-2">
+                  {draftPaymentItems.length > 0 && (
+                    <Button 
+                      variant="outline"
+                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
+                      onClick={() => openVerifyDialog('payment', draftPaymentItems.map(p => p.stage_id))}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />Verify ({draftPaymentItems.length})
+                    </Button>
+                  )}
+                  {isSuperAdmin && pendingApprovalPayment.length > 0 && (
+                    <>
+                      <Button 
+                        className="gap-2 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleApprove('payment', pendingApprovalPayment.map(p => p.stage_id), 'approve')}
+                      >
+                        <Check className="h-4 w-4" />Approve All ({pendingApprovalPayment.length})
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Payment Stage</DialogTitle>
-                        <DialogDescription>Define a payment milestone</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddPayment} className="space-y-4">
-                        <div>
-                          <Label>Stage Name</Label>
-                          <Input
-                            data-testid="payment-name-input"
-                            value={paymentForm.stage_name}
-                            onChange={(e) => setPaymentForm({...paymentForm, stage_name: e.target.value})}
-                            placeholder="e.g., Advance, Foundation, Finishing"
-                            required
-                          />
+                      <Button 
+                        variant="destructive"
+                        className="gap-2"
+                        onClick={() => handleApprove('payment', pendingApprovalPayment.map(p => p.stage_id), 'reject')}
+                      >
+                        <XCircle className="h-4 w-4" />Reject
+                      </Button>
+                    </>
+                  )}
+                  {canManage && (
+                    <Dialog open={bulkPaymentDialog} onOpenChange={setBulkPaymentDialog}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="add-payment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                          <Plus className="h-4 w-4" />Add Payments
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Add Multiple Payment Stages</DialogTitle>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                        </DialogHeader>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-2 py-2 text-left">#</th>
+                                <th className="px-2 py-2 text-left">Stage Name *</th>
+                                <th className="px-2 py-2 text-left w-20">%</th>
+                                <th className="px-2 py-2 text-left w-28">Amount (₹) *</th>
+                                <th className="px-2 py-2 text-left">Due Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkPaymentRows.map((row, idx) => (
+                                <tr key={idx} className="border-b">
+                                  <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.stage_name}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkPaymentRows];
+                                        newRows[idx].stage_name = e.target.value;
+                                        setBulkPaymentRows(newRows);
+                                      }}
+                                      placeholder="e.g., Advance"
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.percentage}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkPaymentRows];
+                                        newRows[idx].percentage = e.target.value;
+                                        setBulkPaymentRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.amount}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkPaymentRows];
+                                        newRows[idx].amount = e.target.value;
+                                        setBulkPaymentRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="date"
+                                      value={row.due_date}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkPaymentRows];
+                                        newRows[idx].due_date = e.target.value;
+                                        setBulkPaymentRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label>Percentage (%)</Label>
-                            <Input
-                              data-testid="payment-pct-input"
-                              type="number"
-                              step="0.01"
-                              value={paymentForm.percentage}
-                              onChange={(e) => {
-                                const pct = parseFloat(e.target.value) || 0;
-                                setPaymentForm({
-                                  ...paymentForm, 
-                                  percentage: e.target.value,
-                                  amount: ((pct / 100) * summary.project_value).toFixed(0)
-                                });
-                              }}
-                            />
+                        <div className="flex justify-between items-center">
+                          <Button type="button" variant="outline" onClick={() => setBulkPaymentRows([...bulkPaymentRows, ...createEmptyRows('payment', 5)])}>
+                            + Add More Rows
+                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setBulkPaymentDialog(false)}>Cancel</Button>
+                            <Button onClick={handleBulkAddPayment}>Submit All</Button>
                           </div>
-                          <div>
-                            <Label>Amount (₹)</Label>
-                            <Input
-                              data-testid="payment-amount-input"
-                              type="number"
-                              value={paymentForm.amount}
-                              onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
-                              required
-                            />
-                          </div>
                         </div>
-                        <div>
-                          <Label>Due Date (Optional)</Label>
-                          <Input
-                            data-testid="payment-due-input"
-                            type="date"
-                            value={paymentForm.due_date}
-                            onChange={(e) => setPaymentForm({...paymentForm, due_date: e.target.value})}
-                          />
-                        </div>
-                        <Button data-testid="submit-payment-btn" type="submit" className="w-full">Add Payment Stage</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -695,7 +874,7 @@ export default function ProjectDetail() {
                     {payment_stages.length === 0 ? (
                       <tr>
                         <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
-                          No payment stages defined yet. Click "Add Payment" to define milestones.
+                          No payment stages defined yet. Click "Add Payments" to define milestones.
                         </td>
                       </tr>
                     ) : (
@@ -728,9 +907,7 @@ export default function ProjectDetail() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <Badge variant={balance <= 0 ? 'default' : balance < stage.amount ? 'secondary' : 'outline'}>
-                                {balance <= 0 ? 'Completed' : balance < stage.amount ? 'Partial' : 'Pending'}
-                              </Badge>
+                              <WorkflowBadge status={stage.workflow_status || 'draft'} />
                             </td>
                             {canManage && (
                               <td className="px-4 py-3 text-center">
@@ -775,44 +952,100 @@ export default function ProjectDetail() {
                   <h3 className="text-lg font-bold">Additional Work</h3>
                   <p className="text-sm text-gray-500">Track extra work and variations</p>
                 </div>
-                {canManage && (
-                  <Dialog open={additionDialog} onOpenChange={setAdditionDialog}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="add-addition-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                        <Plus className="h-4 w-4" />Add Addition
+                <div className="flex gap-2">
+                  {draftAdditions.length > 0 && (
+                    <Button 
+                      variant="outline"
+                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
+                      onClick={() => openVerifyDialog('addition', draftAdditions.map(a => a.cost_id))}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />Verify ({draftAdditions.length})
+                    </Button>
+                  )}
+                  {isSuperAdmin && pendingApprovalAdditions.length > 0 && (
+                    <>
+                      <Button 
+                        className="gap-2 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleApprove('addition', pendingApprovalAdditions.map(a => a.cost_id), 'approve')}
+                      >
+                        <Check className="h-4 w-4" />Approve All ({pendingApprovalAdditions.length})
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Additional Work</DialogTitle>
-                        <DialogDescription>Record extra work or variations</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddAddition} className="space-y-4">
-                        <div>
-                          <Label>Description</Label>
-                          <Input
-                            data-testid="addition-desc-input"
-                            value={additionForm.description}
-                            onChange={(e) => setAdditionForm({...additionForm, description: e.target.value})}
-                            placeholder="e.g., Extra flooring, Additional electrical"
-                            required
-                          />
+                      <Button 
+                        variant="destructive"
+                        className="gap-2"
+                        onClick={() => handleApprove('addition', pendingApprovalAdditions.map(a => a.cost_id), 'reject')}
+                      >
+                        <XCircle className="h-4 w-4" />Reject
+                      </Button>
+                    </>
+                  )}
+                  {canManage && (
+                    <Dialog open={bulkAdditionDialog} onOpenChange={setBulkAdditionDialog}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="add-addition-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                          <Plus className="h-4 w-4" />Add Additions
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Add Multiple Additions</DialogTitle>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                        </DialogHeader>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-2 py-2 text-left">#</th>
+                                <th className="px-2 py-2 text-left">Description *</th>
+                                <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkAdditionRows.map((row, idx) => (
+                                <tr key={idx} className="border-b">
+                                  <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.description}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkAdditionRows];
+                                        newRows[idx].description = e.target.value;
+                                        setBulkAdditionRows(newRows);
+                                      }}
+                                      placeholder="e.g., Extra flooring"
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.estimated_amount}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkAdditionRows];
+                                        newRows[idx].estimated_amount = e.target.value;
+                                        setBulkAdditionRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <div>
-                          <Label>Estimated Amount (₹)</Label>
-                          <Input
-                            data-testid="addition-amount-input"
-                            type="number"
-                            value={additionForm.estimated_amount}
-                            onChange={(e) => setAdditionForm({...additionForm, estimated_amount: e.target.value})}
-                            required
-                          />
+                        <div className="flex justify-between items-center">
+                          <Button type="button" variant="outline" onClick={() => setBulkAdditionRows([...bulkAdditionRows, ...createEmptyRows('addition', 5)])}>
+                            + Add More Rows
+                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setBulkAdditionDialog(false)}>Cancel</Button>
+                            <Button onClick={handleBulkAddAddition}>Submit All</Button>
+                          </div>
                         </div>
-                        <Button data-testid="submit-addition-btn" type="submit" className="w-full">Add Addition</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -832,7 +1065,7 @@ export default function ProjectDetail() {
                     {additional_costs.length === 0 ? (
                       <tr>
                         <td colSpan={canManage ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
-                          No additions recorded yet. Click "Add Addition" for extra work.
+                          No additions recorded yet. Click "Add Additions" for extra work.
                         </td>
                       </tr>
                     ) : (
@@ -864,9 +1097,7 @@ export default function ProjectDetail() {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <Badge variant={cost.status === 'completed' ? 'default' : cost.status === 'in_progress' ? 'secondary' : 'outline'}>
-                                {cost.status}
-                              </Badge>
+                              <WorkflowBadge status={cost.workflow_status || 'draft'} />
                             </td>
                             {canManage && (
                               <td className="px-4 py-3 text-center">
@@ -909,54 +1140,114 @@ export default function ProjectDetail() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Deductions</h3>
-                  <p className="text-sm text-gray-500">Track penalties, discounts, and adjustments (reduces balance only)</p>
+                  <p className="text-sm text-gray-500">Track penalties, discounts, and adjustments</p>
                 </div>
-                {canManage && (
-                  <Dialog open={deductionDialog} onOpenChange={setDeductionDialog}>
-                    <DialogTrigger asChild>
-                      <Button data-testid="add-deduction-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
-                        <MinusCircle className="h-4 w-4" />Add Deduction
+                <div className="flex gap-2">
+                  {draftDeductions.length > 0 && (
+                    <Button 
+                      variant="outline"
+                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
+                      onClick={() => openVerifyDialog('deduction', draftDeductions.map(d => d.deduction_id))}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />Verify ({draftDeductions.length})
+                    </Button>
+                  )}
+                  {isSuperAdmin && pendingApprovalDeductions.length > 0 && (
+                    <>
+                      <Button 
+                        className="gap-2 bg-green-600 hover:bg-green-700"
+                        onClick={() => handleApprove('deduction', pendingApprovalDeductions.map(d => d.deduction_id), 'approve')}
+                      >
+                        <Check className="h-4 w-4" />Approve All ({pendingApprovalDeductions.length})
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Add Deduction</DialogTitle>
-                        <DialogDescription>Record penalty, discount or adjustment</DialogDescription>
-                      </DialogHeader>
-                      <form onSubmit={handleAddDeduction} className="space-y-4">
-                        <div>
-                          <Label>Description</Label>
-                          <Input
-                            data-testid="deduction-desc-input"
-                            value={deductionForm.description}
-                            onChange={(e) => setDeductionForm({...deductionForm, description: e.target.value})}
-                            placeholder="e.g., Penalty, Discount, Adjustment"
-                            required
-                          />
+                      <Button 
+                        variant="destructive"
+                        className="gap-2"
+                        onClick={() => handleApprove('deduction', pendingApprovalDeductions.map(d => d.deduction_id), 'reject')}
+                      >
+                        <XCircle className="h-4 w-4" />Reject
+                      </Button>
+                    </>
+                  )}
+                  {canManage && (
+                    <Dialog open={bulkDeductionDialog} onOpenChange={setBulkDeductionDialog}>
+                      <DialogTrigger asChild>
+                        <Button data-testid="add-deduction-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
+                          <MinusCircle className="h-4 w-4" />Add Deductions
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Add Multiple Deductions</DialogTitle>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                        </DialogHeader>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-2 py-2 text-left">#</th>
+                                <th className="px-2 py-2 text-left">Description *</th>
+                                <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
+                                <th className="px-2 py-2 text-left">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {bulkDeductionRows.map((row, idx) => (
+                                <tr key={idx} className="border-b">
+                                  <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.description}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkDeductionRows];
+                                        newRows[idx].description = e.target.value;
+                                        setBulkDeductionRows(newRows);
+                                      }}
+                                      placeholder="e.g., Penalty"
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      type="number"
+                                      value={row.amount}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkDeductionRows];
+                                        newRows[idx].amount = e.target.value;
+                                        setBulkDeductionRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input 
+                                      value={row.remarks}
+                                      onChange={(e) => {
+                                        const newRows = [...bulkDeductionRows];
+                                        newRows[idx].remarks = e.target.value;
+                                        setBulkDeductionRows(newRows);
+                                      }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
-                        <div>
-                          <Label>Amount (₹)</Label>
-                          <Input
-                            data-testid="deduction-amount-input"
-                            type="number"
-                            value={deductionForm.amount}
-                            onChange={(e) => setDeductionForm({...deductionForm, amount: e.target.value})}
-                            required
-                          />
+                        <div className="flex justify-between items-center">
+                          <Button type="button" variant="outline" onClick={() => setBulkDeductionRows([...bulkDeductionRows, ...createEmptyRows('deduction', 5)])}>
+                            + Add More Rows
+                          </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => setBulkDeductionDialog(false)}>Cancel</Button>
+                            <Button onClick={handleBulkAddDeduction} className="bg-orange-600 hover:bg-orange-700">Submit All</Button>
+                          </div>
                         </div>
-                        <div>
-                          <Label>Remarks (Optional)</Label>
-                          <Input
-                            data-testid="deduction-remarks-input"
-                            value={deductionForm.remarks}
-                            onChange={(e) => setDeductionForm({...deductionForm, remarks: e.target.value})}
-                          />
-                        </div>
-                        <Button data-testid="submit-deduction-btn" type="submit" className="w-full bg-orange-600 hover:bg-orange-700">Add Deduction</Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-                )}
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                </div>
               </div>
 
               <div className="overflow-x-auto">
@@ -975,7 +1266,7 @@ export default function ProjectDetail() {
                     {deductions.length === 0 ? (
                       <tr>
                         <td colSpan={canManage ? 6 : 5} className="px-4 py-8 text-center text-gray-500">
-                          No deductions recorded yet. Click "Add Deduction" for penalties or adjustments.
+                          No deductions recorded yet. Click "Add Deductions" for penalties or adjustments.
                         </td>
                       </tr>
                     ) : (
@@ -985,9 +1276,7 @@ export default function ProjectDetail() {
                           <td className="px-4 py-3 font-medium">{d.description}</td>
                           <td className="px-4 py-3 text-right font-semibold text-orange-600">-₹{d.amount?.toLocaleString()}</td>
                           <td className="px-4 py-3 text-center">
-                            <Badge variant={d.status === 'approved' ? 'default' : d.status === 'rejected' ? 'destructive' : 'outline'}>
-                              {d.status}
-                            </Badge>
+                            <WorkflowBadge status={d.workflow_status || 'draft'} />
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           {canManage && (
@@ -1016,6 +1305,58 @@ export default function ProjectDetail() {
           </Tabs>
         </Card>
       </div>
+
+      {/* Verification Dialog */}
+      <Dialog open={verifyDialog.open} onOpenChange={(open) => !open && setVerifyDialog({ open: false, type: '', ids: [] })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              Verify Items
+            </DialogTitle>
+            <DialogDescription>
+              You are about to verify {verifyDialog.ids.length} {verifyDialog.type} item(s) and send them for Super Admin approval.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <p className="text-sm text-yellow-800">
+                <strong>Important:</strong> Please review all items carefully before verification. 
+                Once verified, items will be sent to the Super Admin for final approval.
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">
+                Type <span className="font-bold text-blue-600">VERIFY</span> to confirm
+              </Label>
+              <Input
+                data-testid="verify-code-input"
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value)}
+                placeholder="Type VERIFY"
+                className="mt-2"
+              />
+              {verifyCode && verifyCode !== 'VERIFY' && (
+                <p className="text-xs text-red-500 mt-1">Please type 'VERIFY' exactly in capital letters</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVerifyDialog({ open: false, type: '', ids: [] })}>
+              Cancel
+            </Button>
+            <Button 
+              data-testid="confirm-verify-btn"
+              onClick={handleVerify}
+              disabled={verifyCode !== 'VERIFY'}
+              className="gap-2"
+            >
+              <ShieldCheck className="h-4 w-4" />
+              Verify & Send for Approval
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
