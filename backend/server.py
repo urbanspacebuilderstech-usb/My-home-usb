@@ -2726,7 +2726,7 @@ async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_curre
     # Notify super admin
     admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
     for admin in admins:
-        await create_notification(admin["user_id"], "scope_approval", f"{result.modified_count} scope items pending your approval")
+        await create_notification(admin["user_id"], f"{result.modified_count} scope items pending your approval")
     
     return {"message": f"Verified {result.modified_count} scope items"}
 
