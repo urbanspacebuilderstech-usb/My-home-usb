@@ -361,9 +361,33 @@ Build a Construction Accounting CRM with:
 ### Users & Notifications
 - `GET /api/users` - List users
 - `POST /api/users` - Create user
-- `DELETE /api/users/{user_id}` - Delete user
+- `GET /api/users/{id}` - Get specific user
+- `PATCH /api/users/{id}` - Update user
+- `DELETE /api/users/{id}` - Delete user
+- `GET /api/roles` - Get all available roles
 - `GET /api/notifications` - Get notifications
 - `PATCH /api/notifications/{id}/read` - Mark read
+
+### System Settings (NEW - Feb 6, 2026)
+- `GET /api/settings/company` - Get company settings
+- `POST /api/settings/company` - Create/update company settings
+- `PATCH /api/settings/company` - Partial update company settings
+- `GET /api/settings/summary` - Get settings summary (counts)
+
+### Material Management (NEW - Feb 6, 2026)
+- `GET /api/materials` - List materials (with category/active filters)
+- `GET /api/materials/categories` - Get all material categories
+- `GET /api/materials/{id}` - Get specific material
+- `POST /api/materials` - Create material
+- `PATCH /api/materials/{id}` - Update material
+- `DELETE /api/materials/{id}` - Soft delete material
+
+### Vendor Master (NEW - Feb 6, 2026)
+- `GET /api/vendor-master` - List vendors from master
+- `GET /api/vendor-master/{id}` - Get specific vendor
+- `POST /api/vendor-master` - Create vendor in master
+- `PATCH /api/vendor-master/{id}` - Update vendor
+- `DELETE /api/vendor-master/{id}` - Soft delete vendor
 
 ### Admin
 - `GET /api/admin/pending-approvals` - Pending items
