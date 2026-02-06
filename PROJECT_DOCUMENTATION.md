@@ -2,7 +2,7 @@
 
 ## Application Access
 
-**Live URL:** https://sitehub-38.preview.emergentagent.com
+**Live URL:** https://concrm.preview.emergentagent.com
 
 **Demo Login Credentials (via Google OAuth):**
 - Super Admin: admin@constructionos.com
@@ -154,7 +154,7 @@
 
 ## API Endpoints
 
-**Base:** `https://sitehub-38.preview.emergentagent.com/api`
+**Base:** `https://concrm.preview.emergentagent.com/api`
 
 ### Auth
 - POST `/auth/session` - OAuth session exchange
@@ -354,7 +354,7 @@ print(token);
 
 # Test endpoint
 curl -H "Authorization: Bearer <token>" \
-  https://sitehub-38.preview.emergentagent.com/api/projects
+  https://concrm.preview.emergentagent.com/api/projects
 ```
 
 ## Next Steps
