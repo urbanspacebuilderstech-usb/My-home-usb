@@ -556,6 +556,19 @@ async def send_notification_email(to_email: str, subject: str, html_content: str
         logger.error(f"Failed to send email: {str(e)}")
 
 
+async def create_notification(user_id: str, message: str):
+    """Create a notification for a user"""
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "message": message,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notifications.insert_one(notification)
+    return notification
+
+
 class DemoLoginRequest(BaseModel):
     email: str
 
