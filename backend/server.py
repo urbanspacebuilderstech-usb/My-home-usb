@@ -455,8 +455,12 @@ class PaymentStage(BaseModel):
     amount: float  # Calculated or manual amount
     amount_received: float = 0  # Amount received for this stage
     status: str = "pending"  # pending, partial, completed
+    workflow_status: str = "draft"  # draft, pending_verification, pending_approval, approved, rejected
     due_date: Optional[datetime] = None
     completed_date: Optional[datetime] = None
+    created_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    approved_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -468,6 +472,10 @@ class AdditionalCostItem(BaseModel):
     actual_amount: float = 0
     income_received: float = 0
     status: str = "pending"  # pending, in_progress, completed
+    workflow_status: str = "draft"  # draft, pending_verification, pending_approval, approved, rejected
+    created_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    approved_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -480,6 +488,10 @@ class ScopeItem(BaseModel):
     unit_rate: float
     total_amount: float  # quantity * unit_rate
     remarks: Optional[str] = None
+    workflow_status: str = "draft"  # draft, pending_verification, pending_approval, approved, rejected
+    created_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    approved_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -489,7 +501,11 @@ class DeductionItem(BaseModel):
     description: str  # e.g., "Penalty", "Discount", "Adjustment"
     amount: float
     status: str = "pending"  # pending, approved, rejected
+    workflow_status: str = "draft"  # draft, pending_verification, pending_approval, approved, rejected
     remarks: Optional[str] = None
+    created_by: Optional[str] = None
+    verified_by: Optional[str] = None
+    approved_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
