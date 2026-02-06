@@ -3604,6 +3604,487 @@ async def get_project_expenses(project_id: str, user: User = Depends(get_current
     }
 
 
+# ==================== COMPANY SETTINGS ENDPOINTS ====================
+
+class CompanySettingsCreate(BaseModel):
+    company_name: str
+    logo_url: Optional[str] = None
+    address: Optional[str] = None
+    contact_number: Optional[str] = None
+    email: Optional[str] = None
+    gst_number: Optional[str] = None
+    default_currency: str = "INR"
+    financial_year_start: str = "April"
+
+
+class CompanySettingsUpdate(BaseModel):
+    company_name: Optional[str] = None
+    logo_url: Optional[str] = None
+    address: Optional[str] = None
+    contact_number: Optional[str] = None
+    email: Optional[str] = None
+    gst_number: Optional[str] = None
+    default_currency: Optional[str] = None
+    financial_year_start: Optional[str] = None
+
+
+@api_router.get("/settings/company")
+async def get_company_settings(user: User = Depends(get_current_user)):
+    """Get company settings (creates default if not exists)"""
+    settings = await db.company_settings.find_one({}, {"_id": 0})
+    if not settings:
+        # Return default settings
+        return {
+            "settings_id": None,
+            "company_name": "ConstructionOS",
+            "logo_url": None,
+            "address": "",
+            "contact_number": "",
+            "email": "",
+            "gst_number": "",
+            "default_currency": "INR",
+            "financial_year_start": "April"
+        }
+    return settings
+
+
+@api_router.post("/settings/company")
+async def create_or_update_company_settings(
+    settings_input: CompanySettingsCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create or update company settings (only Super Admin)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update company settings")
+    
+    existing = await db.company_settings.find_one({}, {"_id": 0})
+    
+    if existing:
+        # Update existing
+        update_data = settings_input.model_dump()
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.company_settings.update_one({}, {"$set": update_data})
+        await create_audit_log(user.user_id, "update", "company_settings", existing.get("settings_id", ""), update_data)
+        updated = await db.company_settings.find_one({}, {"_id": 0})
+        return updated
+    else:
+        # Create new
+        settings = CompanySettings(**settings_input.model_dump())
+        settings_dict = settings.model_dump()
+        settings_dict["created_at"] = settings_dict["created_at"].isoformat()
+        settings_dict["updated_at"] = settings_dict["updated_at"].isoformat()
+        await db.company_settings.insert_one(settings_dict)
+        await create_audit_log(user.user_id, "create", "company_settings", settings.settings_id, {"company_name": settings.company_name})
+        return settings_dict
+
+
+@api_router.patch("/settings/company")
+async def patch_company_settings(
+    settings_input: CompanySettingsUpdate,
+    user: User = Depends(get_current_user)
+):
+    """Partially update company settings"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update company settings")
+    
+    existing = await db.company_settings.find_one({}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Company settings not found. Create settings first.")
+    
+    update_data = {k: v for k, v in settings_input.model_dump().items() if v is not None}
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.company_settings.update_one({}, {"$set": update_data})
+        await create_audit_log(user.user_id, "update", "company_settings", existing.get("settings_id", ""), update_data)
+    
+    return await db.company_settings.find_one({}, {"_id": 0})
+
+
+# ==================== MATERIAL MANAGEMENT ENDPOINTS ====================
+
+class MaterialCreate(BaseModel):
+    name: str
+    category: str  # MaterialCategory enum value
+    unit: str
+    description: Optional[str] = None
+    hsn_code: Optional[str] = None
+
+
+class MaterialUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    unit: Optional[str] = None
+    description: Optional[str] = None
+    hsn_code: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@api_router.get("/materials")
+async def get_materials(
+    category: Optional[str] = None,
+    active_only: bool = True,
+    user: User = Depends(get_current_user)
+):
+    """Get all materials with optional filters"""
+    query = {}
+    if category:
+        query["category"] = category
+    if active_only:
+        query["is_active"] = True
+    
+    materials = await db.materials.find(query, {"_id": 0}).to_list(10000)
+    for mat in materials:
+        if isinstance(mat.get("created_at"), str):
+            mat["created_at"] = datetime.fromisoformat(mat["created_at"])
+        if isinstance(mat.get("updated_at"), str):
+            mat["updated_at"] = datetime.fromisoformat(mat["updated_at"])
+    return materials
+
+
+@api_router.get("/materials/categories")
+async def get_material_categories(user: User = Depends(get_current_user)):
+    """Get all material categories"""
+    return [{"value": cat.value, "label": cat.value.replace("_", " ").title()} for cat in MaterialCategory]
+
+
+@api_router.get("/materials/{material_id}")
+async def get_material(material_id: str, user: User = Depends(get_current_user)):
+    """Get a specific material"""
+    material = await db.materials.find_one({"material_id": material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    return material
+
+
+@api_router.post("/materials")
+async def create_material(
+    material_input: MaterialCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a new material (Planning, Procurement, Super Admin only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Check for duplicate name
+    existing = await db.materials.find_one({"name": {"$regex": f"^{material_input.name}$", "$options": "i"}}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Material with this name already exists")
+    
+    material = Material(
+        name=material_input.name,
+        category=MaterialCategory(material_input.category),
+        unit=material_input.unit,
+        description=material_input.description,
+        hsn_code=material_input.hsn_code,
+        created_by=user.user_id
+    )
+    
+    mat_dict = material.model_dump()
+    mat_dict["category"] = mat_dict["category"].value
+    mat_dict["created_at"] = mat_dict["created_at"].isoformat()
+    mat_dict["updated_at"] = mat_dict["updated_at"].isoformat()
+    
+    await db.materials.insert_one(mat_dict)
+    await create_audit_log(user.user_id, "create", "material", material.material_id, {"name": material.name})
+    
+    return mat_dict
+
+
+@api_router.patch("/materials/{material_id}")
+async def update_material(
+    material_id: str,
+    material_input: MaterialUpdate,
+    user: User = Depends(get_current_user)
+):
+    """Update a material"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    material = await db.materials.find_one({"material_id": material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    
+    update_data = {k: v for k, v in material_input.model_dump().items() if v is not None}
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.materials.update_one({"material_id": material_id}, {"$set": update_data})
+        await create_audit_log(user.user_id, "update", "material", material_id, update_data)
+    
+    return await db.materials.find_one({"material_id": material_id}, {"_id": 0})
+
+
+@api_router.delete("/materials/{material_id}")
+async def delete_material(material_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a material (set is_active to false)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    material = await db.materials.find_one({"material_id": material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    
+    await db.materials.update_one(
+        {"material_id": material_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await create_audit_log(user.user_id, "delete", "material", material_id, {})
+    
+    return {"message": "Material deleted"}
+
+
+# ==================== VENDOR MASTER ENDPOINTS ====================
+
+class VendorMasterCreate(BaseModel):
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    materials_supplied: List[str] = []
+    payment_terms: str = "full"
+    credit_limit: float = 0
+    credit_days: int = 0
+
+
+class VendorMasterUpdate(BaseModel):
+    name: Optional[str] = None
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    materials_supplied: Optional[List[str]] = None
+    payment_terms: Optional[str] = None
+    credit_limit: Optional[float] = None
+    credit_days: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+@api_router.get("/vendor-master")
+async def get_vendor_master_list(
+    active_only: bool = True,
+    user: User = Depends(get_current_user)
+):
+    """Get all vendors from master list"""
+    query = {}
+    if active_only:
+        query["is_active"] = True
+    
+    vendors = await db.vendor_master.find(query, {"_id": 0}).to_list(10000)
+    for v in vendors:
+        if isinstance(v.get("created_at"), str):
+            v["created_at"] = datetime.fromisoformat(v["created_at"])
+        if isinstance(v.get("updated_at"), str):
+            v["updated_at"] = datetime.fromisoformat(v["updated_at"])
+    return vendors
+
+
+@api_router.get("/vendor-master/{vendor_id}")
+async def get_vendor_master(vendor_id: str, user: User = Depends(get_current_user)):
+    """Get a specific vendor from master"""
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return vendor
+
+
+@api_router.post("/vendor-master")
+async def create_vendor_master(
+    vendor_input: VendorMasterCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a new vendor in master (Procurement, Super Admin only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    vendor = VendorMaster(
+        name=vendor_input.name,
+        contact_person=vendor_input.contact_person,
+        phone=vendor_input.phone,
+        email=vendor_input.email,
+        address=vendor_input.address,
+        gst_number=vendor_input.gst_number,
+        materials_supplied=vendor_input.materials_supplied,
+        payment_terms=vendor_input.payment_terms,
+        credit_limit=vendor_input.credit_limit,
+        credit_days=vendor_input.credit_days,
+        created_by=user.user_id
+    )
+    
+    vend_dict = vendor.model_dump()
+    vend_dict["created_at"] = vend_dict["created_at"].isoformat()
+    vend_dict["updated_at"] = vend_dict["updated_at"].isoformat()
+    
+    await db.vendor_master.insert_one(vend_dict)
+    await create_audit_log(user.user_id, "create", "vendor_master", vendor.vendor_id, {"name": vendor.name})
+    
+    return vend_dict
+
+
+@api_router.patch("/vendor-master/{vendor_id}")
+async def update_vendor_master(
+    vendor_id: str,
+    vendor_input: VendorMasterUpdate,
+    user: User = Depends(get_current_user)
+):
+    """Update a vendor in master"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    update_data = {k: v for k, v in vendor_input.model_dump().items() if v is not None}
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.vendor_master.update_one({"vendor_id": vendor_id}, {"$set": update_data})
+        await create_audit_log(user.user_id, "update", "vendor_master", vendor_id, update_data)
+    
+    return await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+
+
+@api_router.delete("/vendor-master/{vendor_id}")
+async def delete_vendor_master(vendor_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a vendor (set is_active to false)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    await db.vendor_master.update_one(
+        {"vendor_id": vendor_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await create_audit_log(user.user_id, "delete", "vendor_master", vendor_id, {})
+    
+    return {"message": "Vendor deleted"}
+
+
+# ==================== ENHANCED USER MANAGEMENT ENDPOINTS ====================
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
+    phone: Optional[str] = None
+    role: str
+    department: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
+    department: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@api_router.get("/users/{user_id}")
+async def get_user_by_id(user_id: str, current_user: User = Depends(get_current_user)):
+    """Get a specific user"""
+    if current_user.role != UserRole.SUPER_ADMIN and current_user.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user_doc
+
+
+@api_router.patch("/users/{user_id}")
+async def update_user(
+    user_id: str,
+    user_input: UserUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """Update a user (Super Admin only, or self for limited fields)"""
+    target_user = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Non-admin can only update their own name and phone
+    if current_user.role != UserRole.SUPER_ADMIN:
+        if current_user.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Permission denied")
+        # Only allow name and phone updates for self
+        user_input = UserUpdate(name=user_input.name, phone=user_input.phone)
+    
+    update_data = {k: v for k, v in user_input.model_dump().items() if v is not None}
+    if update_data:
+        update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.users.update_one({"user_id": user_id}, {"$set": update_data})
+        await create_audit_log(current_user.user_id, "update", "user", user_id, update_data)
+    
+    return await db.users.find_one({"user_id": user_id}, {"_id": 0})
+
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(user_id: str, current_user: User = Depends(get_current_user)):
+    """Delete a user (Super Admin only)"""
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete users")
+    
+    if current_user.user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    await db.users.delete_one({"user_id": user_id})
+    # Also delete their sessions
+    await db.user_sessions.delete_many({"user_id": user_id})
+    
+    await create_audit_log(current_user.user_id, "delete", "user", user_id, {"email": user_doc.get("email")})
+    
+    return {"message": "User deleted"}
+
+
+@api_router.get("/users/by-role/{role}")
+async def get_users_by_role(role: str, current_user: User = Depends(get_current_user)):
+    """Get users by role (Super Admin only)"""
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    users = await db.users.find({"role": role}, {"_id": 0}).to_list(1000)
+    return users
+
+
+@api_router.get("/roles")
+async def get_all_roles(user: User = Depends(get_current_user)):
+    """Get all available roles"""
+    return [
+        {"value": role.value, "label": role.value.replace("_", " ").title()}
+        for role in UserRole
+    ]
+
+
+# ==================== SYSTEM SETTINGS PAGE DATA ====================
+
+@api_router.get("/settings/summary")
+async def get_settings_summary(user: User = Depends(get_current_user)):
+    """Get summary counts for settings page"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin only")
+    
+    users_count = await db.users.count_documents({})
+    materials_count = await db.materials.count_documents({"is_active": True})
+    vendors_count = await db.vendor_master.count_documents({"is_active": True})
+    
+    company_settings = await db.company_settings.find_one({}, {"_id": 0})
+    
+    return {
+        "users_count": users_count,
+        "materials_count": materials_count,
+        "vendors_count": vendors_count,
+        "company_configured": company_settings is not None,
+        "company_name": company_settings.get("company_name") if company_settings else "ConstructionOS"
+    }
+
+
 app.include_router(api_router)
 
 app.add_middleware(
