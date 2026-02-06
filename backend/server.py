@@ -2746,7 +2746,7 @@ async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_cu
     # Notify super admin
     admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
     for admin in admins:
-        await create_notification(admin["user_id"], "payment_approval", f"{result.modified_count} payment stages pending your approval")
+        await create_notification(admin["user_id"], f"{result.modified_count} payment stages pending your approval")
     
     return {"message": f"Verified {result.modified_count} payment stages"}
 
