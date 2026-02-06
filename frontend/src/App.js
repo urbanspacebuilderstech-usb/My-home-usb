@@ -22,6 +22,7 @@ import VendorPortal from '@/pages/VendorPortal';
 import FinancialOverview from '@/pages/FinancialOverview';
 import ComprehensiveProjectView from '@/pages/ComprehensiveProjectView';
 import Income from '@/pages/Income';
+import ExpenseManagement from '@/pages/ExpenseManagement';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
