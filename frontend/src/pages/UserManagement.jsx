@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Building2, LogOut, Plus, Users, Shield, Edit } from 'lucide-react';
+import { Building2, LogOut, Plus, Users, Shield, Edit, Trash2, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,25 +15,42 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const ROLES = [
-  { value: 'super_admin', label: 'Super Admin', color: 'bg-red-100 text-red-800' },
-  { value: 'accountant', label: 'Accountant', color: 'bg-blue-100 text-blue-800' },
-  { value: 'project_manager', label: 'Project Manager', color: 'bg-green-100 text-green-800' },
-  { value: 'planning', label: 'Planning', color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'procurement', label: 'Procurement', color: 'bg-purple-100 text-purple-800' },
-  { value: 'site_engineer', label: 'Site Engineer', color: 'bg-orange-100 text-orange-800' },
-  { value: 'vendor', label: 'Vendor', color: 'bg-gray-100 text-gray-800' },
-  { value: 'client', label: 'Client', color: 'bg-teal-100 text-teal-800' }
+  { value: 'super_admin', label: 'Super Admin', color: 'bg-red-100 text-red-800', description: 'Full system access' },
+  { value: 'accountant', label: 'Accountant', color: 'bg-blue-100 text-blue-800', description: 'Approvals & expenses' },
+  { value: 'project_manager', label: 'Project Manager', color: 'bg-green-100 text-green-800', description: 'Projects & work orders' },
+  { value: 'planning', label: 'Planning', color: 'bg-yellow-100 text-yellow-800', description: 'BOQ & planning' },
+  { value: 'procurement', label: 'Procurement', color: 'bg-purple-100 text-purple-800', description: 'Vendors & POs' },
+  { value: 'site_engineer', label: 'Site Engineer', color: 'bg-orange-100 text-orange-800', description: 'Site receipts' },
+  { value: 'vendor', label: 'Vendor', color: 'bg-gray-100 text-gray-800', description: 'Vendor portal' },
+  { value: 'client', label: 'Client', color: 'bg-teal-100 text-teal-800', description: 'Read-only portal' }
+];
+
+const DEPARTMENTS = [
+  'Administration',
+  'Finance',
+  'Operations',
+  'Engineering',
+  'Procurement',
+  'Planning',
+  'Site Management',
+  'Other'
 ];
 
 export default function UserManagement() {
   const [user, setUser] = useState(null);
   const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRole, setFilterRole] = useState('all');
+  
   const [formData, setFormData] = useState({
     email: '',
     name: '',
     role: 'client',
-    phone: ''
+    phone: '',
+    department: ''
   });
 
   useEffect(() => {
@@ -41,6 +59,7 @@ export default function UserManagement() {
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [userRes, usersRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/users`)
@@ -49,6 +68,9 @@ export default function UserManagement() {
       setUsers(usersRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
+      toast.error('Failed to load users');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -61,23 +83,66 @@ export default function UserManagement() {
     }
   };
 
-  const handleAddUser = async (e) => {
+  const handleOpenDialog = (userToEdit = null) => {
+    if (userToEdit) {
+      setEditingUser(userToEdit);
+      setFormData({
+        email: userToEdit.email,
+        name: userToEdit.name,
+        role: userToEdit.role,
+        phone: userToEdit.phone || '',
+        department: userToEdit.department || ''
+      });
+    } else {
+      setEditingUser(null);
+      setFormData({
+        email: '',
+        name: '',
+        role: 'client',
+        phone: '',
+        department: ''
+      });
+    }
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API}/users`, {
-        user_id: `user_${Date.now()}`,
-        email: formData.email.toLowerCase(),
-        name: formData.name,
-        role: formData.role,
-        phone: formData.phone || null,
-        created_at: new Date().toISOString()
-      });
-      toast.success('User created successfully');
+      if (editingUser) {
+        await axios.patch(`${API}/users/${editingUser.user_id}`, {
+          name: formData.name,
+          phone: formData.phone || null,
+          role: formData.role,
+          department: formData.department || null
+        });
+        toast.success('User updated successfully');
+      } else {
+        await axios.post(`${API}/users`, {
+          user_id: `user_${Date.now()}`,
+          email: formData.email.toLowerCase(),
+          name: formData.name,
+          role: formData.role,
+          phone: formData.phone || null,
+          department: formData.department || null,
+          created_at: new Date().toISOString()
+        });
+        toast.success('User created successfully');
+      }
       setDialogOpen(false);
-      setFormData({ email: '', name: '', role: 'client', phone: '' });
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create user');
+      toast.error(error.response?.data?.detail || 'Failed to save user');
+    }
+  };
+
+  const handleDelete = async (userId) => {
+    try {
+      await axios.delete(`${API}/users/${userId}`);
+      toast.success('User deleted');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete user');
     }
   };
 
@@ -85,17 +150,28 @@ export default function UserManagement() {
     return ROLES.find(r => r.value === role) || { label: role, color: 'bg-gray-100 text-gray-800' };
   };
 
-  if (!user) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+  const filteredUsers = users.filter(u => {
+    const matchesSearch = u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          u.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesRole = filterRole === 'all' || u.role === filterRole;
+    return matchesSearch && matchesRole;
+  });
+
+  if (loading || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-lg font-semibold">Loading...</div>
+      </div>
+    );
   }
 
   const canManageUsers = user.role === 'super_admin';
 
-  // Group users by role
-  const usersByRole = ROLES.reduce((acc, role) => {
-    acc[role.value] = users.filter(u => u.role === role.value);
-    return acc;
-  }, {});
+  // Stats
+  const adminCount = users.filter(u => u.role === 'super_admin').length;
+  const staffCount = users.filter(u => !['client', 'vendor', 'super_admin'].includes(u.role)).length;
+  const clientCount = users.filter(u => u.role === 'client').length;
+  const vendorCount = users.filter(u => u.role === 'vendor').length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -107,7 +183,7 @@ export default function UserManagement() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Project Management System</p>
+              <p className="text-xs text-gray-500">User Management</p>
             </div>
           </div>
           
@@ -115,8 +191,8 @@ export default function UserManagement() {
             <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/projects'}>
-              Projects
+            <Button variant="ghost" onClick={() => window.location.href = '/settings'}>
+              Settings
             </Button>
             <div className="flex items-center gap-2 pl-4 border-l">
               <div className="text-right">
@@ -140,16 +216,18 @@ export default function UserManagement() {
           {canManageUsers && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-user-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                <Button data-testid="add-user-btn" className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => handleOpenDialog()}>
                   <Plus className="h-4 w-4" />Add User
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add New User</DialogTitle>
-                  <DialogDescription>Create a new user account</DialogDescription>
+                  <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
+                  <DialogDescription>
+                    {editingUser ? 'Update user details and role' : 'Create a new user account'}
+                  </DialogDescription>
                 </DialogHeader>
-                <form onSubmit={handleAddUser} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
                     <Label>Email</Label>
                     <Input
@@ -159,10 +237,14 @@ export default function UserManagement() {
                       onChange={(e) => setFormData({...formData, email: e.target.value})}
                       placeholder="user@example.com"
                       required
+                      disabled={editingUser}
                     />
+                    {editingUser && (
+                      <p className="text-xs text-gray-500 mt-1">Email cannot be changed</p>
+                    )}
                   </div>
                   <div>
-                    <Label>Full Name</Label>
+                    <Label>Full Name *</Label>
                     <Input
                       data-testid="user-name-input"
                       value={formData.name}
@@ -172,7 +254,7 @@ export default function UserManagement() {
                     />
                   </div>
                   <div>
-                    <Label>Role</Label>
+                    <Label>Role *</Label>
                     <Select
                       value={formData.role}
                       onValueChange={(v) => setFormData({...formData, role: v})}
@@ -183,14 +265,33 @@ export default function UserManagement() {
                       <SelectContent>
                         {ROLES.map(role => (
                           <SelectItem key={role.value} value={role.value}>
-                            {role.label}
+                            <div className="flex flex-col">
+                              <span>{role.label}</span>
+                              <span className="text-xs text-gray-500">{role.description}</span>
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>Phone (Optional)</Label>
+                    <Label>Department</Label>
+                    <Select
+                      value={formData.department}
+                      onValueChange={(v) => setFormData({...formData, department: v})}
+                    >
+                      <SelectTrigger data-testid="user-department-select">
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DEPARTMENTS.map(dept => (
+                          <SelectItem key={dept} value={dept}>{dept}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Phone</Label>
                     <Input
                       data-testid="user-phone-input"
                       value={formData.phone}
@@ -198,7 +299,12 @@ export default function UserManagement() {
                       placeholder="+91 98765 43210"
                     />
                   </div>
-                  <Button data-testid="submit-user-btn" type="submit" className="w-full">Create User</Button>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                    <Button data-testid="submit-user-btn" type="submit">
+                      {editingUser ? 'Update' : 'Create'} User
+                    </Button>
+                  </div>
                 </form>
               </DialogContent>
             </Dialog>
@@ -206,7 +312,7 @@ export default function UserManagement() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">Total Users</CardTitle>
@@ -225,9 +331,7 @@ export default function UserManagement() {
             <CardContent>
               <div className="flex items-center gap-2">
                 <Shield className="h-6 w-6 text-red-600" />
-                <span className="text-2xl font-bold text-red-700">
-                  {users.filter(u => u.role === 'super_admin').length}
-                </span>
+                <span className="text-2xl font-bold text-red-700">{adminCount}</span>
               </div>
             </CardContent>
           </Card>
@@ -236,9 +340,7 @@ export default function UserManagement() {
               <CardTitle className="text-sm font-medium text-gray-600">Staff</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-700">
-                {users.filter(u => !['client', 'vendor', 'super_admin'].includes(u.role)).length}
-              </div>
+              <span className="text-2xl font-bold text-green-700">{staffCount}</span>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-200">
@@ -246,11 +348,42 @@ export default function UserManagement() {
               <CardTitle className="text-sm font-medium text-gray-600">Clients</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-teal-700">
-                {users.filter(u => u.role === 'client').length}
-              </div>
+              <span className="text-2xl font-bold text-teal-700">{clientCount}</span>
             </CardContent>
           </Card>
+          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-gray-600">Vendors</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <span className="text-2xl font-bold text-gray-700">{vendorCount}</span>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              data-testid="search-users"
+              placeholder="Search users..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <Select value={filterRole} onValueChange={setFilterRole}>
+            <SelectTrigger data-testid="filter-role" className="w-48">
+              <SelectValue placeholder="All Roles" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Roles</SelectItem>
+              {ROLES.map(role => (
+                <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Users Table */}
@@ -263,22 +396,26 @@ export default function UserManagement() {
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">User</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Email</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Role</th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Department</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Phone</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Created</th>
+                    {canManageUsers && (
+                      <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {users.length === 0 ? (
+                  {filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={canManageUsers ? 7 : 6} className="px-6 py-8 text-center text-gray-500">
                         No users found
                       </td>
                     </tr>
                   ) : (
-                    users.map((u) => {
+                    filteredUsers.map((u) => {
                       const roleInfo = getRoleInfo(u.role);
                       return (
                         <tr key={u.user_id} data-testid={`user-row-${u.user_id}`} className="hover:bg-gray-50">
@@ -298,10 +435,56 @@ export default function UserManagement() {
                               {roleInfo.label}
                             </span>
                           </td>
+                          <td className="px-6 py-4 text-gray-600">{u.department || '-'}</td>
                           <td className="px-6 py-4 text-gray-600">{u.phone || '-'}</td>
                           <td className="px-6 py-4 text-gray-500 text-sm">
                             {new Date(u.created_at).toLocaleDateString()}
                           </td>
+                          {canManageUsers && (
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleOpenDialog(u)}
+                                  data-testid={`edit-user-${u.user_id}`}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                {u.user_id !== user.user_id && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                        data-testid={`delete-user-${u.user_id}`}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete User</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to delete "{u.name}"? This action cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => handleDelete(u.user_id)}
+                                          className="bg-red-600 hover:bg-red-700"
+                                        >
+                                          Delete
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       );
                     })
