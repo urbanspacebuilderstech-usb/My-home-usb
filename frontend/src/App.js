@@ -49,6 +49,7 @@ function AppRouter() {
       <Route path="/procurement" element={<ProtectedRoute><Procurement /></ProtectedRoute>} />
       <Route path="/site-receipt" element={<ProtectedRoute><SiteReceipt /></ProtectedRoute>} />
       <Route path="/expenses" element={<ProtectedRoute><Expenses /></ProtectedRoute>} />
+      <Route path="/expense-management" element={<ProtectedRoute><ExpenseManagement /></ProtectedRoute>} />
       <Route path="/income" element={<ProtectedRoute><Income /></ProtectedRoute>} />
       <Route path="/client-portal/:projectId" element={<ProtectedRoute><ClientPortal /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
