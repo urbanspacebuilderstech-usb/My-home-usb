@@ -2520,6 +2520,364 @@ async def delete_deduction(deduction_id: str, user: User = Depends(get_current_u
     return {"message": "Deduction deleted"}
 
 
+# ==================== BULK ITEM ENDPOINTS WITH VERIFICATION/APPROVAL WORKFLOW ====================
+
+class BulkScopeItemInput(BaseModel):
+    item_name: str
+    quantity: float = 1
+    unit: str = "Nos"
+    unit_rate: float
+    remarks: Optional[str] = None
+
+
+class BulkScopeCreate(BaseModel):
+    project_id: str
+    items: List[BulkScopeItemInput]
+
+
+class BulkPaymentStageInput(BaseModel):
+    stage_name: str
+    percentage: float = 0
+    amount: float
+    due_date: Optional[str] = None
+
+
+class BulkPaymentCreate(BaseModel):
+    project_id: str
+    items: List[BulkPaymentStageInput]
+
+
+class BulkAdditionInput(BaseModel):
+    description: str
+    estimated_amount: float
+
+
+class BulkAdditionCreate(BaseModel):
+    project_id: str
+    items: List[BulkAdditionInput]
+
+
+class BulkDeductionInput(BaseModel):
+    description: str
+    amount: float
+    remarks: Optional[str] = None
+
+
+class BulkDeductionCreate(BaseModel):
+    project_id: str
+    items: List[BulkDeductionInput]
+
+
+# Bulk create scope items
+@api_router.post("/scope-items/bulk")
+async def create_bulk_scope_items(
+    data: BulkScopeCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create multiple scope items at once (pending verification)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    created_items = []
+    for item in data.items:
+        if not item.item_name or not item.unit_rate:
+            continue  # Skip empty rows
+        
+        scope_item = ScopeItem(
+            project_id=data.project_id,
+            item_name=item.item_name,
+            quantity=item.quantity,
+            unit=item.unit,
+            unit_rate=item.unit_rate,
+            total_amount=item.quantity * item.unit_rate,
+            remarks=item.remarks,
+            workflow_status="draft",
+            created_by=user.user_id
+        )
+        scope_dict = scope_item.model_dump()
+        scope_dict["created_at"] = scope_dict["created_at"].isoformat()
+        await db.scope_items.insert_one(scope_dict)
+        scope_dict.pop("_id", None)
+        created_items.append(scope_dict)
+    
+    await create_audit_log(user.user_id, "bulk_create", "scope_items", data.project_id, {"count": len(created_items)})
+    return {"message": f"Created {len(created_items)} scope items", "items": created_items}
+
+
+# Bulk create payment stages
+@api_router.post("/payment-stages/bulk")
+async def create_bulk_payment_stages(
+    data: BulkPaymentCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create multiple payment stages at once (pending verification)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    created_items = []
+    for item in data.items:
+        if not item.stage_name or not item.amount:
+            continue  # Skip empty rows
+        
+        stage = PaymentStage(
+            project_id=data.project_id,
+            stage_name=item.stage_name,
+            percentage=item.percentage,
+            amount=item.amount,
+            due_date=datetime.fromisoformat(item.due_date) if item.due_date else None,
+            workflow_status="draft",
+            created_by=user.user_id
+        )
+        stage_dict = stage.model_dump()
+        stage_dict["created_at"] = stage_dict["created_at"].isoformat()
+        if stage_dict.get("due_date"):
+            stage_dict["due_date"] = stage_dict["due_date"].isoformat()
+        await db.payment_stages.insert_one(stage_dict)
+        stage_dict.pop("_id", None)
+        created_items.append(stage_dict)
+    
+    await create_audit_log(user.user_id, "bulk_create", "payment_stages", data.project_id, {"count": len(created_items)})
+    return {"message": f"Created {len(created_items)} payment stages", "items": created_items}
+
+
+# Bulk create additions
+@api_router.post("/additional-costs/bulk")
+async def create_bulk_additions(
+    data: BulkAdditionCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create multiple additions at once (pending verification)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    created_items = []
+    for item in data.items:
+        if not item.description or not item.estimated_amount:
+            continue  # Skip empty rows
+        
+        addition = AdditionalCostItem(
+            project_id=data.project_id,
+            description=item.description,
+            estimated_amount=item.estimated_amount,
+            workflow_status="draft",
+            created_by=user.user_id
+        )
+        add_dict = addition.model_dump()
+        add_dict["created_at"] = add_dict["created_at"].isoformat()
+        await db.additional_costs.insert_one(add_dict)
+        add_dict.pop("_id", None)
+        created_items.append(add_dict)
+    
+    await create_audit_log(user.user_id, "bulk_create", "additional_costs", data.project_id, {"count": len(created_items)})
+    return {"message": f"Created {len(created_items)} additions", "items": created_items}
+
+
+# Bulk create deductions
+@api_router.post("/deductions/bulk")
+async def create_bulk_deductions(
+    data: BulkDeductionCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create multiple deductions at once (pending verification)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    created_items = []
+    for item in data.items:
+        if not item.description or not item.amount:
+            continue  # Skip empty rows
+        
+        deduction = DeductionItem(
+            project_id=data.project_id,
+            description=item.description,
+            amount=item.amount,
+            remarks=item.remarks,
+            workflow_status="draft",
+            created_by=user.user_id
+        )
+        ded_dict = deduction.model_dump()
+        ded_dict["created_at"] = ded_dict["created_at"].isoformat()
+        await db.deductions.insert_one(ded_dict)
+        ded_dict.pop("_id", None)
+        created_items.append(ded_dict)
+    
+    await create_audit_log(user.user_id, "bulk_create", "deductions", data.project_id, {"count": len(created_items)})
+    return {"message": f"Created {len(created_items)} deductions", "items": created_items}
+
+
+# Verification endpoints - requires typing "VERIFY"
+class VerifyRequest(BaseModel):
+    item_ids: List[str]
+    verification_code: str  # Must be "VERIFY"
+
+
+@api_router.post("/scope-items/verify")
+async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_current_user)):
+    """Verify scope items - requires typing VERIFY"""
+    if data.verification_code != "VERIFY":
+        raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
+    
+    result = await db.scope_items.update_many(
+        {"scope_id": {"$in": data.item_ids}, "workflow_status": "draft"},
+        {"$set": {"workflow_status": "pending_approval", "verified_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, "verify", "scope_items", ",".join(data.item_ids), {"count": result.modified_count})
+    
+    # Notify super admin
+    admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
+    for admin in admins:
+        await create_notification(admin["user_id"], "scope_approval", f"{result.modified_count} scope items pending your approval")
+    
+    return {"message": f"Verified {result.modified_count} scope items"}
+
+
+@api_router.post("/payment-stages/verify")
+async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_current_user)):
+    """Verify payment stages - requires typing VERIFY"""
+    if data.verification_code != "VERIFY":
+        raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
+    
+    result = await db.payment_stages.update_many(
+        {"stage_id": {"$in": data.item_ids}, "workflow_status": "draft"},
+        {"$set": {"workflow_status": "pending_approval", "verified_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, "verify", "payment_stages", ",".join(data.item_ids), {"count": result.modified_count})
+    
+    # Notify super admin
+    admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
+    for admin in admins:
+        await create_notification(admin["user_id"], "payment_approval", f"{result.modified_count} payment stages pending your approval")
+    
+    return {"message": f"Verified {result.modified_count} payment stages"}
+
+
+@api_router.post("/additional-costs/verify")
+async def verify_additions(data: VerifyRequest, user: User = Depends(get_current_user)):
+    """Verify additions - requires typing VERIFY"""
+    if data.verification_code != "VERIFY":
+        raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
+    
+    result = await db.additional_costs.update_many(
+        {"cost_id": {"$in": data.item_ids}, "workflow_status": "draft"},
+        {"$set": {"workflow_status": "pending_approval", "verified_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, "verify", "additional_costs", ",".join(data.item_ids), {"count": result.modified_count})
+    
+    # Notify super admin
+    admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
+    for admin in admins:
+        await create_notification(admin["user_id"], "addition_approval", f"{result.modified_count} additions pending your approval")
+    
+    return {"message": f"Verified {result.modified_count} additions"}
+
+
+@api_router.post("/deductions/verify")
+async def verify_deductions(data: VerifyRequest, user: User = Depends(get_current_user)):
+    """Verify deductions - requires typing VERIFY"""
+    if data.verification_code != "VERIFY":
+        raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
+    
+    result = await db.deductions.update_many(
+        {"deduction_id": {"$in": data.item_ids}, "workflow_status": "draft"},
+        {"$set": {"workflow_status": "pending_approval", "verified_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, "verify", "deductions", ",".join(data.item_ids), {"count": result.modified_count})
+    
+    # Notify super admin
+    admins = await db.users.find({"role": "super_admin"}, {"_id": 0}).to_list(100)
+    for admin in admins:
+        await create_notification(admin["user_id"], "deduction_approval", f"{result.modified_count} deductions pending your approval")
+    
+    return {"message": f"Verified {result.modified_count} deductions"}
+
+
+# Approval endpoints - Super Admin only
+class ApprovalRequest(BaseModel):
+    item_ids: List[str]
+    action: str  # approve or reject
+
+
+@api_router.post("/scope-items/approve")
+async def approve_scope_items(data: ApprovalRequest, user: User = Depends(get_current_user)):
+    """Approve or reject scope items - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve items")
+    
+    new_status = "approved" if data.action == "approve" else "rejected"
+    result = await db.scope_items.update_many(
+        {"scope_id": {"$in": data.item_ids}, "workflow_status": "pending_approval"},
+        {"$set": {"workflow_status": new_status, "approved_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, data.action, "scope_items", ",".join(data.item_ids), {"count": result.modified_count})
+    return {"message": f"{data.action.title()}d {result.modified_count} scope items"}
+
+
+@api_router.post("/payment-stages/approve")
+async def approve_payment_stages(data: ApprovalRequest, user: User = Depends(get_current_user)):
+    """Approve or reject payment stages - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve items")
+    
+    new_status = "approved" if data.action == "approve" else "rejected"
+    result = await db.payment_stages.update_many(
+        {"stage_id": {"$in": data.item_ids}, "workflow_status": "pending_approval"},
+        {"$set": {"workflow_status": new_status, "approved_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, data.action, "payment_stages", ",".join(data.item_ids), {"count": result.modified_count})
+    return {"message": f"{data.action.title()}d {result.modified_count} payment stages"}
+
+
+@api_router.post("/additional-costs/approve")
+async def approve_additions(data: ApprovalRequest, user: User = Depends(get_current_user)):
+    """Approve or reject additions - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve items")
+    
+    new_status = "approved" if data.action == "approve" else "rejected"
+    result = await db.additional_costs.update_many(
+        {"cost_id": {"$in": data.item_ids}, "workflow_status": "pending_approval"},
+        {"$set": {"workflow_status": new_status, "approved_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, data.action, "additional_costs", ",".join(data.item_ids), {"count": result.modified_count})
+    return {"message": f"{data.action.title()}d {result.modified_count} additions"}
+
+
+@api_router.post("/deductions/approve")
+async def approve_deductions(data: ApprovalRequest, user: User = Depends(get_current_user)):
+    """Approve or reject deductions - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can approve items")
+    
+    new_status = "approved" if data.action == "approve" else "rejected"
+    result = await db.deductions.update_many(
+        {"deduction_id": {"$in": data.item_ids}, "workflow_status": "pending_approval"},
+        {"$set": {"workflow_status": new_status, "approved_by": user.user_id}}
+    )
+    await create_audit_log(user.user_id, data.action, "deductions", ",".join(data.item_ids), {"count": result.modified_count})
+    return {"message": f"{data.action.title()}d {result.modified_count} deductions"}
+
+
+# Get pending approvals for dashboard
+@api_router.get("/approvals/pending")
+async def get_pending_approvals(user: User = Depends(get_current_user)):
+    """Get all pending approvals - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can view pending approvals")
+    
+    scope_items = await db.scope_items.find({"workflow_status": "pending_approval"}, {"_id": 0}).to_list(1000)
+    payment_stages = await db.payment_stages.find({"workflow_status": "pending_approval"}, {"_id": 0}).to_list(1000)
+    additions = await db.additional_costs.find({"workflow_status": "pending_approval"}, {"_id": 0}).to_list(1000)
+    deductions = await db.deductions.find({"workflow_status": "pending_approval"}, {"_id": 0}).to_list(1000)
+    
+    return {
+        "scope_items": scope_items,
+        "payment_stages": payment_stages,
+        "additions": additions,
+        "deductions": deductions,
+        "total_count": len(scope_items) + len(payment_stages) + len(additions) + len(deductions)
+    }
+
+
 # ==================== INCOME MODULE ENDPOINTS ====================
 
 class IncomeCreate(BaseModel):
