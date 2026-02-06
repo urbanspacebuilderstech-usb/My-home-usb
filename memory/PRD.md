@@ -473,17 +473,22 @@ Build a Construction Accounting CRM with:
 
 ---
 
-## What's Next (P3 - Backlog)
+## What's Next (P1/P2 - Upcoming)
 
-### Future Enhancements
+### P1 - Upcoming Tasks
+- [ ] Labour and Vendor/Service Expense Workflows (following Material Expense pattern)
+- [ ] Mobile-optimized UI for Site Engineers
+- [ ] Integrate Material Master with Expense Module (dropdown from master list)
+
+### P2/P3 - Future Enhancements
 - [ ] Email notifications via Resend (requires API key)
 - [ ] Enhanced Client Portal with file uploads
-- [ ] Mobile-optimized UI for Site Engineers
 - [ ] Advanced audit log viewing
 - [ ] Export to Excel/PDF
 - [ ] Dashboard charts and graphs
 - [ ] Project Timeline/Gantt view
+- [ ] Backend refactoring (split server.py into modular API Routers)
 
 ---
 
-*Last Updated: January 12, 2026*
+*Last Updated: February 6, 2026*
