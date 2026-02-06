@@ -3787,6 +3787,8 @@ async def create_material(
     await db.materials.insert_one(mat_dict)
     await create_audit_log(user.user_id, "create", "material", material.material_id, {"name": material.name})
     
+    # Remove _id if MongoDB added it
+    mat_dict.pop("_id", None)
     return mat_dict
 
 
