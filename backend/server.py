@@ -2677,6 +2677,789 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     }
 
 
+# ==================== EXPENSE MODULE ENDPOINTS ====================
+
+# Pydantic models for request/response
+class MaterialExpenseCreate(BaseModel):
+    project_id: str
+    material_name: str
+    material_type: Optional[str] = None
+    quantity: float
+    unit: str = "units"
+    required_date: str
+    remarks: Optional[str] = None
+
+
+class LabourExpenseCreate(BaseModel):
+    project_id: str
+    labour_type: str
+    num_workers: int
+    days_worked: float
+    rate_per_day: float
+    work_date: str
+    remarks: Optional[str] = None
+
+
+class VendorServiceExpenseCreate(BaseModel):
+    project_id: str
+    vendor_name: str
+    vendor_id: Optional[str] = None
+    service_type: str
+    amount: float
+    invoice_number: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class VendorQuoteInput(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+
+
+class ApprovalAction(BaseModel):
+    action: str  # approved, rejected
+    comments: Optional[str] = None
+
+
+class PaymentInput(BaseModel):
+    payment_type: str  # credit, advance, full
+    amount: float = 0
+    payment_mode: Optional[str] = None
+    reference: Optional[str] = None
+
+
+# Helper function to get expense from any collection
+async def get_expense_by_id(expense_id: str):
+    """Get expense from any collection based on prefix"""
+    if expense_id.startswith("mexp_"):
+        return await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0}), "material_expenses"
+    elif expense_id.startswith("lexp_"):
+        return await db.labour_expenses.find_one({"expense_id": expense_id}, {"_id": 0}), "labour_expenses"
+    elif expense_id.startswith("vexp_"):
+        return await db.vendor_service_expenses.find_one({"expense_id": expense_id}, {"_id": 0}), "vendor_service_expenses"
+    return None, None
+
+
+# ==================== MATERIAL EXPENSE ENDPOINTS ====================
+
+@api_router.get("/expenses/material")
+async def get_material_expenses(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material expenses - filtered by role"""
+    query = {}
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if status:
+        query["status"] = status
+    
+    # Role-based filtering
+    if user.role == UserRole.SITE_ENGINEER:
+        query["requested_by"] = user.user_id
+    elif user.role == UserRole.PLANNING:
+        query["status"] = {"$in": ["requested", "planning_approved", "planning_rejected"]}
+    elif user.role == UserRole.PROCUREMENT:
+        query["status"] = {"$in": ["planning_approved", "procurement_priced"]}
+    elif user.role == UserRole.ACCOUNTANT:
+        query["status"] = {"$in": ["procurement_priced", "accounts_approved", "accounts_rejected"]}
+    
+    expenses = await db.material_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get project names
+    project_ids = list(set(e.get("project_id") for e in expenses))
+    projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+    
+    for exp in expenses:
+        exp["project_name"] = project_map.get(exp.get("project_id"), "Unknown")
+    
+    return expenses
+
+
+@api_router.post("/expenses/material")
+async def create_material_expense(expense_input: MaterialExpenseCreate, user: User = Depends(get_current_user)):
+    """Create material expense request - Site Engineer only"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can create material requests")
+    
+    expense = MaterialExpense(
+        project_id=expense_input.project_id,
+        material_name=expense_input.material_name,
+        material_type=expense_input.material_type,
+        quantity=expense_input.quantity,
+        unit=expense_input.unit,
+        required_date=datetime.fromisoformat(expense_input.required_date),
+        remarks=expense_input.remarks,
+        requested_by=user.user_id,
+        requested_by_name=user.name
+    )
+    
+    expense_dict = expense.model_dump()
+    expense_dict["required_date"] = expense_dict["required_date"].isoformat()
+    expense_dict["created_at"] = expense_dict["created_at"].isoformat()
+    expense_dict["updated_at"] = expense_dict["updated_at"].isoformat()
+    
+    await db.material_expenses.insert_one(expense_dict)
+    await create_audit_log(user.user_id, "create", "material_expense", expense.expense_id, {
+        "material_name": expense.material_name,
+        "quantity": expense.quantity
+    })
+    
+    # Create notification for Planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in planning_users:
+        await create_notification(pu["user_id"], f"New material request: {expense.material_name} for review")
+    
+    return expense
+
+
+@api_router.patch("/expenses/material/{expense_id}/planning-approval")
+async def planning_approve_material(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Planning department approval for material expense"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning department can approve")
+    
+    expense = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    if expense.get("status") != "requested":
+        raise HTTPException(status_code=400, detail="Expense is not in requested status")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "planning",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "planning_approved" if action.action == "approved" else "planning_rejected"
+    
+    await db.material_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    # Notify relevant parties
+    if action.action == "approved":
+        procurement_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(100)
+        for pu in procurement_users:
+            await create_notification(pu["user_id"], f"Material request approved for pricing: {expense['material_name']}")
+    else:
+        await create_notification(expense["requested_by"], f"Material request rejected: {expense['material_name']}")
+    
+    await create_audit_log(user.user_id, "approve", "material_expense", expense_id, {"action": action.action})
+    
+    return {"message": f"Material expense {action.action}"}
+
+
+@api_router.patch("/expenses/material/{expense_id}/procurement-pricing")
+async def procurement_price_material(expense_id: str, quotes: List[VendorQuoteInput], selected_vendor_id: str, user: User = Depends(get_current_user)):
+    """Procurement adds vendor pricing"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can add pricing")
+    
+    expense = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    if expense.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Expense must be planning approved first")
+    
+    vendor_quotes = []
+    final_amount = 0
+    
+    for q in quotes:
+        total_price = q.unit_price * q.quantity
+        vendor_quotes.append({
+            "vendor_id": q.vendor_id,
+            "vendor_name": q.vendor_name,
+            "unit_price": q.unit_price,
+            "quantity": q.quantity,
+            "total_price": total_price,
+            "is_selected": q.vendor_id == selected_vendor_id
+        })
+        if q.vendor_id == selected_vendor_id:
+            final_amount = total_price
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "procurement",
+        "action": "priced",
+        "comments": f"Selected vendor: {selected_vendor_id}, Amount: {final_amount}",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.material_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {
+                "status": "procurement_priced",
+                "vendor_quotes": vendor_quotes,
+                "selected_vendor_id": selected_vendor_id,
+                "final_amount": final_amount,
+                "balance": final_amount,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            },
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    # Notify Accounts
+    accounts_users = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for au in accounts_users:
+        await create_notification(au["user_id"], f"Material expense ready for approval: {expense['material_name']} - ₹{final_amount}")
+    
+    await create_audit_log(user.user_id, "price", "material_expense", expense_id, {"final_amount": final_amount})
+    
+    return {"message": "Pricing added", "final_amount": final_amount}
+
+
+@api_router.patch("/expenses/material/{expense_id}/accounts-approval")
+async def accounts_approve_material(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Accounts department final approval"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can give final approval")
+    
+    expense = await db.material_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    if expense.get("status") != "procurement_priced":
+        raise HTTPException(status_code=400, detail="Expense must have procurement pricing first")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "accounts",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "accounts_approved" if action.action == "approved" else "accounts_rejected"
+    
+    await db.material_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    # Notify
+    if action.action == "approved":
+        await create_notification(expense["requested_by"], f"Material expense approved for payment: {expense['material_name']}")
+    else:
+        await create_notification(expense["requested_by"], f"Material expense rejected by accounts: {expense['material_name']}")
+    
+    await create_audit_log(user.user_id, "accounts_approve", "material_expense", expense_id, {"action": action.action})
+    
+    return {"message": f"Material expense {action.action}"}
+
+
+# ==================== LABOUR EXPENSE ENDPOINTS ====================
+
+@api_router.get("/expenses/labour")
+async def get_labour_expenses(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get labour expenses"""
+    query = {}
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if status:
+        query["status"] = status
+    
+    # Role-based filtering
+    if user.role == UserRole.SITE_ENGINEER:
+        query["requested_by"] = user.user_id
+    elif user.role == UserRole.PLANNING:
+        query["status"] = {"$in": ["requested", "planning_approved", "planning_rejected"]}
+    elif user.role == UserRole.ACCOUNTANT:
+        query["status"] = {"$in": ["planning_approved", "accounts_approved", "accounts_rejected"]}
+    
+    expenses = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get project names
+    project_ids = list(set(e.get("project_id") for e in expenses))
+    projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+    
+    for exp in expenses:
+        exp["project_name"] = project_map.get(exp.get("project_id"), "Unknown")
+    
+    return expenses
+
+
+@api_router.post("/expenses/labour")
+async def create_labour_expense(expense_input: LabourExpenseCreate, user: User = Depends(get_current_user)):
+    """Create labour expense - Site Engineer"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can create labour expenses")
+    
+    total_amount = expense_input.num_workers * expense_input.days_worked * expense_input.rate_per_day
+    
+    expense = LabourExpense(
+        project_id=expense_input.project_id,
+        labour_type=expense_input.labour_type,
+        num_workers=expense_input.num_workers,
+        days_worked=expense_input.days_worked,
+        rate_per_day=expense_input.rate_per_day,
+        total_amount=total_amount,
+        work_date=datetime.fromisoformat(expense_input.work_date),
+        remarks=expense_input.remarks,
+        requested_by=user.user_id,
+        requested_by_name=user.name,
+        balance=total_amount
+    )
+    
+    expense_dict = expense.model_dump()
+    expense_dict["work_date"] = expense_dict["work_date"].isoformat()
+    expense_dict["created_at"] = expense_dict["created_at"].isoformat()
+    expense_dict["updated_at"] = expense_dict["updated_at"].isoformat()
+    
+    await db.labour_expenses.insert_one(expense_dict)
+    await create_audit_log(user.user_id, "create", "labour_expense", expense.expense_id, {
+        "labour_type": expense.labour_type,
+        "total_amount": total_amount
+    })
+    
+    # Notify Planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in planning_users:
+        await create_notification(pu["user_id"], f"New labour expense: {expense.labour_type} - ₹{total_amount}")
+    
+    return expense
+
+
+@api_router.patch("/expenses/labour/{expense_id}/planning-approval")
+async def planning_approve_labour(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Planning approval for labour expense"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can approve")
+    
+    expense = await db.labour_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "planning",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "planning_approved" if action.action == "approved" else "planning_rejected"
+    
+    await db.labour_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    if action.action == "approved":
+        accounts_users = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+        for au in accounts_users:
+            await create_notification(au["user_id"], f"Labour expense for approval: {expense['labour_type']}")
+    
+    return {"message": f"Labour expense {action.action}"}
+
+
+@api_router.patch("/expenses/labour/{expense_id}/accounts-approval")
+async def accounts_approve_labour(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Accounts approval for labour expense"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve")
+    
+    expense = await db.labour_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "accounts",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "accounts_approved" if action.action == "approved" else "accounts_rejected"
+    
+    await db.labour_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    await create_notification(expense["requested_by"], f"Labour expense {action.action}: {expense['labour_type']}")
+    
+    return {"message": f"Labour expense {action.action}"}
+
+
+# ==================== VENDOR SERVICE EXPENSE ENDPOINTS ====================
+
+@api_router.get("/expenses/vendor-service")
+async def get_vendor_service_expenses(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get vendor/service expenses"""
+    query = {}
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if status:
+        query["status"] = status
+    
+    if user.role == UserRole.SITE_ENGINEER:
+        query["requested_by"] = user.user_id
+    
+    expenses = await db.vendor_service_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    project_ids = list(set(e.get("project_id") for e in expenses))
+    projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+    
+    for exp in expenses:
+        exp["project_name"] = project_map.get(exp.get("project_id"), "Unknown")
+    
+    return expenses
+
+
+@api_router.post("/expenses/vendor-service")
+async def create_vendor_service_expense(expense_input: VendorServiceExpenseCreate, user: User = Depends(get_current_user)):
+    """Create vendor/service expense"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    expense = VendorServiceExpense(
+        project_id=expense_input.project_id,
+        vendor_name=expense_input.vendor_name,
+        vendor_id=expense_input.vendor_id,
+        service_type=expense_input.service_type,
+        amount=expense_input.amount,
+        invoice_number=expense_input.invoice_number,
+        remarks=expense_input.remarks,
+        requested_by=user.user_id,
+        requested_by_name=user.name,
+        balance=expense_input.amount
+    )
+    
+    expense_dict = expense.model_dump()
+    expense_dict["created_at"] = expense_dict["created_at"].isoformat()
+    expense_dict["updated_at"] = expense_dict["updated_at"].isoformat()
+    
+    await db.vendor_service_expenses.insert_one(expense_dict)
+    await create_audit_log(user.user_id, "create", "vendor_service_expense", expense.expense_id, {
+        "vendor_name": expense.vendor_name,
+        "amount": expense.amount
+    })
+    
+    # Notify Planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in planning_users:
+        await create_notification(pu["user_id"], f"New vendor expense: {expense.vendor_name} - ₹{expense.amount}")
+    
+    return expense
+
+
+@api_router.patch("/expenses/vendor-service/{expense_id}/planning-approval")
+async def planning_approve_vendor_service(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Planning approval for vendor/service expense"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can approve")
+    
+    expense = await db.vendor_service_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "planning",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "planning_approved" if action.action == "approved" else "planning_rejected"
+    
+    await db.vendor_service_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    if action.action == "approved":
+        accounts_users = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+        for au in accounts_users:
+            await create_notification(au["user_id"], f"Vendor expense for approval: {expense['vendor_name']}")
+    
+    return {"message": f"Vendor expense {action.action}"}
+
+
+@api_router.patch("/expenses/vendor-service/{expense_id}/accounts-approval")
+async def accounts_approve_vendor_service(expense_id: str, action: ApprovalAction, user: User = Depends(get_current_user)):
+    """Accounts approval for vendor/service expense"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve")
+    
+    expense = await db.vendor_service_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    approval = {
+        "approved_by": user.user_id,
+        "approved_by_name": user.name,
+        "role": "accounts",
+        "action": action.action,
+        "comments": action.comments,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    new_status = "accounts_approved" if action.action == "approved" else "accounts_rejected"
+    
+    await db.vendor_service_expenses.update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
+            "$push": {"approvals": approval}
+        }
+    )
+    
+    await create_notification(expense["requested_by"], f"Vendor expense {action.action}: {expense['vendor_name']}")
+    
+    return {"message": f"Vendor expense {action.action}"}
+
+
+# ==================== PAYMENT RECORDING FOR EXPENSES ====================
+
+@api_router.patch("/expenses/{expense_id}/payment")
+async def record_expense_payment(expense_id: str, payment_input: PaymentInput, user: User = Depends(get_current_user)):
+    """Record payment for any expense type"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can record payments")
+    
+    expense, collection_name = await get_expense_by_id(expense_id)
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    
+    if expense.get("status") not in ["accounts_approved", "super_admin_approved"]:
+        raise HTTPException(status_code=400, detail="Expense must be approved first")
+    
+    payment = {
+        "payment_id": f"epay_{uuid.uuid4().hex[:12]}",
+        "payment_type": payment_input.payment_type,
+        "amount": payment_input.amount,
+        "payment_date": datetime.now(timezone.utc).isoformat(),
+        "payment_mode": payment_input.payment_mode,
+        "reference": payment_input.reference,
+        "recorded_by": user.user_id
+    }
+    
+    # Calculate new totals
+    final_amount = expense.get("final_amount") or expense.get("total_amount") or expense.get("amount", 0)
+    current_paid = expense.get("total_paid", 0)
+    
+    if payment_input.payment_type == "credit":
+        new_paid = current_paid
+        new_balance = final_amount - current_paid
+        payment_status = "credit"
+    elif payment_input.payment_type == "advance":
+        new_paid = current_paid + payment_input.amount
+        new_balance = final_amount - new_paid
+        payment_status = "partial" if new_balance > 0 else "paid"
+    else:  # full
+        new_paid = final_amount
+        new_balance = 0
+        payment_status = "paid"
+        payment["amount"] = final_amount - current_paid
+    
+    update_data = {
+        "payment_type": payment_input.payment_type,
+        "payment_status": payment_status,
+        "total_paid": new_paid,
+        "balance": new_balance,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if payment_status == "paid":
+        update_data["status"] = "completed"
+    
+    await db[collection_name].update_one(
+        {"expense_id": expense_id},
+        {
+            "$set": update_data,
+            "$push": {"payments": payment}
+        }
+    )
+    
+    # Update project expense total
+    project_id = expense.get("project_id")
+    if project_id and payment_input.amount > 0:
+        project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+        if project:
+            current_expense = project.get("total_expense", 0)
+            await db.projects.update_one(
+                {"project_id": project_id},
+                {"$set": {"total_expense": current_expense + payment_input.amount}}
+            )
+    
+    await create_audit_log(user.user_id, "payment", collection_name.replace("_expenses", "_expense"), expense_id, {
+        "payment_type": payment_input.payment_type,
+        "amount": payment_input.amount
+    })
+    
+    return {"message": "Payment recorded", "payment_status": payment_status, "balance": new_balance}
+
+
+# ==================== EXPENSE SUMMARY ENDPOINTS ====================
+
+@api_router.get("/expenses/summary")
+async def get_expense_summary(user: User = Depends(get_current_user)):
+    """Get overall expense summary"""
+    material_expenses = await db.material_expenses.find({}, {"_id": 0}).to_list(10000)
+    labour_expenses = await db.labour_expenses.find({}, {"_id": 0}).to_list(10000)
+    vendor_expenses = await db.vendor_service_expenses.find({}, {"_id": 0}).to_list(10000)
+    
+    def sum_expenses(expenses, amount_field):
+        return sum(e.get(amount_field, 0) for e in expenses)
+    
+    def sum_paid(expenses):
+        return sum(e.get("total_paid", 0) for e in expenses)
+    
+    def count_by_status(expenses, status):
+        return len([e for e in expenses if e.get("status") == status])
+    
+    return {
+        "material": {
+            "count": len(material_expenses),
+            "total_amount": sum_expenses(material_expenses, "final_amount"),
+            "total_paid": sum_paid(material_expenses),
+            "pending_approval": count_by_status(material_expenses, "requested") + count_by_status(material_expenses, "planning_approved") + count_by_status(material_expenses, "procurement_priced"),
+            "approved": count_by_status(material_expenses, "accounts_approved"),
+            "completed": count_by_status(material_expenses, "completed")
+        },
+        "labour": {
+            "count": len(labour_expenses),
+            "total_amount": sum_expenses(labour_expenses, "total_amount"),
+            "total_paid": sum_paid(labour_expenses),
+            "pending_approval": count_by_status(labour_expenses, "requested") + count_by_status(labour_expenses, "planning_approved"),
+            "approved": count_by_status(labour_expenses, "accounts_approved"),
+            "completed": count_by_status(labour_expenses, "completed")
+        },
+        "vendor_service": {
+            "count": len(vendor_expenses),
+            "total_amount": sum_expenses(vendor_expenses, "amount"),
+            "total_paid": sum_paid(vendor_expenses),
+            "pending_approval": count_by_status(vendor_expenses, "requested") + count_by_status(vendor_expenses, "planning_approved"),
+            "approved": count_by_status(vendor_expenses, "accounts_approved"),
+            "completed": count_by_status(vendor_expenses, "completed")
+        },
+        "totals": {
+            "total_expenses": sum_expenses(material_expenses, "final_amount") + sum_expenses(labour_expenses, "total_amount") + sum_expenses(vendor_expenses, "amount"),
+            "total_paid": sum_paid(material_expenses) + sum_paid(labour_expenses) + sum_paid(vendor_expenses),
+            "total_credit": sum(e.get("balance", 0) for e in material_expenses + labour_expenses + vendor_expenses if e.get("payment_status") == "credit")
+        }
+    }
+
+
+@api_router.get("/expenses/pending-approvals")
+async def get_pending_expense_approvals(user: User = Depends(get_current_user)):
+    """Get pending expense approvals based on user role"""
+    result = {
+        "material": [],
+        "labour": [],
+        "vendor_service": []
+    }
+    
+    if user.role == UserRole.PLANNING or user.role == UserRole.SUPER_ADMIN:
+        result["material"] = await db.material_expenses.find({"status": "requested"}, {"_id": 0}).to_list(100)
+        result["labour"] = await db.labour_expenses.find({"status": "requested"}, {"_id": 0}).to_list(100)
+        result["vendor_service"] = await db.vendor_service_expenses.find({"status": "requested"}, {"_id": 0}).to_list(100)
+    
+    if user.role == UserRole.PROCUREMENT or user.role == UserRole.SUPER_ADMIN:
+        result["material"].extend(await db.material_expenses.find({"status": "planning_approved"}, {"_id": 0}).to_list(100))
+    
+    if user.role == UserRole.ACCOUNTANT or user.role == UserRole.SUPER_ADMIN:
+        result["material"].extend(await db.material_expenses.find({"status": "procurement_priced"}, {"_id": 0}).to_list(100))
+        result["labour"].extend(await db.labour_expenses.find({"status": "planning_approved"}, {"_id": 0}).to_list(100))
+        result["vendor_service"].extend(await db.vendor_service_expenses.find({"status": "planning_approved"}, {"_id": 0}).to_list(100))
+    
+    # Add project names
+    all_expenses = result["material"] + result["labour"] + result["vendor_service"]
+    project_ids = list(set(e.get("project_id") for e in all_expenses))
+    projects = await db.projects.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+    
+    for exp_list in [result["material"], result["labour"], result["vendor_service"]]:
+        for exp in exp_list:
+            exp["project_name"] = project_map.get(exp.get("project_id"), "Unknown")
+    
+    return result
+
+
+@api_router.get("/projects/{project_id}/expenses")
+async def get_project_expenses(project_id: str, user: User = Depends(get_current_user)):
+    """Get all expenses for a project"""
+    material = await db.material_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    labour = await db.labour_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    vendor = await db.vendor_service_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    
+    # Calculate totals
+    material_total = sum(e.get("final_amount", 0) for e in material)
+    labour_total = sum(e.get("total_amount", 0) for e in labour)
+    vendor_total = sum(e.get("amount", 0) for e in vendor)
+    
+    material_paid = sum(e.get("total_paid", 0) for e in material)
+    labour_paid = sum(e.get("total_paid", 0) for e in labour)
+    vendor_paid = sum(e.get("total_paid", 0) for e in vendor)
+    
+    return {
+        "material": material,
+        "labour": labour,
+        "vendor_service": vendor,
+        "summary": {
+            "material_total": material_total,
+            "material_paid": material_paid,
+            "labour_total": labour_total,
+            "labour_paid": labour_paid,
+            "vendor_total": vendor_total,
+            "vendor_paid": vendor_paid,
+            "total_expenses": material_total + labour_total + vendor_total,
+            "total_paid": material_paid + labour_paid + vendor_paid,
+            "total_balance": (material_total - material_paid) + (labour_total - labour_paid) + (vendor_total - vendor_paid)
+        }
+    }
+
+
 app.include_router(api_router)
 
 app.add_middleware(
