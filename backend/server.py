@@ -72,6 +72,39 @@ class BOQCategory(str, Enum):
     LABOUR = "labour"
 
 
+# ==================== EXPENSE MODULE ENUMS ====================
+
+class ExpenseType(str, Enum):
+    MATERIAL = "material"
+    LABOUR = "labour"
+    VENDOR_SERVICE = "vendor_service"
+
+
+class ExpenseStatus(str, Enum):
+    REQUESTED = "requested"  # Site Engineer created
+    PLANNING_APPROVED = "planning_approved"  # Planning approved
+    PLANNING_REJECTED = "planning_rejected"  # Planning rejected
+    PROCUREMENT_PRICED = "procurement_priced"  # Procurement added pricing
+    ACCOUNTS_APPROVED = "accounts_approved"  # Accounts approved
+    ACCOUNTS_REJECTED = "accounts_rejected"  # Accounts rejected
+    SUPER_ADMIN_APPROVED = "super_admin_approved"  # Final approval
+    COMPLETED = "completed"  # Payment done
+    CANCELLED = "cancelled"
+
+
+class PaymentType(str, Enum):
+    CREDIT = "credit"  # No payment now, mark as payable
+    ADVANCE = "advance"  # Partial payment
+    FULL = "full"  # Full settlement
+
+
+class PaymentStatus(str, Enum):
+    PENDING = "pending"
+    PARTIAL = "partial"
+    PAID = "paid"
+    CREDIT = "credit"
+
+
 class User(BaseModel):
     user_id: str
     email: EmailStr
