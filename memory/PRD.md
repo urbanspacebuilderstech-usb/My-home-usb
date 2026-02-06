@@ -242,6 +242,54 @@ Build a Construction Accounting CRM with:
 - [x] **Backend Models**: MaterialExpense, LabourExpense, VendorServiceExpense, ExpensePayment
 - [x] **Backend Endpoints**: Full CRUD + approval workflows for all 3 types
 
+#### ✅ System Settings Module (P0 - February 6, 2026)
+- [x] **Company Profile Settings** at `/settings`
+  - Company Name, Email, Phone, Address
+  - GST Number for tax compliance
+  - Default Currency selection (INR, USD, EUR, GBP, AED)
+  - Financial Year Start month
+  - Logo URL configuration
+- [x] **Settings Summary API**: Returns counts for users, materials, vendors
+- [x] **Backend Endpoints**: GET/POST/PATCH /api/settings/company
+
+#### ✅ Material Management Module (P0 - February 6, 2026)
+- [x] **Material Master** at `/materials`
+  - Full CRUD operations for materials
+  - 12 Categories: Cement, Sand, Steel, Bricks, Aggregate, Tiles, Electrical, Plumbing, Paint, Wood, Hardware, Other
+  - Unit selection (Nos, Kg, Ton, Bag, Load, CFT, SFT, etc.)
+  - HSN Code for GST compliance
+  - Soft delete (is_active flag)
+  - Search and filter by category
+- [x] **Duplicate name validation**
+- [x] **Permission Control**: Super Admin, Planning, Procurement only
+- [x] **Backend Endpoints**: Full CRUD /api/materials
+
+#### ✅ Vendor Master Module (P0 - February 6, 2026)
+- [x] **Vendor Master** at `/vendor-management`
+  - Full CRUD operations for vendors
+  - Contact details (person, phone, email, address)
+  - GST Number for tax compliance
+  - Payment Terms (Full, Advance, Credit)
+  - Credit Limit and Credit Days for credit vendors
+  - Card-based UI with all vendor details
+  - Soft delete (is_active flag)
+  - Search functionality
+- [x] **Permission Control**: Super Admin, Procurement only
+- [x] **Backend Endpoints**: Full CRUD /api/vendor-master
+
+#### ✅ Enhanced User Management (P0 - February 6, 2026)
+- [x] **User Management** at `/users` (enhanced)
+  - Full CRUD operations for users
+  - Edit user name, phone, role, department
+  - Delete users (with session cleanup)
+  - Self-delete prevention
+  - Search and filter by role
+  - Department field added
+  - Stats cards (Total, Admins, Staff, Clients, Vendors)
+- [x] **Role descriptions** in create/edit dialog
+- [x] **Permission Control**: Super Admin only for role/delete, self can edit name/phone
+- [x] **Backend Endpoints**: GET/PATCH/DELETE /api/users/{id}, GET /api/roles
+
 ---
 
 ## API Endpoints
