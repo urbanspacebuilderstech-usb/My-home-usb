@@ -384,6 +384,127 @@ class IncomeEntry(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# ==================== EXPENSE MODULE MODELS ====================
+
+class VendorQuote(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+    total_price: float
+    is_selected: bool = False
+
+
+class ExpenseApproval(BaseModel):
+    approved_by: str
+    approved_by_name: str
+    role: str
+    action: str  # approved, rejected
+    comments: Optional[str] = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ExpensePayment(BaseModel):
+    payment_id: str = Field(default_factory=lambda: f"epay_{uuid.uuid4().hex[:12]}")
+    payment_type: PaymentType
+    amount: float
+    payment_date: datetime
+    payment_mode: Optional[str] = None  # cash, cheque, bank_transfer, upi
+    reference: Optional[str] = None
+    recorded_by: str
+
+
+class MaterialExpense(BaseModel):
+    expense_id: str = Field(default_factory=lambda: f"mexp_{uuid.uuid4().hex[:12]}")
+    expense_type: str = "material"
+    project_id: str
+    material_name: str
+    material_type: Optional[str] = None
+    quantity: float
+    unit: str = "units"
+    required_date: datetime
+    remarks: Optional[str] = None
+    status: ExpenseStatus = ExpenseStatus.REQUESTED
+    requested_by: str  # Site Engineer user_id
+    requested_by_name: str
+    
+    # Procurement pricing
+    vendor_quotes: List[VendorQuote] = []
+    selected_vendor_id: Optional[str] = None
+    final_amount: float = 0
+    
+    # Payment tracking
+    payment_type: Optional[PaymentType] = None
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    total_paid: float = 0
+    balance: float = 0
+    payments: List[ExpensePayment] = []
+    
+    # Approval history
+    approvals: List[ExpenseApproval] = []
+    
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LabourExpense(BaseModel):
+    expense_id: str = Field(default_factory=lambda: f"lexp_{uuid.uuid4().hex[:12]}")
+    expense_type: str = "labour"
+    project_id: str
+    labour_type: str  # e.g., Mason, Helper, Carpenter
+    num_workers: int
+    days_worked: float
+    rate_per_day: float
+    total_amount: float  # num_workers * days_worked * rate_per_day
+    work_date: datetime
+    remarks: Optional[str] = None
+    status: ExpenseStatus = ExpenseStatus.REQUESTED
+    requested_by: str
+    requested_by_name: str
+    
+    # Payment tracking
+    payment_type: Optional[PaymentType] = None
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    total_paid: float = 0
+    balance: float = 0
+    payments: List[ExpensePayment] = []
+    
+    # Approval history
+    approvals: List[ExpenseApproval] = []
+    
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorServiceExpense(BaseModel):
+    expense_id: str = Field(default_factory=lambda: f"vexp_{uuid.uuid4().hex[:12]}")
+    expense_type: str = "vendor_service"
+    project_id: str
+    vendor_name: str
+    vendor_id: Optional[str] = None
+    service_type: str
+    amount: float
+    invoice_number: Optional[str] = None
+    invoice_url: Optional[str] = None
+    remarks: Optional[str] = None
+    status: ExpenseStatus = ExpenseStatus.REQUESTED
+    requested_by: str
+    requested_by_name: str
+    
+    # Payment tracking
+    payment_type: Optional[PaymentType] = None
+    payment_status: PaymentStatus = PaymentStatus.PENDING
+    total_paid: float = 0
+    balance: float = 0
+    payments: List[ExpensePayment] = []
+    
+    # Approval history
+    approvals: List[ExpenseApproval] = []
+    
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 async def get_current_user(request: Request) -> User:
     session_token = request.cookies.get("session_token")
     if not session_token:
