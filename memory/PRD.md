@@ -477,10 +477,12 @@ Build a Construction Accounting CRM with:
 
 ### P1 - Upcoming Tasks
 - [ ] Labour and Vendor/Service Expense Workflows (following Material Expense pattern)
-- [ ] Mobile-optimized UI for Site Engineers
 - [ ] Integrate Material Master with Expense Module (dropdown from master list)
+- [ ] Add Resend API key for real OTP email delivery
 
 ### P2/P3 - Future Enhancements
+- [ ] Mobile-optimized UI for Site Engineers
+- [ ] Photo upload for material receipts
 - [ ] Email notifications via Resend (requires API key)
 - [ ] Enhanced Client Portal with file uploads
 - [ ] Advanced audit log viewing
@@ -491,4 +493,47 @@ Build a Construction Accounting CRM with:
 
 ---
 
-*Last Updated: February 6, 2026*
+## Completed Features (February 2026)
+
+### ✅ System Settings Module (Feb 6, 2026)
+- Company Profile Settings at `/settings`
+- Material Management at `/materials` (12 categories, CRUD operations)
+- Vendor Master at `/vendor-management` (CRUD with credit terms)
+- Enhanced User Management at `/users` (CRUD, search/filter)
+
+### ✅ Bulk Add with Verification/Approval Workflow (Feb 6, 2026)
+- Bulk add 10-15 items at once in Scope, Payments, Additions, Deductions tabs
+- Verification flow requiring typing "VERIFY" in caps
+- Approval workflow: Draft → Pending Verification → Pending Approval → Approved
+- Super Admin approval/rejection capability
+
+### ✅ Site Engineer Board Module (Feb 13, 2026)
+- **Site Engineer Dashboard** (`/site-engineer`)
+  - My Projects view (max 3 assigned projects)
+  - Active orders count per project
+  - No access to financial totals
+  
+- **Material Request Flow**
+  - Request popup with material dropdown from Master
+  - Auto Order ID generation
+  - Status: Requested → Planning → Procurement → Accountant → Ready for Delivery
+  
+- **Labour Request Flow**
+  - Request popup with labour type, workers, days, rate
+  - Auto-calculated total
+  - Status: Requested → Planning → Accountant → Approved
+  
+- **Material Receiving Flow**
+  - GPS location capture (browser geolocation)
+  - Partial/full quantity tracking
+  - OTP verification via email (Resend integration - REQUIRES API KEY)
+  - Test OTP shown when email not configured
+  
+- **Project Assignment**
+  - Super Admin can assign via User Management
+  - Project Manager can assign via Project page
+  - Max 3 projects per Site Engineer enforced
+
+---
+
+*Last Updated: February 13, 2026*
