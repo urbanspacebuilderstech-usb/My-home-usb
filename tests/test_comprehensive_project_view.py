@@ -7,7 +7,7 @@ import requests
 import os
 import uuid
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://constrac.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://siteforge-67.preview.emergentagent.com')
 PROJECT_ID = "proj_classic001"
 DEMO_EMAIL = "admin@constructionos.com"
 

@@ -2,7 +2,7 @@
 
 ## Quick Access
 
-**Web Portal:** https://constrac.preview.emergentagent.com  
+**Web Portal:** https://siteforge-67.preview.emergentagent.com  
 **Super Admin Email:** admin@constructionos.com  
 **API Token:** `superadmin_demo_1768204210044`
 
@@ -120,7 +120,7 @@
 
 ### Option 1: Web Interface (Recommended)
 
-1. Go to: https://constrac.preview.emergentagent.com
+1. Go to: https://siteforge-67.preview.emergentagent.com
 2. Click "Sign In with Google"
 3. Use email: **admin@constructionos.com**
 4. Authenticate via Google OAuth
@@ -133,7 +133,7 @@ Use the session token for instant API access:
 ```bash
 # Set your token
 TOKEN="superadmin_demo_1768204210044"
-API="https://constrac.preview.emergentagent.com/api"
+API="https://siteforge-67.preview.emergentagent.com/api"
 
 # Get your profile
 curl -H "Authorization: Bearer $TOKEN" "$API/auth/me"
