@@ -249,6 +249,9 @@ export default function ProcurementDashboard() {
   const handleLogout = async () => {
     try {
       await axios.post(`${API}/auth/logout`);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
     window.location.href = '/login';
   };
 
