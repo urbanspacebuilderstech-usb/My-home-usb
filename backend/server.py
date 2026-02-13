@@ -5277,6 +5277,748 @@ async def get_settings_summary(user: User = Depends(get_current_user)):
     }
 
 
+# ==================== PROCUREMENT BOARD MODULE ====================
+
+class ProcurementOrderStatus(str, Enum):
+    PENDING = "pending"  # Planning approved, waiting for procurement pricing
+    PRICING_IN_PROGRESS = "pricing_in_progress"  # Procurement adding quotes
+    WAITING_ACCOUNTS = "waiting_accounts"  # Submitted for Accounts approval
+    ACCOUNTS_APPROVED = "accounts_approved"  # Ready for payment/delivery
+    ACCOUNTS_REJECTED = "accounts_rejected"  # Rejected by Accounts
+    PAID = "paid"  # Payment completed
+    CREDIT = "credit"  # Credit term
+    DELIVERED_PARTIAL = "delivered_partial"
+    DELIVERED_COMPLETED = "delivered_completed"
+
+
+class VendorQuote(BaseModel):
+    quote_id: str = Field(default_factory=lambda: f"quote_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+    total: float = 0  # (unit_price * quantity) + transport_cost - discount
+    is_selected: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProcurementPricing(BaseModel):
+    pricing_id: str = Field(default_factory=lambda: f"prc_{uuid.uuid4().hex[:12]}")
+    request_id: str  # Links to MaterialRequest
+    request_type: str = "material_request"  # or "material_expense"
+    project_id: str
+    project_name: str
+    material_id: str
+    material_name: str
+    requested_qty: float
+    unit: str
+    site_engineer_id: str
+    site_engineer_name: str
+    vendor_quotes: List[Dict] = []  # List of VendorQuote objects
+    selected_vendor_id: Optional[str] = None
+    selected_vendor_name: Optional[str] = None
+    final_amount: float = 0
+    status: str = "pending"
+    submitted_by: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    accounts_action: Optional[str] = None  # approved/rejected
+    accounts_by: Optional[str] = None
+    accounts_at: Optional[datetime] = None
+    accounts_comment: Optional[str] = None
+    payment_status: str = "pending"  # pending, paid, credit, partial
+    paid_amount: float = 0
+    delivery_status: str = "pending"  # pending, partial, completed
+    delivered_qty: float = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorPriceHistory(BaseModel):
+    history_id: str = Field(default_factory=lambda: f"vph_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    material_id: str
+    material_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+    total: float = 0
+    project_id: str
+    project_name: str
+    pricing_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProcurementLog(BaseModel):
+    log_id: str = Field(default_factory=lambda: f"plog_{uuid.uuid4().hex[:12]}")
+    pricing_id: str
+    action: str  # add_quote, update_quote, select_vendor, submit, approve, reject, etc.
+    user_id: str
+    user_name: str
+    details: Dict = {}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AddVendorQuoteInput(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+
+
+class NewVendorInput(BaseModel):
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    payment_terms: str = "full"  # full, advance, credit
+
+
+@api_router.get("/procurement/dashboard")
+async def get_procurement_dashboard(user: User = Depends(get_current_user)):
+    """Get procurement dashboard metrics"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    
+    # Count pending (planning approved material requests waiting for procurement)
+    pending_requests = await db.material_requests.count_documents({
+        "status": "planning_approved"
+    })
+    
+    # Count pricing in progress
+    pricing_in_progress = await db.procurement_pricing.count_documents({
+        "status": "pricing_in_progress"
+    })
+    
+    # Count waiting for accounts
+    waiting_accounts = await db.procurement_pricing.count_documents({
+        "status": "waiting_accounts"
+    })
+    
+    # Count approved orders
+    approved_orders = await db.procurement_pricing.count_documents({
+        "status": {"$in": ["accounts_approved", "paid", "credit"]}
+    })
+    
+    # Count delivered
+    delivered_orders = await db.procurement_pricing.count_documents({
+        "delivery_status": {"$in": ["partial", "completed"]}
+    })
+    
+    # Total value in pricing
+    pricing_docs = await db.procurement_pricing.find(
+        {"status": {"$in": ["pricing_in_progress", "waiting_accounts"]}},
+        {"final_amount": 1, "_id": 0}
+    ).to_list(1000)
+    total_in_pricing = sum(p.get("final_amount", 0) for p in pricing_docs)
+    
+    # Credit outstanding
+    credit_docs = await db.procurement_pricing.find(
+        {"payment_status": "credit"},
+        {"final_amount": 1, "paid_amount": 1, "_id": 0}
+    ).to_list(1000)
+    credit_outstanding = sum(p.get("final_amount", 0) - p.get("paid_amount", 0) for p in credit_docs)
+    
+    # Vendor-wise spend (top 5)
+    pipeline = [
+        {"$match": {"status": {"$in": ["accounts_approved", "paid", "credit"]}}},
+        {"$group": {"_id": "$selected_vendor_name", "total_spend": {"$sum": "$final_amount"}}},
+        {"$sort": {"total_spend": -1}},
+        {"$limit": 5}
+    ]
+    vendor_spend = await db.procurement_pricing.aggregate(pipeline).to_list(5)
+    
+    return {
+        "pending_requests": pending_requests,
+        "pricing_in_progress": pricing_in_progress,
+        "waiting_accounts": waiting_accounts,
+        "approved_orders": approved_orders,
+        "delivered_orders": delivered_orders,
+        "total_in_pricing": total_in_pricing,
+        "credit_outstanding": credit_outstanding,
+        "vendor_spend": [{"vendor": v["_id"] or "Unknown", "amount": v["total_spend"]} for v in vendor_spend]
+    }
+
+
+@api_router.get("/procurement/requests")
+async def get_procurement_requests(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material requests by status for procurement board"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    
+    results = []
+    
+    if status == "pending" or status is None:
+        # Get planning-approved material requests not yet in procurement_pricing
+        existing_pricing_ids = await db.procurement_pricing.distinct("request_id")
+        pending_requests = await db.material_requests.find({
+            "status": "planning_approved",
+            "request_id": {"$nin": existing_pricing_ids}
+        }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        
+        # Enrich with project and engineer names
+        for req in pending_requests:
+            project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+            engineer = await db.users.find_one({"user_id": req.get("site_engineer_id")}, {"_id": 0, "name": 1})
+            req["project_name"] = project.get("name") if project else "Unknown"
+            req["site_engineer_name"] = engineer.get("name") if engineer else "Unknown"
+            req["procurement_status"] = "pending"
+        
+        if status == "pending":
+            return pending_requests
+        results.extend(pending_requests)
+    
+    # Get from procurement_pricing collection for other statuses
+    query = {}
+    if status == "pricing_in_progress":
+        query["status"] = "pricing_in_progress"
+    elif status == "waiting_accounts":
+        query["status"] = "waiting_accounts"
+    elif status == "approved":
+        query["status"] = {"$in": ["accounts_approved", "paid", "credit"]}
+    elif status == "delivered":
+        query["delivery_status"] = {"$in": ["partial", "completed"]}
+    
+    if query:
+        pricing_docs = await db.procurement_pricing.find(query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+        results.extend(pricing_docs)
+    elif status is None:
+        # Get all
+        all_pricing = await db.procurement_pricing.find({}, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+        results.extend(all_pricing)
+    
+    return results
+
+
+@api_router.post("/procurement/start-pricing/{request_id}")
+async def start_pricing(request_id: str, user: User = Depends(get_current_user)):
+    """Start pricing process for a material request"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can start pricing")
+    
+    # Check if already in pricing
+    existing = await db.procurement_pricing.find_one({"request_id": request_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Pricing already started for this request")
+    
+    # Get the material request
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Request must be planning approved")
+    
+    # Get project and engineer info
+    project = await db.projects.find_one({"project_id": request.get("project_id")}, {"_id": 0, "name": 1})
+    engineer = await db.users.find_one({"user_id": request.get("site_engineer_id")}, {"_id": 0, "name": 1})
+    
+    # Create procurement pricing record
+    pricing = ProcurementPricing(
+        request_id=request_id,
+        project_id=request.get("project_id"),
+        project_name=project.get("name") if project else "Unknown",
+        material_id=request.get("material_id"),
+        material_name=request.get("material_name"),
+        requested_qty=request.get("quantity"),
+        unit=request.get("unit"),
+        site_engineer_id=request.get("site_engineer_id"),
+        site_engineer_name=engineer.get("name") if engineer else "Unknown",
+        status="pricing_in_progress"
+    )
+    
+    pricing_dict = pricing.model_dump()
+    pricing_dict["created_at"] = pricing_dict["created_at"].isoformat()
+    pricing_dict["updated_at"] = pricing_dict["updated_at"].isoformat()
+    
+    await db.procurement_pricing.insert_one(pricing_dict)
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing.pricing_id,
+        action="start_pricing",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"request_id": request_id, "material": request.get("material_name")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"pricing_id": pricing.pricing_id, "message": "Pricing started"}
+
+
+@api_router.get("/procurement/pricing/{pricing_id}")
+async def get_pricing_details(pricing_id: str, user: User = Depends(get_current_user)):
+    """Get detailed pricing information"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    # Get original request details
+    request = await db.material_requests.find_one({"request_id": pricing.get("request_id")}, {"_id": 0})
+    
+    # Get vendor list for dropdown
+    vendors = await db.vendor_master.find({"is_active": True}, {"_id": 0}).to_list(1000)
+    
+    # Get price history for this material
+    price_history = await db.vendor_price_history.find(
+        {"material_id": pricing.get("material_id")},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(20).to_list(20)
+    
+    return {
+        "pricing": pricing,
+        "original_request": request,
+        "vendors": vendors,
+        "price_history": price_history
+    }
+
+
+@api_router.post("/procurement/pricing/{pricing_id}/add-quote")
+async def add_vendor_quote(pricing_id: str, quote_input: AddVendorQuoteInput, user: User = Depends(get_current_user)):
+    """Add a vendor quote for comparison"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can add quotes")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot add quotes - pricing not in progress")
+    
+    # Calculate total
+    total = (quote_input.unit_price * quote_input.quantity) + quote_input.transport_cost - quote_input.discount
+    
+    quote = {
+        "quote_id": f"quote_{uuid.uuid4().hex[:12]}",
+        "vendor_id": quote_input.vendor_id,
+        "vendor_name": quote_input.vendor_name,
+        "unit_price": quote_input.unit_price,
+        "quantity": quote_input.quantity,
+        "transport_cost": quote_input.transport_cost,
+        "discount": quote_input.discount,
+        "total": total,
+        "is_selected": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$push": {"vendor_quotes": quote},
+            "$set": {
+                "status": "pricing_in_progress",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="add_quote",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"vendor": quote_input.vendor_name, "total": total}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Quote added", "quote": quote}
+
+
+@api_router.delete("/procurement/pricing/{pricing_id}/quote/{quote_id}")
+async def remove_vendor_quote(pricing_id: str, quote_id: str, user: User = Depends(get_current_user)):
+    """Remove a vendor quote"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can remove quotes")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot remove quotes - pricing locked")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$pull": {"vendor_quotes": {"quote_id": quote_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
+    )
+    
+    return {"message": "Quote removed"}
+
+
+@api_router.patch("/procurement/pricing/{pricing_id}/select-vendor")
+async def select_vendor(pricing_id: str, vendor_id: str, user: User = Depends(get_current_user)):
+    """Select a vendor as the final choice"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can select vendor")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot select vendor - pricing locked")
+    
+    # Find the selected quote
+    selected_quote = None
+    updated_quotes = []
+    for quote in pricing.get("vendor_quotes", []):
+        quote["is_selected"] = quote["vendor_id"] == vendor_id
+        if quote["is_selected"]:
+            selected_quote = quote
+        updated_quotes.append(quote)
+    
+    if not selected_quote:
+        raise HTTPException(status_code=400, detail="Vendor quote not found")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "vendor_quotes": updated_quotes,
+                "selected_vendor_id": vendor_id,
+                "selected_vendor_name": selected_quote.get("vendor_name"),
+                "final_amount": selected_quote.get("total"),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="select_vendor",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"vendor": selected_quote.get("vendor_name"), "amount": selected_quote.get("total")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Vendor selected", "final_amount": selected_quote.get("total")}
+
+
+@api_router.post("/procurement/pricing/{pricing_id}/submit")
+async def submit_for_accounts(pricing_id: str, user: User = Depends(get_current_user)):
+    """Submit pricing for accounts approval"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can submit")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if not pricing.get("selected_vendor_id"):
+        raise HTTPException(status_code=400, detail="Must select a vendor before submitting")
+    
+    if not pricing.get("vendor_quotes"):
+        raise HTTPException(status_code=400, detail="Must add at least one quote before submitting")
+    
+    # Update status
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "status": "waiting_accounts",
+                "submitted_by": user.user_id,
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update original material request status
+    await db.material_requests.update_one(
+        {"request_id": pricing.get("request_id")},
+        {
+            "$set": {
+                "status": "procurement_approved",
+                "procurement_approved_by": user.user_id,
+                "procurement_approved_at": datetime.now(timezone.utc).isoformat(),
+                "procurement_pricing": pricing.get("final_amount"),
+                "vendor_id": pricing.get("selected_vendor_id")
+            }
+        }
+    )
+    
+    # Save vendor price history
+    selected_quote = None
+    for q in pricing.get("vendor_quotes", []):
+        if q.get("is_selected"):
+            selected_quote = q
+            break
+    
+    if selected_quote:
+        history = VendorPriceHistory(
+            vendor_id=selected_quote.get("vendor_id"),
+            vendor_name=selected_quote.get("vendor_name"),
+            material_id=pricing.get("material_id"),
+            material_name=pricing.get("material_name"),
+            unit_price=selected_quote.get("unit_price"),
+            quantity=selected_quote.get("quantity"),
+            transport_cost=selected_quote.get("transport_cost", 0),
+            discount=selected_quote.get("discount", 0),
+            total=selected_quote.get("total"),
+            project_id=pricing.get("project_id"),
+            project_name=pricing.get("project_name"),
+            pricing_id=pricing_id
+        )
+        history_dict = history.model_dump()
+        history_dict["created_at"] = history_dict["created_at"].isoformat()
+        await db.vendor_price_history.insert_one(history_dict)
+    
+    # Notify accounts
+    accounts_users = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for au in accounts_users:
+        await create_notification(
+            au["user_id"],
+            f"Material order ready for approval: {pricing.get('material_name')} - ₹{pricing.get('final_amount')}"
+        )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="submit_for_accounts",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"amount": pricing.get("final_amount"), "vendor": pricing.get("selected_vendor_name")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Submitted for accounts approval"}
+
+
+@api_router.patch("/procurement/pricing/{pricing_id}/accounts-action")
+async def accounts_action_on_procurement(
+    pricing_id: str,
+    action: str,  # approve or reject
+    comment: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Accounts approval/rejection"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve/reject")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") != "waiting_accounts":
+        raise HTTPException(status_code=400, detail="Invalid status for accounts action")
+    
+    new_status = "accounts_approved" if action == "approve" else "accounts_rejected"
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "status": new_status,
+                "accounts_action": action,
+                "accounts_by": user.user_id,
+                "accounts_at": datetime.now(timezone.utc).isoformat(),
+                "accounts_comment": comment,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update original material request
+    request_status = "accountant_approved" if action == "approve" else "rejected"
+    update_data = {
+        "status": request_status,
+        "accountant_approved_by": user.user_id if action == "approve" else None,
+        "accountant_approved_at": datetime.now(timezone.utc).isoformat() if action == "approve" else None
+    }
+    if action == "reject":
+        update_data["rejection_reason"] = comment
+    
+    await db.material_requests.update_one(
+        {"request_id": pricing.get("request_id")},
+        {"$set": update_data}
+    )
+    
+    # Notify procurement
+    proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in proc_users:
+        status_text = "approved" if action == "approve" else f"rejected: {comment}"
+        await create_notification(
+            pu["user_id"],
+            f"Material order {status_text}: {pricing.get('material_name')}"
+        )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action=f"accounts_{action}",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"comment": comment}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": f"Order {action}d"}
+
+
+@api_router.patch("/procurement/pricing/{pricing_id}/payment-status")
+async def update_payment_status(
+    pricing_id: str,
+    payment_status: str,  # paid, credit, partial
+    paid_amount: Optional[float] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update payment status"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can update payment status")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    update_data = {
+        "payment_status": payment_status,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if payment_status == "paid":
+        update_data["paid_amount"] = pricing.get("final_amount")
+        update_data["status"] = "paid"
+    elif payment_status == "credit":
+        update_data["status"] = "credit"
+    elif payment_status == "partial" and paid_amount:
+        update_data["paid_amount"] = paid_amount
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Payment status updated"}
+
+
+@api_router.patch("/procurement/pricing/{pricing_id}/delivery-status")
+async def update_delivery_status(
+    pricing_id: str,
+    delivery_status: str,  # partial, completed
+    delivered_qty: Optional[float] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update delivery status (called when Site Engineer confirms receipt)"""
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    update_data = {
+        "delivery_status": delivery_status,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if delivered_qty:
+        update_data["delivered_qty"] = delivered_qty
+    elif delivery_status == "completed":
+        update_data["delivered_qty"] = pricing.get("requested_qty")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Delivery status updated"}
+
+
+@api_router.get("/procurement/logs/{pricing_id}")
+async def get_procurement_logs(pricing_id: str, user: User = Depends(get_current_user)):
+    """Get audit logs for a pricing record"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    logs = await db.procurement_logs.find(
+        {"pricing_id": pricing_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return logs
+
+
+@api_router.get("/procurement/price-history")
+async def get_price_history(
+    material_id: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get vendor price history"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if material_id:
+        query["material_id"] = material_id
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    
+    history = await db.vendor_price_history.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    return history
+
+
+@api_router.post("/procurement/add-vendor")
+async def quick_add_vendor(vendor_input: NewVendorInput, user: User = Depends(get_current_user)):
+    """Quick add vendor from pricing screen"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can add vendors")
+    
+    # Check for duplicate name
+    existing = await db.vendor_master.find_one({"name": vendor_input.name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    vendor_id = f"vnd_{uuid.uuid4().hex[:12]}"
+    vendor_doc = {
+        "vendor_id": vendor_id,
+        "name": vendor_input.name,
+        "contact_person": vendor_input.contact_person,
+        "phone": vendor_input.phone,
+        "email": vendor_input.email,
+        "address": vendor_input.address,
+        "gst_number": vendor_input.gst_number,
+        "payment_terms": vendor_input.payment_terms,
+        "credit_limit": 0,
+        "credit_days": 0,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.vendor_master.insert_one(vendor_doc)
+    
+    return {"vendor_id": vendor_id, "name": vendor_input.name, "message": "Vendor added"}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
