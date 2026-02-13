@@ -28,6 +28,7 @@ import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
 import SiteEngineerProject from '@/pages/SiteEngineerProject';
+import ProcurementDashboard from '@/pages/ProcurementDashboard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -63,6 +64,7 @@ function AppRouter() {
       <Route path="/materials" element={<ProtectedRoute><MaterialManagement /></ProtectedRoute>} />
       <Route path="/vendor-management" element={<ProtectedRoute><VendorMasterManagement /></ProtectedRoute>} />
       <Route path="/vendor-portal" element={<ProtectedRoute><VendorPortal /></ProtectedRoute>} />
+      <Route path="/procurement-board" element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer" element={<ProtectedRoute><SiteEngineerDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer/project/:projectId" element={<ProtectedRoute><SiteEngineerProject /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
