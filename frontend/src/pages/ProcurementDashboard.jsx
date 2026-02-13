@@ -187,64 +187,49 @@ export default function ProcurementDashboard() {
     if (!pricingDetails) return;
     
     try {
-      const res = await fetch(`${API_URL}/api/procurement/pricing/${pricingDetails.pricing.pricing_id}/select-vendor?vendor_id=${vendorId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      
-      if (res.ok) {
-        openPricingDialog(pricingDetails.pricing.pricing_id);
-      }
+      await axios.patch(`${API}/procurement/pricing/${pricingDetails.pricing.pricing_id}/select-vendor?vendor_id=${vendorId}`);
+      openPricingDialog(pricingDetails.pricing.pricing_id);
+      toast.success('Vendor selected');
     } catch (error) {
       console.error('Error selecting vendor:', error);
+      toast.error('Failed to select vendor');
     }
   };
 
   const handleSubmitForApproval = async () => {
     if (!pricingDetails || !pricingDetails.pricing.selected_vendor_id) {
-      alert('Please select a vendor before submitting');
+      toast.error('Please select a vendor before submitting');
       return;
     }
     
     try {
-      const res = await fetch(`${API_URL}/api/procurement/pricing/${pricingDetails.pricing.pricing_id}/submit`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      
-      if (res.ok) {
-        setPricingDialog(false);
-        fetchDashboard();
-        fetchRequests(activeTab);
-        alert('Submitted for accounts approval');
-      }
+      await axios.post(`${API}/procurement/pricing/${pricingDetails.pricing.pricing_id}/submit`);
+      setPricingDialog(false);
+      fetchDashboard();
+      fetchRequests(activeTab);
+      toast.success('Submitted for accounts approval');
     } catch (error) {
       console.error('Error submitting:', error);
+      toast.error('Failed to submit for approval');
     }
   };
 
   const handleAddNewVendor = async () => {
-    if (!newVendor.name) return;
+    if (!newVendor.name) {
+      toast.error('Please enter vendor name');
+      return;
+    }
     
     try {
-      const res = await fetch(`${API_URL}/api/procurement/add-vendor`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newVendor)
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setNewVendorDialog(false);
-        fetchVendors();
-        setNewQuote({ ...newQuote, vendor_id: data.vendor_id });
-        setNewVendor({ name: '', contact_person: '', phone: '', email: '', payment_terms: 'full' });
-      }
+      const res = await axios.post(`${API}/procurement/add-vendor`, newVendor);
+      setNewVendorDialog(false);
+      fetchVendors();
+      setNewQuote({ ...newQuote, vendor_id: res.data.vendor_id });
+      setNewVendor({ name: '', contact_person: '', phone: '', email: '', payment_terms: 'full' });
+      toast.success('Vendor added');
     } catch (error) {
       console.error('Error adding vendor:', error);
+      toast.error(error.response?.data?.detail || 'Failed to add vendor');
     }
   };
 
@@ -252,22 +237,18 @@ export default function ProcurementDashboard() {
     if (!pricingDetails) return;
     
     try {
-      const res = await fetch(`${API_URL}/api/procurement/pricing/${pricingDetails.pricing.pricing_id}/quote/${quoteId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      
-      if (res.ok) {
-        openPricingDialog(pricingDetails.pricing.pricing_id);
-      }
+      await axios.delete(`${API}/procurement/pricing/${pricingDetails.pricing.pricing_id}/quote/${quoteId}`);
+      openPricingDialog(pricingDetails.pricing.pricing_id);
+      toast.success('Quote removed');
     } catch (error) {
       console.error('Error removing quote:', error);
+      toast.error('Failed to remove quote');
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const handleLogout = async () => {
+    try {
+      await axios.post(`${API}/auth/logout`);
     window.location.href = '/login';
   };
 
