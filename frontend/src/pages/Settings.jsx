@@ -126,90 +126,90 @@ export default function Settings() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">System Settings</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">System Settings</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/projects'}>
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/projects'}>
               Projects
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-4 sm:mb-8">
           <div>
-            <h2 data-testid="settings-title" className="text-3xl font-bold text-gray-900">System Settings</h2>
-            <p className="text-gray-600 mt-1">Manage company profile, materials, and users</p>
+            <h2 data-testid="settings-title" className="text-xl sm:text-3xl font-bold text-gray-900">System Settings</h2>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">Manage company profile, materials, and users</p>
           </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer hover:shadow-md transition-shadow" onClick={() => setActiveTab('company')}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Company Profile</CardTitle>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-8">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer hover:shadow-md transition-shadow active:bg-blue-100" onClick={() => setActiveTab('company')}>
+            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Company Profile</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Building className="h-6 w-6 text-blue-600" />
-                <span className="text-lg font-bold text-blue-700">{summary?.company_name || 'Not Set'}</span>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Building className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
+                <span className="text-xs sm:text-lg font-bold text-blue-700 truncate">{summary?.company_name || 'Not Set'}</span>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = '/materials'}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Materials</CardTitle>
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 cursor-pointer hover:shadow-md transition-shadow active:bg-green-100" onClick={() => window.location.href = '/materials'}>
+            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Materials</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Package className="h-6 w-6 text-green-600" />
-                <span className="text-2xl font-bold text-green-700">{summary?.materials_count || 0}</span>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Package className="h-4 w-4 sm:h-6 sm:w-6 text-green-600" />
+                <span className="text-lg sm:text-2xl font-bold text-green-700">{summary?.materials_count || 0}</span>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = '/vendor-management'}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Vendors</CardTitle>
+          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 cursor-pointer hover:shadow-md transition-shadow active:bg-purple-100" onClick={() => window.location.href = '/vendor-management'}>
+            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Vendors</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Truck className="h-6 w-6 text-purple-600" />
-                <span className="text-2xl font-bold text-purple-700">{summary?.vendors_count || 0}</span>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Truck className="h-4 w-4 sm:h-6 sm:w-6 text-purple-600" />
+                <span className="text-lg sm:text-2xl font-bold text-purple-700">{summary?.vendors_count || 0}</span>
               </div>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.location.href = '/users'}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Users</CardTitle>
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 cursor-pointer hover:shadow-md transition-shadow active:bg-orange-100" onClick={() => window.location.href = '/users'}>
+            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Users</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Users className="h-6 w-6 text-orange-600" />
-                <span className="text-2xl font-bold text-orange-700">{summary?.users_count || 0}</span>
+            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Users className="h-4 w-4 sm:h-6 sm:w-6 text-orange-600" />
+                <span className="text-lg sm:text-2xl font-bold text-orange-700">{summary?.users_count || 0}</span>
               </div>
             </CardContent>
           </Card>
@@ -217,24 +217,24 @@ export default function Settings() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-6">
-            <TabsTrigger value="company" className="gap-2">
-              <Building className="h-4 w-4" /> Company Profile
+          <TabsList className="mb-4 sm:mb-6 w-full sm:w-auto overflow-x-auto">
+            <TabsTrigger value="company" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Building className="h-3 w-3 sm:h-4 sm:w-4" /> <span className="hidden sm:inline">Company</span> Profile
             </TabsTrigger>
-            <TabsTrigger value="quick-links" className="gap-2">
-              <SettingsIcon className="h-4 w-4" /> Quick Links
+            <TabsTrigger value="quick-links" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+              <SettingsIcon className="h-3 w-3 sm:h-4 sm:w-4" /> Quick Links
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="company">
             <Card>
-              <CardHeader>
-                <CardTitle>Company Profile</CardTitle>
-                <CardDescription>Configure your company information that appears across the system</CardDescription>
+              <CardHeader className="p-4 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">Company Profile</CardTitle>
+                <CardDescription className="text-xs sm:text-sm">Configure your company information that appears across the system</CardDescription>
               </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSaveCompanySettings} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <CardContent className="p-4 sm:p-6 pt-0">
+                <form onSubmit={handleSaveCompanySettings} className="space-y-4 sm:space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
                     <div className="space-y-2">
                       <Label htmlFor="company_name">Company Name *</Label>
                       <Input
@@ -347,43 +347,43 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="quick-links">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => window.location.href = '/materials'}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Package className="h-5 w-5 text-green-600" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer active:bg-gray-50" onClick={() => window.location.href = '/materials'}>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                    <Package className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
                     Material Management
                   </CardTitle>
-                  <CardDescription>Manage material master data, categories, and units</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Manage material master data, categories, and units</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold text-green-600">{summary?.materials_count || 0} Materials</p>
+                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">{summary?.materials_count || 0} Materials</p>
                 </CardContent>
               </Card>
               
-              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => window.location.href = '/vendor-management'}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Truck className="h-5 w-5 text-purple-600" />
+              <Card className="hover:shadow-md transition-shadow cursor-pointer active:bg-gray-50" onClick={() => window.location.href = '/vendor-management'}>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                    <Truck className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
                     Vendor Management
                   </CardTitle>
-                  <CardDescription>Manage vendor master data and payment terms</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Manage vendor master data and payment terms</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold text-purple-600">{summary?.vendors_count || 0} Vendors</p>
+                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">{summary?.vendors_count || 0} Vendors</p>
                 </CardContent>
               </Card>
               
-              <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => window.location.href = '/users'}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-orange-600" />
+              <Card className="hover:shadow-md transition-shadow cursor-pointer active:bg-gray-50 sm:col-span-2 lg:col-span-1" onClick={() => window.location.href = '/users'}>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                    <Users className="h-4 w-4 sm:h-5 sm:w-5 text-orange-600" />
                     User Management
                   </CardTitle>
-                  <CardDescription>Manage users and their role assignments</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm">Manage users and their role assignments</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold text-orange-600">{summary?.users_count || 0} Users</p>
+                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                  <p className="text-xl sm:text-2xl font-bold text-orange-600">{summary?.users_count || 0} Users</p>
                 </CardContent>
               </Card>
             </div>
