@@ -29,13 +29,21 @@ export default function Projects() {
 
   useEffect(() => {
     fetchUser();
-    fetchProjects();
   }, []);
 
   const fetchUser = async () => {
     try {
       const response = await axios.get(`${API}/auth/me`);
       setUser(response.data);
+      
+      // Redirect Site Engineers to their dedicated board
+      if (response.data.role === 'site_engineer') {
+        window.location.href = '/site-engineer';
+        return;
+      }
+      
+      // Fetch projects only for non-site-engineers
+      fetchProjects();
     } catch (error) {
       console.error('Failed to fetch user:', error);
     }
