@@ -175,55 +175,55 @@ export default function UserManagement() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">User Management</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">User Management</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/settings'}>
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/settings'}>
               Settings
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">
           <div>
-            <h2 data-testid="users-title" className="text-3xl font-bold text-gray-900">User Management</h2>
-            <p className="text-gray-600 mt-1">Manage system users and their roles</p>
+            <h2 data-testid="users-title" className="text-xl sm:text-3xl font-bold text-gray-900">User Management</h2>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">Manage system users and their roles</p>
           </div>
           {canManageUsers && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-user-btn" className="gap-2 bg-blue-600 hover:bg-blue-700" onClick={() => handleOpenDialog()}>
+                <Button data-testid="add-user-btn" className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto" onClick={() => handleOpenDialog()}>
                   <Plus className="h-4 w-4" />Add User
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-w-md mx-4 sm:mx-auto">
                 <DialogHeader>
-                  <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
-                  <DialogDescription>
+                  <DialogTitle className="text-base sm:text-lg">{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
+                  <DialogDescription className="text-xs sm:text-sm">
                     {editingUser ? 'Update user details and role' : 'Create a new user account'}
                   </DialogDescription>
                 </DialogHeader>
@@ -312,57 +312,57 @@ export default function UserManagement() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 sm:gap-4 mb-4 sm:mb-8">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Users</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Total</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Users className="h-6 w-6 text-blue-600" />
-                <span className="text-2xl font-bold text-blue-700">{users.length}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Users className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
+                <span className="text-lg sm:text-2xl font-bold text-blue-700">{users.length}</span>
               </div>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Admins</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Admins</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Shield className="h-6 w-6 text-red-600" />
-                <span className="text-2xl font-bold text-red-700">{adminCount}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Shield className="h-4 w-4 sm:h-6 sm:w-6 text-red-600" />
+                <span className="text-lg sm:text-2xl font-bold text-red-700">{adminCount}</span>
               </div>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Staff</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Staff</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-green-700">{staffCount}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-green-700">{staffCount}</span>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Clients</CardTitle>
+          <Card className="bg-gradient-to-br from-teal-50 to-teal-100 border-teal-200 hidden sm:block">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Clients</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-teal-700">{clientCount}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-teal-700">{clientCount}</span>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Vendors</CardTitle>
+          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hidden sm:block">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Vendors</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-gray-700">{vendorCount}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-gray-700">{vendorCount}</span>
             </CardContent>
           </Card>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-4 sm:mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -374,7 +374,7 @@ export default function UserManagement() {
             />
           </div>
           <Select value={filterRole} onValueChange={setFilterRole}>
-            <SelectTrigger data-testid="filter-role" className="w-48">
+            <SelectTrigger data-testid="filter-role" className="w-full sm:w-48">
               <SelectValue placeholder="All Roles" />
             </SelectTrigger>
             <SelectContent>
@@ -386,13 +386,78 @@ export default function UserManagement() {
           </Select>
         </div>
 
-        {/* Users Table */}
+        {/* Users Table / Cards */}
         <Card>
-          <CardHeader>
-            <CardTitle>All Users</CardTitle>
+          <CardHeader className="p-3 sm:p-6">
+            <CardTitle className="text-sm sm:text-lg">All Users</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="block sm:hidden divide-y divide-gray-200">
+              {filteredUsers.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-500 text-sm">No users found</div>
+              ) : (
+                filteredUsers.map((u) => {
+                  const roleInfo = getRoleInfo(u.role);
+                  return (
+                    <div key={u.user_id} data-testid={`user-card-mobile-${u.user_id}`} className="p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-blue-600 font-semibold">
+                              {u.name?.charAt(0).toUpperCase() || '?'}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{u.name}</p>
+                            <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                          </div>
+                        </div>
+                        {canManageUsers && (
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="sm" onClick={() => handleOpenDialog(u)} className="h-8 w-8 p-0">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            {u.user_id !== user.user_id && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent className="mx-4">
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete User</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Are you sure you want to delete "{u.name}"?
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDelete(u.user_id)} className="bg-red-600">
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${roleInfo.color}`}>
+                          {roleInfo.label}
+                        </span>
+                        {u.department && <span className="text-xs text-gray-500">{u.department}</span>}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            
+            {/* Desktop Table View */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
