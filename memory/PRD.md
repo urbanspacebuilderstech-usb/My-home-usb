@@ -547,4 +547,71 @@ Build a Construction Accounting CRM with:
   - Expense Management: Compact summary cards, mobile-friendly tabs
   - Site Engineer pages: Already mobile-optimized
 
+### ✅ Procurement Board Module (Feb 13, 2026)
+- **Procurement Dashboard** (`/procurement-board`)
+  - Role-based access: Procurement and Super Admin only
+  - 5 metric cards: Pending, Pricing, Waiting, Approved, Delivered
+  - Financial summary: Value in Pricing, Credit Outstanding, Top Vendors
+  - Tab navigation for all statuses
+
+- **Procurement Workflow**
+  1. Site Engineer creates Material Request
+  2. Planning approves → Request appears in Procurement Board (Pending tab)
+  3. Procurement clicks "Add Pricing" → Creates pricing record
+  4. Procurement adds vendor quotes (multiple vendors for comparison)
+  5. Procurement selects best vendor
+  6. Procurement submits for Accounts approval
+  7. Accounts approves/rejects
+  8. Order moves to Approved/Delivered tabs
+
+- **Key Features**
+  - Unlimited vendor quotes per material request
+  - Vendor pricing comparison with total calculation
+  - Quick add vendor from pricing dialog
+  - Price history for reference
+  - Payment status tracking (Pending, Paid, Credit, Partial)
+  - Delivery status tracking (Pending, Partial, Completed)
+  - Full audit trail via ProcurementLog
+
+- **Backend API Endpoints**
+  - GET `/api/procurement/dashboard` - Dashboard metrics
+  - GET `/api/procurement/requests?status=<status>` - Requests by status
+  - POST `/api/procurement/start-pricing/{request_id}` - Start pricing process
+  - GET `/api/procurement/pricing/{pricing_id}` - Get pricing details
+  - POST `/api/procurement/pricing/{pricing_id}/add-quote` - Add vendor quote
+  - PATCH `/api/procurement/pricing/{pricing_id}/select-vendor` - Select vendor
+  - POST `/api/procurement/pricing/{pricing_id}/submit` - Submit for approval
+  - PATCH `/api/procurement/pricing/{pricing_id}/accounts-action` - Approve/reject
+  - PATCH `/api/procurement/pricing/{pricing_id}/payment-status` - Update payment
+  - PATCH `/api/procurement/pricing/{pricing_id}/delivery-status` - Update delivery
+  - POST `/api/procurement/add-vendor` - Quick add vendor
+
+- **Backend Models**
+  - ProcurementPricing: Main pricing record with vendor quotes
+  - VendorQuote: Individual vendor quote with pricing details
+  - VendorPriceHistory: Historical vendor prices per material
+  - ProcurementLog: Audit trail for all actions
+
+- **Testing**: 16/16 backend tests passed, 100% frontend success
+
+---
+
+## What's Next (P1/P2 - Upcoming)
+
+### P1 - Upcoming Tasks
+- [ ] Unified Approval Dashboard (central view for all pending approvals)
+- [ ] Labour and Vendor/Service Expense Workflows implementation
+- [ ] Bulk Add with Approval Workflow completion
+
+### P2/P3 - Future Tasks
+- [ ] Backend refactoring (split server.py into modular API Routers)
+- [ ] Enable Email Notifications (Resend integration - requires API key)
+- [ ] Enhanced Client Portal with file uploads
+- [ ] Gantt Chart for Project Timelines
+- [ ] Accounts Board Module
+- [ ] Export to Excel/PDF
+- [ ] Dashboard charts and graphs
+
+---
+
 *Last Updated: February 13, 2026*
