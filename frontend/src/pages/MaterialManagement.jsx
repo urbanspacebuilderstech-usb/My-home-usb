@@ -168,53 +168,53 @@ export default function MaterialManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Material Management</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">Material Management</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/settings'}>
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/settings'}>
               Settings
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">
           <div>
-            <h2 data-testid="materials-title" className="text-3xl font-bold text-gray-900">Material Management</h2>
-            <p className="text-gray-600 mt-1">Manage your material master data</p>
+            <h2 data-testid="materials-title" className="text-xl sm:text-3xl font-bold text-gray-900">Material Management</h2>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">Manage your material master data</p>
           </div>
           {canManage && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-material-btn" className="gap-2 bg-green-600 hover:bg-green-700" onClick={() => handleOpenDialog()}>
+                <Button data-testid="add-material-btn" className="gap-2 bg-green-600 hover:bg-green-700 w-full sm:w-auto" onClick={() => handleOpenDialog()}>
                   <Plus className="h-4 w-4" /> Add Material
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-lg">
+              <DialogContent className="sm:max-w-lg mx-4 sm:mx-auto">
                 <DialogHeader>
                   <DialogTitle>{editingMaterial ? 'Edit Material' : 'Add New Material'}</DialogTitle>
                   <DialogDescription>
@@ -300,46 +300,46 @@ export default function MaterialManagement() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-8">
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Total Materials</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Total</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Package className="h-6 w-6 text-green-600" />
-                <span className="text-2xl font-bold text-green-700">{materials.length}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="flex items-center gap-1 sm:gap-2">
+                <Package className="h-4 w-4 sm:h-6 sm:w-6 text-green-600" />
+                <span className="text-lg sm:text-2xl font-bold text-green-700">{materials.length}</span>
               </div>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Active</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Active</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-blue-700">{activeMaterials.length}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-blue-700">{activeMaterials.length}</span>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Inactive</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Inactive</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-gray-700">{inactiveMaterials.length}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-gray-700">{inactiveMaterials.length}</span>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-gray-600">Categories</CardTitle>
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Categories</CardTitle>
             </CardHeader>
-            <CardContent>
-              <span className="text-2xl font-bold text-purple-700">{categories.length}</span>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <span className="text-lg sm:text-2xl font-bold text-purple-700">{categories.length}</span>
             </CardContent>
           </Card>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mb-4 sm:mb-6">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -351,9 +351,9 @@ export default function MaterialManagement() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-gray-500" />
+            <Filter className="h-4 w-4 text-gray-500 hidden sm:block" />
             <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger data-testid="filter-category" className="w-48">
+              <SelectTrigger data-testid="filter-category" className="w-full sm:w-48">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
@@ -366,13 +366,71 @@ export default function MaterialManagement() {
           </div>
         </div>
 
-        {/* Materials Table */}
+        {/* Materials Table / Cards */}
         <Card>
-          <CardHeader>
-            <CardTitle>Materials List</CardTitle>
+          <CardHeader className="p-3 sm:p-6">
+            <CardTitle className="text-sm sm:text-lg">Materials List</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="block sm:hidden divide-y divide-gray-200">
+              {filteredMaterials.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-500 text-sm">No materials found</div>
+              ) : (
+                filteredMaterials.map((material) => (
+                  <div key={material.material_id} data-testid={`material-card-mobile-${material.material_id}`} className="p-4">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900">{material.name}</p>
+                        {material.description && (
+                          <p className="text-xs text-gray-500 truncate">{material.description}</p>
+                        )}
+                      </div>
+                      {canManage && (
+                        <div className="flex items-center gap-1 ml-2">
+                          <Button variant="ghost" size="sm" onClick={() => handleOpenDialog(material)} className="h-8 w-8 p-0">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-red-600">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="mx-4">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Material</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete "{material.name}"?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDelete(material.material_id)} className="bg-red-600">
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(material.category)}`}>
+                        {material.category.replace('_', ' ').toUpperCase()}
+                      </span>
+                      <span className="text-xs text-gray-500">{material.unit}</span>
+                      <Badge variant={material.is_active ? 'default' : 'secondary'} className="text-xs">
+                        {material.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            {/* Desktop Table View */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
