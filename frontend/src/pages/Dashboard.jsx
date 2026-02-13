@@ -131,6 +131,18 @@ export default function Dashboard() {
 
   // If not super admin, show basic dashboard
   if (user.role !== 'super_admin') {
+    // Procurement role gets redirected to Procurement Board
+    if (user.role === 'procurement') {
+      window.location.href = '/procurement-board';
+      return null;
+    }
+    
+    // Site Engineer gets redirected to Site Engineer Dashboard
+    if (user.role === 'site_engineer') {
+      window.location.href = '/site-engineer';
+      return null;
+    }
+    
     return (
       <div className="min-h-screen bg-gray-50">
         <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
