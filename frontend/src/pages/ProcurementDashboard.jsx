@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -8,13 +9,15 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
+import { toast } from 'sonner';
 import { 
   Building2, LogOut, Package, Truck, Clock, CheckCircle, XCircle, 
   DollarSign, Plus, Trash2, Check, AlertCircle, History, Eye,
   ArrowRight, CreditCard, TrendingUp
 } from 'lucide-react';
 
-const API_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 export default function ProcurementDashboard() {
   const [user, setUser] = useState(null);
@@ -48,32 +51,43 @@ export default function ProcurementDashboard() {
   });
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const userData = localStorage.getItem('user');
-    if (!token || !userData) {
-      window.location.href = '/login';
-      return;
-    }
-    const parsedUser = JSON.parse(userData);
-    if (!['procurement', 'super_admin'].includes(parsedUser.role)) {
-      window.location.href = '/dashboard';
-      return;
-    }
-    setUser(parsedUser);
-    fetchDashboard();
-    fetchRequests('pending');
-    fetchVendors();
-    setLoading(false);
+    fetchData();
   }, []);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [userRes, dashboardRes, vendorsRes] = await Promise.all([
+        axios.get(`${API}/auth/me`),
+        axios.get(`${API}/procurement/dashboard`),
+        axios.get(`${API}/vendor-master`)
+      ]);
+      
+      const userData = userRes.data;
+      if (!['procurement', 'super_admin'].includes(userData.role)) {
+        toast.error('Access denied. Only Procurement can access this page.');
+        window.location.href = '/dashboard';
+        return;
+      }
+      
+      setUser(userData);
+      setDashboard(dashboardRes.data);
+      setVendors(vendorsRes.data);
+      fetchRequests('pending');
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        window.location.href = '/login';
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchDashboard = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/procurement/dashboard`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        setDashboard(await res.json());
-      }
+      const res = await axios.get(`${API}/procurement/dashboard`);
+      setDashboard(res.data);
     } catch (error) {
       console.error('Error fetching dashboard:', error);
     }
@@ -81,12 +95,8 @@ export default function ProcurementDashboard() {
 
   const fetchRequests = async (status) => {
     try {
-      const res = await fetch(`${API_URL}/api/procurement/requests?status=${status}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        setRequests(await res.json());
-      }
+      const res = await axios.get(`${API}/procurement/requests?status=${status}`);
+      setRequests(res.data);
     } catch (error) {
       console.error('Error fetching requests:', error);
     }
@@ -94,12 +104,8 @@ export default function ProcurementDashboard() {
 
   const fetchVendors = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/vendor-master`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      if (res.ok) {
-        setVendors(await res.json());
-      }
+      const res = await axios.get(`${API}/vendor-master`);
+      setVendors(res.data);
     } catch (error) {
       console.error('Error fetching vendors:', error);
     }
