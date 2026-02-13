@@ -378,49 +378,49 @@ export default function ProjectDetail() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Project View</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">Project View</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <Button data-testid="dashboard-btn" variant="ghost" onClick={() => window.location.href = '/dashboard'}>
+          <div className="flex items-center gap-2 sm:gap-4">
+            <Button data-testid="dashboard-btn" variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
               Dashboard
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button data-testid="logout-btn" variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button data-testid="logout-btn" variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Project Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/projects'}>
-              <ArrowLeft className="h-5 w-5" />
+        <div className="mb-4 sm:mb-8">
+          <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-4">
+            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/projects'} className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0">
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
-            <div className="flex-1">
-              <h2 data-testid="project-detail-title" className="text-3xl font-bold text-gray-900">
+            <div className="flex-1 min-w-0">
+              <h2 data-testid="project-detail-title" className="text-xl sm:text-3xl font-bold text-gray-900 truncate">
                 {project.name}
               </h2>
-              <div className="flex items-center gap-4 mt-1 flex-wrap text-sm">
+              <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap text-xs sm:text-sm">
                 <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
-                <span className="text-gray-600"><strong>Location:</strong> {project.location}</span>
+                <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location}</span>
                 <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>{project.status}</Badge>
               </div>
             </div>
@@ -428,82 +428,82 @@ export default function ProjectDetail() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-8">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Project Value
+                <DollarSign className="h-3 w-3" />Value
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-blue-700">{formatCurrency(summary.project_value)}</div>
-              <p className="text-xs text-gray-500">Scope Total</p>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-sm sm:text-lg font-bold text-blue-700">{formatCurrency(summary.project_value)}</div>
+              <p className="text-xs text-gray-500 hidden sm:block">Scope Total</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 border-cyan-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <Plus className="h-3 w-3" />Additions
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-cyan-700">{formatCurrency(summary.additions_total)}</div>
-              <p className="text-xs text-gray-500">Extra Work</p>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-sm sm:text-lg font-bold text-cyan-700">{formatCurrency(summary.additions_total)}</div>
+              <p className="text-xs text-gray-500 hidden sm:block">Extra Work</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <FileText className="h-3 w-3" />Total Value
+                <FileText className="h-3 w-3" />Total
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-purple-700">{formatCurrency(summary.total_value)}</div>
-              <p className="text-xs text-gray-500">Scope + Additions</p>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-sm sm:text-lg font-bold text-purple-700">{formatCurrency(summary.total_value)}</div>
+              <p className="text-xs text-gray-500 hidden sm:block">Scope + Add</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />Income Received
+                <TrendingUp className="h-3 w-3" />Income
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
-              <p className="text-xs text-gray-500">
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-sm sm:text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
+              <p className="text-xs text-gray-500 hidden sm:block">
                 <span className="text-blue-600 cursor-pointer hover:underline" onClick={() => window.location.href = '/income'}>
-                  View Income Module
+                  View Income
                 </span>
               </p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <MinusCircle className="h-3 w-3" />Deductions
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-orange-700">{formatCurrency(summary.deductions_total)}</div>
-              <p className="text-xs text-gray-500">Adjustments</p>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-sm sm:text-lg font-bold text-orange-700">{formatCurrency(summary.deductions_total)}</div>
+              <p className="text-xs text-gray-500 hidden sm:block">Adjustments</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
-            <CardHeader className="pb-2">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <Wallet className="h-3 w-3" />Balance
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className={`text-lg font-bold ${summary.balance >= 0 ? 'text-red-700' : 'text-green-700'}`}>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className={`text-sm sm:text-lg font-bold ${summary.balance >= 0 ? 'text-red-700' : 'text-green-700'}`}>
                 {formatCurrency(summary.balance)}
               </div>
-              <p className="text-xs text-gray-500">Pending</p>
+              <p className="text-xs text-gray-500 hidden sm:block">Pending</p>
             </CardContent>
           </Card>
         </div>
@@ -511,66 +511,69 @@ export default function ProjectDetail() {
         {/* Main Tabs */}
         <Card>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <CardHeader className="border-b">
-              <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-2">
-                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
-                  Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-2">{draftScopeItems.length} draft</Badge>}
+            <CardHeader className="border-b p-3 sm:p-6">
+              <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-1 sm:gap-2 w-full overflow-x-auto">
+                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftScopeItems.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
-                  Payments {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-2">{draftPaymentItems.length} draft</Badge>}
+                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  Payments {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftPaymentItems.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
-                  Additions {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-2">{draftAdditions.length} draft</Badge>}
+                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  Additions {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftAdditions.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
-                  Deductions {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-2">{draftDeductions.length} draft</Badge>}
+                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  Deductions {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
                 </TabsTrigger>
               </TabsList>
             </CardHeader>
 
             {/* ==================== SCOPE TAB ==================== */}
-            <TabsContent value="scope" className="p-6">
-              <div className="flex items-center justify-between mb-6">
+            <TabsContent value="scope" className="p-3 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
-                  <h3 className="text-lg font-bold">Project Scope</h3>
-                  <p className="text-sm text-gray-500">Define scope items - total becomes project value</p>
+                  <h3 className="text-base sm:text-lg font-bold">Project Scope</h3>
+                  <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {draftScopeItems.length > 0 && (
                     <Button 
                       data-testid="verify-scope-btn"
                       variant="outline"
-                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
+                      size="sm"
+                      className="gap-1 sm:gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50 text-xs sm:text-sm"
                       onClick={() => openVerifyDialog('scope', draftScopeItems.map(s => s.scope_id))}
                     >
-                      <CheckCircle2 className="h-4 w-4" />Verify ({draftScopeItems.length})
+                      <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />Verify ({draftScopeItems.length})
                     </Button>
                   )}
                   {isSuperAdmin && pendingApprovalScope.length > 0 && (
                     <>
                       <Button 
-                        className="gap-2 bg-green-600 hover:bg-green-700"
+                        size="sm"
+                        className="gap-1 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
                         onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'approve')}
                       >
-                        <Check className="h-4 w-4" />Approve All ({pendingApprovalScope.length})
+                        <Check className="h-3 w-3 sm:h-4 sm:w-4" />Approve ({pendingApprovalScope.length})
                       </Button>
                       <Button 
                         variant="destructive"
-                        className="gap-2"
+                        size="sm"
+                        className="gap-1 sm:gap-2 text-xs sm:text-sm"
                         onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'reject')}
                       >
-                        <XCircle className="h-4 w-4" />Reject
+                        <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />Reject
                       </Button>
                     </>
                   )}
                   {canManage && (
                     <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
                       <DialogTrigger asChild>
-                        <Button data-testid="add-scope-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                          <Plus className="h-4 w-4" />Add Scope Items
+                        <Button data-testid="add-scope-btn" size="sm" className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm">
+                          <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Scope
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Scope Items</DialogTitle>
                           <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
