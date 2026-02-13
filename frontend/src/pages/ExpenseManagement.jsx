@@ -298,90 +298,97 @@ export default function ExpenseManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Expense Management</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">Expense Management</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>Dashboard</Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/income'}>Income</Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/projects'}>Projects</Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+          <div className="flex items-center gap-1 sm:gap-4">
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>Dashboard</Button>
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/income'}>Income</Button>
+            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/projects'}>Projects</Button>
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
                 <p className="text-xs text-gray-500">{user?.role?.replace('_', ' ').toUpperCase()}</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
+        
+        {/* Mobile Navigation */}
+        <div className="sm:hidden flex items-center gap-1 mt-3 pt-3 border-t overflow-x-auto pb-1 -mx-2 px-2">
+          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/dashboard'} className="flex-shrink-0 text-xs h-8">Dashboard</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/income'} className="flex-shrink-0 text-xs h-8">Income</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/projects'} className="flex-shrink-0 text-xs h-8">Projects</Button>
+        </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
-        <div className="mb-8">
-          <h2 data-testid="expense-module-title" className="text-3xl font-bold text-gray-900">
+        <div className="mb-4 sm:mb-8">
+          <h2 data-testid="expense-module-title" className="text-xl sm:text-3xl font-bold text-gray-900">
             Expense Management
           </h2>
-          <p className="text-gray-600">Track and manage all project expenses with approval workflows</p>
+          <p className="text-sm sm:text-base text-gray-600">Track and manage all project expenses with approval workflows</p>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-8">
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
                 <Package className="h-3 w-3" />Material
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold text-orange-700">{formatCurrency(summary?.material?.total_amount)}</div>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-base sm:text-xl font-bold text-orange-700">{formatCurrency(summary?.material?.total_amount)}</div>
               <p className="text-xs text-gray-500">{summary?.material?.count || 0} items</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
                 <Users className="h-3 w-3" />Labour
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold text-blue-700">{formatCurrency(summary?.labour?.total_amount)}</div>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-base sm:text-xl font-bold text-blue-700">{formatCurrency(summary?.labour?.total_amount)}</div>
               <p className="text-xs text-gray-500">{summary?.labour?.count || 0} entries</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <Briefcase className="h-3 w-3" />Vendor/Service
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
+                <Briefcase className="h-3 w-3" />Vendor
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold text-purple-700">{formatCurrency(summary?.vendor_service?.total_amount)}</div>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-base sm:text-xl font-bold text-purple-700">{formatCurrency(summary?.vendor_service?.total_amount)}</div>
               <p className="text-xs text-gray-500">{summary?.vendor_service?.count || 0} entries</p>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Total Expenses
+            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
+              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
+                <DollarSign className="h-3 w-3" />Total
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-xl font-bold text-red-700">{formatCurrency(summary?.totals?.total_expenses)}</div>
+            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
+              <div className="text-base sm:text-xl font-bold text-red-700">{formatCurrency(summary?.totals?.total_expenses)}</div>
               <p className="text-xs text-gray-500">Paid: {formatCurrency(summary?.totals?.total_paid)}</p>
             </CardContent>
           </Card>
@@ -390,33 +397,33 @@ export default function ExpenseManagement() {
         {/* Main Tabs */}
         <Card>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <CardHeader className="border-b">
-              <div className="flex items-center justify-between">
-                <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-2">
-                  <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none px-4">
-                    <Package className="h-4 w-4 mr-2" />Material
+            <CardHeader className="border-b p-3 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-1 sm:gap-2 w-full sm:w-auto">
+                  <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                    <Package className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />Material
                   </TabsTrigger>
-                  <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4">
-                    <Users className="h-4 w-4 mr-2" />Labour
+                  <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                    <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />Labour
                   </TabsTrigger>
-                  <TabsTrigger value="vendor" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-4">
-                    <Briefcase className="h-4 w-4 mr-2" />Vendor/Service
+                  <TabsTrigger value="vendor" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                    <Briefcase className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />Vendor
                   </TabsTrigger>
                 </TabsList>
                 
                 {canCreateExpense && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 w-full sm:w-auto">
                     {activeTab === 'material' && (
                       <Dialog open={materialDialog} onOpenChange={setMaterialDialog}>
                         <DialogTrigger asChild>
-                          <Button data-testid="add-material-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
-                            <Plus className="h-4 w-4" />Add Material Request
+                          <Button data-testid="add-material-btn" className="gap-1 sm:gap-2 bg-orange-600 hover:bg-orange-700 flex-1 sm:flex-none text-xs sm:text-sm">
+                            <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Material
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-lg mx-4 sm:mx-auto">
                           <DialogHeader>
-                            <DialogTitle>New Material Request</DialogTitle>
-                            <DialogDescription>Create a material expense request</DialogDescription>
+                            <DialogTitle className="text-base sm:text-lg">New Material Request</DialogTitle>
+                            <DialogDescription className="text-xs sm:text-sm">Create a material expense request</DialogDescription>
                           </DialogHeader>
                           <form onSubmit={handleCreateMaterial} className="space-y-4">
                             <div>
@@ -465,14 +472,14 @@ export default function ExpenseManagement() {
                     {activeTab === 'labour' && (
                       <Dialog open={labourDialog} onOpenChange={setLabourDialog}>
                         <DialogTrigger asChild>
-                          <Button data-testid="add-labour-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                            <Plus className="h-4 w-4" />Add Labour Expense
+                          <Button data-testid="add-labour-btn" className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 flex-1 sm:flex-none text-xs sm:text-sm">
+                            <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Labour
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-lg mx-4 sm:mx-auto">
                           <DialogHeader>
-                            <DialogTitle>New Labour Expense</DialogTitle>
-                            <DialogDescription>Record labour work expense</DialogDescription>
+                            <DialogTitle className="text-base sm:text-lg">New Labour Expense</DialogTitle>
+                            <DialogDescription className="text-xs sm:text-sm">Record labour work expense</DialogDescription>
                           </DialogHeader>
                           <form onSubmit={handleCreateLabour} className="space-y-4">
                             <div>
@@ -533,14 +540,14 @@ export default function ExpenseManagement() {
                     {activeTab === 'vendor' && (
                       <Dialog open={vendorServiceDialog} onOpenChange={setVendorServiceDialog}>
                         <DialogTrigger asChild>
-                          <Button data-testid="add-vendor-btn" className="gap-2 bg-purple-600 hover:bg-purple-700">
-                            <Plus className="h-4 w-4" />Add Vendor Expense
+                          <Button data-testid="add-vendor-btn" className="gap-1 sm:gap-2 bg-purple-600 hover:bg-purple-700 flex-1 sm:flex-none text-xs sm:text-sm">
+                            <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Vendor
                           </Button>
                         </DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="max-w-lg mx-4 sm:mx-auto">
                           <DialogHeader>
-                            <DialogTitle>New Vendor/Service Expense</DialogTitle>
-                            <DialogDescription>Record vendor or service expense</DialogDescription>
+                            <DialogTitle className="text-base sm:text-lg">New Vendor/Service Expense</DialogTitle>
+                            <DialogDescription className="text-xs sm:text-sm">Record vendor or service expense</DialogDescription>
                           </DialogHeader>
                           <form onSubmit={handleCreateVendorService} className="space-y-4">
                             <div>
