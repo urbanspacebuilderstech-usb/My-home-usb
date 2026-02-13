@@ -40,13 +40,20 @@ export default function Dashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes, notifsRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
+      const userRes = await axios.get(`${API}/auth/me`);
+      setUser(userRes.data);
+      
+      // Redirect Site Engineers to their dedicated board
+      if (userRes.data.role === 'site_engineer') {
+        window.location.href = '/site-engineer';
+        return;
+      }
+      
+      const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),
         axios.get(`${API}/notifications`).catch(() => ({ data: [] }))
       ]);
       
-      setUser(userRes.data);
       setDashboardData(dashboardRes.data);
       setNotifications(notifsRes.data || []);
     } catch (error) {
