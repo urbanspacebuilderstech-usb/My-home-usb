@@ -26,6 +26,8 @@ import ExpenseManagement from '@/pages/ExpenseManagement';
 import Settings from '@/pages/Settings';
 import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
+import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
+import SiteEngineerProject from '@/pages/SiteEngineerProject';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
