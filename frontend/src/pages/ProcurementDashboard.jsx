@@ -124,77 +124,62 @@ export default function ProcurementDashboard() {
         return;
       }
       
-      const res = await fetch(`${API_URL}/api/procurement/start-pricing/${request.request_id}`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        openPricingDialog(data.pricing_id);
-        fetchDashboard();
-      }
+      const res = await axios.post(`${API}/procurement/start-pricing/${request.request_id}`);
+      openPricingDialog(res.data.pricing_id);
+      fetchDashboard();
+      toast.success('Pricing started');
     } catch (error) {
       console.error('Error starting pricing:', error);
+      toast.error('Failed to start pricing');
     }
   };
 
   const openPricingDialog = async (pricingId) => {
     try {
-      const res = await fetch(`${API_URL}/api/procurement/pricing/${pricingId}`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      const res = await axios.get(`${API}/procurement/pricing/${pricingId}`);
+      setPricingDetails(res.data);
+      setNewQuote({
+        ...newQuote,
+        quantity: res.data.pricing?.requested_qty?.toString() || ''
       });
-      if (res.ok) {
-        const data = await res.json();
-        setPricingDetails(data);
-        setNewQuote({
-          ...newQuote,
-          quantity: data.pricing?.requested_qty?.toString() || ''
-        });
-        setPricingDialog(true);
-      }
+      setPricingDialog(true);
     } catch (error) {
       console.error('Error fetching pricing details:', error);
+      toast.error('Failed to load pricing details');
     }
   };
 
   const handleAddQuote = async () => {
-    if (!pricingDetails || !newQuote.vendor_id || !newQuote.unit_price) return;
+    if (!pricingDetails || !newQuote.vendor_id || !newQuote.unit_price) {
+      toast.error('Please select vendor and enter unit price');
+      return;
+    }
     
     const vendor = vendors.find(v => v.vendor_id === newQuote.vendor_id);
     
     try {
-      const res = await fetch(`${API_URL}/api/procurement/pricing/${pricingDetails.pricing.pricing_id}/add-quote`, {
-        method: 'POST',
-        headers: { 
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          vendor_id: newQuote.vendor_id,
-          vendor_name: vendor?.name || newQuote.vendor_name,
-          unit_price: parseFloat(newQuote.unit_price),
-          quantity: parseFloat(newQuote.quantity),
-          transport_cost: parseFloat(newQuote.transport_cost || 0),
-          discount: parseFloat(newQuote.discount || 0)
-        })
+      await axios.post(`${API}/procurement/pricing/${pricingDetails.pricing.pricing_id}/add-quote`, {
+        vendor_id: newQuote.vendor_id,
+        vendor_name: vendor?.name || newQuote.vendor_name,
+        unit_price: parseFloat(newQuote.unit_price),
+        quantity: parseFloat(newQuote.quantity),
+        transport_cost: parseFloat(newQuote.transport_cost || 0),
+        discount: parseFloat(newQuote.discount || 0)
       });
       
-      if (res.ok) {
-        openPricingDialog(pricingDetails.pricing.pricing_id);
-        setNewQuote({
-          vendor_id: '',
-          vendor_name: '',
-          unit_price: '',
-          quantity: pricingDetails.pricing?.requested_qty?.toString() || '',
-          transport_cost: '0',
-          discount: '0'
-        });
-      }
+      openPricingDialog(pricingDetails.pricing.pricing_id);
+      setNewQuote({
+        vendor_id: '',
+        vendor_name: '',
+        unit_price: '',
+        quantity: pricingDetails.pricing?.requested_qty?.toString() || '',
+        transport_cost: '0',
+        discount: '0'
+      });
+      toast.success('Quote added');
     } catch (error) {
       console.error('Error adding quote:', error);
+      toast.error('Failed to add quote');
     }
   };
 
