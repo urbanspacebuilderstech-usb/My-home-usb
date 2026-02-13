@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://concrm.preview.emergentagent.com
-- Backend API: https://concrm.preview.emergentagent.com/api
+- Frontend: https://constrac.preview.emergentagent.com
+- Backend API: https://constrac.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
