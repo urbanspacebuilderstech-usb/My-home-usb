@@ -85,11 +85,16 @@ export default function ProjectDetail() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, projectRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
-        axios.get(`${API}/projects/${projectId}/full-details`)
-      ]);
+      const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
+      
+      // Redirect Site Engineers to their dedicated board
+      if (userRes.data.role === 'site_engineer') {
+        window.location.href = `/site-engineer/project/${projectId}`;
+        return;
+      }
+      
+      const projectRes = await axios.get(`${API}/projects/${projectId}/full-details`);
       setProjectData(projectRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
