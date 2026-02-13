@@ -106,22 +106,24 @@ export default function Projects() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Project Management System</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">Project Management System</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Button
               data-testid="dashboard-btn"
               variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex"
               onClick={() => window.location.href = '/dashboard'}
             >
               Dashboard
@@ -129,12 +131,13 @@ export default function Projects() {
             <Button
               data-testid="projects-btn"
               variant="ghost"
-              className="text-blue-600 font-semibold"
+              size="sm"
+              className="hidden sm:inline-flex text-blue-600 font-semibold"
             >
               Projects
             </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
+            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
               </div>
@@ -142,37 +145,39 @@ export default function Projects() {
                 data-testid="logout-btn"
                 variant="ghost"
                 size="icon"
+                className="h-8 w-8 sm:h-10 sm:w-10"
                 onClick={handleLogout}
               >
-                <LogOut className="h-5 w-5" />
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">
           <div>
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-2 sm:gap-3 mb-1 sm:mb-2">
               <Button
                 variant="ghost"
                 size="icon"
+                className="h-8 w-8 sm:h-10 sm:w-10"
                 onClick={() => window.location.href = '/dashboard'}
               >
-                <ArrowLeft className="h-5 w-5" />
+                <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
-              <h2 data-testid="projects-title" className="text-3xl font-bold text-gray-900">
+              <h2 data-testid="projects-title" className="text-xl sm:text-3xl font-bold text-gray-900">
                 All Projects
               </h2>
             </div>
-            <p className="text-gray-600 ml-12">Manage your construction projects</p>
+            <p className="text-sm sm:text-base text-gray-600 ml-10 sm:ml-12">Manage your construction projects</p>
           </div>
           {canCreate && (
-            <Dialog open={dialogOpen} onValueChange={setDialogOpen}>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="create-project-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                  <Plus className="h-5 w-5" />
+                <Button data-testid="create-project-btn" className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
+                  <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
                   New Project
                 </Button>
               </DialogTrigger>
@@ -279,7 +284,54 @@ export default function Projects() {
 
         <Card>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="block sm:hidden divide-y divide-gray-200">
+              {projects.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-500">
+                  <p className="font-semibold mb-2">No projects yet</p>
+                  <p className="text-sm">Create your first project to get started</p>
+                </div>
+              ) : (
+                projects.map((project) => (
+                  <div
+                    key={project.project_id}
+                    data-testid={`project-card-mobile-${project.project_id}`}
+                    className="p-4 active:bg-gray-50 cursor-pointer"
+                    onClick={() => window.location.href = `/projects/${project.project_id}`}
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{project.name}</p>
+                        <p className="text-xs text-gray-500">{project.client_name}</p>
+                      </div>
+                      <Badge 
+                        variant={project.status === 'active' ? 'default' : 'secondary'}
+                        className="capitalize text-xs ml-2"
+                      >
+                        {project.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                      <div>
+                        <p className="text-xs text-gray-500">Value</p>
+                        <p className="text-sm font-semibold text-gray-900">₹{(project.total_value / 100000).toFixed(2)}L</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Received</p>
+                        <p className="text-sm font-semibold text-green-600">₹0</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Balance</p>
+                        <p className="text-sm font-semibold text-red-600">₹{(project.total_value / 100000).toFixed(2)}L</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            {/* Desktop Table View */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
