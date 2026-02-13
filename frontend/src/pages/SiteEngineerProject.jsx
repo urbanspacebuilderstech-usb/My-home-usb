@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   HardHat, LogOut, ArrowLeft, Plus, Package, Users, MapPin, Building2,
-  Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send, Eye
+  Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -21,13 +21,13 @@ const API = `${BACKEND_URL}/api`;
 
 const STATUS_CONFIG = {
   requested: { label: 'Requested', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  planning_approved: { label: 'Planning Approved', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
-  procurement_approved: { label: 'Procurement Approved', color: 'bg-purple-100 text-purple-800', icon: CheckCircle },
-  accountant_approved: { label: 'Accountant Approved', color: 'bg-green-100 text-green-800', icon: CheckCircle },
-  ready_for_delivery: { label: 'Ready for Delivery', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
+  planning_approved: { label: 'Planning OK', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
+  procurement_approved: { label: 'Procurement OK', color: 'bg-purple-100 text-purple-800', icon: CheckCircle },
+  accountant_approved: { label: 'Accounts OK', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  ready_for_delivery: { label: 'Ready', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
   delivered: { label: 'Delivered', color: 'bg-teal-100 text-teal-800', icon: Truck },
-  received_partial: { label: 'Received (Partial)', color: 'bg-orange-100 text-orange-800', icon: Package },
-  received_completed: { label: 'Received (Complete)', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  received_partial: { label: 'Partial', color: 'bg-orange-100 text-orange-800', icon: Package },
+  received_completed: { label: 'Complete', color: 'bg-green-100 text-green-800', icon: CheckCircle },
   approved: { label: 'Approved', color: 'bg-green-100 text-green-800', icon: CheckCircle },
   rejected: { label: 'Rejected', color: 'bg-red-100 text-red-800', icon: XCircle }
 };
@@ -36,9 +36,9 @@ const StatusBadge = ({ status }) => {
   const config = STATUS_CONFIG[status] || { label: status, color: 'bg-gray-100 text-gray-800', icon: Clock };
   const Icon = config.icon;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
+    <span className={`inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${config.color}`}>
       <Icon className="h-3 w-3" />
-      {config.label}
+      <span className="hidden sm:inline">{config.label}</span>
     </span>
   );
 };
@@ -55,13 +55,11 @@ export default function SiteEngineerProject() {
   const [materialSubTab, setMaterialSubTab] = useState('orders');
   const [labourSubTab, setLabourSubTab] = useState('orders');
   
-  // Dialog states
   const [materialRequestDialog, setMaterialRequestDialog] = useState(false);
   const [labourRequestDialog, setLabourRequestDialog] = useState(false);
   const [receiveDialog, setReceiveDialog] = useState({ open: false, request: null });
   const [otpDialog, setOtpDialog] = useState({ open: false, receipt: null });
   
-  // Form states
   const [materialForm, setMaterialForm] = useState({ material_id: '', quantity: '', remarks: '' });
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '' });
@@ -108,11 +106,10 @@ export default function SiteEngineerProject() {
     }
   };
 
-  // Get GPS location
   const getGPSLocation = () => {
     setGettingLocation(true);
     if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported by your browser');
+      toast.error('Geolocation is not supported');
       setGettingLocation(false);
       return;
     }
@@ -127,15 +124,13 @@ export default function SiteEngineerProject() {
         toast.success('Location captured');
       },
       (error) => {
-        console.error('GPS Error:', error);
-        toast.error('Failed to get location. Please enable GPS.');
+        toast.error('Failed to get location. Enable GPS.');
         setGettingLocation(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  // Material Request Handlers
   const handleMaterialRequest = async () => {
     if (!materialForm.material_id || !materialForm.quantity) {
       toast.error('Please fill all required fields');
@@ -158,7 +153,6 @@ export default function SiteEngineerProject() {
     }
   };
 
-  // Labour Request Handlers
   const handleLabourRequest = async () => {
     if (!labourForm.labour_type || !labourForm.num_workers || !labourForm.num_days || !labourForm.rate_per_day) {
       toast.error('Please fill all required fields');
@@ -183,7 +177,6 @@ export default function SiteEngineerProject() {
     }
   };
 
-  // Material Receive Handlers
   const openReceiveDialog = (request) => {
     setReceiveDialog({ open: true, request });
     setReceiveForm({ received_qty: request.quantity.toString(), remarks: '' });
@@ -192,11 +185,11 @@ export default function SiteEngineerProject() {
 
   const handleInitiateReceive = async () => {
     if (!gpsLocation) {
-      toast.error('GPS location is required. Please capture your location.');
+      toast.error('GPS location required');
       return;
     }
     if (!receiveForm.received_qty) {
-      toast.error('Please enter received quantity');
+      toast.error('Enter received quantity');
       return;
     }
     
@@ -224,7 +217,7 @@ export default function SiteEngineerProject() {
 
   const handleVerifyOTP = async () => {
     if (!otpCode || otpCode.length !== 6) {
-      toast.error('Please enter a valid 6-digit OTP');
+      toast.error('Enter valid 6-digit OTP');
       return;
     }
     
@@ -233,7 +226,7 @@ export default function SiteEngineerProject() {
         receipt_id: otpDialog.receipt.receipt_id,
         otp_code: otpCode
       });
-      toast.success('Material receipt verified successfully!');
+      toast.success('Receipt verified!');
       setOtpDialog({ open: false, receipt: null });
       setOtpCode('');
       fetchData();
@@ -243,6 +236,7 @@ export default function SiteEngineerProject() {
   };
 
   const formatCurrency = (amount) => `₹${amount?.toLocaleString() || 0}`;
+  const canReceive = (status) => ['accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
 
   if (loading) {
     return (
@@ -260,87 +254,69 @@ export default function SiteEngineerProject() {
     );
   }
 
-  const { project, material_requests, labour_requests, material_receipts } = projectData;
-  
-  // Filter material requests
+  const { project, material_requests, labour_requests } = projectData;
   const myMaterialOrders = material_requests.filter(r => !['received_completed', 'rejected'].includes(r.status));
   const receivedMaterials = material_requests.filter(r => ['received_partial', 'received_completed'].includes(r.status));
-  
-  // Filter labour requests
   const myLabourOrders = labour_requests.filter(r => !['approved', 'rejected'].includes(r.status));
   const approvedLabour = labour_requests.filter(r => r.status === 'approved');
 
-  // Can receive materials
-  const canReceive = (status) => ['accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-gradient-to-r from-orange-600 to-orange-700 px-6 py-4">
+      {/* Mobile Navigation */}
+      <nav className="bg-gradient-to-r from-orange-600 to-orange-700 px-3 py-2 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Button 
               variant="ghost" 
               size="icon" 
               onClick={() => window.location.href = '/site-engineer'}
-              className="text-white hover:bg-orange-500"
+              className="text-white hover:bg-orange-500 h-8 w-8"
             >
-              <ArrowLeft className="h-5 w-5" />
+              <ArrowLeft className="h-4 w-4" />
             </Button>
-            <div className="bg-white/20 p-2 rounded-lg">
-              <HardHat className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white">{project.name}</h1>
-              <p className="text-xs text-orange-100">{project.client_name} • {project.location}</p>
+            <div className="min-w-0">
+              <h1 className="text-sm sm:text-xl font-bold text-white truncate">{project.name}</h1>
+              <p className="text-xs text-orange-100 truncate hidden sm:block">{project.client_name}</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 pl-4 border-l border-orange-400">
-              <div className="text-right">
-                <p className="text-sm font-semibold text-white">{user.name}</p>
-                <p className="text-xs text-orange-100">Site Engineer</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white hover:bg-orange-500">
-                <LogOut className="h-5 w-5" />
-              </Button>
-            </div>
-          </div>
+          <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white hover:bg-orange-500 h-8 w-8">
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
-        {/* Project Info Header */}
-        <Card className="mb-8 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
-          <CardContent className="p-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="flex items-center gap-3">
-                <Building2 className="h-8 w-8 text-orange-600" />
-                <div>
+      <div className="max-w-6xl mx-auto px-3 py-3 sm:px-6 sm:py-8">
+        {/* Project Info - Compact on mobile */}
+        <Card className="mb-3 sm:mb-8 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+          <CardContent className="p-3 sm:p-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+              <div className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <div className="min-w-0">
                   <p className="text-xs text-gray-500">Project</p>
-                  <p className="font-semibold">{project.name}</p>
+                  <p className="text-xs sm:text-sm font-semibold truncate">{project.name}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <Users className="h-8 w-8 text-orange-600" />
-                <div>
+              <div className="flex items-center gap-2">
+                <Users className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <div className="min-w-0">
                   <p className="text-xs text-gray-500">Client</p>
-                  <p className="font-semibold">{project.client_name}</p>
+                  <p className="text-xs sm:text-sm font-semibold truncate">{project.client_name}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <MapPin className="h-8 w-8 text-orange-600" />
-                <div>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <div className="min-w-0">
                   <p className="text-xs text-gray-500">Location</p>
-                  <p className="font-semibold">{project.location}</p>
+                  <p className="text-xs sm:text-sm font-semibold truncate">{project.location}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <Building2 className="h-8 w-8 text-orange-600" />
-                <div>
+              <div className="flex items-center gap-2">
+                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <div className="min-w-0">
                   <p className="text-xs text-gray-500">Type</p>
-                  <p className="font-semibold">{project.building_type || 'Building'}</p>
+                  <p className="text-xs sm:text-sm font-semibold truncate">{project.building_type || 'Building'}</p>
                 </div>
               </div>
             </div>
@@ -349,51 +325,51 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-6">
-            <TabsTrigger value="materials" className="gap-2">
-              <Package className="h-4 w-4" />
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-2">
+            <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Package className="h-3 w-3 sm:h-4 sm:w-4" />
               Materials
             </TabsTrigger>
-            <TabsTrigger value="labours" className="gap-2">
-              <Users className="h-4 w-4" />
+            <TabsTrigger value="labours" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+              <Users className="h-3 w-3 sm:h-4 sm:w-4" />
               Labours
             </TabsTrigger>
           </TabsList>
 
-          {/* ==================== MATERIALS TAB ==================== */}
+          {/* MATERIALS TAB */}
           <TabsContent value="materials">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Materials</CardTitle>
-                  <CardDescription>Request and track material orders</CardDescription>
+              <CardHeader className="p-3 sm:p-6 flex flex-row items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle className="text-base sm:text-lg">Materials</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and track orders</CardDescription>
                 </div>
                 <Dialog open={materialRequestDialog} onOpenChange={setMaterialRequestDialog}>
                   <DialogTrigger asChild>
-                    <Button data-testid="request-material-btn" className="gap-2 bg-orange-600 hover:bg-orange-700">
-                      <Plus className="h-4 w-4" />Request Order
+                    <Button data-testid="request-material-btn" size="sm" className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs sm:text-sm whitespace-nowrap">
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline">Request</span> Order
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
                     <DialogHeader>
-                      <DialogTitle>Request Material</DialogTitle>
-                      <DialogDescription>Submit a new material request for this project</DialogDescription>
+                      <DialogTitle className="text-base sm:text-lg">Request Material</DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">Submit a new material request</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="bg-gray-50 p-3 rounded-lg text-sm">
-                        <p><strong>Order ID:</strong> Auto-generated</p>
+                    <div className="space-y-3 sm:space-y-4">
+                      <div className="bg-gray-50 p-2 sm:p-3 rounded-lg text-xs sm:text-sm">
                         <p><strong>Date:</strong> {new Date().toLocaleDateString()}</p>
                         <p><strong>Site:</strong> {project.name}</p>
                       </div>
                       <div>
-                        <Label>Material *</Label>
+                        <Label className="text-xs sm:text-sm">Material *</Label>
                         <Select value={materialForm.material_id} onValueChange={(v) => setMaterialForm({...materialForm, material_id: v})}>
-                          <SelectTrigger data-testid="material-select">
+                          <SelectTrigger className="text-xs sm:text-sm">
                             <SelectValue placeholder="Select material" />
                           </SelectTrigger>
                           <SelectContent>
                             {materials.map(m => (
-                              <SelectItem key={m.material_id} value={m.material_id}>
+                              <SelectItem key={m.material_id} value={m.material_id} className="text-xs sm:text-sm">
                                 {m.name} ({m.unit})
                               </SelectItem>
                             ))}
@@ -401,72 +377,71 @@ export default function SiteEngineerProject() {
                         </Select>
                       </div>
                       <div>
-                        <Label>Quantity *</Label>
+                        <Label className="text-xs sm:text-sm">Quantity *</Label>
                         <Input 
-                          data-testid="quantity-input"
                           type="number"
                           value={materialForm.quantity}
                           onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
                           placeholder="Enter quantity"
+                          className="text-sm"
                         />
                       </div>
                       <div>
-                        <Label>Remarks</Label>
+                        <Label className="text-xs sm:text-sm">Remarks</Label>
                         <Textarea 
                           value={materialForm.remarks}
                           onChange={(e) => setMaterialForm({...materialForm, remarks: e.target.value})}
-                          placeholder="Any additional notes..."
+                          placeholder="Notes..."
                           rows={2}
+                          className="text-sm"
                         />
                       </div>
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setMaterialRequestDialog(false)}>Cancel</Button>
-                      <Button data-testid="submit-material-btn" onClick={handleMaterialRequest}>
-                        <Send className="h-4 w-4 mr-2" />Submit Request
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <Button variant="outline" size="sm" onClick={() => setMaterialRequestDialog(false)}>Cancel</Button>
+                      <Button size="sm" onClick={handleMaterialRequest}>
+                        <Send className="h-3 w-3 mr-1" />Submit
                       </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-3 sm:p-6 pt-0">
                 <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="orders">My Orders ({myMaterialOrders.length})</TabsTrigger>
-                    <TabsTrigger value="received">Received ({receivedMaterials.length})</TabsTrigger>
+                  <TabsList className="mb-3 w-full grid grid-cols-2 h-8">
+                    <TabsTrigger value="orders" className="text-xs">My Orders ({myMaterialOrders.length})</TabsTrigger>
+                    <TabsTrigger value="received" className="text-xs">Received ({receivedMaterials.length})</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="orders">
                     {myMaterialOrders.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Package className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p>No active material orders</p>
+                      <div className="text-center py-6 text-gray-500">
+                        <Package className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                        <p className="text-sm">No active orders</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-2 sm:space-y-3">
                         {myMaterialOrders.map(req => (
                           <Card key={req.request_id} className="border-l-4 border-l-orange-500">
-                            <CardContent className="p-4">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-3 mb-2">
-                                    <h4 className="font-semibold">{req.material_name}</h4>
+                            <CardContent className="p-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                    <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
                                     <StatusBadge status={req.status} />
                                   </div>
-                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600">
-                                    <p><strong>Order ID:</strong> {req.order_id}</p>
-                                    <p><strong>Quantity:</strong> {req.quantity} {req.unit}</p>
-                                    <p><strong>Date:</strong> {new Date(req.created_at).toLocaleDateString()}</p>
-                                    {req.remarks && <p><strong>Remarks:</strong> {req.remarks}</p>}
+                                  <div className="text-xs text-gray-600 space-y-0.5">
+                                    <p><strong>ID:</strong> {req.order_id}</p>
+                                    <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
                                   </div>
                                 </div>
                                 {canReceive(req.status) && (
                                   <Button 
-                                    data-testid={`receive-btn-${req.request_id}`}
+                                    size="sm"
                                     onClick={() => openReceiveDialog(req)}
-                                    className="gap-2 bg-green-600 hover:bg-green-700"
+                                    className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
                                   >
-                                    <Package className="h-4 w-4" />Receive
+                                    <Package className="h-3 w-3" />Receive
                                   </Button>
                                 )}
                               </div>
@@ -479,23 +454,21 @@ export default function SiteEngineerProject() {
 
                   <TabsContent value="received">
                     {receivedMaterials.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <CheckCircle className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p>No received materials yet</p>
+                      <div className="text-center py-6 text-gray-500">
+                        <CheckCircle className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                        <p className="text-sm">No received materials</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-2 sm:space-y-3">
                         {receivedMaterials.map(req => (
                           <Card key={req.request_id} className="border-l-4 border-l-green-500">
-                            <CardContent className="p-4">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h4 className="font-semibold">{req.material_name}</h4>
+                            <CardContent className="p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
                                 <StatusBadge status={req.status} />
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600">
-                                <p><strong>Order ID:</strong> {req.order_id}</p>
-                                <p><strong>Quantity:</strong> {req.quantity} {req.unit}</p>
-                                <p><strong>Date:</strong> {new Date(req.created_at).toLocaleDateString()}</p>
+                              <div className="text-xs text-gray-600">
+                                <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
                               </div>
                             </CardContent>
                           </Card>
@@ -508,122 +481,113 @@ export default function SiteEngineerProject() {
             </Card>
           </TabsContent>
 
-          {/* ==================== LABOURS TAB ==================== */}
+          {/* LABOURS TAB */}
           <TabsContent value="labours">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Labours</CardTitle>
-                  <CardDescription>Request and track labour orders</CardDescription>
+              <CardHeader className="p-3 sm:p-6 flex flex-row items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle className="text-base sm:text-lg">Labours</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and track orders</CardDescription>
                 </div>
                 <Dialog open={labourRequestDialog} onOpenChange={setLabourRequestDialog}>
                   <DialogTrigger asChild>
-                    <Button data-testid="request-labour-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
-                      <Plus className="h-4 w-4" />Request Order
+                    <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm whitespace-nowrap">
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                      <span className="hidden sm:inline">Request</span> Order
                     </Button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
                     <DialogHeader>
-                      <DialogTitle>Request Labour</DialogTitle>
-                      <DialogDescription>Submit a new labour request for this project</DialogDescription>
+                      <DialogTitle className="text-base sm:text-lg">Request Labour</DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">Submit a new labour request</DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-3 sm:space-y-4">
                       <div>
-                        <Label>Labour Type *</Label>
+                        <Label className="text-xs sm:text-sm">Labour Type *</Label>
                         <Select value={labourForm.labour_type} onValueChange={(v) => setLabourForm({...labourForm, labour_type: v})}>
-                          <SelectTrigger data-testid="labour-type-select">
-                            <SelectValue placeholder="Select labour type" />
+                          <SelectTrigger className="text-xs sm:text-sm">
+                            <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
                             {labourTypes.map(t => (
-                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                              <SelectItem key={t.value} value={t.value} className="text-xs sm:text-sm">{t.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="grid grid-cols-3 gap-4">
+                      <div className="grid grid-cols-3 gap-2">
                         <div>
-                          <Label>Workers *</Label>
+                          <Label className="text-xs">Workers *</Label>
                           <Input 
-                            data-testid="workers-input"
                             type="number"
                             value={labourForm.num_workers}
                             onChange={(e) => setLabourForm({...labourForm, num_workers: e.target.value})}
                             placeholder="Count"
+                            className="text-sm"
                           />
                         </div>
                         <div>
-                          <Label>Days *</Label>
+                          <Label className="text-xs">Days *</Label>
                           <Input 
-                            data-testid="days-input"
                             type="number"
                             value={labourForm.num_days}
                             onChange={(e) => setLabourForm({...labourForm, num_days: e.target.value})}
                             placeholder="Days"
+                            className="text-sm"
                           />
                         </div>
                         <div>
-                          <Label>Rate/Day *</Label>
+                          <Label className="text-xs">Rate *</Label>
                           <Input 
-                            data-testid="rate-input"
                             type="number"
                             value={labourForm.rate_per_day}
                             onChange={(e) => setLabourForm({...labourForm, rate_per_day: e.target.value})}
                             placeholder="₹"
+                            className="text-sm"
                           />
                         </div>
                       </div>
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <p className="text-sm font-medium text-blue-700">
+                      <div className="bg-blue-50 p-2 rounded-lg">
+                        <p className="text-xs sm:text-sm font-medium text-blue-700">
                           Total: {formatCurrency((parseInt(labourForm.num_workers) || 0) * (parseInt(labourForm.num_days) || 0) * (parseFloat(labourForm.rate_per_day) || 0))}
                         </p>
                       </div>
-                      <div>
-                        <Label>Remarks</Label>
-                        <Textarea 
-                          value={labourForm.remarks}
-                          onChange={(e) => setLabourForm({...labourForm, remarks: e.target.value})}
-                          placeholder="Any additional notes..."
-                          rows={2}
-                        />
-                      </div>
                     </div>
-                    <DialogFooter>
-                      <Button variant="outline" onClick={() => setLabourRequestDialog(false)}>Cancel</Button>
-                      <Button data-testid="submit-labour-btn" onClick={handleLabourRequest}>
-                        <Send className="h-4 w-4 mr-2" />Submit Request
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <Button variant="outline" size="sm" onClick={() => setLabourRequestDialog(false)}>Cancel</Button>
+                      <Button size="sm" onClick={handleLabourRequest}>
+                        <Send className="h-3 w-3 mr-1" />Submit
                       </Button>
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-3 sm:p-6 pt-0">
                 <Tabs value={labourSubTab} onValueChange={setLabourSubTab}>
-                  <TabsList className="mb-4">
-                    <TabsTrigger value="orders">My Orders ({myLabourOrders.length})</TabsTrigger>
-                    <TabsTrigger value="approved">Approved ({approvedLabour.length})</TabsTrigger>
+                  <TabsList className="mb-3 w-full grid grid-cols-2 h-8">
+                    <TabsTrigger value="orders" className="text-xs">My Orders ({myLabourOrders.length})</TabsTrigger>
+                    <TabsTrigger value="approved" className="text-xs">Approved ({approvedLabour.length})</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="orders">
                     {myLabourOrders.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <Users className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p>No active labour orders</p>
+                      <div className="text-center py-6 text-gray-500">
+                        <Users className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                        <p className="text-sm">No active orders</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-2 sm:space-y-3">
                         {myLabourOrders.map(req => (
                           <Card key={req.request_id} className="border-l-4 border-l-blue-500">
-                            <CardContent className="p-4">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h4 className="font-semibold">{labourTypes.find(t => t.value === req.labour_type)?.label || req.labour_type}</h4>
+                            <CardContent className="p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold">{labourTypes.find(t => t.value === req.labour_type)?.label || req.labour_type}</h4>
                                 <StatusBadge status={req.status} />
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm text-gray-600">
-                                <p><strong>Order ID:</strong> {req.order_id}</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 text-xs text-gray-600">
                                 <p><strong>Workers:</strong> {req.num_workers}</p>
                                 <p><strong>Days:</strong> {req.num_days}</p>
-                                <p><strong>Rate:</strong> {formatCurrency(req.rate_per_day)}/day</p>
+                                <p><strong>Rate:</strong> {formatCurrency(req.rate_per_day)}</p>
                                 <p><strong>Total:</strong> {formatCurrency(req.total_amount)}</p>
                               </div>
                             </CardContent>
@@ -635,26 +599,20 @@ export default function SiteEngineerProject() {
 
                   <TabsContent value="approved">
                     {approvedLabour.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
-                        <CheckCircle className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p>No approved labour requests yet</p>
+                      <div className="text-center py-6 text-gray-500">
+                        <CheckCircle className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                        <p className="text-sm">No approved requests</p>
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-2 sm:space-y-3">
                         {approvedLabour.map(req => (
                           <Card key={req.request_id} className="border-l-4 border-l-green-500">
-                            <CardContent className="p-4">
-                              <div className="flex items-center gap-3 mb-2">
-                                <h4 className="font-semibold">{labourTypes.find(t => t.value === req.labour_type)?.label || req.labour_type}</h4>
+                            <CardContent className="p-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold">{labourTypes.find(t => t.value === req.labour_type)?.label}</h4>
                                 <StatusBadge status={req.status} />
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm text-gray-600">
-                                <p><strong>Order ID:</strong> {req.order_id}</p>
-                                <p><strong>Workers:</strong> {req.num_workers}</p>
-                                <p><strong>Days:</strong> {req.num_days}</p>
-                                <p><strong>Rate:</strong> {formatCurrency(req.rate_per_day)}/day</p>
-                                <p><strong>Total:</strong> {formatCurrency(req.total_amount)}</p>
-                              </div>
+                              <p className="text-xs text-gray-600"><strong>Total:</strong> {formatCurrency(req.total_amount)}</p>
                             </CardContent>
                           </Card>
                         ))}
@@ -668,48 +626,43 @@ export default function SiteEngineerProject() {
         </Tabs>
       </div>
 
-      {/* Receive Material Dialog */}
+      {/* Receive Dialog */}
       <Dialog open={receiveDialog.open} onOpenChange={(open) => !open && setReceiveDialog({ open: false, request: null })}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-green-600" />
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4 text-green-600" />
               Receive Material
             </DialogTitle>
-            <DialogDescription>
-              Confirm material receipt with GPS verification
-            </DialogDescription>
           </DialogHeader>
           {receiveDialog.request && (
-            <div className="space-y-4">
-              <div className="bg-gray-50 p-4 rounded-lg">
+            <div className="space-y-3">
+              <div className="bg-gray-50 p-3 rounded-lg text-xs sm:text-sm">
                 <p><strong>Material:</strong> {receiveDialog.request.material_name}</p>
-                <p><strong>Order ID:</strong> {receiveDialog.request.order_id}</p>
-                <p><strong>Requested Qty:</strong> {receiveDialog.request.quantity} {receiveDialog.request.unit}</p>
+                <p><strong>Requested:</strong> {receiveDialog.request.quantity} {receiveDialog.request.unit}</p>
               </div>
               
               <div>
-                <Label>Received Quantity *</Label>
+                <Label className="text-xs sm:text-sm">Received Qty *</Label>
                 <Input 
-                  data-testid="received-qty-input"
                   type="number"
                   value={receiveForm.received_qty}
                   onChange={(e) => setReceiveForm({...receiveForm, received_qty: e.target.value})}
-                  max={receiveDialog.request.quantity}
+                  className="text-sm"
                 />
               </div>
               
               <div>
-                <Label>GPS Location *</Label>
-                <div className="flex items-center gap-2 mt-2">
+                <Label className="text-xs sm:text-sm">GPS Location *</Label>
+                <div className="mt-1">
                   {gpsLocation ? (
-                    <div className="flex-1 bg-green-50 border border-green-200 p-3 rounded-lg">
+                    <div className="bg-green-50 border border-green-200 p-2 rounded-lg">
                       <div className="flex items-center gap-2 text-green-700">
                         <CheckCircle className="h-4 w-4" />
-                        <span className="text-sm font-medium">Location Captured</span>
+                        <span className="text-xs font-medium">Location Captured</span>
                       </div>
                       <p className="text-xs text-green-600 mt-1">
-                        {gpsLocation.latitude.toFixed(6)}, {gpsLocation.longitude.toFixed(6)}
+                        {gpsLocation.latitude.toFixed(4)}, {gpsLocation.longitude.toFixed(4)}
                       </p>
                     </div>
                   ) : (
@@ -718,94 +671,70 @@ export default function SiteEngineerProject() {
                       variant="outline"
                       onClick={getGPSLocation}
                       disabled={gettingLocation}
-                      className="flex-1"
+                      className="w-full text-xs sm:text-sm"
                     >
                       <MapPin className="h-4 w-4 mr-2" />
-                      {gettingLocation ? 'Getting Location...' : 'Capture GPS Location'}
+                      {gettingLocation ? 'Getting Location...' : 'Capture GPS'}
                     </Button>
                   )}
                 </div>
               </div>
               
-              <div>
-                <Label>Remarks</Label>
-                <Textarea 
-                  value={receiveForm.remarks}
-                  onChange={(e) => setReceiveForm({...receiveForm, remarks: e.target.value})}
-                  placeholder="Any notes about the delivery..."
-                  rows={2}
-                />
-              </div>
-              
-              <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+              <div className="bg-yellow-50 border border-yellow-200 p-2 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
-                  <div className="text-sm text-yellow-800">
-                    <p className="font-medium">OTP Verification Required</p>
-                    <p>After submission, an OTP will be sent to your registered email for final verification.</p>
-                  </div>
+                  <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-yellow-800">OTP will be sent to your email for verification</p>
                 </div>
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReceiveDialog({ open: false, request: null })}>Cancel</Button>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setReceiveDialog({ open: false, request: null })}>Cancel</Button>
             <Button 
-              data-testid="initiate-receive-btn"
+              size="sm"
               onClick={handleInitiateReceive}
               disabled={!gpsLocation}
               className="bg-green-600 hover:bg-green-700"
             >
-              <Send className="h-4 w-4 mr-2" />Submit & Get OTP
+              <Send className="h-3 w-3 mr-1" />Get OTP
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* OTP Verification Dialog */}
+      {/* OTP Dialog */}
       <Dialog open={otpDialog.open} onOpenChange={(open) => !open && setOtpDialog({ open: false, receipt: null })}>
-        <DialogContent>
+        <DialogContent className="max-w-[95vw] sm:max-w-sm mx-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-600" />
-              OTP Verification
-            </DialogTitle>
-            <DialogDescription>
-              Enter the 6-digit OTP sent to your email
-            </DialogDescription>
+            <DialogTitle className="text-base">Enter OTP</DialogTitle>
+            <DialogDescription className="text-xs">6-digit code sent to your email</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="text-center">
-              <Input 
-                data-testid="otp-input"
-                type="text"
-                maxLength={6}
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="Enter 6-digit OTP"
-                className="text-center text-2xl tracking-widest font-mono"
-              />
-            </div>
+          <div className="space-y-3">
+            <Input 
+              type="text"
+              maxLength={6}
+              value={otpCode}
+              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              className="text-center text-2xl tracking-widest font-mono"
+            />
             {otpDialog.receipt?.test_otp && (
-              <div className="bg-blue-50 p-3 rounded-lg text-center">
-                <p className="text-sm text-blue-700">
+              <div className="bg-blue-50 p-2 rounded-lg text-center">
+                <p className="text-xs text-blue-700">
                   <strong>Demo OTP:</strong> {otpDialog.receipt.test_otp}
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  (Shown because email service is not configured)
                 </p>
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOtpDialog({ open: false, receipt: null })}>Cancel</Button>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setOtpDialog({ open: false, receipt: null })}>Cancel</Button>
             <Button 
-              data-testid="verify-otp-btn"
+              size="sm"
               onClick={handleVerifyOTP}
               disabled={otpCode.length !== 6}
               className="bg-green-600 hover:bg-green-700"
             >
-              <CheckCircle className="h-4 w-4 mr-2" />Verify & Complete
+              <CheckCircle className="h-3 w-3 mr-1" />Verify
             </Button>
           </DialogFooter>
         </DialogContent>
