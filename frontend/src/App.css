@@ -21,3 +21,8 @@
 .App-link {
   color: #FFD700;
 }
+
+/* Hide Emergent badge */
+#emergent-badge {
+  display: none !important;
+}
