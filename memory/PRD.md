@@ -670,19 +670,66 @@ Build a Construction Accounting CRM with:
 ## What's Next (P1/P2 - Upcoming)
 
 ### P1 - Upcoming Tasks
+- [ ] Complete Labour Contractor Management UI (skeleton exists at `/labour-contractors`)
+- [ ] Enforce Material Brand Locking (prevent changes after project scope approval)
 - [ ] Unified Approval Dashboard (central view for all pending approvals)
-- [ ] Labour and Vendor/Service Expense Workflows implementation
-- [ ] Bulk Add with Approval Workflow completion
 
 ### P2/P3 - Future Tasks
-- [ ] Backend refactoring (split server.py into modular API Routers)
+- [ ] Backend refactoring (split server.py into modular API Routers - 7000+ lines)
 - [ ] Enable Email Notifications (Resend integration - requires API key)
 - [ ] Enhanced Client Portal with file uploads
 - [ ] Gantt Chart for Project Timelines
-- [ ] Accounts Board Module
 - [ ] Export to Excel/PDF
 - [ ] Dashboard charts and graphs
 
 ---
 
-*Last Updated: February 13, 2026*
+### ✅ Work Order Stage Payment Workflow (Feb 19, 2026)
+
+#### Overview
+Complete end-to-end payment flow for work order stages:
+**Site Engineer → Planning → Accounts**
+
+#### Site Engineer Dashboard (`/site-engineer`)
+- **Work Orders Tab**: View assigned work orders with stages
+- **Stage Actions**:
+  - Start Work (pending → in_progress)
+  - Mark Complete (in_progress → completed)
+  - Request Payment (completed → payment_requested)
+- **Payment Request Dialog**: Submit request with optional remarks
+- **Status Badges**: Pending, In Progress, Completed, Payment Requested, Approved, Paid
+
+#### Planning Board (`/planning-board`)
+- **Payment Requests Alert**: Purple alert when stage payments are pending
+- **Review Payments Dialog**: Shows all pending payment requests with:
+  - Work order number, stage name, amount
+  - Contractor name, project name
+  - Remarks from site engineer
+- **Actions**: Approve (sends to Accounts) or Reject (back to Site Engineer with reason)
+
+#### Accounts Board (`/accounts-board`)
+- **New "Stage Payments" Card**: Shows count and total of approved stage payments
+- **New "Stage" Tab**: Filters to show only stage payments
+- **Process Payment**: Mark approved payments as paid
+- **Updated Dashboard Metrics**: 5 cards including Stage Payments + Total Pending
+
+#### Backend API Endpoints
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/start` - Start stage work
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/complete` - Complete stage
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/request-payment` - Request payment
+- `GET /api/work-orders/payment-requests` - Get pending requests (Planning)
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/approve-payment` - Approve (Planning)
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/reject-payment` - Reject (Planning)
+- `PATCH /api/work-orders/{wo_id}/stages/{stage_id}/process-payment` - Process (Accounts)
+
+#### Backend Bug Fix
+- **Route Ordering Fix**: Moved `/work-orders/payment-requests` before parameterized `/work-orders/{work_order_id}` to prevent 404 errors
+
+#### Testing
+- 17/17 backend tests passed
+- Full E2E flow tested: Site Engineer requests → Planning approves → Accounts processes
+- All three dashboards UI verified
+
+---
+
+*Last Updated: February 19, 2026*
