@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://siteforge-67.preview.emergentagent.com
-- Backend API: https://siteforge-67.preview.emergentagent.com/api
+- Frontend: https://project-accounting-2.preview.emergentagent.com
+- Backend API: https://project-accounting-2.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
