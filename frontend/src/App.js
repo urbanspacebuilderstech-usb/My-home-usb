@@ -34,6 +34,7 @@ import CROBoard from '@/pages/CROBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
 import WorkOrderManagement from '@/pages/WorkOrderManagement';
+import LabourContractorManagement from '@/pages/LabourContractorManagement';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
