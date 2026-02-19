@@ -167,6 +167,8 @@ class PackageMaterialItem(BaseModel):
     item_id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:8]}")
     material_id: Optional[str] = None  # Link to material master
     name: str
+    brand: Optional[str] = None  # Brand name for this package tier
+    specification: Optional[str] = None  # e.g., "Grade 43", "ISI Certified"
     quantity: float = 1
     unit: str = "nos"
     estimated_rate: float = 0
