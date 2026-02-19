@@ -456,42 +456,61 @@ export default function PackageManagement() {
               {/* Materials Tab */}
               <TabsContent value="materials" className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium">Default Material List</p>
+                  <p className="text-sm font-medium">Default Material List with Brands</p>
                   <Button size="sm" onClick={addMaterialItem}><Plus className="h-3 w-3 mr-1" /> Add</Button>
                 </div>
                 {form.material_items.map((item, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 items-center p-2 border rounded">
-                    <Input 
-                      className="col-span-5"
-                      value={item.name}
-                      onChange={(e) => updateMaterialItem(index, 'name', e.target.value)}
-                      placeholder="Material name"
-                    />
-                    <Input 
-                      className="col-span-2"
-                      type="number"
-                      value={item.quantity}
-                      onChange={(e) => updateMaterialItem(index, 'quantity', e.target.value)}
-                      placeholder="Qty"
-                    />
-                    <Select value={item.unit} onValueChange={(v) => updateMaterialItem(index, 'unit', v)}>
-                      <SelectTrigger className="col-span-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    <Input 
-                      className="col-span-2"
-                      type="number"
-                      value={item.estimated_rate}
-                      onChange={(e) => updateMaterialItem(index, 'estimated_rate', e.target.value)}
-                      placeholder="Est. Rate"
-                    />
-                    <Button variant="ghost" size="icon" className="col-span-1" onClick={() => removeMaterialItem(index)}>
-                      <X className="h-4 w-4 text-red-500" />
-                    </Button>
+                  <div key={index} className="p-3 border rounded space-y-2">
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <Input 
+                        className="col-span-4"
+                        value={item.name}
+                        onChange={(e) => updateMaterialItem(index, 'name', e.target.value)}
+                        placeholder="Material name (e.g., Cement)"
+                      />
+                      <Input 
+                        className="col-span-3"
+                        value={item.brand || ''}
+                        onChange={(e) => updateMaterialItem(index, 'brand', e.target.value)}
+                        placeholder="Brand (e.g., Ultratech)"
+                      />
+                      <Input 
+                        className="col-span-4"
+                        value={item.specification || ''}
+                        onChange={(e) => updateMaterialItem(index, 'specification', e.target.value)}
+                        placeholder="Specification (e.g., Grade 53)"
+                      />
+                      <Button variant="ghost" size="icon" className="col-span-1" onClick={() => removeMaterialItem(index)}>
+                        <X className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-12 gap-2 items-center">
+                      <Input 
+                        className="col-span-3"
+                        type="number"
+                        value={item.quantity}
+                        onChange={(e) => updateMaterialItem(index, 'quantity', e.target.value)}
+                        placeholder="Qty"
+                      />
+                      <Select value={item.unit} onValueChange={(v) => updateMaterialItem(index, 'unit', v)}>
+                        <SelectTrigger className="col-span-3">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Input 
+                        className="col-span-3"
+                        type="number"
+                        value={item.estimated_rate}
+                        onChange={(e) => updateMaterialItem(index, 'estimated_rate', e.target.value)}
+                        placeholder="Est. Rate"
+                      />
+                      <div className="col-span-3 text-right text-sm text-gray-500">
+                        Total: {formatCurrency((parseFloat(item.quantity) || 0) * (parseFloat(item.estimated_rate) || 0))}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </TabsContent>
