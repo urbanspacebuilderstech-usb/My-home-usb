@@ -331,14 +331,29 @@ class Project(BaseModel):
     location: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    total_value: float  # Project Total Value (INPUT)
+    # New CRO fields
+    sqft: float = 0  # Square footage
+    building_type: str = "residential"  # residential, commercial, villa, apartment
+    package_id: Optional[str] = None  # Selected package
+    package_name: Optional[str] = None  # Package name for display
+    # Financial fields
+    total_value: float = 0  # Project Total Value (calculated from package/scope)
     additional_cost: float = 0  # Additional Cost (INPUT)
     income_project: float = 0  # Income from Project (INPUT)
     income_additional: float = 0  # Additional Income (INPUT)
     total_expense: float = 0  # Total Expense (INPUT)
     start_date: datetime
     expected_completion: datetime
-    status: ProjectStatus = ProjectStatus.PLANNING
+    status: ProjectStatus = ProjectStatus.DRAFT
+    # Workflow tracking
+    created_by: Optional[str] = None  # CRO user_id
+    planning_modified_by: Optional[str] = None
+    planning_submitted_at: Optional[datetime] = None
+    gm_approved_by: Optional[str] = None
+    gm_approved_at: Optional[datetime] = None
+    admin_approved_by: Optional[str] = None
+    admin_approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
