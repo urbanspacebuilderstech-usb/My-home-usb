@@ -184,10 +184,6 @@ export default function PlanningBoard() {
     window.location.href = '/login';
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
-  };
-
   const getStatusBadge = (status) => {
     const config = {
       draft: { label: 'Draft', variant: 'secondary' },
