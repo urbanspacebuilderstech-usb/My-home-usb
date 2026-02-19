@@ -14,6 +14,8 @@ const API = `${BACKEND_URL}/api`;
 
 const DEMO_USERS = [
   { email: 'admin@constructionos.com', name: 'Super Admin', role: 'super_admin' },
+  { email: 'gm@constructionos.com', name: 'General Manager (Suresh)', role: 'general_manager' },
+  { email: 'cro@constructionos.com', name: 'CRO (Anita)', role: 'cro' },
   { email: 'accountant@constructionos.com', name: 'Accountant (Priya)', role: 'accountant' },
   { email: 'pm@constructionos.com', name: 'Project Manager (Rajesh)', role: 'project_manager' },
   { email: 'planning@constructionos.com', name: 'Planning (Amit)', role: 'planning' },
