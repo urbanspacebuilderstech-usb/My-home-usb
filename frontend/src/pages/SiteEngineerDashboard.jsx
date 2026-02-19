@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
-  Clock, Menu, X
+  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -15,7 +18,13 @@ const API = `${BACKEND_URL}/api`;
 export default function SiteEngineerDashboard() {
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [workOrders, setWorkOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('projects');
+  
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [selectedStage, setSelectedStage] = useState(null);
+  const [paymentRemarks, setPaymentRemarks] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -24,12 +33,14 @@ export default function SiteEngineerDashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, projectsRes] = await Promise.all([
+      const [userRes, projectsRes, workOrdersRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/site-engineer/my-projects`)
+        axios.get(`${API}/site-engineer/my-projects`),
+        axios.get(`${API}/site-engineer/work-orders`).catch(() => ({ data: [] }))
       ]);
       setUser(userRes.data);
       setProjects(projectsRes.data);
+      setWorkOrders(workOrdersRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -43,6 +54,49 @@ export default function SiteEngineerDashboard() {
     }
   };
 
+  const handleStartStage = async (workOrderId, stageId) => {
+    try {
+      await axios.patch(`${API}/work-orders/${workOrderId}/stages/${stageId}/start`);
+      toast.success('Stage started');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to start stage');
+    }
+  };
+
+  const handleCompleteStage = async (workOrderId, stageId) => {
+    try {
+      await axios.patch(`${API}/work-orders/${workOrderId}/stages/${stageId}/complete`);
+      toast.success('Stage marked as completed');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to complete stage');
+    }
+  };
+
+  const openPaymentRequest = (workOrder, stage) => {
+    setSelectedStage({ workOrder, stage });
+    setPaymentRemarks('');
+    setPaymentDialog(true);
+  };
+
+  const handleRequestPayment = async () => {
+    if (!selectedStage) return;
+    
+    try {
+      await axios.patch(
+        `${API}/work-orders/${selectedStage.workOrder.work_order_id}/stages/${selectedStage.stage.stage_id}/request-payment`,
+        null,
+        { params: { remarks: paymentRemarks } }
+      );
+      toast.success('Payment request submitted to Planning');
+      setPaymentDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to request payment');
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await axios.post(`${API}/auth/logout`);
@@ -50,6 +104,23 @@ export default function SiteEngineerDashboard() {
     } catch (error) {
       console.error('Logout failed');
     }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
+  };
+
+  const getStageStatusBadge = (status) => {
+    const config = {
+      pending: { label: 'Pending', className: 'bg-gray-100 text-gray-600' },
+      in_progress: { label: 'In Progress', className: 'bg-blue-100 text-blue-700' },
+      completed: { label: 'Completed', className: 'bg-green-100 text-green-700' },
+      payment_requested: { label: 'Payment Requested', className: 'bg-orange-100 text-orange-700' },
+      payment_approved: { label: 'Approved', className: 'bg-purple-100 text-purple-700' },
+      paid: { label: 'Paid', className: 'bg-green-200 text-green-800' }
+    };
+    const c = config[status] || { label: status, className: 'bg-gray-100' };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.className}`}>{c.label}</span>;
   };
 
   if (loading) {
