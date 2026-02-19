@@ -76,7 +76,7 @@ function AppRouter() {
       <Route path="/cro-board" element={<ProtectedRoute><CROBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
-      <Route path="/work-orders" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
+      <Route path="/work-order-management" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
   );
