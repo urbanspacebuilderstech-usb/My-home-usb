@@ -278,9 +278,9 @@ export default function PlanningBoard() {
             <Users className="h-5 w-5" />
             <span className="text-xs">Contractors</span>
           </Button>
-          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1" onClick={() => window.location.href = '/work-orders'}>
-            <ClipboardList className="h-5 w-5" />
-            <span className="text-xs">Work Orders</span>
+          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1 bg-indigo-50 border-indigo-200" onClick={() => window.location.href = '/work-order-management'}>
+            <ClipboardList className="h-5 w-5 text-indigo-600" />
+            <span className="text-xs font-medium">Work Orders</span>
           </Button>
         </div>
 
