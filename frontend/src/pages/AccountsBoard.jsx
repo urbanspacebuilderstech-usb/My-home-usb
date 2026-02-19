@@ -127,6 +127,7 @@ export default function AccountsBoard() {
       case 'material': return <Package className="h-4 w-4" />;
       case 'labour': return <Users className="h-4 w-4" />;
       case 'procurement': return <Truck className="h-4 w-4" />;
+      case 'stage': return <CheckCircle className="h-4 w-4" />;
       default: return <DollarSign className="h-4 w-4" />;
     }
   };
@@ -135,7 +136,8 @@ export default function AccountsBoard() {
     const config = {
       material: { label: 'Material', color: 'bg-blue-100 text-blue-700' },
       labour: { label: 'Labour', color: 'bg-green-100 text-green-700' },
-      procurement: { label: 'Procurement', color: 'bg-purple-100 text-purple-700' }
+      procurement: { label: 'Procurement', color: 'bg-purple-100 text-purple-700' },
+      stage: { label: 'Stage Payment', color: 'bg-orange-100 text-orange-700' }
     };
     const c = config[type] || { label: type, color: 'bg-gray-100 text-gray-700' };
     return <span className={`px-2 py-1 rounded text-xs font-medium ${c.color}`}>{c.label}</span>;
