@@ -6230,9 +6230,9 @@ async def create_package(package_input: PackageCreateInput, user: User = Depends
 
 @api_router.patch("/packages/{package_id}")
 async def update_package(package_id: str, package_input: PackageCreateInput, user: User = Depends(get_current_user)):
-    """Update a package (Super Admin only)"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can update packages")
+    """Update a package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can update packages")
     
     existing = await db.packages.find_one({"package_id": package_id})
     if not existing:
