@@ -6118,6 +6118,8 @@ class PackageScopeItemInput(BaseModel):
 class PackageMaterialItemInput(BaseModel):
     material_id: Optional[str] = None
     name: str
+    brand: Optional[str] = None
+    specification: Optional[str] = None
     quantity: float = 1
     unit: str = "nos"
     estimated_rate: float = 0
