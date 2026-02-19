@@ -3,12 +3,13 @@ import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
 import { 
   ClipboardList, LogOut, FileText, Clock, CheckCircle, Briefcase,
-  Eye, Send, Package, Users, Building2, ArrowRight, Check, X
+  Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,6 +24,12 @@ export default function PlanningBoard() {
   
   const [pendingRequests, setPendingRequests] = useState([]);
   const [requestsDialog, setRequestsDialog] = useState(false);
+  
+  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [rejectDialog, setRejectDialog] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -31,10 +38,11 @@ export default function PlanningBoard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes, projectsRes] = await Promise.all([
+      const [userRes, dashboardRes, projectsRes, paymentReqRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/planning/dashboard`),
-        axios.get(`${API}/planning/projects?status=new`)
+        axios.get(`${API}/planning/projects?status=new`),
+        axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] }))
       ]);
       
       if (!['planning', 'super_admin'].includes(userRes.data.role)) {
@@ -46,6 +54,7 @@ export default function PlanningBoard() {
       setUser(userRes.data);
       setDashboard(dashboardRes.data);
       setProjects(projectsRes.data);
+      setPaymentRequests(paymentReqRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
