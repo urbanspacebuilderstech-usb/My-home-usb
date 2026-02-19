@@ -463,17 +463,26 @@ export default function AccountsBoard() {
                         placeholder="Enter amount"
                       />
                     </div>
+                  )}
+
+                  <div>
+                    <Label>Remarks (Optional)</Label>
+                    <Textarea 
+                      value={paymentForm.remarks}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
+                      placeholder="Add any notes..."
+                      rows={2}
+                    />
+                  </div>
+                </>
               )}
 
-              <div>
-                <Label>Remarks (Optional)</Label>
-                <Textarea 
-                  value={paymentForm.remarks}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
-                  placeholder="Add any notes..."
-                  rows={2}
-                />
-              </div>
+              {/* For stage payments, show simple confirmation */}
+              {selectedItem.payment_type === 'stage' && (
+                <p className="text-sm text-gray-600">
+                  Click confirm to mark this stage payment as processed.
+                </p>
+              )}
             </div>
           )}
 
