@@ -273,7 +273,6 @@ export default function AccountsBoard() {
                   </TabsTrigger>
                   <TabsTrigger value="stage" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none text-xs sm:text-sm">
                     Stage
-                    Procurement
                   </TabsTrigger>
                 </TabsList>
               </div>
