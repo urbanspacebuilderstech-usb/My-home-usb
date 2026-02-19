@@ -151,6 +151,69 @@ class RolePermission(BaseModel):
     permissions: List[str]  # List of permission_ids
 
 
+# ==================== PACKAGE SYSTEM MODELS ====================
+
+class PackageScopeItem(BaseModel):
+    item_id: str = Field(default_factory=lambda: f"psi_{uuid.uuid4().hex[:8]}")
+    name: str
+    description: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    unit_rate: float = 0
+    total: float = 0  # quantity * unit_rate
+
+
+class PackageMaterialItem(BaseModel):
+    item_id: str = Field(default_factory=lambda: f"pmi_{uuid.uuid4().hex[:8]}")
+    material_id: Optional[str] = None  # Link to material master
+    name: str
+    quantity: float = 1
+    unit: str = "nos"
+    estimated_rate: float = 0
+
+
+class PackageLabourItem(BaseModel):
+    item_id: str = Field(default_factory=lambda: f"pli_{uuid.uuid4().hex[:8]}")
+    work_type: str  # masonry, plumbing, electrical, etc.
+    description: Optional[str] = None
+    estimated_days: float = 0
+    daily_rate: float = 0
+    workers_count: int = 1
+
+
+class Package(BaseModel):
+    package_id: str = Field(default_factory=lambda: f"pkg_{uuid.uuid4().hex[:8]}")
+    name: str  # Package A, Package B, Package C
+    code: str  # A, B, C
+    description: Optional[str] = None
+    building_types: List[str] = []  # residential, commercial, villa, apartment
+    base_rate_per_sqft: float = 0  # Base rate for calculation
+    scope_items: List[PackageScopeItem] = []
+    material_items: List[PackageMaterialItem] = []
+    labour_items: List[PackageLabourItem] = []
+    is_active: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LabourContractor(BaseModel):
+    contractor_id: str = Field(default_factory=lambda: f"lc_{uuid.uuid4().hex[:8]}")
+    name: str
+    work_types: List[str] = []  # masonry, plumbing, electrical, etc.
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    rate_structure: Dict = {}  # {work_type: daily_rate}
+    is_active: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ==================== MATERIAL & VENDOR MODELS ====================
 
 class MaterialCategory(str, Enum):
