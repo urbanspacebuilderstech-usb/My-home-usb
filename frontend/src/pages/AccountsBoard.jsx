@@ -193,7 +193,7 @@ export default function AccountsBoard() {
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Dashboard Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleTabChange('material')}>
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-blue-600 mb-1">
@@ -227,6 +227,17 @@ export default function AccountsBoard() {
             </CardContent>
           </Card>
           
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100 cursor-pointer" onClick={() => handleTabChange('stage')}>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-amber-600 mb-1">
+                <CheckCircle className="h-4 w-4" />
+                <span className="text-xs sm:text-sm">Stage Payments</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.pending_stage_payments || 0}</p>
+              <p className="text-xs text-amber-600">{formatCurrency(dashboard.stage_payments_total)}</p>
+            </CardContent>
+          </Card>
+          
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-orange-600 mb-1">
@@ -234,7 +245,7 @@ export default function AccountsBoard() {
                 <span className="text-xs sm:text-sm">Total Pending</span>
               </div>
               <p className="text-xl sm:text-2xl font-bold text-orange-700">
-                {(dashboard.pending_material || 0) + (dashboard.pending_labour || 0) + (dashboard.pending_procurement || 0)}
+                {(dashboard.pending_material || 0) + (dashboard.pending_labour || 0) + (dashboard.pending_procurement || 0) + (dashboard.pending_stage_payments || 0)}
               </p>
               <p className="text-xs text-orange-600">{formatCurrency(dashboard.total_pending)}</p>
             </CardContent>
@@ -245,9 +256,9 @@ export default function AccountsBoard() {
         <Card>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b p-3 sm:p-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
                 <CardTitle className="text-lg">Pending Payments</CardTitle>
-                <TabsList className="bg-transparent p-0">
+                <TabsList className="bg-transparent p-0 flex-wrap">
                   <TabsTrigger value="all" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm">
                     All
                   </TabsTrigger>
@@ -258,6 +269,10 @@ export default function AccountsBoard() {
                     Labour
                   </TabsTrigger>
                   <TabsTrigger value="procurement" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none text-xs sm:text-sm">
+                    Procurement
+                  </TabsTrigger>
+                  <TabsTrigger value="stage" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none text-xs sm:text-sm">
+                    Stage
                     Procurement
                   </TabsTrigger>
                 </TabsList>
