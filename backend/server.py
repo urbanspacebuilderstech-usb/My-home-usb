@@ -6294,9 +6294,9 @@ async def update_package(package_id: str, package_input: PackageCreateInput, use
 
 @api_router.delete("/packages/{package_id}")
 async def delete_package(package_id: str, user: User = Depends(get_current_user)):
-    """Soft delete a package (Super Admin only)"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can delete packages")
+    """Soft delete a package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can delete packages")
     
     result = await db.packages.update_one(
         {"package_id": package_id},
