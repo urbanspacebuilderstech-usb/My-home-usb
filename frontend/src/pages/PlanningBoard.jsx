@@ -520,6 +520,95 @@ export default function PlanningBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Payment Requests Dialog */}
+      <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Stage Payment Requests</DialogTitle>
+            <DialogDescription>Verify work completion and approve payments</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {paymentRequests.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">No pending payment requests</p>
+            ) : (
+              paymentRequests.map((req, idx) => (
+                <Card key={idx} className="border-l-4 border-l-purple-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-bold">{req.work_order_number}</span>
+                          <Badge variant="secondary">{req.work_type}</Badge>
+                        </div>
+                        <p className="text-sm text-gray-600">Stage: <strong>{req.stage_name}</strong></p>
+                        <p className="text-xs text-gray-500">Project: {req.project_name}</p>
+                        {req.contractor_name && (
+                          <p className="text-xs text-gray-500">Contractor: {req.contractor_name}</p>
+                        )}
+                        {req.remarks && (
+                          <p className="text-xs text-gray-400 mt-1">Note: {req.remarks}</p>
+                        )}
+                        <p className="text-lg font-bold text-green-600 mt-2">{formatCurrency(req.amount)}</p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprovePayment(req)}>
+                          <Check className="h-3 w-3 mr-1" /> Approve
+                        </Button>
+                        <Button size="sm" variant="outline" className="text-red-600" onClick={() => openRejectPaymentDialog(req)}>
+                          <X className="h-3 w-3 mr-1" /> Reject
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Payment Dialog */}
+      <Dialog open={rejectDialog} onOpenChange={setRejectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Payment</DialogTitle>
+            <DialogDescription>Provide a reason for rejecting this payment request</DialogDescription>
+          </DialogHeader>
+          
+          {selectedPayment && (
+            <div className="space-y-4">
+              <Card className="bg-gray-50">
+                <CardContent className="p-3">
+                  <p className="text-sm"><strong>{selectedPayment.work_order_number}</strong> - {selectedPayment.stage_name}</p>
+                  <p className="text-lg font-bold text-green-600">{formatCurrency(selectedPayment.amount)}</p>
+                </CardContent>
+              </Card>
+              
+              <div>
+                <label className="text-sm font-medium">Rejection Reason</label>
+                <Input 
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="e.g., Work not completed as per specification"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleRejectPayment}>
+              Reject Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
