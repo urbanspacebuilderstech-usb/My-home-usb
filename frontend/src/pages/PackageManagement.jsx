@@ -175,7 +175,7 @@ export default function PackageManagement() {
   const addMaterialItem = () => {
     setForm({
       ...form,
-      material_items: [...form.material_items, { name: '', quantity: 1, unit: 'nos', estimated_rate: 0 }]
+      material_items: [...form.material_items, { name: '', brand: '', specification: '', quantity: 1, unit: 'nos', estimated_rate: 0 }]
     });
   };
 
