@@ -29,6 +29,10 @@ import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
 import SiteEngineerProject from '@/pages/SiteEngineerProject';
 import ProcurementDashboard from '@/pages/ProcurementDashboard';
+import PackageManagement from '@/pages/PackageManagement';
+import CROBoard from '@/pages/CROBoard';
+import PlanningBoard from '@/pages/PlanningBoard';
+import AccountsBoard from '@/pages/AccountsBoard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
