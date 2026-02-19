@@ -397,57 +397,72 @@ export default function AccountsBoard() {
                     {getTypeIcon(selectedItem.payment_type)}
                     {getTypeBadge(selectedItem.payment_type)}
                   </div>
-                  <p className="font-semibold">{selectedItem.material_name || selectedItem.labour_type || 'Procurement Order'}</p>
-                  <p className="text-sm text-gray-500">Project: {selectedItem.project_name}</p>
-                  {(selectedItem.vendor_name || selectedItem.selected_vendor_name) && (
-                    <p className="text-sm text-gray-500">Vendor: {selectedItem.vendor_name || selectedItem.selected_vendor_name}</p>
+                  {selectedItem.payment_type === 'stage' ? (
+                    <>
+                      <p className="font-semibold">{selectedItem.work_order_number}</p>
+                      <p className="text-sm font-medium">Stage: {selectedItem.stage_name}</p>
+                      <p className="text-sm text-gray-500">Work: {selectedItem.work_type}</p>
+                      {selectedItem.contractor_name && (
+                        <p className="text-sm text-gray-500">Contractor: {selectedItem.contractor_name}</p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-semibold">{selectedItem.material_name || selectedItem.labour_type || 'Procurement Order'}</p>
+                      {(selectedItem.vendor_name || selectedItem.selected_vendor_name) && (
+                        <p className="text-sm text-gray-500">Vendor: {selectedItem.vendor_name || selectedItem.selected_vendor_name}</p>
+                      )}
+                    </>
                   )}
+                  <p className="text-sm text-gray-500">Project: {selectedItem.project_name}</p>
                   <p className="text-xl font-bold text-green-600 mt-2">
-                    {formatCurrency(selectedItem.final_amount || selectedItem.total_amount || selectedItem.estimated_cost)}
+                    {formatCurrency(selectedItem.amount || selectedItem.final_amount || selectedItem.total_amount || selectedItem.estimated_cost)}
                   </p>
                 </CardContent>
               </Card>
 
-              {/* Payment Options */}
-              <div>
-                <Label>Payment Type</Label>
-                <Select value={paymentForm.payment_type} onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_type: v })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="full">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        Full Payment
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="partial">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-yellow-600" />
-                        Partial Payment
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="credit">
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-blue-600" />
-                        Credit (No Payment)
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Payment Options - Hide for stage payments since they're just direct processing */}
+              {selectedItem.payment_type !== 'stage' && (
+                <>
+                  <div>
+                    <Label>Payment Type</Label>
+                    <Select value={paymentForm.payment_type} onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_type: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="full">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                            Full Payment
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="partial">
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-yellow-600" />
+                            Partial Payment
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="credit">
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="h-4 w-4 text-blue-600" />
+                            Credit (No Payment)
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              {paymentForm.payment_type === 'partial' && (
-                <div>
-                  <Label>Payment Amount</Label>
-                  <Input 
-                    type="number"
-                    value={paymentForm.amount}
-                    onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                    placeholder="Enter amount"
-                  />
-                </div>
+                  {paymentForm.payment_type === 'partial' && (
+                    <div>
+                      <Label>Payment Amount</Label>
+                      <Input 
+                        type="number"
+                        value={paymentForm.amount}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                        placeholder="Enter amount"
+                      />
+                    </div>
               )}
 
               <div>
