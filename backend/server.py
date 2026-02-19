@@ -50,8 +50,12 @@ class UserRole(str, Enum):
 
 
 class ProjectStatus(str, Enum):
-    PLANNING = "planning"
-    ACTIVE = "active"
+    DRAFT = "draft"  # CRO created, not yet submitted
+    PLANNING_REVIEW = "planning_review"  # Submitted to Planning
+    AWAITING_APPROVAL = "awaiting_approval"  # Planning submitted for GM/Admin approval
+    GM_APPROVED = "gm_approved"  # GM approved, waiting Super Admin
+    PLANNING_APPROVED = "planning_approved"  # Fully approved, ready for execution
+    ACTIVE = "active"  # In execution
     COMPLETED = "completed"
     DOCUMENTATION = "documentation"
     SUB_STRUCTURE = "sub_structure"
