@@ -456,63 +456,104 @@ export default function PackageManagement() {
               {/* Materials Tab */}
               <TabsContent value="materials" className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <p className="text-sm font-medium">Default Material List with Brands</p>
-                  <Button size="sm" onClick={addMaterialItem}><Plus className="h-3 w-3 mr-1" /> Add</Button>
+                  <div>
+                    <p className="text-sm font-medium">Material Brand Specifications</p>
+                    <p className="text-xs text-gray-500">Define which brands/quality to use for this package tier</p>
+                  </div>
+                  <Button size="sm" onClick={addMaterialItem}><Plus className="h-3 w-3 mr-1" /> Add Material</Button>
                 </div>
+                
+                {form.material_items.length === 0 && (
+                  <div className="text-center py-8 border rounded-lg border-dashed">
+                    <Package className="h-8 w-8 mx-auto text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-500">No materials added yet</p>
+                    <p className="text-xs text-gray-400">Add materials with brand specifications for this package</p>
+                  </div>
+                )}
+                
                 {form.material_items.map((item, index) => (
-                  <div key={index} className="p-3 border rounded space-y-2">
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      <Input 
-                        className="col-span-4"
-                        value={item.name}
-                        onChange={(e) => updateMaterialItem(index, 'name', e.target.value)}
-                        placeholder="Material name (e.g., Cement)"
-                      />
-                      <Input 
-                        className="col-span-3"
-                        value={item.brand || ''}
-                        onChange={(e) => updateMaterialItem(index, 'brand', e.target.value)}
-                        placeholder="Brand (e.g., Ultratech)"
-                      />
-                      <Input 
-                        className="col-span-4"
-                        value={item.specification || ''}
-                        onChange={(e) => updateMaterialItem(index, 'specification', e.target.value)}
-                        placeholder="Specification (e.g., Grade 53)"
-                      />
-                      <Button variant="ghost" size="icon" className="col-span-1" onClick={() => removeMaterialItem(index)}>
-                        <X className="h-4 w-4 text-red-500" />
+                  <div key={index} className="p-4 border rounded-lg bg-gray-50 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {/* Material Selection from Master */}
+                        <div>
+                          <Label className="text-xs text-gray-500">Material *</Label>
+                          <Select 
+                            value={item.material_id || ''} 
+                            onValueChange={(v) => {
+                              const selectedMaterial = materials.find(m => m.material_id === v);
+                              updateMaterialItem(index, 'material_id', v);
+                              if (selectedMaterial) {
+                                updateMaterialItem(index, 'name', selectedMaterial.name);
+                                updateMaterialItem(index, 'unit', selectedMaterial.unit || 'nos');
+                              }
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select material" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {materials.map(m => (
+                                <SelectItem key={m.material_id} value={m.material_id}>
+                                  {m.name} ({m.category})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        {/* Brand */}
+                        <div>
+                          <Label className="text-xs text-gray-500">Brand *</Label>
+                          <Input 
+                            value={item.brand || ''}
+                            onChange={(e) => updateMaterialItem(index, 'brand', e.target.value)}
+                            placeholder="e.g., Ultratech, Asian Paints"
+                          />
+                        </div>
+                        
+                        {/* Specification */}
+                        <div>
+                          <Label className="text-xs text-gray-500">Specification/Grade</Label>
+                          <Input 
+                            value={item.specification || ''}
+                            onChange={(e) => updateMaterialItem(index, 'specification', e.target.value)}
+                            placeholder="e.g., Grade 53, Premium"
+                          />
+                        </div>
+                      </div>
+                      
+                      <Button variant="ghost" size="icon" className="ml-2 text-red-500 hover:text-red-700" onClick={() => removeMaterialItem(index)}>
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
-                    <div className="grid grid-cols-12 gap-2 items-center">
-                      <Input 
-                        className="col-span-3"
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateMaterialItem(index, 'quantity', e.target.value)}
-                        placeholder="Qty"
-                      />
-                      <Select value={item.unit} onValueChange={(v) => updateMaterialItem(index, 'unit', v)}>
-                        <SelectTrigger className="col-span-3">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Input 
-                        className="col-span-3"
-                        type="number"
-                        value={item.estimated_rate}
-                        onChange={(e) => updateMaterialItem(index, 'estimated_rate', e.target.value)}
-                        placeholder="Est. Rate"
-                      />
-                      <div className="col-span-3 text-right text-sm text-gray-500">
-                        Total: {formatCurrency((parseFloat(item.quantity) || 0) * (parseFloat(item.estimated_rate) || 0))}
+                    
+                    {/* Summary Row */}
+                    {item.name && item.brand && (
+                      <div className="pt-2 border-t flex items-center gap-2">
+                        <Badge variant="outline" className="bg-white">{item.name}</Badge>
+                        <span className="text-gray-400">→</span>
+                        <Badge className="bg-blue-100 text-blue-700">{item.brand}</Badge>
+                        {item.specification && (
+                          <Badge variant="secondary">{item.specification}</Badge>
+                        )}
                       </div>
-                    </div>
+                    )}
                   </div>
                 ))}
+                
+                {form.material_items.length > 0 && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-medium text-blue-800">Package Material Summary</p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {form.material_items.filter(m => m.name && m.brand).map((item, idx) => (
+                        <span key={idx} className="text-xs bg-white px-2 py-1 rounded border">
+                          {item.name}: <strong>{item.brand}</strong> {item.specification && `(${item.specification})`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </TabsContent>
 
               {/* Labour Tab */}
