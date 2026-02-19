@@ -216,6 +216,89 @@ class LabourContractor(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# ==================== WORK ORDER MODELS ====================
+
+class WorkOrderType(str, Enum):
+    MATERIAL = "material"
+    LABOUR = "labour"
+
+
+class WorkOrderStageStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    PAYMENT_REQUESTED = "payment_requested"
+    PAYMENT_APPROVED = "payment_approved"
+    PAID = "paid"
+
+
+class WorkOrderStage(BaseModel):
+    stage_id: str = Field(default_factory=lambda: f"wos_{uuid.uuid4().hex[:8]}")
+    stage_number: int
+    stage_name: str
+    description: Optional[str] = None
+    amount: float = 0
+    status: WorkOrderStageStatus = WorkOrderStageStatus.PENDING
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    payment_requested_at: Optional[datetime] = None
+    payment_requested_by: Optional[str] = None
+    payment_approved_at: Optional[datetime] = None
+    payment_approved_by: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+class WorkOrderStatus(str, Enum):
+    DRAFT = "draft"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class WorkOrder(BaseModel):
+    work_order_id: str = Field(default_factory=lambda: f"wo_{uuid.uuid4().hex[:12]}")
+    work_order_number: str  # WO-001, WO-002
+    project_id: str
+    project_name: Optional[str] = None
+    order_type: WorkOrderType
+    
+    # For Labour Work Orders
+    work_type: Optional[str] = None  # plumbing, masonry, electrical
+    contractor_id: Optional[str] = None
+    contractor_name: Optional[str] = None
+    number_of_days: float = 0
+    number_of_workers: int = 0
+    daily_rate: float = 0
+    total_amount: float = 0
+    stages: List[WorkOrderStage] = []
+    
+    # For Material Work Orders
+    material_id: Optional[str] = None
+    material_name: Optional[str] = None
+    brand: Optional[str] = None
+    specification: Optional[str] = None
+    vendor_id: Optional[str] = None
+    vendor_name: Optional[str] = None
+    quantity: float = 0
+    unit: Optional[str] = None
+    unit_price: float = 0
+    
+    # Assignment
+    assigned_to: Optional[str] = None  # Site Engineer user_id
+    assigned_to_name: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+    
+    # Status tracking
+    status: WorkOrderStatus = WorkOrderStatus.DRAFT
+    created_by: str
+    created_by_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    remarks: Optional[str] = None
+
+
 # ==================== MATERIAL & VENDOR MODELS ====================
 
 class MaterialCategory(str, Enum):
