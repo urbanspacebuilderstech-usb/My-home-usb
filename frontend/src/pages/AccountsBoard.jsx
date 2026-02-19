@@ -93,15 +93,24 @@ export default function AccountsBoard() {
     if (!selectedItem) return;
 
     try {
-      const itemId = selectedItem.pricing_id || selectedItem.expense_id || selectedItem.request_id;
+      // Handle stage payments differently
+      if (selectedItem.payment_type === 'stage') {
+        await axios.patch(
+          `${API}/work-orders/${selectedItem.work_order_id}/stages/${selectedItem.stage_id}/process-payment`
+        );
+        toast.success('Stage payment processed');
+      } else {
+        const itemId = selectedItem.pricing_id || selectedItem.expense_id || selectedItem.request_id;
+        
+        await axios.patch(`${API}/accounts/process-payment/${selectedItem.payment_type}/${itemId}`, {
+          payment_type: paymentForm.payment_type,
+          amount: paymentForm.payment_type === 'partial' ? parseFloat(paymentForm.amount) : null,
+          remarks: paymentForm.remarks
+        });
+        
+        toast.success(`Payment processed as ${paymentForm.payment_type}`);
+      }
       
-      await axios.patch(`${API}/accounts/process-payment/${selectedItem.payment_type}/${itemId}`, {
-        payment_type: paymentForm.payment_type,
-        amount: paymentForm.payment_type === 'partial' ? parseFloat(paymentForm.amount) : null,
-        remarks: paymentForm.remarks
-      });
-      
-      toast.success(`Payment processed as ${paymentForm.payment_type}`);
       setPaymentDialog(false);
       fetchData();
     } catch (error) {
