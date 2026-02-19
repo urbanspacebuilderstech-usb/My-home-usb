@@ -143,6 +143,30 @@ export default function Dashboard() {
       return null;
     }
     
+    // CRO gets redirected to CRO Board
+    if (user.role === 'cro') {
+      window.location.href = '/cro-board';
+      return null;
+    }
+    
+    // Planning gets redirected to Planning Board
+    if (user.role === 'planning') {
+      window.location.href = '/planning-board';
+      return null;
+    }
+    
+    // Accountant gets redirected to Accounts Board
+    if (user.role === 'accountant') {
+      window.location.href = '/accounts-board';
+      return null;
+    }
+    
+    // General Manager gets redirected to Approvals
+    if (user.role === 'general_manager') {
+      window.location.href = '/approvals';
+      return null;
+    }
+    
     return (
       <div className="min-h-screen bg-gray-50">
         <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
