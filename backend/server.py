@@ -6978,6 +6978,521 @@ async def process_payment(
     return {"message": f"Payment processed as {payment_input.payment_type}"}
 
 
+# ==================== WORK ORDER ENDPOINTS ====================
+
+class WorkOrderStageInput(BaseModel):
+    stage_name: str
+    description: Optional[str] = None
+    amount: float = 0
+
+
+class LabourWorkOrderInput(BaseModel):
+    project_id: str
+    work_type: str
+    contractor_id: Optional[str] = None
+    number_of_days: float = 0
+    number_of_workers: int = 1
+    daily_rate: float = 0
+    stages: List[WorkOrderStageInput] = []
+    assigned_to: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class MaterialWorkOrderInput(BaseModel):
+    project_id: str
+    material_id: Optional[str] = None
+    material_name: str
+    brand: Optional[str] = None
+    specification: Optional[str] = None
+    vendor_id: Optional[str] = None
+    quantity: float = 0
+    unit: str = "nos"
+    unit_price: float = 0
+    assigned_to: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+async def get_next_work_order_number():
+    """Generate next work order number"""
+    count = await db.work_orders.count_documents({})
+    return f"WO-{str(count + 1).zfill(4)}"
+
+
+@api_router.get("/work-orders")
+async def get_work_orders(
+    project_id: Optional[str] = None,
+    order_type: Optional[str] = None,
+    status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get work orders with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    
+    # Site engineers only see their assigned work orders
+    if user.role == UserRole.SITE_ENGINEER:
+        query["assigned_to"] = user.user_id
+    elif assigned_to:
+        query["assigned_to"] = assigned_to
+    
+    if project_id:
+        query["project_id"] = project_id
+    if order_type:
+        query["order_type"] = order_type
+    if status:
+        query["status"] = status
+    
+    work_orders = await db.work_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return work_orders
+
+
+@api_router.get("/work-orders/{work_order_id}")
+async def get_work_order(work_order_id: str, user: User = Depends(get_current_user)):
+    """Get single work order details"""
+    work_order = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not work_order:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    return work_order
+
+
+@api_router.post("/work-orders/labour")
+async def create_labour_work_order(wo_input: LabourWorkOrderInput, user: User = Depends(get_current_user)):
+    """Create a labour work order (Planning only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can create work orders")
+    
+    # Get project details
+    project = await db.projects.find_one({"project_id": wo_input.project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get contractor details if provided
+    contractor_name = None
+    if wo_input.contractor_id:
+        contractor = await db.labour_contractors.find_one({"contractor_id": wo_input.contractor_id}, {"_id": 0})
+        if contractor:
+            contractor_name = contractor.get("name")
+    
+    # Get assigned user details
+    assigned_to_name = None
+    if wo_input.assigned_to:
+        assigned_user = await db.users.find_one({"user_id": wo_input.assigned_to}, {"_id": 0})
+        if assigned_user:
+            assigned_to_name = assigned_user.get("name")
+    
+    # Create stages
+    stages = []
+    for idx, stage in enumerate(wo_input.stages):
+        stages.append({
+            "stage_id": f"wos_{uuid.uuid4().hex[:8]}",
+            "stage_number": idx + 1,
+            "stage_name": stage.stage_name,
+            "description": stage.description,
+            "amount": stage.amount,
+            "status": "pending"
+        })
+    
+    # Calculate total from stages
+    total_amount = sum(s.amount for s in wo_input.stages) if wo_input.stages else (wo_input.number_of_days * wo_input.number_of_workers * wo_input.daily_rate)
+    
+    work_order = WorkOrder(
+        work_order_number=await get_next_work_order_number(),
+        project_id=wo_input.project_id,
+        project_name=project.get("name"),
+        order_type=WorkOrderType.LABOUR,
+        work_type=wo_input.work_type,
+        contractor_id=wo_input.contractor_id,
+        contractor_name=contractor_name,
+        number_of_days=wo_input.number_of_days,
+        number_of_workers=wo_input.number_of_workers,
+        daily_rate=wo_input.daily_rate,
+        total_amount=total_amount,
+        stages=stages,
+        assigned_to=wo_input.assigned_to,
+        assigned_to_name=assigned_to_name,
+        assigned_at=datetime.now(timezone.utc) if wo_input.assigned_to else None,
+        status=WorkOrderStatus.ASSIGNED if wo_input.assigned_to else WorkOrderStatus.DRAFT,
+        created_by=user.user_id,
+        created_by_name=user.name,
+        remarks=wo_input.remarks
+    )
+    
+    wo_dict = work_order.model_dump()
+    wo_dict["created_at"] = wo_dict["created_at"].isoformat()
+    wo_dict["updated_at"] = wo_dict["updated_at"].isoformat()
+    if wo_dict.get("assigned_at"):
+        wo_dict["assigned_at"] = wo_dict["assigned_at"].isoformat()
+    
+    await db.work_orders.insert_one(wo_dict)
+    
+    # Notify site engineer if assigned
+    if wo_input.assigned_to:
+        await create_notification(
+            wo_input.assigned_to,
+            f"New Work Order assigned: {work_order.work_order_number} - {wo_input.work_type}"
+        )
+    
+    return {"work_order_id": work_order.work_order_id, "work_order_number": work_order.work_order_number}
+
+
+@api_router.post("/work-orders/material")
+async def create_material_work_order(wo_input: MaterialWorkOrderInput, user: User = Depends(get_current_user)):
+    """Create a material work order (Planning only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can create work orders")
+    
+    # Get project details
+    project = await db.projects.find_one({"project_id": wo_input.project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get vendor details if provided
+    vendor_name = None
+    if wo_input.vendor_id:
+        vendor = await db.vendor_master.find_one({"vendor_id": wo_input.vendor_id}, {"_id": 0})
+        if vendor:
+            vendor_name = vendor.get("name")
+    
+    # Get assigned user details
+    assigned_to_name = None
+    if wo_input.assigned_to:
+        assigned_user = await db.users.find_one({"user_id": wo_input.assigned_to}, {"_id": 0})
+        if assigned_user:
+            assigned_to_name = assigned_user.get("name")
+    
+    total_amount = wo_input.quantity * wo_input.unit_price
+    
+    work_order = WorkOrder(
+        work_order_number=await get_next_work_order_number(),
+        project_id=wo_input.project_id,
+        project_name=project.get("name"),
+        order_type=WorkOrderType.MATERIAL,
+        material_id=wo_input.material_id,
+        material_name=wo_input.material_name,
+        brand=wo_input.brand,
+        specification=wo_input.specification,
+        vendor_id=wo_input.vendor_id,
+        vendor_name=vendor_name,
+        quantity=wo_input.quantity,
+        unit=wo_input.unit,
+        unit_price=wo_input.unit_price,
+        total_amount=total_amount,
+        assigned_to=wo_input.assigned_to,
+        assigned_to_name=assigned_to_name,
+        assigned_at=datetime.now(timezone.utc) if wo_input.assigned_to else None,
+        status=WorkOrderStatus.ASSIGNED if wo_input.assigned_to else WorkOrderStatus.DRAFT,
+        created_by=user.user_id,
+        created_by_name=user.name,
+        remarks=wo_input.remarks
+    )
+    
+    wo_dict = work_order.model_dump()
+    wo_dict["created_at"] = wo_dict["created_at"].isoformat()
+    wo_dict["updated_at"] = wo_dict["updated_at"].isoformat()
+    if wo_dict.get("assigned_at"):
+        wo_dict["assigned_at"] = wo_dict["assigned_at"].isoformat()
+    
+    await db.work_orders.insert_one(wo_dict)
+    
+    # Notify site engineer if assigned
+    if wo_input.assigned_to:
+        await create_notification(
+            wo_input.assigned_to,
+            f"New Material Order assigned: {work_order.work_order_number} - {wo_input.material_name}"
+        )
+    
+    return {"work_order_id": work_order.work_order_id, "work_order_number": work_order.work_order_number}
+
+
+@api_router.patch("/work-orders/{work_order_id}/assign")
+async def assign_work_order(work_order_id: str, site_engineer_id: str, user: User = Depends(get_current_user)):
+    """Assign work order to site engineer"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can assign work orders")
+    
+    # Get site engineer details
+    engineer = await db.users.find_one({"user_id": site_engineer_id, "role": "site_engineer"}, {"_id": 0})
+    if not engineer:
+        raise HTTPException(status_code=404, detail="Site engineer not found")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id},
+        {
+            "$set": {
+                "assigned_to": site_engineer_id,
+                "assigned_to_name": engineer.get("name"),
+                "assigned_at": datetime.now(timezone.utc).isoformat(),
+                "status": "assigned",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify site engineer
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    await create_notification(
+        site_engineer_id,
+        f"Work Order assigned: {wo.get('work_order_number')} - {wo.get('work_type') or wo.get('material_name')}"
+    )
+    
+    return {"message": "Work order assigned"}
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/start")
+async def start_work_order_stage(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Site engineer starts a stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can start stages")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "in_progress",
+                "stages.$.started_at": datetime.now(timezone.utc).isoformat(),
+                "status": "in_progress",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {"message": "Stage started"}
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/complete")
+async def complete_work_order_stage(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Site engineer marks stage as completed"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can complete stages")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "completed",
+                "stages.$.completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {"message": "Stage completed"}
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/request-payment")
+async def request_stage_payment(work_order_id: str, stage_id: str, remarks: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Site engineer requests payment for completed stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can request payment")
+    
+    # Verify stage is completed
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    stage = next((s for s in wo.get("stages", []) if s.get("stage_id") == stage_id), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    if stage.get("status") not in ["completed", "in_progress"]:
+        raise HTTPException(status_code=400, detail="Stage must be completed before requesting payment")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "payment_requested",
+                "stages.$.payment_requested_at": datetime.now(timezone.utc).isoformat(),
+                "stages.$.payment_requested_by": user.user_id,
+                "stages.$.remarks": remarks,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify Planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for pu in planning_users:
+        await create_notification(
+            pu["user_id"],
+            f"Payment requested for {wo.get('work_order_number')} - Stage: {stage.get('stage_name')}"
+        )
+    
+    return {"message": "Payment requested"}
+
+
+@api_router.get("/work-orders/payment-requests")
+async def get_work_order_payment_requests(user: User = Depends(get_current_user)):
+    """Get all payment requests for Planning to review"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can view payment requests")
+    
+    # Find work orders with payment_requested stages
+    work_orders = await db.work_orders.find(
+        {"stages.status": "payment_requested"},
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Extract payment requests
+    requests = []
+    for wo in work_orders:
+        for stage in wo.get("stages", []):
+            if stage.get("status") == "payment_requested":
+                requests.append({
+                    "work_order_id": wo.get("work_order_id"),
+                    "work_order_number": wo.get("work_order_number"),
+                    "project_id": wo.get("project_id"),
+                    "project_name": wo.get("project_name"),
+                    "order_type": wo.get("order_type"),
+                    "work_type": wo.get("work_type"),
+                    "contractor_name": wo.get("contractor_name"),
+                    "stage_id": stage.get("stage_id"),
+                    "stage_number": stage.get("stage_number"),
+                    "stage_name": stage.get("stage_name"),
+                    "amount": stage.get("amount"),
+                    "requested_at": stage.get("payment_requested_at"),
+                    "requested_by": stage.get("payment_requested_by"),
+                    "remarks": stage.get("remarks")
+                })
+    
+    return requests
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/approve-payment")
+async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Planning approves stage payment"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can approve payments")
+    
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    stage = next((s for s in wo.get("stages", []) if s.get("stage_id") == stage_id), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "payment_approved",
+                "stages.$.payment_approved_at": datetime.now(timezone.utc).isoformat(),
+                "stages.$.payment_approved_by": user.user_id,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify Accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(
+            acc["user_id"],
+            f"Payment approved for {wo.get('work_order_number')} - Stage: {stage.get('stage_name')} - ₹{stage.get('amount')}"
+        )
+    
+    # Notify Site Engineer
+    if wo.get("assigned_to"):
+        await create_notification(
+            wo["assigned_to"],
+            f"Payment approved for Stage: {stage.get('stage_name')}"
+        )
+    
+    return {"message": "Payment approved"}
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/reject-payment")
+async def reject_stage_payment(work_order_id: str, stage_id: str, reason: str, user: User = Depends(get_current_user)):
+    """Planning rejects stage payment"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can reject payments")
+    
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "completed",  # Back to completed
+                "stages.$.payment_requested_at": None,
+                "stages.$.payment_requested_by": None,
+                "stages.$.remarks": f"Rejected: {reason}",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify Site Engineer
+    if wo.get("assigned_to"):
+        await create_notification(
+            wo["assigned_to"],
+            f"Payment rejected for {wo.get('work_order_number')} - Reason: {reason}"
+        )
+    
+    return {"message": "Payment rejected"}
+
+
+@api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/process-payment")
+async def process_stage_payment(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Accountant processes approved payment"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can process payments")
+    
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    stage = next((s for s in wo.get("stages", []) if s.get("stage_id") == stage_id), None)
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    if stage.get("status") != "payment_approved":
+        raise HTTPException(status_code=400, detail="Payment must be approved first")
+    
+    await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "stages.stage_id": stage_id},
+        {
+            "$set": {
+                "stages.$.status": "paid",
+                "stages.$.paid_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Check if all stages are paid
+    updated_wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    all_paid = all(s.get("status") == "paid" for s in updated_wo.get("stages", []))
+    
+    if all_paid and updated_wo.get("stages"):
+        await db.work_orders.update_one(
+            {"work_order_id": work_order_id},
+            {"$set": {"status": "completed"}}
+        )
+    
+    return {"message": "Payment processed"}
+
+
+@api_router.get("/site-engineer/work-orders")
+async def get_site_engineer_work_orders(user: User = Depends(get_current_user)):
+    """Get work orders for site engineer"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
+    
+    work_orders = await db.work_orders.find(
+        {"assigned_to": user.user_id} if user.role == UserRole.SITE_ENGINEER else {},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return work_orders
+
+
 app.include_router(api_router)
 
 app.add_middleware(
