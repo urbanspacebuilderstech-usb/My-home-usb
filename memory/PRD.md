@@ -594,6 +594,77 @@ Build a Construction Accounting CRM with:
 
 - **Testing**: 16/16 backend tests passed, 100% frontend success
 
+### ✅ CRO, GM & Role-Based Boards (Feb 19, 2026)
+
+#### New User Roles
+- **CRO (Client Relationship Officer)**: Project onboarding + commercial setup
+- **General Manager (GM)**: Approval layer between Planning and Super Admin
+
+#### Package System (Super Admin)
+- **Package Management** (`/packages`)
+  - Create packages A, B, C with:
+    - Scope of Work items (name, qty, unit, rate, total)
+    - Default material list
+    - Default labour scope
+    - Base rate per sqft (optional)
+  - Package value = Sum of scope item totals
+  - Building types: residential, commercial, villa, apartment, industrial, office
+
+#### CRO Board (`/cro-board`)
+- **Dashboard Metrics**: Draft, In Review, Awaiting Approval, Approved
+- **Create Project Flow**:
+  1. Enter: Name, Client, Location, Sqft, Building Type, Start Date
+  2. Select Package (A/B/C)
+  3. Package scope auto-loads, project value auto-calculates
+  4. Submit for Planning Review
+- **Permissions**: Create projects, select package, view value
+- **Restrictions**: Cannot modify after planning approval
+
+#### Planning Board (`/planning-board`)
+- **Dashboard Metrics**: New Projects, Awaiting Approval, Working, Completed
+- **Pending Site Engineer Requests**: Alert with Review button
+- **Quick Actions**: Materials, Vendors, Contractors, Work Orders
+- **Project Tabs**: New, Awaiting, Working, Completed
+- **Workflow**:
+  1. Review CRO-created projects
+  2. Edit scope, customize materials
+  3. Submit for GM/Admin approval
+
+#### GM/Admin Approval Flow
+- **Approval Endpoints**:
+  - `GET /api/approvals/projects` - Get pending approvals
+  - `PATCH /api/approvals/projects/{id}/gm-approve` - GM approval
+  - `PATCH /api/approvals/projects/{id}/final-approve` - Super Admin final approval
+  - `PATCH /api/approvals/projects/{id}/reject` - Reject with reason
+- **Flow**: Planning → GM Approved → Admin Approved → Ready for Execution
+
+#### Accounts Board (`/accounts-board`)
+- **Dashboard Metrics**: Material, Labour, Procurement pending counts with totals
+- **Payment Processing**:
+  - View pending payments by type (Material, Labour, Procurement)
+  - Process payment: Full, Partial, or Credit
+  - Add payment remarks
+- **API**: `PATCH /api/accounts/process-payment/{type}/{id}`
+
+#### Labour Contractor Portal
+- **CRUD for Labour Contractors**:
+  - Name, work types (masonry, plumbing, electrical, etc.)
+  - Contact details, bank details
+  - Rate structure per work type
+- **API**: `/api/labour-contractors`
+
+#### Updated Project Model
+- New fields: sqft, building_type, package_id, package_name
+- New statuses: draft, planning_review, awaiting_approval, gm_approved, planning_approved
+- Workflow tracking: created_by, planning_modified_by, gm_approved_by, admin_approved_by
+
+#### Improved Bulk Scope Dialog
+- Start with 3 rows (not 10)
+- X button to remove individual rows
+- "Add Row" button (add 1)
+- "Add 5 Rows" button (add multiple)
+- Flexible: add only what you need
+
 ---
 
 ## What's Next (P1/P2 - Upcoming)
