@@ -576,24 +576,25 @@ export default function ProjectDetail() {
                       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Scope Items</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                          <DialogDescription>Add rows as needed. Use X to remove empty rows.</DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
-                                <th className="px-2 py-2 text-left">#</th>
+                                <th className="px-2 py-2 text-left w-8">#</th>
                                 <th className="px-2 py-2 text-left">Item Name *</th>
                                 <th className="px-2 py-2 text-left w-20">Qty</th>
                                 <th className="px-2 py-2 text-left w-20">Unit</th>
                                 <th className="px-2 py-2 text-left w-28">Rate (₹) *</th>
                                 <th className="px-2 py-2 text-left w-28">Total</th>
                                 <th className="px-2 py-2 text-left">Remarks</th>
+                                <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
                               {bulkScopeRows.map((row, idx) => (
-                                <tr key={idx} className="border-b">
+                                <tr key={idx} className="border-b hover:bg-gray-50">
                                   <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
                                   <td className="px-2 py-1">
                                     <Input 
@@ -656,15 +657,46 @@ export default function ProjectDetail() {
                                       className="h-8"
                                     />
                                   </td>
+                                  <td className="px-2 py-1">
+                                    {bulkScopeRows.length > 1 && (
+                                      <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="icon"
+                                        className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => {
+                                          const newRows = bulkScopeRows.filter((_, i) => i !== idx);
+                                          setBulkScopeRows(newRows);
+                                        }}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <Button type="button" variant="outline" onClick={() => setBulkScopeRows([...bulkScopeRows, ...createEmptyRows('scope', 5)])}>
-                            + Add More Rows
-                          </Button>
+                        <div className="flex justify-between items-center pt-2">
+                          <div className="flex gap-2">
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setBulkScopeRows([...bulkScopeRows, { item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }])}
+                            >
+                              <Plus className="h-4 w-4 mr-1" /> Add Row
+                            </Button>
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setBulkScopeRows([...bulkScopeRows, ...createEmptyRows('scope', 5)])}
+                            >
+                              + Add 5 Rows
+                            </Button>
+                          </div>
                           <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setBulkScopeDialog(false)}>Cancel</Button>
                             <Button data-testid="submit-bulk-scope-btn" onClick={handleBulkAddScope}>Submit All</Button>
