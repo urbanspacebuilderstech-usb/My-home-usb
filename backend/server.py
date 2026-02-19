@@ -7406,43 +7406,6 @@ async def request_stage_payment(work_order_id: str, stage_id: str, remarks: Opti
     return {"message": "Payment requested"}
 
 
-@api_router.get("/work-orders/payment-requests")
-async def get_work_order_payment_requests(user: User = Depends(get_current_user)):
-    """Get all payment requests for Planning to review"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
-        raise HTTPException(status_code=403, detail="Only Planning can view payment requests")
-    
-    # Find work orders with payment_requested stages
-    work_orders = await db.work_orders.find(
-        {"stages.status": "payment_requested"},
-        {"_id": 0}
-    ).to_list(500)
-    
-    # Extract payment requests
-    requests = []
-    for wo in work_orders:
-        for stage in wo.get("stages", []):
-            if stage.get("status") == "payment_requested":
-                requests.append({
-                    "work_order_id": wo.get("work_order_id"),
-                    "work_order_number": wo.get("work_order_number"),
-                    "project_id": wo.get("project_id"),
-                    "project_name": wo.get("project_name"),
-                    "order_type": wo.get("order_type"),
-                    "work_type": wo.get("work_type"),
-                    "contractor_name": wo.get("contractor_name"),
-                    "stage_id": stage.get("stage_id"),
-                    "stage_number": stage.get("stage_number"),
-                    "stage_name": stage.get("stage_name"),
-                    "amount": stage.get("amount"),
-                    "requested_at": stage.get("payment_requested_at"),
-                    "requested_by": stage.get("payment_requested_by"),
-                    "remarks": stage.get("remarks")
-                })
-    
-    return requests
-
-
 @api_router.patch("/work-orders/{work_order_id}/stages/{stage_id}/approve-payment")
 async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning approves stage payment"""
