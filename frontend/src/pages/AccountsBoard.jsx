@@ -289,7 +289,11 @@ export default function AccountsBoard() {
                       <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2">
                           {getTypeIcon(item.payment_type)}
-                          <span className="font-semibold">{item.material_name || item.labour_type || 'Order'}</span>
+                          <span className="font-semibold">
+                            {item.payment_type === 'stage' 
+                              ? `${item.work_order_number} - ${item.stage_name}`
+                              : (item.material_name || item.labour_type || 'Order')}
+                          </span>
                         </div>
                         {getTypeBadge(item.payment_type)}
                       </div>
@@ -297,10 +301,12 @@ export default function AccountsBoard() {
                         <p>Project: {item.project_name}</p>
                         {item.vendor_name && <p>Vendor: {item.vendor_name}</p>}
                         {item.selected_vendor_name && <p>Vendor: {item.selected_vendor_name}</p>}
+                        {item.contractor_name && <p>Contractor: {item.contractor_name}</p>}
+                        {item.work_type && <p>Work: {item.work_type}</p>}
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-lg font-bold text-green-600">
-                          {formatCurrency(item.final_amount || item.total_amount || item.estimated_cost)}
+                          {formatCurrency(item.amount || item.final_amount || item.total_amount || item.estimated_cost)}
                         </span>
                         <Button size="sm" onClick={() => openPaymentDialog(item)}>
                           <DollarSign className="h-3 w-3 mr-1" /> Process
@@ -319,7 +325,7 @@ export default function AccountsBoard() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TYPE</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESCRIPTION</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">VENDOR</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">VENDOR/CONTRACTOR</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">AMOUNT</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTION</th>
                     </tr>
@@ -339,15 +345,25 @@ export default function AccountsBoard() {
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <p className="font-medium">{item.material_name || item.labour_type || 'Procurement Order'}</p>
-                            {item.quantity && <p className="text-xs text-gray-500">Qty: {item.quantity} {item.unit}</p>}
+                            {item.payment_type === 'stage' ? (
+                              <>
+                                <p className="font-medium">{item.work_order_number}</p>
+                                <p className="text-sm text-gray-600">Stage: {item.stage_name}</p>
+                                <p className="text-xs text-gray-500">{item.work_type}</p>
+                              </>
+                            ) : (
+                              <>
+                                <p className="font-medium">{item.material_name || item.labour_type || 'Procurement Order'}</p>
+                                {item.quantity && <p className="text-xs text-gray-500">Qty: {item.quantity} {item.unit}</p>}
+                              </>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-sm">{item.project_name}</td>
                           <td className="px-4 py-3 text-sm">
-                            {item.vendor_name || item.selected_vendor_name || '-'}
+                            {item.contractor_name || item.vendor_name || item.selected_vendor_name || '-'}
                           </td>
                           <td className="px-4 py-3 text-right font-bold text-green-600">
-                            {formatCurrency(item.final_amount || item.total_amount || item.estimated_cost)}
+                            {formatCurrency(item.amount || item.final_amount || item.total_amount || item.estimated_cost)}
                           </td>
                           <td className="px-4 py-3 text-center">
                             <Button size="sm" onClick={() => openPaymentDialog(item)}>
