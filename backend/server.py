@@ -6850,6 +6850,22 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
     pending_labour = await db.labour_expenses.count_documents({"status": "planning_approved"})
     pending_procurement = await db.procurement_pricing.count_documents({"status": "waiting_accounts"})
     
+    # Count work order stage payments (approved by Planning, waiting for Accounts)
+    work_orders = await db.work_orders.find(
+        {"stages.status": "payment_approved"},
+        {"_id": 0, "stages": 1}
+    ).to_list(500)
+    pending_stage_payments = sum(
+        1 for wo in work_orders 
+        for stage in wo.get("stages", []) 
+        if stage.get("status") == "payment_approved"
+    )
+    stage_payments_total = sum(
+        stage.get("amount", 0) for wo in work_orders 
+        for stage in wo.get("stages", []) 
+        if stage.get("status") == "payment_approved"
+    )
+    
     # Get totals
     material_total = await db.material_expenses.aggregate([
         {"$match": {"status": "planning_approved"}},
@@ -6870,12 +6886,15 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
         "pending_material": pending_material,
         "pending_labour": pending_labour,
         "pending_procurement": pending_procurement,
+        "pending_stage_payments": pending_stage_payments,
         "material_total": material_total[0]["total"] if material_total else 0,
         "labour_total": labour_total[0]["total"] if labour_total else 0,
         "procurement_total": procurement_total[0]["total"] if procurement_total else 0,
+        "stage_payments_total": stage_payments_total,
         "total_pending": (material_total[0]["total"] if material_total else 0) + 
                         (labour_total[0]["total"] if labour_total else 0) +
-                        (procurement_total[0]["total"] if procurement_total else 0)
+                        (procurement_total[0]["total"] if procurement_total else 0) +
+                        stage_payments_total
     }
 
 
@@ -6913,6 +6932,32 @@ async def get_pending_payments(payment_type: Optional[str] = None, user: User = 
         for p in procurements:
             p["payment_type"] = "procurement"
         result.extend(procurements)
+    
+    # Include work order stage payments approved by Planning
+    if payment_type in [None, "stage"]:
+        work_orders = await db.work_orders.find(
+            {"stages.status": "payment_approved"},
+            {"_id": 0}
+        ).to_list(100)
+        for wo in work_orders:
+            for stage in wo.get("stages", []):
+                if stage.get("status") == "payment_approved":
+                    result.append({
+                        "payment_type": "stage",
+                        "work_order_id": wo.get("work_order_id"),
+                        "work_order_number": wo.get("work_order_number"),
+                        "project_id": wo.get("project_id"),
+                        "project_name": wo.get("project_name"),
+                        "order_type": wo.get("order_type"),
+                        "work_type": wo.get("work_type"),
+                        "contractor_name": wo.get("contractor_name"),
+                        "stage_id": stage.get("stage_id"),
+                        "stage_number": stage.get("stage_number"),
+                        "stage_name": stage.get("stage_name"),
+                        "amount": stage.get("amount"),
+                        "approved_at": stage.get("payment_approved_at"),
+                        "approved_by": stage.get("payment_approved_by")
+                    })
     
     return result
 
