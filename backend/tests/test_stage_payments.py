@@ -242,17 +242,17 @@ class TestPermissions:
         assert response.status_code == 403
         print("PASS: Planning correctly denied access to accounts dashboard")
     
-    def test_accountant_cannot_approve_payments(self, accountant_session):
-        # Get payment requests first
+    def test_accountant_cannot_view_payment_requests(self, accountant_session):
+        # Accountant should not be able to view payment requests (Planning only endpoint)
         response = accountant_session.get(f"{API}/work-orders/payment-requests")
-        # Accountant should not be able to view payment requests (Planning only)
-        assert response.status_code == 403
+        # 403 expected - Only Planning can view payment requests
+        assert response.status_code == 403, f"Expected 403, got {response.status_code}"
         print("PASS: Accountant correctly denied access to payment requests")
     
-    def test_site_engineer_cannot_approve_payments(self, site_engineer_session):
+    def test_site_engineer_cannot_view_payment_requests(self, site_engineer_session):
         # Site engineer should not be able to view payment requests
         response = site_engineer_session.get(f"{API}/work-orders/payment-requests")
-        assert response.status_code == 403
+        assert response.status_code == 403, f"Expected 403, got {response.status_code}"
         print("PASS: Site Engineer correctly denied access to payment requests")
 
 
