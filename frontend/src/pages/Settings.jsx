@@ -348,6 +348,19 @@ export default function Settings() {
 
           <TabsContent value="quick-links">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer active:bg-gray-50" onClick={() => window.location.href = '/packages'}>
+                <CardHeader className="p-4 sm:p-6">
+                  <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                    <Package className="h-4 w-4 sm:h-5 sm:w-5 text-indigo-600" />
+                    Package Management
+                  </CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Define project packages with scope, materials & labour</CardDescription>
+                </CardHeader>
+                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
+                  <p className="text-xl sm:text-2xl font-bold text-indigo-600">Packages A, B, C</p>
+                </CardContent>
+              </Card>
+              
               <Card className="hover:shadow-md transition-shadow cursor-pointer active:bg-gray-50" onClick={() => window.location.href = '/materials'}>
                 <CardHeader className="p-4 sm:p-6">
                   <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
