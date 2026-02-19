@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 class UserRole(str, Enum):
     SUPER_ADMIN = "super_admin"
+    GENERAL_MANAGER = "general_manager"
+    CRO = "cro"  # Client Relationship Officer
     ACCOUNTANT = "accountant"
     PROJECT_MANAGER = "project_manager"
     PLANNING = "planning"
