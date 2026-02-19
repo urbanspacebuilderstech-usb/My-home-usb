@@ -6194,6 +6194,8 @@ async def create_package(package_input: PackageCreateInput, user: User = Depends
             "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
             "material_id": item.material_id,
             "name": item.name,
+            "brand": item.brand,
+            "specification": item.specification,
             "quantity": item.quantity,
             "unit": item.unit,
             "estimated_rate": item.estimated_rate
@@ -6262,6 +6264,8 @@ async def update_package(package_id: str, package_input: PackageCreateInput, use
             "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
             "material_id": item.material_id,
             "name": item.name,
+            "brand": item.brand,
+            "specification": item.specification,
             "quantity": item.quantity,
             "unit": item.unit,
             "estimated_rate": item.estimated_rate
