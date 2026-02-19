@@ -6103,6 +6103,790 @@ async def quick_add_vendor(vendor_input: NewVendorInput, user: User = Depends(ge
     return {"vendor_id": vendor_id, "name": vendor_input.name, "message": "Vendor added"}
 
 
+# ==================== PACKAGE SYSTEM ENDPOINTS ====================
+
+class PackageScopeItemInput(BaseModel):
+    name: str
+    description: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    unit_rate: float = 0
+
+
+class PackageMaterialItemInput(BaseModel):
+    material_id: Optional[str] = None
+    name: str
+    quantity: float = 1
+    unit: str = "nos"
+    estimated_rate: float = 0
+
+
+class PackageLabourItemInput(BaseModel):
+    work_type: str
+    description: Optional[str] = None
+    estimated_days: float = 0
+    daily_rate: float = 0
+    workers_count: int = 1
+
+
+class PackageCreateInput(BaseModel):
+    name: str
+    code: str
+    description: Optional[str] = None
+    building_types: List[str] = []
+    base_rate_per_sqft: float = 0
+    scope_items: List[PackageScopeItemInput] = []
+    material_items: List[PackageMaterialItemInput] = []
+    labour_items: List[PackageLabourItemInput] = []
+
+
+@api_router.get("/packages")
+async def get_packages(user: User = Depends(get_current_user)):
+    """Get all active packages"""
+    packages = await db.packages.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return packages
+
+
+@api_router.get("/packages/{package_id}")
+async def get_package(package_id: str, user: User = Depends(get_current_user)):
+    """Get package details"""
+    package = await db.packages.find_one({"package_id": package_id}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return package
+
+
+@api_router.post("/packages")
+async def create_package(package_input: PackageCreateInput, user: User = Depends(get_current_user)):
+    """Create a new package (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can create packages")
+    
+    # Check for duplicate code
+    existing = await db.packages.find_one({"code": package_input.code, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Package with code '{package_input.code}' already exists")
+    
+    # Process scope items with calculated totals
+    scope_items = []
+    total_scope_value = 0
+    for item in package_input.scope_items:
+        scope_item = {
+            "item_id": f"psi_{uuid.uuid4().hex[:8]}",
+            "name": item.name,
+            "description": item.description,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "unit_rate": item.unit_rate,
+            "total": item.quantity * item.unit_rate
+        }
+        total_scope_value += scope_item["total"]
+        scope_items.append(scope_item)
+    
+    # Process material items
+    material_items = []
+    for item in package_input.material_items:
+        material_items.append({
+            "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
+            "material_id": item.material_id,
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "estimated_rate": item.estimated_rate
+        })
+    
+    # Process labour items
+    labour_items = []
+    for item in package_input.labour_items:
+        labour_items.append({
+            "item_id": f"pli_{uuid.uuid4().hex[:8]}",
+            "work_type": item.work_type,
+            "description": item.description,
+            "estimated_days": item.estimated_days,
+            "daily_rate": item.daily_rate,
+            "workers_count": item.workers_count
+        })
+    
+    package = Package(
+        name=package_input.name,
+        code=package_input.code,
+        description=package_input.description,
+        building_types=package_input.building_types,
+        base_rate_per_sqft=package_input.base_rate_per_sqft,
+        scope_items=scope_items,
+        material_items=material_items,
+        labour_items=labour_items,
+        created_by=user.user_id
+    )
+    
+    package_dict = package.model_dump()
+    package_dict["created_at"] = package_dict["created_at"].isoformat()
+    package_dict["updated_at"] = package_dict["updated_at"].isoformat()
+    
+    await db.packages.insert_one(package_dict)
+    
+    return {"package_id": package.package_id, "message": "Package created", "total_scope_value": total_scope_value}
+
+
+@api_router.patch("/packages/{package_id}")
+async def update_package(package_id: str, package_input: PackageCreateInput, user: User = Depends(get_current_user)):
+    """Update a package (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update packages")
+    
+    existing = await db.packages.find_one({"package_id": package_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    # Process scope items
+    scope_items = []
+    for item in package_input.scope_items:
+        scope_items.append({
+            "item_id": f"psi_{uuid.uuid4().hex[:8]}",
+            "name": item.name,
+            "description": item.description,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "unit_rate": item.unit_rate,
+            "total": item.quantity * item.unit_rate
+        })
+    
+    # Process material items
+    material_items = []
+    for item in package_input.material_items:
+        material_items.append({
+            "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
+            "material_id": item.material_id,
+            "name": item.name,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "estimated_rate": item.estimated_rate
+        })
+    
+    # Process labour items
+    labour_items = []
+    for item in package_input.labour_items:
+        labour_items.append({
+            "item_id": f"pli_{uuid.uuid4().hex[:8]}",
+            "work_type": item.work_type,
+            "description": item.description,
+            "estimated_days": item.estimated_days,
+            "daily_rate": item.daily_rate,
+            "workers_count": item.workers_count
+        })
+    
+    update_data = {
+        "name": package_input.name,
+        "code": package_input.code,
+        "description": package_input.description,
+        "building_types": package_input.building_types,
+        "base_rate_per_sqft": package_input.base_rate_per_sqft,
+        "scope_items": scope_items,
+        "material_items": material_items,
+        "labour_items": labour_items,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.packages.update_one({"package_id": package_id}, {"$set": update_data})
+    
+    return {"message": "Package updated"}
+
+
+@api_router.delete("/packages/{package_id}")
+async def delete_package(package_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a package (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete packages")
+    
+    result = await db.packages.update_one(
+        {"package_id": package_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    return {"message": "Package deleted"}
+
+
+# ==================== LABOUR CONTRACTOR ENDPOINTS ====================
+
+class LabourContractorInput(BaseModel):
+    name: str
+    work_types: List[str] = []
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    rate_structure: Dict = {}
+
+
+@api_router.get("/labour-contractors")
+async def get_labour_contractors(user: User = Depends(get_current_user)):
+    """Get all active labour contractors"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    contractors = await db.labour_contractors.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return contractors
+
+
+@api_router.post("/labour-contractors")
+async def create_labour_contractor(contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
+    """Create a new labour contractor (Planning only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can create labour contractors")
+    
+    contractor = LabourContractor(
+        name=contractor_input.name,
+        work_types=contractor_input.work_types,
+        phone=contractor_input.phone,
+        email=contractor_input.email,
+        address=contractor_input.address,
+        bank_name=contractor_input.bank_name,
+        account_number=contractor_input.account_number,
+        ifsc_code=contractor_input.ifsc_code,
+        rate_structure=contractor_input.rate_structure,
+        created_by=user.user_id
+    )
+    
+    contractor_dict = contractor.model_dump()
+    contractor_dict["created_at"] = contractor_dict["created_at"].isoformat()
+    contractor_dict["updated_at"] = contractor_dict["updated_at"].isoformat()
+    
+    await db.labour_contractors.insert_one(contractor_dict)
+    
+    return {"contractor_id": contractor.contractor_id, "message": "Labour contractor created"}
+
+
+@api_router.patch("/labour-contractors/{contractor_id}")
+async def update_labour_contractor(contractor_id: str, contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
+    """Update a labour contractor"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can update labour contractors")
+    
+    update_data = {
+        "name": contractor_input.name,
+        "work_types": contractor_input.work_types,
+        "phone": contractor_input.phone,
+        "email": contractor_input.email,
+        "address": contractor_input.address,
+        "bank_name": contractor_input.bank_name,
+        "account_number": contractor_input.account_number,
+        "ifsc_code": contractor_input.ifsc_code,
+        "rate_structure": contractor_input.rate_structure,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.labour_contractors.update_one(
+        {"contractor_id": contractor_id},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Labour contractor not found")
+    
+    return {"message": "Labour contractor updated"}
+
+
+@api_router.delete("/labour-contractors/{contractor_id}")
+async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a labour contractor"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete labour contractors")
+    
+    result = await db.labour_contractors.update_one(
+        {"contractor_id": contractor_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Labour contractor not found")
+    
+    return {"message": "Labour contractor deleted"}
+
+
+# ==================== CRO BOARD ENDPOINTS ====================
+
+class CROProjectCreateInput(BaseModel):
+    name: str
+    client_name: str
+    location: str
+    sqft: float
+    building_type: str
+    expected_start_date: str
+    package_id: str
+
+
+@api_router.get("/cro/dashboard")
+async def get_cro_dashboard(user: User = Depends(get_current_user)):
+    """Get CRO dashboard data"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    
+    # Get counts by status
+    draft_count = await db.projects.count_documents({"status": "draft", "created_by": user.user_id})
+    planning_review_count = await db.projects.count_documents({"status": "planning_review"})
+    awaiting_approval_count = await db.projects.count_documents({"status": "awaiting_approval"})
+    approved_count = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active"]}})
+    
+    # Get recent projects created by CRO
+    recent_projects = await db.projects.find(
+        {"created_by": user.user_id} if user.role == UserRole.CRO else {},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    
+    # Get active packages
+    packages = await db.packages.find({"is_active": True}, {"_id": 0, "package_id": 1, "name": 1, "code": 1}).to_list(10)
+    
+    return {
+        "draft_count": draft_count,
+        "planning_review_count": planning_review_count,
+        "awaiting_approval_count": awaiting_approval_count,
+        "approved_count": approved_count,
+        "recent_projects": recent_projects,
+        "packages": packages
+    }
+
+
+@api_router.post("/cro/projects")
+async def cro_create_project(project_input: CROProjectCreateInput, user: User = Depends(get_current_user)):
+    """CRO creates a new project with package selection"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can create projects")
+    
+    # Get package details
+    package = await db.packages.find_one({"package_id": project_input.package_id, "is_active": True}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    # Calculate project value from scope items
+    total_value = sum(item.get("total", 0) for item in package.get("scope_items", []))
+    
+    # If base_rate_per_sqft is set, use sqft * rate
+    if package.get("base_rate_per_sqft", 0) > 0:
+        total_value = project_input.sqft * package["base_rate_per_sqft"]
+    
+    # Parse date
+    try:
+        start_date = datetime.strptime(project_input.expected_start_date, "%Y-%m-%d")
+    except:
+        start_date = datetime.now(timezone.utc)
+    
+    # Create project
+    project = Project(
+        name=project_input.name,
+        client_name=project_input.client_name,
+        location=project_input.location,
+        sqft=project_input.sqft,
+        building_type=project_input.building_type,
+        package_id=project_input.package_id,
+        package_name=package.get("name"),
+        total_value=total_value,
+        start_date=start_date,
+        expected_completion=start_date + timedelta(days=365),
+        status=ProjectStatus.DRAFT,
+        created_by=user.user_id
+    )
+    
+    project_dict = project.model_dump()
+    project_dict["start_date"] = project_dict["start_date"].isoformat()
+    project_dict["expected_completion"] = project_dict["expected_completion"].isoformat()
+    project_dict["created_at"] = project_dict["created_at"].isoformat()
+    
+    await db.projects.insert_one(project_dict)
+    
+    # Auto-create scope items from package
+    for item in package.get("scope_items", []):
+        scope_item = {
+            "scope_id": f"scope_{uuid.uuid4().hex[:12]}",
+            "project_id": project.project_id,
+            "item_name": item.get("name"),
+            "description": item.get("description"),
+            "quantity": item.get("quantity", 1),
+            "unit": item.get("unit", "nos"),
+            "unit_rate": item.get("unit_rate", 0),
+            "total": item.get("total", 0),
+            "remarks": f"From package: {package.get('name')}",
+            "status": "draft",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.scope_items.insert_one(scope_item)
+    
+    # Notify planning department
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in planning_users:
+        await create_notification(pu["user_id"], f"New project created by CRO: {project.name}")
+    
+    return {"project_id": project.project_id, "total_value": total_value, "message": "Project created"}
+
+
+@api_router.patch("/cro/projects/{project_id}/submit")
+async def cro_submit_project(project_id: str, user: User = Depends(get_current_user)):
+    """CRO submits project for planning review"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can submit projects")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "draft":
+        raise HTTPException(status_code=400, detail="Only draft projects can be submitted")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"status": "planning_review"}}
+    )
+    
+    # Notify planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in planning_users:
+        await create_notification(pu["user_id"], f"Project submitted for review: {project.get('name')}")
+    
+    return {"message": "Project submitted for planning review"}
+
+
+# ==================== PLANNING BOARD ENDPOINTS ====================
+
+@api_router.get("/planning/dashboard")
+async def get_planning_dashboard(user: User = Depends(get_current_user)):
+    """Get planning department dashboard"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    
+    # Count by status
+    new_projects = await db.projects.count_documents({"status": "planning_review"})
+    awaiting_approval = await db.projects.count_documents({"status": "awaiting_approval"})
+    working_projects = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active"]}})
+    completed_projects = await db.projects.count_documents({"status": "completed"})
+    
+    # Pending requests from Site Engineers
+    pending_material_requests = await db.material_requests.count_documents({"status": "requested"})
+    pending_labour_requests = await db.labour_expenses.count_documents({"status": "requested"})
+    
+    return {
+        "new_projects": new_projects,
+        "awaiting_approval": awaiting_approval,
+        "working_projects": working_projects,
+        "completed_projects": completed_projects,
+        "pending_material_requests": pending_material_requests,
+        "pending_labour_requests": pending_labour_requests
+    }
+
+
+@api_router.get("/planning/projects")
+async def get_planning_projects(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get projects for planning board"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    
+    query = {}
+    if status == "new":
+        query["status"] = "planning_review"
+    elif status == "awaiting":
+        query["status"] = "awaiting_approval"
+    elif status == "working":
+        query["status"] = {"$in": ["planning_approved", "active"]}
+    elif status == "completed":
+        query["status"] = "completed"
+    
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return projects
+
+
+@api_router.patch("/planning/projects/{project_id}/submit-for-approval")
+async def planning_submit_for_approval(project_id: str, user: User = Depends(get_current_user)):
+    """Planning submits project for GM/Admin approval"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit for approval")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "planning_review":
+        raise HTTPException(status_code=400, detail="Project must be in planning review status")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {
+                "status": "awaiting_approval",
+                "planning_modified_by": user.user_id,
+                "planning_submitted_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify GM and Super Admin
+    gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0, "user_id": 1}).to_list(10)
+    admin_users = await db.users.find({"role": "super_admin"}, {"_id": 0, "user_id": 1}).to_list(10)
+    
+    for u in gm_users + admin_users:
+        await create_notification(u["user_id"], f"Project awaiting approval: {project.get('name')}")
+    
+    return {"message": "Project submitted for approval"}
+
+
+# ==================== GM / SUPER ADMIN APPROVAL ENDPOINTS ====================
+
+@api_router.get("/approvals/projects")
+async def get_projects_for_approval(user: User = Depends(get_current_user)):
+    """Get projects awaiting approval"""
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM and Super Admin can access this")
+    
+    query = {"status": "awaiting_approval"}
+    if user.role == UserRole.GENERAL_MANAGER:
+        # GM can only see projects not yet GM approved
+        query["gm_approved_by"] = None
+    
+    projects = await db.projects.find(query, {"_id": 0}).sort("planning_submitted_at", -1).to_list(100)
+    return projects
+
+
+@api_router.patch("/approvals/projects/{project_id}/gm-approve")
+async def gm_approve_project(project_id: str, user: User = Depends(get_current_user)):
+    """GM approves a project"""
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM can approve")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "awaiting_approval":
+        raise HTTPException(status_code=400, detail="Project not awaiting approval")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {
+                "status": "gm_approved",
+                "gm_approved_by": user.user_id,
+                "gm_approved_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify Super Admin
+    admin_users = await db.users.find({"role": "super_admin"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for u in admin_users:
+        await create_notification(u["user_id"], f"Project GM approved, awaiting final approval: {project.get('name')}")
+    
+    return {"message": "Project approved by GM"}
+
+
+@api_router.patch("/approvals/projects/{project_id}/final-approve")
+async def final_approve_project(project_id: str, user: User = Depends(get_current_user)):
+    """Super Admin final approval"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can give final approval")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Can approve from awaiting_approval (skip GM) or from gm_approved
+    if project.get("status") not in ["awaiting_approval", "gm_approved"]:
+        raise HTTPException(status_code=400, detail="Project not in approval stage")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {
+                "status": "planning_approved",
+                "admin_approved_by": user.user_id,
+                "admin_approved_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Notify Planning and CRO
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for u in planning_users:
+        await create_notification(u["user_id"], f"Project approved for execution: {project.get('name')}")
+    
+    if project.get("created_by"):
+        await create_notification(project["created_by"], f"Your project has been approved: {project.get('name')}")
+    
+    return {"message": "Project approved - Ready for execution"}
+
+
+@api_router.patch("/approvals/projects/{project_id}/reject")
+async def reject_project(project_id: str, reason: str, user: User = Depends(get_current_user)):
+    """Reject a project"""
+    if user.role not in [UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only GM and Super Admin can reject")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {
+                "status": "planning_review",  # Send back to planning
+                "rejection_reason": reason,
+                "gm_approved_by": None,
+                "gm_approved_at": None
+            }
+        }
+    )
+    
+    # Notify Planning
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for u in planning_users:
+        await create_notification(u["user_id"], f"Project rejected: {project.get('name')} - Reason: {reason}")
+    
+    return {"message": "Project rejected and sent back to planning"}
+
+
+# ==================== ACCOUNTS BOARD ENDPOINTS ====================
+
+@api_router.get("/accounts/dashboard")
+async def get_accounts_dashboard(user: User = Depends(get_current_user)):
+    """Get accounts dashboard"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can access this")
+    
+    # Pending payments (approved by planning)
+    pending_material = await db.material_expenses.count_documents({"status": "planning_approved"})
+    pending_labour = await db.labour_expenses.count_documents({"status": "planning_approved"})
+    pending_procurement = await db.procurement_pricing.count_documents({"status": "waiting_accounts"})
+    
+    # Get totals
+    material_total = await db.material_expenses.aggregate([
+        {"$match": {"status": "planning_approved"}},
+        {"$group": {"_id": None, "total": {"$sum": "$estimated_cost"}}}
+    ]).to_list(1)
+    
+    labour_total = await db.labour_expenses.aggregate([
+        {"$match": {"status": "planning_approved"}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+    ]).to_list(1)
+    
+    procurement_total = await db.procurement_pricing.aggregate([
+        {"$match": {"status": "waiting_accounts"}},
+        {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}}
+    ]).to_list(1)
+    
+    return {
+        "pending_material": pending_material,
+        "pending_labour": pending_labour,
+        "pending_procurement": pending_procurement,
+        "material_total": material_total[0]["total"] if material_total else 0,
+        "labour_total": labour_total[0]["total"] if labour_total else 0,
+        "procurement_total": procurement_total[0]["total"] if procurement_total else 0,
+        "total_pending": (material_total[0]["total"] if material_total else 0) + 
+                        (labour_total[0]["total"] if labour_total else 0) +
+                        (procurement_total[0]["total"] if procurement_total else 0)
+    }
+
+
+@api_router.get("/accounts/pending-payments")
+async def get_pending_payments(payment_type: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get all pending payments for accounts"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can access this")
+    
+    result = []
+    
+    if payment_type in [None, "material"]:
+        materials = await db.material_expenses.find(
+            {"status": "planning_approved"},
+            {"_id": 0}
+        ).to_list(100)
+        for m in materials:
+            m["payment_type"] = "material"
+        result.extend(materials)
+    
+    if payment_type in [None, "labour"]:
+        labours = await db.labour_expenses.find(
+            {"status": "planning_approved"},
+            {"_id": 0}
+        ).to_list(100)
+        for l in labours:
+            l["payment_type"] = "labour"
+        result.extend(labours)
+    
+    if payment_type in [None, "procurement"]:
+        procurements = await db.procurement_pricing.find(
+            {"status": "waiting_accounts"},
+            {"_id": 0}
+        ).to_list(100)
+        for p in procurements:
+            p["payment_type"] = "procurement"
+        result.extend(procurements)
+    
+    return result
+
+
+class AccountsPaymentInput(BaseModel):
+    payment_type: str  # credit, partial, full
+    amount: Optional[float] = None
+    remarks: Optional[str] = None
+
+
+@api_router.patch("/accounts/process-payment/{item_type}/{item_id}")
+async def process_payment(
+    item_type: str,  # material, labour, procurement
+    item_id: str,
+    payment_input: AccountsPaymentInput,
+    user: User = Depends(get_current_user)
+):
+    """Process payment for an approved item"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can process payments")
+    
+    collection_map = {
+        "material": "material_expenses",
+        "labour": "labour_expenses",
+        "procurement": "procurement_pricing"
+    }
+    
+    id_field_map = {
+        "material": "expense_id",
+        "labour": "expense_id",
+        "procurement": "pricing_id"
+    }
+    
+    if item_type not in collection_map:
+        raise HTTPException(status_code=400, detail="Invalid item type")
+    
+    collection = db[collection_map[item_type]]
+    id_field = id_field_map[item_type]
+    
+    item = await collection.find_one({id_field: item_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    update_data = {
+        "payment_status": payment_input.payment_type,
+        "accounts_processed_by": user.user_id,
+        "accounts_processed_at": datetime.now(timezone.utc).isoformat(),
+        "payment_remarks": payment_input.remarks
+    }
+    
+    if payment_input.payment_type == "full":
+        update_data["status"] = "paid"
+        update_data["paid_amount"] = item.get("final_amount") or item.get("total_amount") or item.get("estimated_cost", 0)
+    elif payment_input.payment_type == "partial":
+        update_data["status"] = "partial_paid"
+        update_data["paid_amount"] = payment_input.amount or 0
+    elif payment_input.payment_type == "credit":
+        update_data["status"] = "credit"
+        update_data["paid_amount"] = 0
+    
+    await collection.update_one({id_field: item_id}, {"$set": update_data})
+    
+    return {"message": f"Payment processed as {payment_input.payment_type}"}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
