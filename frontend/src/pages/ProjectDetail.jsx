@@ -19,7 +19,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 // Initial empty rows for bulk add
-const createEmptyRows = (type, count = 10) => {
+const createEmptyRows = (type, count = 3) => {
   if (type === 'scope') {
     return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
   } else if (type === 'payment') {
