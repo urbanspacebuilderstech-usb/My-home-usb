@@ -310,6 +310,28 @@ export default function PlanningBoard() {
           </Card>
         )}
 
+        {/* Payment Requests Alert */}
+        {paymentRequests.length > 0 && (
+          <Card className="bg-purple-50 border-purple-200 mb-6">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-purple-500 p-2 rounded-full">
+                  <DollarSign className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-purple-800">Stage Payment Requests</p>
+                  <p className="text-sm text-purple-600">
+                    {paymentRequests.length} payment(s) awaiting verification
+                  </p>
+                </div>
+              </div>
+              <Button onClick={() => setPaymentDialog(true)} className="bg-purple-600 hover:bg-purple-700">
+                Review Payments
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quick Actions */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
           <Button variant="outline" className="h-auto py-3 flex flex-col gap-1" onClick={() => window.location.href = '/materials'}>
