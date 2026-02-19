@@ -6158,9 +6158,9 @@ async def get_package(package_id: str, user: User = Depends(get_current_user)):
 
 @api_router.post("/packages")
 async def create_package(package_input: PackageCreateInput, user: User = Depends(get_current_user)):
-    """Create a new package (Super Admin only)"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can create packages")
+    """Create a new package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can create packages")
     
     # Check for duplicate code
     existing = await db.packages.find_one({"code": package_input.code, "is_active": True})
