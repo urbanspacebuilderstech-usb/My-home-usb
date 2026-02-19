@@ -63,8 +63,8 @@ export default function PackageManagement() {
         axios.get(`${API}/materials`).catch(() => ({ data: [] }))
       ]);
       
-      if (userRes.data.role !== 'super_admin') {
-        toast.error('Only Super Admin can access Package Management');
+      if (!['super_admin', 'general_manager'].includes(userRes.data.role)) {
+        toast.error('Only Super Admin and GM can access Package Management');
         window.location.href = '/dashboard';
         return;
       }
