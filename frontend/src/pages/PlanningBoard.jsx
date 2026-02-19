@@ -138,6 +138,43 @@ export default function PlanningBoard() {
     }
   };
 
+  const handleApprovePayment = async (payment) => {
+    try {
+      await axios.patch(`${API}/work-orders/${payment.work_order_id}/stages/${payment.stage_id}/approve-payment`);
+      toast.success('Payment approved - Sent to Accounts');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to approve payment');
+    }
+  };
+
+  const openRejectPaymentDialog = (payment) => {
+    setSelectedPayment(payment);
+    setRejectReason('');
+    setRejectDialog(true);
+  };
+
+  const handleRejectPayment = async () => {
+    if (!selectedPayment) return;
+    
+    try {
+      await axios.patch(
+        `${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`,
+        null,
+        { params: { reason: rejectReason || 'Work not verified' } }
+      );
+      toast.success('Payment rejected');
+      setRejectDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to reject payment');
+    }
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
+  };
+
   const handleLogout = async () => {
     try {
       await axios.post(`${API}/auth/logout`);
