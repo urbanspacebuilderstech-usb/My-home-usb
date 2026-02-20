@@ -2112,7 +2112,7 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
     
     # Planning can only delete projects that are still in planning stage
     if user.role == UserRole.PLANNING:
-        allowed_statuses = ["in_planning", "draft", "pending"]
+        allowed_statuses = ["in_planning", "planning", "draft", "pending"]
         project_status = project.get("status", "").lower()
         project_stage = project.get("project_stage", "").lower()
         if project_status not in allowed_statuses and project_stage not in allowed_statuses:
