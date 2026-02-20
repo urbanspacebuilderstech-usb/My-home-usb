@@ -82,6 +82,12 @@ export default function ProjectDetail() {
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
+  // Payment Schedule Edit Dialog states
+  const [editPaymentDialog, setEditPaymentDialog] = useState(false);
+  const [editPaymentStage, setEditPaymentStage] = useState(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({ stage_name: '', percentage: '', amount: '', due_date: '' });
+  const [submitScheduleDialog, setSubmitScheduleDialog] = useState(false);
+  
   // Payment Summary state
   const [paymentSummary, setPaymentSummary] = useState(null);
   const [collectPaymentDialog, setCollectPaymentDialog] = useState(false);
