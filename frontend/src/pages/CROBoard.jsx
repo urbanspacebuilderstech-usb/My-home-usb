@@ -446,6 +446,42 @@ export default function CROBoard() {
           </CardContent>
         </Card>
 
+        {/* Payment Requests from Planning */}
+        {paymentRequests.length > 0 && (
+          <Card className="mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-purple-600" />
+                Payment Collection Requests ({paymentRequests.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3">
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {paymentRequests.map((req) => {
+                  const balance = (req.amount || 0) - (req.amount_received || 0);
+                  return (
+                    <div key={req.stage_id} className="flex items-center justify-between bg-white p-3 rounded-lg border">
+                      <div>
+                        <p className="font-medium text-sm">{req.project_name}</p>
+                        <p className="text-xs text-gray-500">{req.stage_name}</p>
+                        <p className="text-sm font-semibold text-purple-600">₹{balance.toLocaleString()}</p>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => openCollectDialog(req)}
+                      >
+                        <DollarSign className="h-3 w-3 mr-1" />
+                        Collect
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Dashboard Section - Total Ongoing & Value */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           <Card>
