@@ -77,6 +77,10 @@ export default function ProjectDetail() {
   // Editing states
   const [editingPayment, setEditingPayment] = useState(null);
   const [editingAddition, setEditingAddition] = useState(null);
+  const [editingScopeItem, setEditingScopeItem] = useState(null);
+  const [editScopeForm, setEditScopeForm] = useState({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
+  const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   useEffect(() => {
     fetchData();
