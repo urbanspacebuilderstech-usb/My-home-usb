@@ -308,6 +308,16 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleRequestPayment = async (stageId) => {
+    try {
+      await axios.patch(`${API}/payment-stages/${stageId}/request`);
+      toast.success('Payment requested - sent to CRO');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to request payment');
+    }
+  };
+
   const handleDeleteAddition = async (costId) => {
     if (!confirm('Delete this addition?')) return;
     try {
