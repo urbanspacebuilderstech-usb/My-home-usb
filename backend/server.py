@@ -2629,7 +2629,7 @@ async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Dep
 
 @api_router.patch("/payment-stages/{stage_id}")
 async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
