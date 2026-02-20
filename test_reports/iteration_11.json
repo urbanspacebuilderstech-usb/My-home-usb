@@ -1,0 +1,99 @@
+{
+  "summary": "Client Portal & Share as PDF feature testing - All features working. Fixed login bug with quick access buttons.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_client_portal.py",
+    "/app/test_reports/pytest/pytest_client_portal.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/frontend/src/pages/Login.jsx",
+    "/app/backend/tests/test_client_portal.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)",
+    "frontend": "100% (all UI features verified)"
+  },
+  "test_credentials": {
+    "client": "mohan@client.com (Mr. Mohan)",
+    "admin": "admin@constructionos.com (Super Admin)",
+    "planning": "planning@constructionos.com (Amit Patel)"
+  },
+  "seed_data_creation": "Mohan client user (user_mohan_client) linked to project proj_ca1781bb430a (Mohan Home) - pre-existing in MongoDB",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Client Portal fully functional. Login flow fixed for quick access buttons. Share as PDF uses browser print (window.print()).",
+  "features_tested": {
+    "client_login_redirect": {
+      "status": "PASS",
+      "details": "mohan@client.com login redirects to /client-portal (fixed stale state bug in quick access buttons)"
+    },
+    "my_projects_list": {
+      "status": "PASS",
+      "details": "Client portal shows 'My Projects' with Mohan Home project card (project_id: proj_ca1781bb430a)"
+    },
+    "project_detail_view": {
+      "status": "PASS",
+      "details": "Full project details shown with tabs: Overview, Payment Schedule, Scope of Work, Photos, Documents"
+    },
+    "share_as_pdf_client": {
+      "status": "PASS",
+      "details": "Share as PDF button (data-testid: print-pdf-btn) visible and triggers window.print()"
+    },
+    "share_as_pdf_admin": {
+      "status": "PASS",
+      "details": "Share as PDF button (data-testid: share-pdf-btn) visible on ProjectDetail.jsx admin view"
+    },
+    "payment_stages_visible": {
+      "status": "PASS",
+      "details": "Client sees payment schedule with stages, amounts, received, balance, status"
+    },
+    "scope_items_visible": {
+      "status": "PASS",
+      "details": "Client sees scope items with item description, qty, unit, rate, amount"
+    },
+    "work_orders_excluded": {
+      "status": "PASS",
+      "details": "Work Orders tab NOT visible in client portal (correctly excluded)"
+    },
+    "expenses_excluded": {
+      "status": "PASS",
+      "details": "Expenses tab NOT visible in client portal (correctly excluded)"
+    },
+    "internal_notes_excluded": {
+      "status": "PASS",
+      "details": "Internal notes field excluded from API responses via MongoDB projection"
+    }
+  },
+  "api_endpoints_tested": {
+    "POST /api/auth/demo-login": "PASS - Returns user data with correct role",
+    "GET /api/auth/me": "PASS - Returns authenticated user",
+    "GET /api/client-portal/my-projects": "PASS - Returns projects linked to client user_id",
+    "GET /api/client-portal/project/{project_id}": "PASS - Returns project details with payment_stages, scope_items (excludes internal_notes)"
+  },
+  "bug_fixed": {
+    "issue": "Quick access buttons on login page were using stale selectedEmail state",
+    "cause": "setTimeout with closure captured old state before setSelectedEmail updated",
+    "fix": "Modified handleDemoLogin to accept emailOverride parameter, pass email directly from quick button onclick"
+  },
+  "data_testid_elements": {
+    "quick-client-(mohan)": "Quick access button for Mohan client login",
+    "project-card-proj_ca1781bb430a": "Mohan Home project card in My Projects list",
+    "print-pdf-btn": "Share as PDF button in Client Portal detail view",
+    "share-pdf-btn": "Share as PDF button in Admin Project Detail view",
+    "client-portal-title": "Project title in client portal",
+    "project-detail-title": "Project title in admin view"
+  },
+  "mocked_apis": {
+    "none": "All APIs are real - no mocked endpoints"
+  }
+}
