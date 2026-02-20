@@ -2101,12 +2101,32 @@ async def update_project(project_id: str, update_data: ProjectUpdate, user: User
 
 @api_router.delete("/projects/{project_id}")
 async def delete_project(project_id: str, user: User = Depends(get_current_user)):
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can delete projects")
+    """Delete a project - Super Admin can delete any, Planning can delete 'In Planning' projects"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or Planning can delete projects")
     
+    # Get project to check status for Planning role
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Planning can only delete projects that are still in planning stage
+    if user.role == UserRole.PLANNING:
+        allowed_statuses = ["in_planning", "draft", "pending"]
+        project_status = project.get("status", "").lower()
+        project_stage = project.get("project_stage", "").lower()
+        if project_status not in allowed_statuses and project_stage not in allowed_statuses:
+            raise HTTPException(status_code=403, detail="Planning can only delete projects in planning/draft stage")
+    
+    # Delete related data
+    await db.scope_items.delete_many({"project_id": project_id})
+    await db.payment_stages.delete_many({"project_id": project_id})
+    await db.additional_costs.delete_many({"project_id": project_id})
+    await db.deductions.delete_many({"project_id": project_id})
     await db.projects.delete_one({"project_id": project_id})
-    await create_audit_log(user.user_id, "delete", "project", project_id, {})
-    return {"message": "Project deleted"}
+    
+    await create_audit_log(user.user_id, "delete", "project", project_id, {"deleted_by_role": user.role})
+    return {"message": "Project and all related data deleted"}
 
 
 # BOQ Update/Delete
@@ -2667,7 +2687,7 @@ async def update_scope_item(scope_id: str, update_data: ScopeItemUpdate, user: U
 
 @api_router.delete("/scope-items/{scope_id}")
 async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.scope_items.delete_one({"scope_id": scope_id})
