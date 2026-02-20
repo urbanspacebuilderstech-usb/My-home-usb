@@ -6824,6 +6824,7 @@ async def final_approve_project(project_id: str, user: User = Depends(get_curren
         {
             "$set": {
                 "status": "planning_approved",
+                "materials_locked": True,  # Lock material brands after final approval
                 "admin_approved_by": user.user_id,
                 "admin_approved_at": datetime.now(timezone.utc).isoformat()
             }
@@ -6838,7 +6839,7 @@ async def final_approve_project(project_id: str, user: User = Depends(get_curren
     if project.get("created_by"):
         await create_notification(project["created_by"], f"Your project has been approved: {project.get('name')}")
     
-    return {"message": "Project approved - Ready for execution"}
+    return {"message": "Project approved - Ready for execution. Material brands are now locked."}
 
 
 @api_router.patch("/approvals/projects/{project_id}/reject")
