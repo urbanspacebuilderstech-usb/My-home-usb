@@ -22,6 +22,7 @@ const DEMO_USERS = [
   { email: 'procurement@constructionos.com', name: 'Procurement (Sneha)', role: 'procurement' },
   { email: 'engineer@constructionos.com', name: 'Site Engineer (Vikram)', role: 'site_engineer' },
   { email: 'raj@client.com', name: 'Client (Mr. Raj)', role: 'client' },
+  { email: 'mohan@client.com', name: 'Client (Mr. Mohan)', role: 'client' },
 ];
 
 export default function Login() {
