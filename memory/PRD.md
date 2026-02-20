@@ -316,6 +316,36 @@ Build a Construction Accounting CRM with:
   - Role-based visibility of Delete Project button
   - Confirmation dialog with typed confirmation
 
+#### ✅ Construction Stages System for Planning Board (P0 - February 20, 2026)
+- [x] **8 Construction Stages**:
+  1. Drawing Stage (purple)
+  2. Yet to Start (gray)
+  3. Foundation (amber)
+  4. Basement (stone)
+  5. SS - Brick Work (orange)
+  6. SS - Plastering (cyan)
+  7. Finishing (blue)
+  8. Handover (green)
+- [x] **Planning Board Enhancement** (Tab view like CRO Board):
+  - Construction Stages Overview with visual cards and counts
+  - Each stage has unique icon and color
+  - Clickable stage cards to filter projects
+  - "By Stage" tab with horizontal stage filter buttons
+  - Other tabs: New Projects, Awaiting Approval, Working, Completed
+- [x] **Stage Management**:
+  - Update Project Stage dialog with dropdown selector
+  - Shows current stage and allows moving to new stage
+  - Stage history tracking with timestamps and user info
+  - Real-time count updates when stages change
+- [x] **Backend Endpoints**:
+  - `GET /api/planning/stage-dashboard` - Dashboard with stage counts
+  - `GET /api/planning/projects-by-stage` - Filter projects by stage
+  - `PATCH /api/planning/projects/{id}/update-stage` - Update project stage
+  - `GET /api/planning/projects/{id}/stage-history` - Stage change history
+- [x] **Project Model Fields**:
+  - `current_stage`: Current construction stage
+  - `stage_history`: Array of stage changes with timestamps
+
 ---
 
 ## API Endpoints
