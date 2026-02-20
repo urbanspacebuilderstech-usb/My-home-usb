@@ -290,6 +290,32 @@ Build a Construction Accounting CRM with:
 - [x] **Permission Control**: Super Admin only for role/delete, self can edit name/phone
 - [x] **Backend Endpoints**: GET/PATCH/DELETE /api/users/{id}, GET /api/roles
 
+#### ✅ Planning Department Scope & Project Management (P0 - February 20, 2026)
+- [x] **Edit Scope Items** (inline editing in ProjectDetail.jsx)
+  - Click edit button to transform row into input fields
+  - Edit item_name, quantity, unit, unit_rate, remarks
+  - Save/Cancel buttons for each row
+  - Auto-calculates total amount on save
+  - Planning, Project Manager, Super Admin can edit
+- [x] **Delete Scope Items**
+  - Planning role now has permission to delete scope items
+  - Confirmation dialog before deletion
+- [x] **Delete Project**
+  - Super Admin can delete ANY project
+  - Planning can only delete projects in draft/planning status
+  - DELETE confirmation dialog requiring typing "DELETE"
+  - Deletes all related data (scope items, payment stages, additions, deductions)
+  - Audit log entry created on deletion
+- [x] **Backend Endpoints**:
+  - `PATCH /api/scope-items/{scope_id}` - Planning, PM, Super Admin
+  - `DELETE /api/scope-items/{scope_id}` - Planning, PM, Super Admin
+  - `DELETE /api/projects/{project_id}` - Super Admin (any), Planning (draft/planning only)
+- [x] **Frontend Features**:
+  - Inline edit mode with input fields
+  - Delete Project button (red) in project header
+  - Role-based visibility of Delete Project button
+  - Confirmation dialog with typed confirmation
+
 ---
 
 ## API Endpoints
