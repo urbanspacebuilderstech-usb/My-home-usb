@@ -903,6 +903,253 @@ class VendorServiceExpense(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+# ==================== COMPREHENSIVE ACCOUNTANT BOARD MODELS ====================
+
+class TransactionType(str, Enum):
+    INCOME = "income"
+    EXPENSE = "expense"
+    SALARY = "salary"
+    VENDOR_PAYMENT = "vendor_payment"
+    REFUND = "refund"
+    TRANSFER = "transfer"
+
+
+class PaymentMethodType(str, Enum):
+    CASH = "cash"
+    CHEQUE = "cheque"
+    BANK_TRANSFER = "bank_transfer"
+    UPI = "upi"
+    CREDIT_CARD = "credit_card"
+
+
+class ChequeStatus(str, Enum):
+    ISSUED = "issued"
+    DEPOSITED = "deposited"
+    CLEARED = "cleared"
+    BOUNCED = "bounced"
+    CANCELLED = "cancelled"
+    POST_DATED = "post_dated"
+
+
+class PaymentRequestStatus(str, Enum):
+    PENDING = "pending"
+    OTP_SENT = "otp_sent"
+    OTP_VERIFIED = "otp_verified"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    COMPLETED = "completed"
+
+
+class StaffStatus(str, Enum):
+    ACTIVE = "active"
+    ON_LEAVE = "on_leave"
+    TERMINATED = "terminated"
+    RESIGNED = "resigned"
+
+
+class PayrollStatus(str, Enum):
+    DRAFT = "draft"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    PAID = "paid"
+    CANCELLED = "cancelled"
+
+
+# Unified Transaction Model
+class Transaction(BaseModel):
+    transaction_id: str = Field(default_factory=lambda: f"txn_{uuid.uuid4().hex[:12]}")
+    transaction_type: TransactionType
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    amount: float
+    payment_method: PaymentMethodType
+    payment_date: datetime
+    reference_number: Optional[str] = None  # Transaction ID / Cheque No / UPI Ref
+    cheque_id: Optional[str] = None  # Link to cheque record if cheque payment
+    party_name: Optional[str] = None  # Client/Vendor/Staff name
+    party_type: Optional[str] = None  # client, vendor, staff, contractor
+    description: Optional[str] = None
+    category: Optional[str] = None  # material, labour, salary, advance, etc.
+    recorded_by: str
+    recorded_by_name: Optional[str] = None
+    verified_by: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    status: str = "completed"  # pending, completed, cancelled
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Cheque Management Model
+class ChequeRecord(BaseModel):
+    cheque_id: str = Field(default_factory=lambda: f"chq_{uuid.uuid4().hex[:12]}")
+    cheque_number: str
+    bank_name: str
+    branch_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    amount: float
+    cheque_date: datetime  # Date on cheque
+    deposit_date: Optional[datetime] = None  # When deposited
+    clearance_date: Optional[datetime] = None  # When cleared
+    issue_date: Optional[datetime] = None  # When issued (for outgoing)
+    cheque_type: str = "incoming"  # incoming (received), outgoing (issued)
+    party_name: str  # Client/Vendor name
+    party_type: str  # client, vendor
+    project_id: Optional[str] = None
+    project_name: Optional[str] = None
+    status: ChequeStatus = ChequeStatus.ISSUED
+    bounce_reason: Optional[str] = None
+    bounce_charges: float = 0
+    remarks: Optional[str] = None
+    is_post_dated: bool = False
+    reminder_date: Optional[datetime] = None  # For post-dated cheques
+    recorded_by: str
+    recorded_by_name: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# HR Staff/Employee Model
+class Staff(BaseModel):
+    staff_id: str = Field(default_factory=lambda: f"staff_{uuid.uuid4().hex[:12]}")
+    employee_code: Optional[str] = None  # Company employee code
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None  # accounts, engineering, hr, admin, etc.
+    designation: Optional[str] = None  # Manager, Engineer, Accountant, etc.
+    date_of_joining: Optional[datetime] = None
+    date_of_birth: Optional[datetime] = None
+    address: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    # Salary Details
+    basic_salary: float = 0
+    hra: float = 0  # House Rent Allowance
+    da: float = 0  # Dearness Allowance
+    ta: float = 0  # Travel Allowance
+    other_allowances: float = 0
+    gross_salary: float = 0  # Calculated: basic + all allowances
+    # Deductions
+    pf: float = 0  # Provident Fund
+    esi: float = 0  # Employee State Insurance
+    professional_tax: float = 0
+    tds: float = 0  # Tax Deducted at Source
+    other_deductions: float = 0
+    total_deductions: float = 0
+    net_salary: float = 0  # gross - deductions
+    # Bank Details for Salary
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: PaymentMethodType = PaymentMethodType.BANK_TRANSFER
+    # Status
+    status: StaffStatus = StaffStatus.ACTIVE
+    linked_user_id: Optional[str] = None  # Link to app user if applicable
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Attendance Model
+class Attendance(BaseModel):
+    attendance_id: str = Field(default_factory=lambda: f"att_{uuid.uuid4().hex[:12]}")
+    staff_id: str
+    staff_name: Optional[str] = None
+    date: datetime
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    status: str = "present"  # present, absent, half_day, leave, holiday
+    leave_type: Optional[str] = None  # sick, casual, earned, etc.
+    work_hours: float = 0
+    overtime_hours: float = 0
+    remarks: Optional[str] = None
+    recorded_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Payroll Model
+class Payroll(BaseModel):
+    payroll_id: str = Field(default_factory=lambda: f"pay_{uuid.uuid4().hex[:12]}")
+    staff_id: str
+    staff_name: str
+    employee_code: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    # Period
+    month: int  # 1-12
+    year: int  # 2024, 2025, etc.
+    # Attendance Summary
+    working_days: int = 0
+    days_present: int = 0
+    days_absent: int = 0
+    leaves_taken: int = 0
+    overtime_hours: float = 0
+    # Earnings
+    basic_salary: float = 0
+    hra: float = 0
+    da: float = 0
+    ta: float = 0
+    other_allowances: float = 0
+    bonus: float = 0
+    overtime_pay: float = 0
+    gross_earnings: float = 0
+    # Deductions
+    pf: float = 0
+    esi: float = 0
+    professional_tax: float = 0
+    tds: float = 0
+    loan_deduction: float = 0
+    advance_deduction: float = 0
+    other_deductions: float = 0
+    total_deductions: float = 0
+    # Net Pay
+    net_pay: float = 0
+    # Payment Details
+    payment_method: PaymentMethodType = PaymentMethodType.BANK_TRANSFER
+    payment_date: Optional[datetime] = None
+    transaction_id: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    # Status
+    status: PayrollStatus = PayrollStatus.DRAFT
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Payment Verification with OTP
+class PaymentVerification(BaseModel):
+    verification_id: str = Field(default_factory=lambda: f"pv_{uuid.uuid4().hex[:12]}")
+    request_type: str  # procurement, payroll, vendor_payment, etc.
+    request_id: str  # ID of the original request
+    amount: float
+    party_name: str
+    party_email: Optional[str] = None
+    party_phone: Optional[str] = None
+    otp_code: str  # 6-digit OTP
+    otp_sent_at: Optional[datetime] = None
+    otp_expires_at: Optional[datetime] = None
+    otp_verified: bool = False
+    otp_verified_at: Optional[datetime] = None
+    otp_attempts: int = 0
+    max_attempts: int = 3
+    status: PaymentRequestStatus = PaymentRequestStatus.PENDING
+    requested_by: str
+    requested_by_name: Optional[str] = None
+    verified_by: Optional[str] = None
+    transaction_id: Optional[str] = None  # Added after payment
+    payment_method: Optional[PaymentMethodType] = None
+    remarks: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ==================== END ACCOUNTANT BOARD MODELS ====================
+
+
 async def get_current_user(request: Request) -> User:
     session_token = request.cookies.get("session_token")
     if not session_token:
