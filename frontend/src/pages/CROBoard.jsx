@@ -58,6 +58,10 @@ export default function CROBoard() {
   const [createDialog, setCreateDialog] = useState(false);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [collectDialog, setCollectDialog] = useState(false);
+  const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
+  const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '' });
   
   const [form, setForm] = useState({
     name: '',
