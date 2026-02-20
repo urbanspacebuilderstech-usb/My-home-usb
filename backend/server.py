@@ -6786,17 +6786,54 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
     if project.get("status") != "draft":
         raise HTTPException(status_code=400, detail="Only draft projects can be submitted")
     
+    # Check if advance payment info is provided
+    if not project.get("advance_amount") or project.get("advance_amount", 0) <= 0:
+        raise HTTPException(status_code=400, detail="Advance payment details required before submission")
+    
+    # Send to Accountant for payment verification
     await db.projects.update_one(
         {"project_id": project_id},
-        {"$set": {"status": "planning_review"}}
+        {"$set": {
+            "status": "pending_payment",
+            "submitted_for_payment_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify accountants
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"New payment to verify: {project.get('name')} - ₹{project.get('advance_amount', 0):,.0f}")
+    
+    return {"message": "Project submitted for payment verification"}
+
+
+@api_router.patch("/cro/projects/{project_id}/submit-to-planning")
+async def cro_submit_to_planning(project_id: str, user: User = Depends(get_current_user)):
+    """CRO submits project to Planning after payment verification"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can submit projects")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "payment_verified":
+        raise HTTPException(status_code=400, detail="Payment must be verified before submitting to Planning")
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "planning_review",
+            "submitted_to_planning_at": datetime.now(timezone.utc).isoformat()
+        }}
     )
     
     # Notify planning
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
     for pu in planning_users:
-        await create_notification(pu["user_id"], f"Project submitted for review: {project.get('name')}")
+        await create_notification(pu["user_id"], f"New project for review: {project.get('name')}")
     
-    return {"message": "Project submitted for planning review"}
+    return {"message": "Project submitted to Planning Department"}
 
 
 @api_router.post("/cro/projects/{project_id}/add-payment-milestone")
