@@ -9935,6 +9935,1172 @@ async def get_site_engineer_work_orders(user: User = Depends(get_current_user)):
     return work_orders
 
 
+# ==================== COMPREHENSIVE ACCOUNTANT BOARD ENDPOINTS ====================
+
+import random
+import string
+
+def generate_otp():
+    """Generate a 6-digit OTP"""
+    return ''.join(random.choices(string.digits, k=6))
+
+
+@api_router.get("/accountant/comprehensive-dashboard")
+async def get_accountant_comprehensive_dashboard(user: User = Depends(get_current_user)):
+    """Get comprehensive accountant dashboard with income, expense, profit by project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can access this")
+    
+    # Get all projects
+    projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+    
+    # Get all income entries
+    income_entries = await db.income_entries.find({}, {"_id": 0}).to_list(5000)
+    
+    # Get all transactions
+    transactions = await db.transactions.find({}, {"_id": 0}).to_list(5000)
+    
+    # Get all expenses (from multiple collections)
+    material_expenses = await db.material_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
+    labour_expenses = await db.labour_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
+    vendor_expenses = await db.vendor_service_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
+    
+    # Get staff and payroll data
+    staff_count = await db.staff.count_documents({})
+    pending_payroll = await db.payroll.count_documents({"status": {"$in": ["draft", "pending_approval"]}})
+    
+    # Get cheque data
+    pending_cheques = await db.cheques.count_documents({"status": {"$in": ["issued", "deposited", "post_dated"]}})
+    bounced_cheques = await db.cheques.count_documents({"status": "bounced"})
+    
+    # Calculate totals by payment method
+    income_by_method = {"cash": 0, "cheque": 0, "bank_transfer": 0, "upi": 0, "credit_card": 0}
+    for inc in income_entries:
+        method = inc.get("payment_mode", "cash")
+        income_by_method[method] = income_by_method.get(method, 0) + inc.get("amount", 0)
+    
+    # Calculate project-wise financials
+    project_financials = []
+    total_income = sum(inc.get("amount", 0) for inc in income_entries)
+    total_expense = 0
+    
+    for p in projects:
+        pid = p.get("project_id")
+        
+        # Income for this project
+        proj_income = sum(inc.get("amount", 0) for inc in income_entries if inc.get("project_id") == pid)
+        
+        # Expense for this project
+        proj_mat_exp = sum(e.get("final_amount", 0) for e in material_expenses if e.get("project_id") == pid)
+        proj_lab_exp = sum(e.get("total_amount", 0) for e in labour_expenses if e.get("project_id") == pid)
+        proj_vend_exp = sum(e.get("amount", 0) for e in vendor_expenses if e.get("project_id") == pid)
+        proj_expense = proj_mat_exp + proj_lab_exp + proj_vend_exp
+        
+        total_expense += proj_expense
+        
+        project_financials.append({
+            "project_id": pid,
+            "project_name": p.get("name"),
+            "project_code": p.get("project_code"),
+            "client_name": p.get("client_name"),
+            "total_value": p.get("total_value", 0),
+            "income": proj_income,
+            "expense": proj_expense,
+            "profit": proj_income - proj_expense,
+            "profit_margin": round((proj_income - proj_expense) / proj_income * 100, 2) if proj_income > 0 else 0
+        })
+    
+    # Sort by profit (descending)
+    project_financials.sort(key=lambda x: x["profit"], reverse=True)
+    
+    # Recent transactions
+    recent_transactions = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(10)
+    
+    # Pending payment requests
+    pending_payments = await db.payment_verifications.count_documents({"status": {"$in": ["pending", "otp_sent"]}})
+    
+    return {
+        "summary": {
+            "total_income": total_income,
+            "total_expense": total_expense,
+            "total_profit": total_income - total_expense,
+            "profit_margin": round((total_income - total_expense) / total_income * 100, 2) if total_income > 0 else 0
+        },
+        "income_by_method": income_by_method,
+        "project_financials": project_financials,
+        "recent_transactions": recent_transactions,
+        "hr_summary": {
+            "total_staff": staff_count,
+            "pending_payroll": pending_payroll
+        },
+        "cheque_summary": {
+            "pending_cheques": pending_cheques,
+            "bounced_cheques": bounced_cheques
+        },
+        "pending_payment_requests": pending_payments
+    }
+
+
+@api_router.get("/accountant/project-financials/{project_id}")
+async def get_project_financials(project_id: str, user: User = Depends(get_current_user)):
+    """Get detailed financial view for a specific project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Income
+    income_entries = await db.income_entries.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    total_income = sum(e.get("amount", 0) for e in income_entries)
+    
+    # Expenses
+    material_expenses = await db.material_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    labour_expenses = await db.labour_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    vendor_expenses = await db.vendor_service_expenses.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    
+    mat_total = sum(e.get("final_amount", 0) for e in material_expenses)
+    lab_total = sum(e.get("total_amount", 0) for e in labour_expenses)
+    vend_total = sum(e.get("amount", 0) for e in vendor_expenses)
+    
+    # Transactions for this project
+    transactions = await db.transactions.find({"project_id": project_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    return {
+        "project": project,
+        "income": {
+            "total": total_income,
+            "entries": income_entries
+        },
+        "expenses": {
+            "material": {"total": mat_total, "entries": material_expenses},
+            "labour": {"total": lab_total, "entries": labour_expenses},
+            "vendor": {"total": vend_total, "entries": vendor_expenses},
+            "grand_total": mat_total + lab_total + vend_total
+        },
+        "profit": total_income - (mat_total + lab_total + vend_total),
+        "transactions": transactions
+    }
+
+
+# ==================== TRANSACTION ENDPOINTS ====================
+
+@api_router.get("/accountant/transactions")
+async def get_transactions(
+    project_id: Optional[str] = None,
+    transaction_type: Optional[str] = None,
+    payment_method: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all transactions with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    if transaction_type:
+        query["transaction_type"] = transaction_type
+    if payment_method:
+        query["payment_method"] = payment_method
+    if from_date:
+        query["payment_date"] = {"$gte": from_date}
+    if to_date:
+        query["payment_date"] = {**query.get("payment_date", {}), "$lte": to_date}
+    
+    transactions = await db.transactions.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return transactions
+
+
+class TransactionCreate(BaseModel):
+    transaction_type: TransactionType
+    project_id: Optional[str] = None
+    amount: float
+    payment_method: PaymentMethodType
+    payment_date: datetime
+    reference_number: Optional[str] = None
+    party_name: Optional[str] = None
+    party_type: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+
+
+@api_router.post("/accountant/transactions")
+async def create_transaction(txn: TransactionCreate, user: User = Depends(get_current_user)):
+    """Create a new transaction"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get project name if project_id provided
+    project_name = None
+    if txn.project_id:
+        project = await db.projects.find_one({"project_id": txn.project_id}, {"_id": 0, "name": 1})
+        if project:
+            project_name = project.get("name")
+    
+    transaction = Transaction(
+        transaction_type=txn.transaction_type,
+        project_id=txn.project_id,
+        project_name=project_name,
+        amount=txn.amount,
+        payment_method=txn.payment_method,
+        payment_date=txn.payment_date,
+        reference_number=txn.reference_number,
+        party_name=txn.party_name,
+        party_type=txn.party_type,
+        description=txn.description,
+        category=txn.category,
+        recorded_by=user.user_id,
+        recorded_by_name=user.name
+    )
+    
+    txn_dict = transaction.model_dump()
+    txn_dict["payment_date"] = txn_dict["payment_date"].isoformat()
+    txn_dict["created_at"] = txn_dict["created_at"].isoformat()
+    txn_dict["updated_at"] = txn_dict["updated_at"].isoformat()
+    
+    await db.transactions.insert_one(txn_dict)
+    return transaction
+
+
+@api_router.delete("/accountant/transactions/{transaction_id}")
+async def delete_transaction(transaction_id: str, user: User = Depends(get_current_user)):
+    """Delete a transaction"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    result = await db.transactions.delete_one({"transaction_id": transaction_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    
+    return {"message": "Transaction deleted"}
+
+
+# ==================== CHEQUE MANAGEMENT ENDPOINTS ====================
+
+@api_router.get("/accountant/cheques")
+async def get_cheques(
+    status: Optional[str] = None,
+    cheque_type: Optional[str] = None,
+    is_post_dated: Optional[bool] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all cheques with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    if cheque_type:
+        query["cheque_type"] = cheque_type
+    if is_post_dated is not None:
+        query["is_post_dated"] = is_post_dated
+    
+    cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(500)
+    return cheques
+
+
+class ChequeCreate(BaseModel):
+    cheque_number: str
+    bank_name: str
+    branch_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    amount: float
+    cheque_date: datetime
+    cheque_type: str = "incoming"
+    party_name: str
+    party_type: str
+    project_id: Optional[str] = None
+    is_post_dated: bool = False
+    reminder_date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+@api_router.post("/accountant/cheques")
+async def create_cheque(cheque: ChequeCreate, user: User = Depends(get_current_user)):
+    """Create a new cheque record"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get project name if provided
+    project_name = None
+    if cheque.project_id:
+        project = await db.projects.find_one({"project_id": cheque.project_id}, {"_id": 0, "name": 1})
+        if project:
+            project_name = project.get("name")
+    
+    cheque_record = ChequeRecord(
+        cheque_number=cheque.cheque_number,
+        bank_name=cheque.bank_name,
+        branch_name=cheque.branch_name,
+        account_number=cheque.account_number,
+        ifsc_code=cheque.ifsc_code,
+        amount=cheque.amount,
+        cheque_date=cheque.cheque_date,
+        cheque_type=cheque.cheque_type,
+        party_name=cheque.party_name,
+        party_type=cheque.party_type,
+        project_id=cheque.project_id,
+        project_name=project_name,
+        is_post_dated=cheque.is_post_dated,
+        reminder_date=cheque.reminder_date,
+        remarks=cheque.remarks,
+        status=ChequeStatus.POST_DATED if cheque.is_post_dated else ChequeStatus.ISSUED,
+        recorded_by=user.user_id,
+        recorded_by_name=user.name
+    )
+    
+    cheque_dict = cheque_record.model_dump()
+    cheque_dict["cheque_date"] = cheque_dict["cheque_date"].isoformat()
+    if cheque_dict.get("reminder_date"):
+        cheque_dict["reminder_date"] = cheque_dict["reminder_date"].isoformat()
+    cheque_dict["created_at"] = cheque_dict["created_at"].isoformat()
+    cheque_dict["updated_at"] = cheque_dict["updated_at"].isoformat()
+    
+    await db.cheques.insert_one(cheque_dict)
+    return cheque_record
+
+
+class ChequeStatusUpdate(BaseModel):
+    status: ChequeStatus
+    deposit_date: Optional[datetime] = None
+    clearance_date: Optional[datetime] = None
+    bounce_reason: Optional[str] = None
+    bounce_charges: float = 0
+    remarks: Optional[str] = None
+
+
+@api_router.patch("/accountant/cheques/{cheque_id}/status")
+async def update_cheque_status(cheque_id: str, update: ChequeStatusUpdate, user: User = Depends(get_current_user)):
+    """Update cheque status"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    update_dict = {"status": update.status, "updated_at": datetime.now(timezone.utc).isoformat()}
+    if update.deposit_date:
+        update_dict["deposit_date"] = update.deposit_date.isoformat()
+    if update.clearance_date:
+        update_dict["clearance_date"] = update.clearance_date.isoformat()
+    if update.bounce_reason:
+        update_dict["bounce_reason"] = update.bounce_reason
+    if update.bounce_charges:
+        update_dict["bounce_charges"] = update.bounce_charges
+    if update.remarks:
+        update_dict["remarks"] = update.remarks
+    
+    result = await db.cheques.update_one({"cheque_id": cheque_id}, {"$set": update_dict})
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    
+    return {"message": "Cheque status updated"}
+
+
+@api_router.get("/accountant/cheques/reminders")
+async def get_cheque_reminders(user: User = Depends(get_current_user)):
+    """Get post-dated cheques that need attention"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    today = datetime.now(timezone.utc).date().isoformat()
+    next_week = (datetime.now(timezone.utc) + timedelta(days=7)).date().isoformat()
+    
+    # Find post-dated cheques due within a week
+    cheques = await db.cheques.find({
+        "is_post_dated": True,
+        "status": "post_dated",
+        "cheque_date": {"$lte": next_week}
+    }, {"_id": 0}).to_list(100)
+    
+    return cheques
+
+
+# ==================== HR / STAFF ENDPOINTS ====================
+
+@api_router.get("/hr/staff")
+async def get_staff_list(
+    department: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all staff members"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if department:
+        query["department"] = department
+    if status:
+        query["status"] = status
+    
+    staff = await db.staff.find(query, {"_id": 0}).sort("name", 1).to_list(500)
+    return staff
+
+
+class StaffCreate(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    designation: Optional[str] = None
+    date_of_joining: Optional[datetime] = None
+    date_of_birth: Optional[datetime] = None
+    address: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    basic_salary: float = 0
+    hra: float = 0
+    da: float = 0
+    ta: float = 0
+    other_allowances: float = 0
+    pf: float = 0
+    esi: float = 0
+    professional_tax: float = 0
+    tds: float = 0
+    other_deductions: float = 0
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: PaymentMethodType = PaymentMethodType.BANK_TRANSFER
+
+
+@api_router.post("/hr/staff")
+async def create_staff(staff_data: StaffCreate, user: User = Depends(get_current_user)):
+    """Create a new staff member"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Generate employee code
+    count = await db.staff.count_documents({})
+    employee_code = f"EMP{str(count + 1).zfill(4)}"
+    
+    # Calculate gross and net salary
+    gross = staff_data.basic_salary + staff_data.hra + staff_data.da + staff_data.ta + staff_data.other_allowances
+    deductions = staff_data.pf + staff_data.esi + staff_data.professional_tax + staff_data.tds + staff_data.other_deductions
+    net = gross - deductions
+    
+    staff = Staff(
+        employee_code=employee_code,
+        name=staff_data.name,
+        email=staff_data.email,
+        phone=staff_data.phone,
+        department=staff_data.department,
+        designation=staff_data.designation,
+        date_of_joining=staff_data.date_of_joining,
+        date_of_birth=staff_data.date_of_birth,
+        address=staff_data.address,
+        emergency_contact=staff_data.emergency_contact,
+        basic_salary=staff_data.basic_salary,
+        hra=staff_data.hra,
+        da=staff_data.da,
+        ta=staff_data.ta,
+        other_allowances=staff_data.other_allowances,
+        gross_salary=gross,
+        pf=staff_data.pf,
+        esi=staff_data.esi,
+        professional_tax=staff_data.professional_tax,
+        tds=staff_data.tds,
+        other_deductions=staff_data.other_deductions,
+        total_deductions=deductions,
+        net_salary=net,
+        bank_name=staff_data.bank_name,
+        account_number=staff_data.account_number,
+        ifsc_code=staff_data.ifsc_code,
+        payment_method=staff_data.payment_method,
+        created_by=user.user_id
+    )
+    
+    staff_dict = staff.model_dump()
+    if staff_dict.get("date_of_joining"):
+        staff_dict["date_of_joining"] = staff_dict["date_of_joining"].isoformat()
+    if staff_dict.get("date_of_birth"):
+        staff_dict["date_of_birth"] = staff_dict["date_of_birth"].isoformat()
+    staff_dict["created_at"] = staff_dict["created_at"].isoformat()
+    staff_dict["updated_at"] = staff_dict["updated_at"].isoformat()
+    
+    await db.staff.insert_one(staff_dict)
+    return staff
+
+
+@api_router.get("/hr/staff/{staff_id}")
+async def get_staff(staff_id: str, user: User = Depends(get_current_user)):
+    """Get a specific staff member"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    staff = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0})
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    return staff
+
+
+@api_router.patch("/hr/staff/{staff_id}")
+async def update_staff(staff_id: str, updates: dict, user: User = Depends(get_current_user)):
+    """Update a staff member"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Recalculate gross and net if salary fields updated
+    staff = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0})
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    # Merge updates
+    for k, v in updates.items():
+        staff[k] = v
+    
+    # Recalculate
+    gross = staff.get("basic_salary", 0) + staff.get("hra", 0) + staff.get("da", 0) + staff.get("ta", 0) + staff.get("other_allowances", 0)
+    deductions = staff.get("pf", 0) + staff.get("esi", 0) + staff.get("professional_tax", 0) + staff.get("tds", 0) + staff.get("other_deductions", 0)
+    
+    updates["gross_salary"] = gross
+    updates["total_deductions"] = deductions
+    updates["net_salary"] = gross - deductions
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.staff.update_one({"staff_id": staff_id}, {"$set": updates})
+    return {"message": "Staff updated"}
+
+
+@api_router.delete("/hr/staff/{staff_id}")
+async def delete_staff(staff_id: str, user: User = Depends(get_current_user)):
+    """Delete a staff member (soft delete)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete staff")
+    
+    result = await db.staff.update_one(
+        {"staff_id": staff_id},
+        {"$set": {"status": "terminated", "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    return {"message": "Staff terminated"}
+
+
+# ==================== ATTENDANCE ENDPOINTS ====================
+
+@api_router.get("/hr/attendance")
+async def get_attendance(
+    staff_id: Optional[str] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get attendance records"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if staff_id:
+        query["staff_id"] = staff_id
+    
+    # Filter by month/year if provided
+    if month and year:
+        start_date = datetime(year, month, 1, tzinfo=timezone.utc).isoformat()
+        end_month = month + 1 if month < 12 else 1
+        end_year = year if month < 12 else year + 1
+        end_date = datetime(end_year, end_month, 1, tzinfo=timezone.utc).isoformat()
+        query["date"] = {"$gte": start_date, "$lt": end_date}
+    
+    attendance = await db.attendance.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+    return attendance
+
+
+class AttendanceCreate(BaseModel):
+    staff_id: str
+    date: datetime
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    status: str = "present"
+    leave_type: Optional[str] = None
+    overtime_hours: float = 0
+    remarks: Optional[str] = None
+
+
+@api_router.post("/hr/attendance")
+async def create_attendance(att: AttendanceCreate, user: User = Depends(get_current_user)):
+    """Record attendance"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get staff name
+    staff = await db.staff.find_one({"staff_id": att.staff_id}, {"_id": 0, "name": 1})
+    staff_name = staff.get("name") if staff else None
+    
+    # Calculate work hours if check in/out provided
+    work_hours = 0
+    if att.check_in and att.check_out:
+        delta = att.check_out - att.check_in
+        work_hours = round(delta.total_seconds() / 3600, 2)
+    
+    attendance = Attendance(
+        staff_id=att.staff_id,
+        staff_name=staff_name,
+        date=att.date,
+        check_in=att.check_in,
+        check_out=att.check_out,
+        status=att.status,
+        leave_type=att.leave_type,
+        work_hours=work_hours,
+        overtime_hours=att.overtime_hours,
+        remarks=att.remarks,
+        recorded_by=user.user_id
+    )
+    
+    att_dict = attendance.model_dump()
+    att_dict["date"] = att_dict["date"].isoformat()
+    if att_dict.get("check_in"):
+        att_dict["check_in"] = att_dict["check_in"].isoformat()
+    if att_dict.get("check_out"):
+        att_dict["check_out"] = att_dict["check_out"].isoformat()
+    att_dict["created_at"] = att_dict["created_at"].isoformat()
+    
+    await db.attendance.insert_one(att_dict)
+    return attendance
+
+
+@api_router.post("/hr/attendance/bulk")
+async def create_bulk_attendance(records: List[AttendanceCreate], user: User = Depends(get_current_user)):
+    """Record attendance for multiple staff at once"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get all staff names in one query
+    staff_ids = list(set(r.staff_id for r in records))
+    staff_list = await db.staff.find({"staff_id": {"$in": staff_ids}}, {"_id": 0, "staff_id": 1, "name": 1}).to_list(500)
+    staff_map = {s["staff_id"]: s["name"] for s in staff_list}
+    
+    attendance_docs = []
+    for att in records:
+        work_hours = 0
+        if att.check_in and att.check_out:
+            delta = att.check_out - att.check_in
+            work_hours = round(delta.total_seconds() / 3600, 2)
+        
+        attendance = Attendance(
+            staff_id=att.staff_id,
+            staff_name=staff_map.get(att.staff_id),
+            date=att.date,
+            check_in=att.check_in,
+            check_out=att.check_out,
+            status=att.status,
+            leave_type=att.leave_type,
+            work_hours=work_hours,
+            overtime_hours=att.overtime_hours,
+            remarks=att.remarks,
+            recorded_by=user.user_id
+        )
+        
+        att_dict = attendance.model_dump()
+        att_dict["date"] = att_dict["date"].isoformat()
+        if att_dict.get("check_in"):
+            att_dict["check_in"] = att_dict["check_in"].isoformat()
+        if att_dict.get("check_out"):
+            att_dict["check_out"] = att_dict["check_out"].isoformat()
+        att_dict["created_at"] = att_dict["created_at"].isoformat()
+        
+        attendance_docs.append(att_dict)
+    
+    if attendance_docs:
+        await db.attendance.insert_many(attendance_docs)
+    
+    return {"message": f"Created {len(attendance_docs)} attendance records"}
+
+
+# ==================== PAYROLL ENDPOINTS ====================
+
+@api_router.get("/hr/payroll")
+async def get_payroll_list(
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get payroll records"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if month:
+        query["month"] = month
+    if year:
+        query["year"] = year
+    if status:
+        query["status"] = status
+    
+    payroll = await db.payroll.find(query, {"_id": 0}).sort([("year", -1), ("month", -1)]).to_list(500)
+    return payroll
+
+
+class PayrollGenerate(BaseModel):
+    month: int
+    year: int
+
+
+@api_router.post("/hr/payroll/generate")
+async def generate_payroll(data: PayrollGenerate, user: User = Depends(get_current_user)):
+    """Generate payroll for all active staff for a month"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Check if payroll already exists for this month
+    existing = await db.payroll.count_documents({"month": data.month, "year": data.year})
+    if existing > 0:
+        raise HTTPException(status_code=400, detail="Payroll already generated for this month")
+    
+    # Get all active staff
+    staff_list = await db.staff.find({"status": "active"}, {"_id": 0}).to_list(500)
+    
+    # Get attendance for this month
+    start_date = datetime(data.year, data.month, 1, tzinfo=timezone.utc).isoformat()
+    end_month = data.month + 1 if data.month < 12 else 1
+    end_year = data.year if data.month < 12 else data.year + 1
+    end_date = datetime(end_year, end_month, 1, tzinfo=timezone.utc).isoformat()
+    
+    attendance = await db.attendance.find({
+        "date": {"$gte": start_date, "$lt": end_date}
+    }, {"_id": 0}).to_list(5000)
+    
+    # Group attendance by staff
+    attendance_by_staff = {}
+    for att in attendance:
+        sid = att["staff_id"]
+        if sid not in attendance_by_staff:
+            attendance_by_staff[sid] = {"present": 0, "absent": 0, "leave": 0, "half_day": 0, "overtime": 0}
+        status = att.get("status", "present")
+        if status == "present":
+            attendance_by_staff[sid]["present"] += 1
+        elif status == "absent":
+            attendance_by_staff[sid]["absent"] += 1
+        elif status == "leave":
+            attendance_by_staff[sid]["leave"] += 1
+        elif status == "half_day":
+            attendance_by_staff[sid]["present"] += 0.5
+        attendance_by_staff[sid]["overtime"] += att.get("overtime_hours", 0)
+    
+    # Generate payroll for each staff
+    payroll_docs = []
+    for s in staff_list:
+        att_summary = attendance_by_staff.get(s["staff_id"], {"present": 0, "absent": 0, "leave": 0, "overtime": 0})
+        
+        # Calculate working days (assuming 26 working days)
+        working_days = 26
+        days_present = att_summary["present"]
+        days_absent = att_summary["absent"]
+        leaves_taken = att_summary["leave"]
+        overtime_hours = att_summary["overtime"]
+        
+        # Calculate pay
+        basic = s.get("basic_salary", 0)
+        hra = s.get("hra", 0)
+        da = s.get("da", 0)
+        ta = s.get("ta", 0)
+        other_allow = s.get("other_allowances", 0)
+        
+        # Pro-rata calculation based on attendance
+        attendance_factor = days_present / working_days if working_days > 0 else 1
+        
+        gross = (basic + hra + da + ta + other_allow) * attendance_factor
+        overtime_pay = overtime_hours * (basic / (working_days * 8)) * 1.5  # 1.5x overtime rate
+        
+        pf = s.get("pf", 0) * attendance_factor
+        esi = s.get("esi", 0) * attendance_factor
+        pt = s.get("professional_tax", 0)
+        tds = s.get("tds", 0) * attendance_factor
+        other_ded = s.get("other_deductions", 0)
+        
+        total_ded = pf + esi + pt + tds + other_ded
+        net_pay = gross + overtime_pay - total_ded
+        
+        payroll = Payroll(
+            staff_id=s["staff_id"],
+            staff_name=s["name"],
+            employee_code=s.get("employee_code"),
+            department=s.get("department"),
+            designation=s.get("designation"),
+            month=data.month,
+            year=data.year,
+            working_days=working_days,
+            days_present=int(days_present),
+            days_absent=days_absent,
+            leaves_taken=leaves_taken,
+            overtime_hours=overtime_hours,
+            basic_salary=round(basic * attendance_factor, 2),
+            hra=round(hra * attendance_factor, 2),
+            da=round(da * attendance_factor, 2),
+            ta=round(ta * attendance_factor, 2),
+            other_allowances=round(other_allow * attendance_factor, 2),
+            overtime_pay=round(overtime_pay, 2),
+            gross_earnings=round(gross + overtime_pay, 2),
+            pf=round(pf, 2),
+            esi=round(esi, 2),
+            professional_tax=pt,
+            tds=round(tds, 2),
+            other_deductions=other_ded,
+            total_deductions=round(total_ded, 2),
+            net_pay=round(net_pay, 2),
+            payment_method=s.get("payment_method", PaymentMethodType.BANK_TRANSFER),
+            bank_name=s.get("bank_name"),
+            account_number=s.get("account_number"),
+            status=PayrollStatus.DRAFT,
+            created_by=user.user_id
+        )
+        
+        pay_dict = payroll.model_dump()
+        pay_dict["created_at"] = pay_dict["created_at"].isoformat()
+        pay_dict["updated_at"] = pay_dict["updated_at"].isoformat()
+        payroll_docs.append(pay_dict)
+    
+    if payroll_docs:
+        await db.payroll.insert_many(payroll_docs)
+    
+    return {"message": f"Generated payroll for {len(payroll_docs)} staff members"}
+
+
+@api_router.patch("/hr/payroll/{payroll_id}/approve")
+async def approve_payroll(payroll_id: str, user: User = Depends(get_current_user)):
+    """Approve payroll"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    result = await db.payroll.update_one(
+        {"payroll_id": payroll_id, "status": {"$in": ["draft", "pending_approval"]}},
+        {"$set": {
+            "status": "approved",
+            "approved_by": user.user_id,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Payroll not found or already processed")
+    
+    return {"message": "Payroll approved"}
+
+
+class PayrollPayment(BaseModel):
+    transaction_id: str
+    payment_method: PaymentMethodType
+    remarks: Optional[str] = None
+
+
+@api_router.patch("/hr/payroll/{payroll_id}/pay")
+async def process_payroll_payment(payroll_id: str, payment: PayrollPayment, user: User = Depends(get_current_user)):
+    """Mark payroll as paid with OTP verification"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    payroll = await db.payroll.find_one({"payroll_id": payroll_id}, {"_id": 0})
+    if not payroll:
+        raise HTTPException(status_code=404, detail="Payroll not found")
+    
+    if payroll.get("status") != "approved":
+        raise HTTPException(status_code=400, detail="Payroll must be approved first")
+    
+    result = await db.payroll.update_one(
+        {"payroll_id": payroll_id},
+        {"$set": {
+            "status": "paid",
+            "payment_date": datetime.now(timezone.utc).isoformat(),
+            "transaction_id": payment.transaction_id,
+            "payment_method": payment.payment_method,
+            "remarks": payment.remarks,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Create transaction record
+    transaction = Transaction(
+        transaction_type=TransactionType.SALARY,
+        amount=payroll.get("net_pay", 0),
+        payment_method=payment.payment_method,
+        payment_date=datetime.now(timezone.utc),
+        reference_number=payment.transaction_id,
+        party_name=payroll.get("staff_name"),
+        party_type="staff",
+        description=f"Salary for {payroll.get('month')}/{payroll.get('year')}",
+        category="salary",
+        recorded_by=user.user_id,
+        recorded_by_name=user.name
+    )
+    
+    txn_dict = transaction.model_dump()
+    txn_dict["payment_date"] = txn_dict["payment_date"].isoformat()
+    txn_dict["created_at"] = txn_dict["created_at"].isoformat()
+    txn_dict["updated_at"] = txn_dict["updated_at"].isoformat()
+    await db.transactions.insert_one(txn_dict)
+    
+    return {"message": "Payroll paid"}
+
+
+@api_router.post("/hr/payroll/bulk-pay")
+async def bulk_pay_payroll(month: int, year: int, payment: PayrollPayment, user: User = Depends(get_current_user)):
+    """Pay all approved payrolls for a month"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get all approved payrolls for this month
+    payrolls = await db.payroll.find({
+        "month": month, "year": year, "status": "approved"
+    }, {"_id": 0}).to_list(500)
+    
+    if not payrolls:
+        raise HTTPException(status_code=400, detail="No approved payrolls found")
+    
+    # Update all to paid
+    await db.payroll.update_many(
+        {"month": month, "year": year, "status": "approved"},
+        {"$set": {
+            "status": "paid",
+            "payment_date": datetime.now(timezone.utc).isoformat(),
+            "transaction_id": payment.transaction_id,
+            "payment_method": payment.payment_method,
+            "remarks": payment.remarks,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Create transactions for each
+    transactions = []
+    for p in payrolls:
+        txn = Transaction(
+            transaction_type=TransactionType.SALARY,
+            amount=p.get("net_pay", 0),
+            payment_method=payment.payment_method,
+            payment_date=datetime.now(timezone.utc),
+            reference_number=payment.transaction_id,
+            party_name=p.get("staff_name"),
+            party_type="staff",
+            description=f"Salary for {month}/{year}",
+            category="salary",
+            recorded_by=user.user_id,
+            recorded_by_name=user.name
+        )
+        txn_dict = txn.model_dump()
+        txn_dict["payment_date"] = txn_dict["payment_date"].isoformat()
+        txn_dict["created_at"] = txn_dict["created_at"].isoformat()
+        txn_dict["updated_at"] = txn_dict["updated_at"].isoformat()
+        transactions.append(txn_dict)
+    
+    if transactions:
+        await db.transactions.insert_many(transactions)
+    
+    return {"message": f"Paid {len(payrolls)} payrolls", "total_amount": sum(p.get("net_pay", 0) for p in payrolls)}
+
+
+# ==================== PAYMENT VERIFICATION (OTP) ENDPOINTS ====================
+
+@api_router.post("/accountant/payment-request/initiate")
+async def initiate_payment_request(
+    request_type: str,
+    request_id: str,
+    amount: float,
+    party_name: str,
+    party_email: Optional[str] = None,
+    party_phone: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Initiate a payment request with OTP verification"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Generate OTP
+    otp = generate_otp()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    
+    verification = PaymentVerification(
+        request_type=request_type,
+        request_id=request_id,
+        amount=amount,
+        party_name=party_name,
+        party_email=party_email,
+        party_phone=party_phone,
+        otp_code=otp,
+        otp_sent_at=datetime.now(timezone.utc),
+        otp_expires_at=expires_at,
+        status=PaymentRequestStatus.OTP_SENT,
+        requested_by=user.user_id,
+        requested_by_name=user.name
+    )
+    
+    ver_dict = verification.model_dump()
+    ver_dict["otp_sent_at"] = ver_dict["otp_sent_at"].isoformat()
+    ver_dict["otp_expires_at"] = ver_dict["otp_expires_at"].isoformat()
+    ver_dict["created_at"] = ver_dict["created_at"].isoformat()
+    ver_dict["updated_at"] = ver_dict["updated_at"].isoformat()
+    
+    await db.payment_verifications.insert_one(ver_dict)
+    
+    # Try to send OTP via email if configured
+    email_sent = False
+    if party_email and resend.api_key:
+        try:
+            await send_notification_email(
+                party_email,
+                "Payment Verification OTP",
+                f"""
+                <h2>Payment Verification OTP</h2>
+                <p>Your OTP for payment verification is:</p>
+                <h1 style="font-size: 32px; letter-spacing: 4px; color: #2563eb;">{otp}</h1>
+                <p>Amount: ₹{amount:,.2f}</p>
+                <p>This OTP expires in 10 minutes.</p>
+                """
+            )
+            email_sent = True
+        except Exception as e:
+            logger.error(f"Failed to send OTP email: {e}")
+    
+    return {
+        "verification_id": verification.verification_id,
+        "message": "OTP sent successfully" if email_sent else "OTP generated (email not configured)",
+        "otp_for_testing": otp if not email_sent else None,  # Show OTP if email not sent (MOCK mode)
+        "expires_in_minutes": 10
+    }
+
+
+class OTPVerify(BaseModel):
+    verification_id: str
+    otp: str
+
+
+@api_router.post("/accountant/payment-request/verify-otp")
+async def verify_payment_otp(data: OTPVerify, user: User = Depends(get_current_user)):
+    """Verify OTP for payment request"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    verification = await db.payment_verifications.find_one(
+        {"verification_id": data.verification_id},
+        {"_id": 0}
+    )
+    
+    if not verification:
+        raise HTTPException(status_code=404, detail="Verification request not found")
+    
+    if verification.get("status") == "otp_verified":
+        raise HTTPException(status_code=400, detail="OTP already verified")
+    
+    if verification.get("otp_attempts", 0) >= verification.get("max_attempts", 3):
+        raise HTTPException(status_code=400, detail="Maximum OTP attempts exceeded")
+    
+    # Check expiry
+    expires_at = verification.get("otp_expires_at")
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="OTP has expired")
+    
+    # Verify OTP
+    if verification.get("otp_code") != data.otp:
+        await db.payment_verifications.update_one(
+            {"verification_id": data.verification_id},
+            {"$inc": {"otp_attempts": 1}}
+        )
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    # OTP verified
+    await db.payment_verifications.update_one(
+        {"verification_id": data.verification_id},
+        {"$set": {
+            "otp_verified": True,
+            "otp_verified_at": datetime.now(timezone.utc).isoformat(),
+            "status": "otp_verified",
+            "verified_by": user.user_id,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"message": "OTP verified successfully", "verification_id": data.verification_id}
+
+
+class CompletePayment(BaseModel):
+    verification_id: str
+    transaction_id: str
+    payment_method: PaymentMethodType
+    remarks: Optional[str] = None
+
+
+@api_router.post("/accountant/payment-request/complete")
+async def complete_payment(data: CompletePayment, user: User = Depends(get_current_user)):
+    """Complete a payment after OTP verification"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    verification = await db.payment_verifications.find_one(
+        {"verification_id": data.verification_id},
+        {"_id": 0}
+    )
+    
+    if not verification:
+        raise HTTPException(status_code=404, detail="Verification request not found")
+    
+    if verification.get("status") != "otp_verified":
+        raise HTTPException(status_code=400, detail="OTP not verified")
+    
+    # Update verification as completed
+    await db.payment_verifications.update_one(
+        {"verification_id": data.verification_id},
+        {"$set": {
+            "status": "completed",
+            "transaction_id": data.transaction_id,
+            "payment_method": data.payment_method,
+            "remarks": data.remarks,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Create transaction record
+    transaction = Transaction(
+        transaction_type=TransactionType.VENDOR_PAYMENT,
+        amount=verification.get("amount", 0),
+        payment_method=data.payment_method,
+        payment_date=datetime.now(timezone.utc),
+        reference_number=data.transaction_id,
+        party_name=verification.get("party_name"),
+        party_type="vendor",
+        description=f"Payment for {verification.get('request_type')} - {verification.get('request_id')}",
+        category=verification.get("request_type"),
+        recorded_by=user.user_id,
+        recorded_by_name=user.name
+    )
+    
+    txn_dict = transaction.model_dump()
+    txn_dict["payment_date"] = txn_dict["payment_date"].isoformat()
+    txn_dict["created_at"] = txn_dict["created_at"].isoformat()
+    txn_dict["updated_at"] = txn_dict["updated_at"].isoformat()
+    await db.transactions.insert_one(txn_dict)
+    
+    return {"message": "Payment completed", "transaction_id": transaction.transaction_id}
+
+
+@api_router.get("/accountant/payment-requests")
+async def get_payment_requests(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all payment verification requests"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    requests = await db.payment_verifications.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return requests
+
+
+# ==================== END COMPREHENSIVE ACCOUNTANT BOARD ENDPOINTS ====================
+
+
 app.include_router(api_router)
 
 app.add_middleware(
