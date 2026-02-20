@@ -570,23 +570,31 @@ Build a Construction Accounting CRM with:
 | Super Admin | admin@constructionos.com | Full access |
 | Accountant | accountant@constructionos.com | Approvals, expenses |
 | Project Manager | pm@constructionos.com | Projects, work orders |
-| Planning | planning@constructionos.com | BOQ management |
+| Planning | planning@constructionos.com | BOQ management, Payment Schedule CRUD |
 | Procurement | procurement@constructionos.com | Vendors, POs |
 | Site Engineer | engineer@constructionos.com | Site receipts |
 | Vendor | vendor@balaji.com | Vendor portal (after linking) |
 | Client | raj@client.com | Read-only portal |
+| CRO | cro@constructionos.com | Project onboarding, payment collection |
 
 ---
 
 ## Pending/Backlog Tasks
 
-### P1 - Code Refactoring
+### P1 - Code Refactoring (HIGH PRIORITY)
 - [ ] **Refactor server.py Monolith** - Split 7000+ line file into modular router files:
   - `/app/backend/routes/auth.py`
   - `/app/backend/routes/projects.py`
+  - `/app/backend/routes/payments.py`
   - `/app/backend/routes/work_orders.py`
   - `/app/backend/routes/packages.py`
   - etc.
+
+### P1 - Database Security
+- [ ] **Database Security & Production Readiness** - Implement recommendations from `/app/docs/DATABASE_ARCHITECTURE.md`
+  - Configure MongoDB authentication
+  - Set up backup procedures
+  - Review and implement security best practices
 
 ### P2 - Features
 - [ ] **Unified Approval Dashboard** for GM/Admin roles
