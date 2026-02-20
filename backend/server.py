@@ -2704,7 +2704,7 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
 
 
 @api_router.post("/payment-stages/{stage_id}/collect")
-async def collect_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
+async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
     """CRO collects payment for a stage"""
     if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRO can collect payments")
