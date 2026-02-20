@@ -2646,7 +2646,7 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
 
 @api_router.delete("/payment-stages/{stage_id}")
 async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.payment_stages.delete_one({"stage_id": stage_id})
