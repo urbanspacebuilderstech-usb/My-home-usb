@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
-  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle
+  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
