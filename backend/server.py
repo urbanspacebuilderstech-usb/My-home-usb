@@ -7063,6 +7063,53 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     }
 
 
+@api_router.get("/cro/payment-requests")
+async def get_cro_payment_requests(user: User = Depends(get_current_user)):
+    """Get all payment stages that are requested for collection by CRO"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    
+    # Get all payment stages with workflow_status = 'requested'
+    pipeline = [
+        {
+            "$match": {
+                "workflow_status": {"$in": ["requested", "pending_collection"]}
+            }
+        },
+        {
+            "$lookup": {
+                "from": "projects",
+                "localField": "project_id",
+                "foreignField": "project_id",
+                "as": "project"
+            }
+        },
+        {"$unwind": {"path": "$project", "preserveNullAndEmptyArrays": True}},
+        {
+            "$project": {
+                "_id": 0,
+                "stage_id": 1,
+                "project_id": 1,
+                "project_name": "$project.name",
+                "client_name": "$project.client_name",
+                "stage_name": 1,
+                "stage_label": 1,
+                "percentage": 1,
+                "amount": 1,
+                "amount_received": 1,
+                "due_date": 1,
+                "workflow_status": 1,
+                "requested_at": 1,
+                "requested_by_name": 1
+            }
+        },
+        {"$sort": {"requested_at": -1}}
+    ]
+    
+    payment_requests = await db.payment_stages.aggregate(pipeline).to_list(50)
+    return payment_requests
+
+
 @api_router.post("/cro/projects")
 async def cro_create_project(project_input: CROProjectCreateInput, user: User = Depends(get_current_user)):
     """CRO creates a new project with package selection"""
