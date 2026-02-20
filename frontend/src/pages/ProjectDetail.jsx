@@ -1148,9 +1148,15 @@ export default function ProjectDetail() {
                                       value={row.percentage}
                                       onChange={(e) => {
                                         const newRows = [...bulkPaymentRows];
+                                        const pct = parseFloat(e.target.value) || 0;
                                         newRows[idx].percentage = e.target.value;
+                                        // Auto-calculate amount from percentage
+                                        if (projectData?.project?.total_value && pct > 0) {
+                                          newRows[idx].amount = Math.round((projectData.project.total_value * pct) / 100);
+                                        }
                                         setBulkPaymentRows(newRows);
                                       }}
+                                      placeholder="%"
                                       className="h-8"
                                     />
                                   </td>
@@ -1160,9 +1166,15 @@ export default function ProjectDetail() {
                                       value={row.amount}
                                       onChange={(e) => {
                                         const newRows = [...bulkPaymentRows];
+                                        const amt = parseFloat(e.target.value) || 0;
                                         newRows[idx].amount = e.target.value;
+                                        // Auto-calculate percentage from amount
+                                        if (projectData?.project?.total_value && amt > 0) {
+                                          newRows[idx].percentage = ((amt / projectData.project.total_value) * 100).toFixed(2);
+                                        }
                                         setBulkPaymentRows(newRows);
                                       }}
+                                      placeholder="₹"
                                       className="h-8"
                                     />
                                   </td>
