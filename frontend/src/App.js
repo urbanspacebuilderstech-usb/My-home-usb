@@ -79,6 +79,7 @@ function AppRouter() {
       <Route path="/procurement-board-v2" element={<ProtectedRoute><ProcurementBoardV2 /></ProtectedRoute>} />
       <Route path="/site-engineer" element={<ProtectedRoute><SiteEngineerDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer/project/:projectId" element={<ProtectedRoute><SiteEngineerProject /></ProtectedRoute>} />
+      <Route path="/site-engineer/material-receipt" element={<ProtectedRoute><MaterialReceipt /></ProtectedRoute>} />
       <Route path="/packages" element={<ProtectedRoute><PackageManagement /></ProtectedRoute>} />
       <Route path="/cro-board" element={<ProtectedRoute><CROBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
