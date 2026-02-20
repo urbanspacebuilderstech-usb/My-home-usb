@@ -81,6 +81,12 @@ export default function ProjectDetail() {
   const [editScopeForm, setEditScopeForm] = useState({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
+  // Payment Summary state
+  const [paymentSummary, setPaymentSummary] = useState(null);
+  const [collectPaymentDialog, setCollectPaymentDialog] = useState(false);
+  const [selectedStage, setSelectedStage] = useState(null);
+  const [collectForm, setCollectForm] = useState({ amount_received: '', payment_mode: 'bank_transfer', payment_reference: '', remarks: '' });
 
   useEffect(() => {
     fetchData();
