@@ -421,6 +421,7 @@ class Project(BaseModel):
     building_type: str = "residential"  # residential, commercial, villa, apartment
     package_id: Optional[str] = None  # Selected package
     package_name: Optional[str] = None  # Package name for display
+    materials_locked: bool = False  # Once approved, material brands cannot be changed
     # Financial fields
     total_value: float = 0  # Project Total Value (calculated from package/scope)
     additional_cost: float = 0  # Additional Cost (INPUT)
@@ -440,6 +441,22 @@ class Project(BaseModel):
     admin_approved_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProjectMaterial(BaseModel):
+    """Material specification for a project (copied from package, can be edited until locked)"""
+    material_id: str = Field(default_factory=lambda: f"pm_{uuid.uuid4().hex[:12]}")
+    project_id: str
+    name: str
+    brand: Optional[str] = None
+    specification: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    estimated_rate: float = 0
+    from_package: bool = True  # Whether this came from the original package
+    modified_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class BOQItem(BaseModel):
