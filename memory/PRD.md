@@ -684,6 +684,57 @@ Build a Construction Accounting CRM with:
 
 ---
 
+### ✅ CRO Payment Verification Workflow (Feb 20, 2026)
+
+#### Overview
+New workflow where CRO creates project → Accountant verifies payment → CRO submits to Planning
+
+#### Workflow Flow
+```
+Draft → Submit for Payment → Accountant Verifies → Payment Received → Send to Planning
+```
+
+#### New Project Statuses
+1. **draft** - CRO created, not submitted
+2. **pending_payment** - Submitted, waiting Accountant verification
+3. **payment_verified** - Accountant verified, CRO can submit to Planning
+4. **planning_review** - Submitted to Planning Department
+
+#### CRO Board Updates
+- **5 Status Cards**: Draft, Pending Payment, Payment Received, In Planning, Approved
+- **Workflow Banner**: Visual guide showing the flow
+- **5 Tabs**: Draft | Pending Payment | Payment Received | In Planning | Approved
+- **Action Buttons**:
+  - Draft: "Submit for Verification" (sends to Accountant)
+  - Pending Payment: "Awaiting Accountant" badge
+  - Payment Received: "Send to Planning" button
+
+#### Accounts Board Updates
+- **"New Requests" Card**: Highlighted amber card showing pending advance verifications
+- **"New Requests" Tab**: Default tab showing projects pending verification
+- **Verify Dialog**: Transaction ID (required), Bank Name, Remarks
+- **Reject Dialog**: Rejection reason (required)
+
+#### Backend API Endpoints
+- `PATCH /api/cro/projects/{id}/submit` - Submit for payment verification
+- `PATCH /api/cro/projects/{id}/submit-to-planning` - Submit to Planning (after verification)
+- `GET /api/accounts/pending-advance-payments` - Get pending verifications
+- `PATCH /api/accounts/verify-advance-payment/{id}` - Verify with transaction ID
+- `PATCH /api/accounts/reject-advance-payment/{id}` - Reject with reason
+
+#### Validation Rules
+- Cannot submit without advance payment amount
+- Cannot submit to Planning without payment verification
+- Only Accountant can verify/reject payments
+- Rejected projects return to Draft status
+
+#### Testing
+- 14/14 backend tests passed
+- All UI components verified
+- Complete E2E workflow tested
+
+---
+
 ### ✅ Enhanced CRO Board Workflow (Feb 20, 2026)
 
 #### Overview
