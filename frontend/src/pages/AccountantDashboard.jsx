@@ -124,8 +124,11 @@ export default function AccountantDashboard() {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/payment-processing'} data-testid="goto-payment-processing-btn">
+              <Shield className="h-4 w-4 mr-1" /> OTP Payments
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/accounts-board'} data-testid="goto-payments-btn">
-              <Receipt className="h-4 w-4 mr-1" /> Payments
+              <Receipt className="h-4 w-4 mr-1" /> Approvals
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/hr-portal'} data-testid="goto-hr-btn">
               <Users className="h-4 w-4 mr-1" /> HR
