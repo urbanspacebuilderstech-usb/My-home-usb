@@ -390,6 +390,27 @@ Build a Construction Accounting CRM with:
   - `GET /api/projects/search` - Project ID search
   - `GET /api/projects/list-for-filter` - Project dropdown filter
 
+#### ✅ Manual Payment Schedule & Request Flow (P0 - February 20, 2026)
+- [x] **Manual Payment Schedule Creation** (Payments Tab):
+  - Planning manually adds payment stages with due dates
+  - Auto-calculate: Enter amount → percentage calculated, or Enter percentage → amount calculated
+  - Based on project total value
+- [x] **Request Payment Flow**:
+  - Planning clicks "Req Payment" → status changes to "Requested"
+  - CRO receives notification
+  - CRO Board shows "Payment Collection Requests" section
+  - CRO clicks "Collect" → enters amount, mode, reference
+  - Status flow: Draft → Requested → Partially Collected → Collected → Done
+- [x] **Balance Tracking**:
+  - Shows Amount, Received, Balance columns
+  - "Req Balance" button for partially collected payments
+  - Green checkmark for fully paid stages
+- [x] **Status Badges**:
+  - Draft (gray), Requested (blue), Partially Collected (yellow), Done (green)
+- [x] **Backend Endpoints**:
+  - `PATCH /api/payment-stages/{id}/request` - Request payment from CRO
+  - `GET /api/cro/payment-requests` - Get all pending requests for CRO
+
 ---
 
 ## API Endpoints
