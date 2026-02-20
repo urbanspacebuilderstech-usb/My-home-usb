@@ -2742,6 +2742,45 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
     return {"message": f"Payment schedule generated with {len(stages_created)} stages", "stages": stages_created}
 
 
+@api_router.post("/projects/{project_id}/payment-schedule/submit")
+async def submit_payment_schedule(project_id: str, user: User = Depends(get_current_user)):
+    """Submit all draft payment stages for collection - makes them visible to CRO"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning/PM can submit payment schedule")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Find all draft payment stages for this project
+    draft_stages = await db.payment_stages.find(
+        {"project_id": project_id, "workflow_status": "draft"},
+        {"_id": 0}
+    ).to_list(100)
+    
+    if not draft_stages:
+        raise HTTPException(status_code=400, detail="No draft payment stages to submit")
+    
+    # Update all draft stages to 'requested' status (pending collection)
+    result = await db.payment_stages.update_many(
+        {"project_id": project_id, "workflow_status": "draft"},
+        {"$set": {"workflow_status": "requested"}}
+    )
+    
+    await create_audit_log(user.user_id, "submit_schedule", "payment_schedule", project_id, {"count": result.modified_count})
+    
+    # Notify CRO users about new payment requests
+    cro_users = await db.users.find({"role": "cro"}, {"_id": 0, "user_id": 1, "name": 1}).to_list(50)
+    for cro in cro_users:
+        await create_notification(
+            cro["user_id"], 
+            f"Payment schedule submitted for {project.get('name')}. {result.modified_count} stages ready for collection.",
+            "payment_request"
+        )
+    
+    return {"message": f"Payment schedule submitted. {result.modified_count} stages sent for collection.", "count": result.modified_count}
+
+
 @api_router.post("/payment-stages/{stage_id}/collect")
 async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
     """CRO collects payment for a stage"""
