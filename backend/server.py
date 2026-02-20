@@ -6609,6 +6609,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     # Get counts by status
     base_query = {"created_by": user.user_id} if user.role == UserRole.CRO else {}
     draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
+    pending_payment_count = await db.projects.count_documents({**base_query, "status": "pending_payment"})
+    payment_verified_count = await db.projects.count_documents({**base_query, "status": "payment_verified"})
     planning_review_count = await db.projects.count_documents({**base_query, "status": "planning_review"})
     awaiting_approval_count = await db.projects.count_documents({**base_query, "status": "awaiting_approval"})
     approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active"]}})
@@ -6616,7 +6618,7 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     # Total ongoing projects
     total_ongoing = await db.projects.count_documents({
         **base_query,
-        "status": {"$nin": ["draft", "completed", "cancelled"]}
+        "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}
     })
     
     # Total project value
@@ -6638,7 +6640,7 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
         count = await db.projects.count_documents({
             **base_query,
             "current_stage": stage["id"],
-            "status": {"$nin": ["draft", "completed", "cancelled"]}
+            "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}
         })
         stage_counts[stage["id"]] = count
     
@@ -6656,6 +6658,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     
     return {
         "draft_count": draft_count,
+        "pending_payment_count": pending_payment_count,
+        "payment_verified_count": payment_verified_count,
         "planning_review_count": planning_review_count,
         "awaiting_approval_count": awaiting_approval_count,
         "approved_count": approved_count,
