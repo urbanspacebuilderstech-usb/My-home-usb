@@ -684,6 +684,69 @@ Build a Construction Accounting CRM with:
 
 ---
 
+### ✅ Enhanced CRO Board Workflow (Feb 20, 2026)
+
+#### Overview
+Complete CRO workflow for project onboarding with project stages tracking, auto-generated project codes, advance payment recording, and payment collection workflow.
+
+#### CRO Dashboard Features
+1. **Status Cards**: Draft, In Review, Awaiting Approval, Approved counts
+2. **Total Ongoing Projects** with "View All Projects" button
+3. **Total Project Value** aggregate
+4. **Project Stages Section**: 8 stages with project counts
+   - Drawing Stage
+   - Yet to Start  
+   - Foundation
+   - Basement
+   - SS - Brick Work
+   - SS - Plastering
+   - Finishing
+   - Handover
+
+#### Create Project Dialog
+- **Basic Info**: Project Name, Client Name
+- **Client Contact**: Phone, Email (with icons)
+- **Location** field
+- **Square Feet, Building Type, Expected Start Date**
+- **Package Selection**: Cards showing Package Code, Name, Rate/sqft
+- **Advance Payment Details**: Date Received, Amount, Payment Mode
+- **Rough Estimate PDF URL** upload
+- **Auto-calculated Project Value**: sqft × rate
+
+#### Auto-Generated Project Code
+Format: `USB{serial}{month}{year}` (e.g., USB010226)
+- USB = Company prefix
+- Serial = Sequential number within month
+- Month = 2-digit month
+- Year = 2-digit year
+
+#### My Projects Table
+- **Tabs**: Draft | In Review | Approved
+- **Columns**: PROJECT (with code), CLIENT, LOCATION, PACKAGE, SQFT, VALUE, STATUS, ACTION
+- **Actions**: Submit (for draft) | View (for others)
+
+#### Filters Panel
+- Search by project/client name
+- Date range filter (from/to)
+- Stage filter dropdown
+- Apply/Clear buttons
+
+#### Backend API Endpoints
+- `GET /api/cro/dashboard` - Dashboard metrics with stage counts
+- `POST /api/cro/projects` - Create project with all new fields
+- `PATCH /api/cro/projects/{id}/submit` - Submit for planning review
+- `GET /api/cro/projects/all` - Filtered projects list
+- `POST /api/cro/projects/{id}/add-payment-milestone` - Add payment milestone
+- `PATCH /api/cro/projects/{id}/notify-client/{milestone_id}` - Notify client
+- `PATCH /api/cro/projects/{id}/collect-payment/{milestone_id}` - Record payment
+
+#### Testing
+- 18/18 backend tests passed
+- All UI components verified
+- Stage filter dropdown bug fixed
+
+---
+
 ### ✅ Work Order Stage Payment Workflow (Feb 19, 2026)
 
 #### Overview
