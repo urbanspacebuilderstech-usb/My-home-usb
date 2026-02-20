@@ -379,12 +379,12 @@ export default function HRPortal() {
                         data-testid="search-staff"
                       />
                     </div>
-                    <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                    <Select value={departmentFilter} onValueChange={(v) => setDepartmentFilter(v === 'all' ? '' : v)}>
                       <SelectTrigger className="w-40" data-testid="filter-department">
                         <SelectValue placeholder="All Departments" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Departments</SelectItem>
+                        <SelectItem value="all">All Departments</SelectItem>
                         {DEPARTMENTS.map(d => (
                           <SelectItem key={d} value={d}>{d}</SelectItem>
                         ))}
