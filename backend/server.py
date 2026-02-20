@@ -408,10 +408,34 @@ class UserSession(BaseModel):
     created_at: datetime
 
 
+# Project Stages Enum
+class ProjectStage(str, Enum):
+    DRAWING = "drawing"
+    YET_TO_START = "yet_to_start"
+    FOUNDATION = "foundation"
+    BASEMENT = "basement"
+    BRICK_WORK = "brick_work"
+    PLASTERING = "plastering"
+    FINISHING = "finishing"
+    HANDOVER = "handover"
+
+
+# Payment Mode Enum
+class PaymentMode(str, Enum):
+    CASH = "cash"
+    CHEQUE = "cheque"
+    BANK_TRANSFER = "bank_transfer"
+    UPI = "upi"
+    CREDIT_CARD = "credit_card"
+
+
 class Project(BaseModel):
     project_id: str = Field(default_factory=lambda: f"proj_{uuid.uuid4().hex[:12]}")
+    project_code: Optional[str] = None  # Auto-generated: USB010226 format
     name: str
     client_name: str
+    client_phone: Optional[str] = None
+    client_email: Optional[str] = None
     client_user_id: Optional[str] = None
     location: str
     latitude: Optional[float] = None
@@ -422,12 +446,22 @@ class Project(BaseModel):
     package_id: Optional[str] = None  # Selected package
     package_name: Optional[str] = None  # Package name for display
     materials_locked: bool = False  # Once approved, material brands cannot be changed
+    # Project Stage Tracking
+    current_stage: str = "yet_to_start"  # Current project stage
+    stage_history: List[dict] = []  # Track stage changes with dates
+    # Advance Payment fields
+    advance_date: Optional[str] = None  # Date advance was received
+    advance_amount: float = 0  # Advance amount received
+    advance_payment_mode: Optional[str] = None  # Payment mode for advance
+    rough_estimate_url: Optional[str] = None  # PDF upload URL
     # Financial fields
     total_value: float = 0  # Project Total Value (calculated from package/scope)
     additional_cost: float = 0  # Additional Cost (INPUT)
     income_project: float = 0  # Income from Project (INPUT)
     income_additional: float = 0  # Additional Income (INPUT)
     total_expense: float = 0  # Total Expense (INPUT)
+    # Payment Collection
+    payments_to_collect: List[dict] = []  # List of pending payment collections
     start_date: datetime
     expected_completion: datetime
     status: ProjectStatus = ProjectStatus.DRAFT
