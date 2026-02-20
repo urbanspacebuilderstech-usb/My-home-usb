@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
-  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload
+  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
