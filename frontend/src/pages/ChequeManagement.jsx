@@ -555,10 +555,10 @@ export default function ChequeManagement() {
                 </div>
                 <div className="col-span-2">
                   <Label>Project (Optional)</Label>
-                  <Select value={chequeForm.project_id} onValueChange={(v) => setChequeForm({...chequeForm, project_id: v})}>
+                  <Select value={chequeForm.project_id || 'none'} onValueChange={(v) => setChequeForm({...chequeForm, project_id: v === 'none' ? '' : v})}>
                     <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No Project</SelectItem>
+                      <SelectItem value="none">No Project</SelectItem>
                       {projects.map(p => (
                         <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
                       ))}
