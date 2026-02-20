@@ -106,6 +106,14 @@ export default function ProjectDetail() {
       
       const projectRes = await axios.get(`${API}/projects/${projectId}/full-details`);
       setProjectData(projectRes.data);
+      
+      // Fetch payment summary
+      try {
+        const summaryRes = await axios.get(`${API}/projects/${projectId}/payment-summary`);
+        setPaymentSummary(summaryRes.data);
+      } catch (e) {
+        console.log('Payment summary not available');
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load project data');
