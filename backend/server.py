@@ -2600,6 +2600,242 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
     return {"message": "Payment stage deleted"}
 
 
+# ==================== PAYMENT SCHEDULE MANAGEMENT ====================
+
+@api_router.post("/projects/{project_id}/payment-schedule/generate")
+async def generate_payment_schedule(project_id: str, user: User = Depends(get_current_user)):
+    """Planning team generates payment schedule from template based on project value"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can create payment schedule")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check if schedule already exists
+    existing = await db.payment_stages.count_documents({"project_id": project_id})
+    if existing > 0:
+        raise HTTPException(status_code=400, detail="Payment schedule already exists. Delete existing stages first.")
+    
+    project_value = project.get("total_value", 0)
+    stages_created = []
+    
+    for idx, template in enumerate(DEFAULT_PAYMENT_SCHEDULE):
+        amount = (project_value * template["percentage"]) / 100 if template["percentage"] > 0 else 0
+        
+        stage = PaymentStage(
+            project_id=project_id,
+            stage_number=idx + 1,
+            stage_label=template["stage_label"],
+            stage_name=template["stage_name"],
+            percentage=template["percentage"],
+            amount=amount,
+            remarks=template["remarks"],
+            workflow_status="pending_collection",
+            created_by=user.user_id
+        )
+        
+        stage_dict = stage.model_dump()
+        stage_dict["created_at"] = stage_dict["created_at"].isoformat()
+        await db.payment_stages.insert_one(stage_dict)
+        stages_created.append(stage_dict)
+    
+    await create_audit_log(user.user_id, "generate_schedule", "payment_schedule", project_id, {"stages": len(stages_created)})
+    
+    # Notify CRO about new payment schedule
+    if project.get("created_by"):
+        await create_notification(project["created_by"], f"Payment schedule created for {project.get('name')}. Start collecting payments.")
+    
+    return {"message": f"Payment schedule generated with {len(stages_created)} stages", "stages": stages_created}
+
+
+@api_router.post("/payment-stages/{stage_id}/collect")
+async def collect_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
+    """CRO collects payment for a stage"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can collect payments")
+    
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+    
+    project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
+    
+    # Calculate new received amount
+    current_received = stage.get("amount_received", 0)
+    new_received = current_received + collection.amount_received
+    stage_amount = stage.get("amount", 0)
+    
+    # Determine new status
+    if new_received >= stage_amount:
+        new_status = "paid"
+    elif new_received > 0:
+        new_status = "partial"
+    else:
+        new_status = "pending"
+    
+    payment_date = collection.payment_date or datetime.now(timezone.utc).isoformat()
+    if isinstance(payment_date, str) and "T" not in payment_date:
+        payment_date = datetime.fromisoformat(payment_date).isoformat()
+    
+    update_data = {
+        "amount_received": new_received,
+        "status": new_status,
+        "workflow_status": "collected",
+        "payment_mode": collection.payment_mode,
+        "payment_reference": collection.payment_reference,
+        "payment_date": payment_date,
+        "collected_by": user.user_id,
+        "collected_by_name": user.name,
+        "remarks": collection.remarks or stage.get("remarks")
+    }
+    
+    await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data})
+    
+    # Create income record for this payment
+    income_record = {
+        "income_id": f"inc_{uuid.uuid4().hex[:12]}",
+        "project_id": stage["project_id"],
+        "project_name": project.get("name") if project else "",
+        "category": "payment_collection",
+        "sub_category": stage.get("stage_name", "Payment Stage"),
+        "amount": collection.amount_received,
+        "payment_mode": collection.payment_mode,
+        "payment_reference": collection.payment_reference,
+        "payment_date": payment_date,
+        "description": f"Payment collection: {stage.get('stage_label', '')} - {stage.get('stage_name', '')}",
+        "collected_by": user.user_id,
+        "collected_by_name": user.name,
+        "status": "received",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.income.insert_one(income_record)
+    
+    # Notify Planning team
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for pu in planning_users:
+        await create_notification(
+            pu["user_id"], 
+            f"Payment collected: ₹{collection.amount_received:,.0f} for {project.get('name', 'Project')} - {stage.get('stage_name', 'Stage')}"
+        )
+    
+    await create_audit_log(user.user_id, "collect_payment", "payment_stage", stage_id, {
+        "amount": collection.amount_received,
+        "mode": collection.payment_mode
+    })
+    
+    return {
+        "message": f"Payment of ₹{collection.amount_received:,.0f} collected successfully",
+        "new_status": new_status,
+        "total_received": new_received,
+        "balance": stage_amount - new_received
+    }
+
+
+@api_router.get("/projects/{project_id}/payment-summary")
+async def get_payment_summary(project_id: str, user: User = Depends(get_current_user)):
+    """Get complete payment summary for a project - all payments from advance to final"""
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get payment stages
+    payment_stages = await db.payment_stages.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("stage_number", 1).to_list(100)
+    
+    # Get all income records for this project
+    income_records = await db.income.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Calculate totals
+    total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
+    total_received = sum(s.get("amount_received", 0) for s in payment_stages)
+    total_balance = total_scheduled - total_received
+    
+    # Advance payment details (from project)
+    advance_payment = {
+        "amount": project.get("advance_amount", 0),
+        "date": project.get("advance_date"),
+        "mode": project.get("advance_payment_mode"),
+        "status": "received" if project.get("advance_amount", 0) > 0 else "pending"
+    }
+    
+    # Count stages by status
+    stages_paid = len([s for s in payment_stages if s.get("status") == "paid"])
+    stages_partial = len([s for s in payment_stages if s.get("status") == "partial"])
+    stages_pending = len([s for s in payment_stages if s.get("status") == "pending"])
+    
+    return {
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "project_value": project.get("total_value", 0),
+        "advance_payment": advance_payment,
+        "payment_stages": payment_stages,
+        "income_records": income_records,
+        "summary": {
+            "total_scheduled": total_scheduled,
+            "total_received": total_received,
+            "total_balance": total_balance,
+            "collection_percentage": (total_received / total_scheduled * 100) if total_scheduled > 0 else 0,
+            "stages_total": len(payment_stages),
+            "stages_paid": stages_paid,
+            "stages_partial": stages_partial,
+            "stages_pending": stages_pending
+        }
+    }
+
+
+@api_router.get("/payment-schedule/due-payments")
+async def get_due_payments(user: User = Depends(get_current_user)):
+    """Get all payment stages that are due or overdue - for CRO dashboard"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    today = datetime.now(timezone.utc).isoformat()
+    
+    # Find pending/partial payments with due dates
+    pipeline = [
+        {
+            "$match": {
+                "status": {"$in": ["pending", "partial"]},
+                "workflow_status": {"$ne": "draft"}
+            }
+        },
+        {
+            "$lookup": {
+                "from": "projects",
+                "localField": "project_id",
+                "foreignField": "project_id",
+                "as": "project"
+            }
+        },
+        {"$unwind": {"path": "$project", "preserveNullAndEmptyArrays": True}},
+        {
+            "$project": {
+                "_id": 0,
+                "stage_id": 1,
+                "project_id": 1,
+                "project_name": "$project.name",
+                "client_name": "$project.client_name",
+                "stage_label": 1,
+                "stage_name": 1,
+                "amount": 1,
+                "amount_received": 1,
+                "balance": {"$subtract": ["$amount", "$amount_received"]},
+                "status": 1,
+                "due_date": 1
+            }
+        },
+        {"$sort": {"due_date": 1}}
+    ]
+    
+    due_payments = await db.payment_stages.aggregate(pipeline).to_list(100)
+    return due_payments
+
+
 # Additional Cost CRUD
 @api_router.get("/projects/{project_id}/additional-costs")
 async def get_additional_costs(project_id: str, user: User = Depends(get_current_user)):
