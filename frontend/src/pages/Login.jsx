@@ -41,7 +41,13 @@ export default function Login() {
 
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
-      navigate('/dashboard', { state: { user }, replace: true });
+      
+      // Redirect clients to client portal, others to dashboard
+      if (user.role === 'client') {
+        navigate('/client-portal', { state: { user }, replace: true });
+      } else {
+        navigate('/dashboard', { state: { user }, replace: true });
+      }
     } catch (error) {
       console.error('Login error:', error);
       toast.error('Login failed. Please try again.');
