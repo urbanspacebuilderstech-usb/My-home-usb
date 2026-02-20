@@ -2423,20 +2423,32 @@ async def link_vendor_to_user(vendor_id: str, target_user_id: str, user: User = 
 
 class PaymentStageCreate(BaseModel):
     project_id: str
+    stage_label: str = "1"  # e.g., "1", "2a", "2b"
     stage_name: str
     percentage: float
     amount: float
     due_date: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class PaymentStageUpdate(BaseModel):
     stage_name: Optional[str] = None
+    stage_label: Optional[str] = None
     percentage: Optional[float] = None
     amount: Optional[float] = None
     amount_received: Optional[float] = None
     status: Optional[str] = None
     due_date: Optional[str] = None
-    completed_date: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class PaymentCollectionInput(BaseModel):
+    """Input for CRO to collect a payment"""
+    amount_received: float
+    payment_mode: str  # cash, cheque, bank_transfer, upi
+    payment_reference: Optional[str] = None
+    payment_date: Optional[str] = None
+    remarks: Optional[str] = None
 
 
 class AdditionalCostCreate(BaseModel):
