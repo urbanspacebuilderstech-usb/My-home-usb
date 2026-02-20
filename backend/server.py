@@ -2195,12 +2195,45 @@ async def get_projects_for_filter(user: User = Depends(get_current_user)):
     return projects
 
 
+@api_router.post("/projects/{project_id}/link-client")
+async def link_client_to_project(project_id: str, client_user_id: str, user: User = Depends(get_current_user)):
+    """Link a client user to a project for portal access"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRO]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Verify client exists
+    client = await db.users.find_one({"user_id": client_user_id, "role": "client"}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client user not found")
+    
+    # Update project
+    result = await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "client_user_id": client_user_id,
+            "client_email": client.get("email")
+        }}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    await create_audit_log(user.user_id, "link_client", "project", project_id, {"client_user_id": client_user_id})
+    
+    # Notify client
+    await create_notification(client_user_id, f"You now have access to view your project in the Client Portal.")
+    
+    return {"message": "Client linked successfully"}
+
+
 # ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
 
 # Project Update/Delete
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     client_name: Optional[str] = None
+    client_user_id: Optional[str] = None
+    client_email: Optional[str] = None
     location: Optional[str] = None
     total_value: Optional[float] = None
     additional_cost: Optional[float] = None
