@@ -411,6 +411,31 @@ Build a Construction Accounting CRM with:
   - `PATCH /api/payment-stages/{id}/request` - Request payment from CRO
   - `GET /api/cro/payment-requests` - Get all pending requests for CRO
 
+#### ✅ Payment Schedule Full CRUD (P0 - February 20, 2026)
+- [x] **Add Payment Stages**:
+  - Bulk add dialog with multiple rows
+  - Auto-calculation between percentage and amount
+  - Due date field
+  - Planning role can add (previously restricted)
+- [x] **Edit Payment Stages** (NEW):
+  - Edit dialog with form fields (stage name, percentage, amount, due date)
+  - Auto-calculation: enter percentage → amount recalculates, enter amount → percentage recalculates
+  - Edit button visible only for Draft status items
+  - Save Changes updates the payment stage
+- [x] **Delete Payment Stages** (NEW):
+  - Delete button visible only for Draft status items
+  - Confirmation dialog before deletion
+  - Planning role can delete (previously restricted to PM/Admin)
+- [x] **Submit Payment Schedule** (NEW):
+  - "Submit Schedule (N)" button shows count of draft items
+  - Confirmation dialog with summary (count and total amount)
+  - Submits all draft stages, changing status to "Requested"
+  - Notifies CRO users about new payment requests
+- [x] **Backend Endpoints**:
+  - `PATCH /api/payment-stages/{id}` - Edit payment stage (Planning role added)
+  - `DELETE /api/payment-stages/{id}` - Delete payment stage (Planning role added)
+  - `POST /api/projects/{id}/payment-schedule/submit` - Submit all draft stages for collection (NEW)
+
 ---
 
 ## API Endpoints
