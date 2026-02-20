@@ -3262,7 +3262,7 @@ async def create_bulk_payment_stages(
     user: User = Depends(get_current_user)
 ):
     """Create multiple payment stages at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     created_items = []
