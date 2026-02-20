@@ -2692,6 +2692,8 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
         stage_dict = stage.model_dump()
         stage_dict["created_at"] = stage_dict["created_at"].isoformat()
         await db.payment_stages.insert_one(stage_dict)
+        # Exclude _id from response
+        stage_dict.pop("_id", None)
         stages_created.append(stage_dict)
     
     await create_audit_log(user.user_id, "generate_schedule", "payment_schedule", project_id, {"stages": len(stages_created)})
