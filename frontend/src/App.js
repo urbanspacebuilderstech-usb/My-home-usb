@@ -29,6 +29,7 @@ import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
 import SiteEngineerProject from '@/pages/SiteEngineerProject';
 import ProcurementDashboard from '@/pages/ProcurementDashboard';
+import ProcurementBoardV2 from '@/pages/ProcurementBoardV2';
 import PackageManagement from '@/pages/PackageManagement';
 import CROBoard from '@/pages/CROBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
