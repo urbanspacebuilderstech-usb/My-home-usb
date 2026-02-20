@@ -713,6 +713,10 @@ export default function ProjectDetail() {
                 <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Deductions {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
                 </TabsTrigger>
+                <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  Payment Summary
+                </TabsTrigger>
               </TabsList>
             </CardHeader>
 
