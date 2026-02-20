@@ -1131,20 +1131,52 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
-                  <p className="text-sm text-gray-500">Track milestone-based payments</p>
+                  <p className="text-sm text-gray-500">Create and manage milestone-based payments</p>
                 </div>
-                <div className="flex gap-2">
-                  {draftPaymentItems.length > 0 && (
-                    <Button 
-                      variant="outline"
-                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
-                      onClick={() => openVerifyDialog('payment', draftPaymentItems.map(p => p.stage_id))}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />Verify ({draftPaymentItems.length})
-                    </Button>
+                <div className="flex flex-wrap gap-2">
+                  {/* Submit Schedule button - only show if there are draft items */}
+                  {canManage && draftPaymentItems.length > 0 && (
+                    <Dialog open={submitScheduleDialog} onOpenChange={setSubmitScheduleDialog}>
+                      <DialogTrigger asChild>
+                        <Button 
+                          data-testid="submit-schedule-btn"
+                          className="gap-2 bg-green-600 hover:bg-green-700"
+                        >
+                          <Upload className="h-4 w-4" />Submit Schedule ({draftPaymentItems.length})
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Submit Payment Schedule</DialogTitle>
+                          <DialogDescription>
+                            This will submit all {draftPaymentItems.length} draft payment stages for collection.
+                            Once submitted, these stages will be visible to CRO for payment collection.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <p className="text-sm text-blue-700 font-medium">Summary:</p>
+                            <ul className="mt-2 text-sm text-blue-600 space-y-1">
+                              <li>• {draftPaymentItems.length} payment stages will be submitted</li>
+                              <li>• Total amount: ₹{draftPaymentItems.reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString()}</li>
+                            </ul>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setSubmitScheduleDialog(false)}>Cancel</Button>
+                          <Button 
+                            data-testid="confirm-submit-schedule-btn"
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={handleSubmitPaymentSchedule}
+                          >
+                            Submit Schedule
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   )}
                   {isSuperAdmin && pendingApprovalPayment.length > 0 && (
                     <>
@@ -1173,7 +1205,7 @@ export default function ProjectDetail() {
                       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Payment Stages</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped). Project value: ₹{projectData?.summary?.total_value?.toLocaleString() || 0}</DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
@@ -1184,11 +1216,12 @@ export default function ProjectDetail() {
                                 <th className="px-2 py-2 text-left w-20">%</th>
                                 <th className="px-2 py-2 text-left w-28">Amount (₹) *</th>
                                 <th className="px-2 py-2 text-left">Due Date</th>
+                                <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
                               {bulkPaymentRows.map((row, idx) => (
-                                <tr key={idx} className="border-b">
+                                <tr key={idx} className="border-b hover:bg-gray-50">
                                   <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
                                   <td className="px-2 py-1">
                                     <Input 
@@ -1211,8 +1244,8 @@ export default function ProjectDetail() {
                                         const pct = parseFloat(e.target.value) || 0;
                                         newRows[idx].percentage = e.target.value;
                                         // Auto-calculate amount from percentage
-                                        if (projectData?.project?.total_value && pct > 0) {
-                                          newRows[idx].amount = Math.round((projectData.project.total_value * pct) / 100);
+                                        if (projectData?.summary?.total_value && pct > 0) {
+                                          newRows[idx].amount = Math.round((projectData.summary.total_value * pct) / 100);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
@@ -1229,8 +1262,8 @@ export default function ProjectDetail() {
                                         const amt = parseFloat(e.target.value) || 0;
                                         newRows[idx].amount = e.target.value;
                                         // Auto-calculate percentage from amount
-                                        if (projectData?.project?.total_value && amt > 0) {
-                                          newRows[idx].percentage = ((amt / projectData.project.total_value) * 100).toFixed(2);
+                                        if (projectData?.summary?.total_value && amt > 0) {
+                                          newRows[idx].percentage = ((amt / projectData.summary.total_value) * 100).toFixed(2);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
@@ -1250,18 +1283,49 @@ export default function ProjectDetail() {
                                       className="h-8"
                                     />
                                   </td>
+                                  <td className="px-2 py-1">
+                                    {bulkPaymentRows.length > 1 && (
+                                      <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="icon"
+                                        className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                        onClick={() => {
+                                          const newRows = bulkPaymentRows.filter((_, i) => i !== idx);
+                                          setBulkPaymentRows(newRows);
+                                        }}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <Button type="button" variant="outline" onClick={() => setBulkPaymentRows([...bulkPaymentRows, ...createEmptyRows('payment', 5)])}>
-                            + Add More Rows
-                          </Button>
+                        <div className="flex justify-between items-center pt-2">
+                          <div className="flex gap-2">
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setBulkPaymentRows([...bulkPaymentRows, { stage_name: '', percentage: '', amount: '', due_date: '' }])}
+                            >
+                              <Plus className="h-4 w-4 mr-1" /> Add Row
+                            </Button>
+                            <Button 
+                              type="button" 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => setBulkPaymentRows([...bulkPaymentRows, ...createEmptyRows('payment', 5)])}
+                            >
+                              + Add 5 Rows
+                            </Button>
+                          </div>
                           <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setBulkPaymentDialog(false)}>Cancel</Button>
-                            <Button onClick={handleBulkAddPayment}>Submit All</Button>
+                            <Button data-testid="submit-bulk-payment-btn" onClick={handleBulkAddPayment}>Submit All</Button>
                           </div>
                         </div>
                       </DialogContent>
@@ -1269,6 +1333,85 @@ export default function ProjectDetail() {
                   )}
                 </div>
               </div>
+
+              {/* Edit Payment Stage Dialog */}
+              <Dialog open={editPaymentDialog} onOpenChange={setEditPaymentDialog}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Edit Payment Stage</DialogTitle>
+                    <DialogDescription>
+                      Update payment stage details. Enter percentage or amount - the other will auto-calculate.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-stage-name">Stage Name</Label>
+                      <Input
+                        id="edit-stage-name"
+                        data-testid="edit-payment-stage-name"
+                        value={editPaymentForm.stage_name}
+                        onChange={(e) => setEditPaymentForm({ ...editPaymentForm, stage_name: e.target.value })}
+                        placeholder="e.g., Foundation Payment"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-percentage">Percentage (%)</Label>
+                        <Input
+                          id="edit-percentage"
+                          data-testid="edit-payment-percentage"
+                          type="number"
+                          value={editPaymentForm.percentage}
+                          onChange={(e) => {
+                            const pct = parseFloat(e.target.value) || 0;
+                            let newAmount = editPaymentForm.amount;
+                            if (projectData?.summary?.total_value && pct > 0) {
+                              newAmount = Math.round((projectData.summary.total_value * pct) / 100).toString();
+                            }
+                            setEditPaymentForm({ ...editPaymentForm, percentage: e.target.value, amount: newAmount });
+                          }}
+                          placeholder="e.g., 10"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-amount">Amount (₹)</Label>
+                        <Input
+                          id="edit-amount"
+                          data-testid="edit-payment-amount"
+                          type="number"
+                          value={editPaymentForm.amount}
+                          onChange={(e) => {
+                            const amt = parseFloat(e.target.value) || 0;
+                            let newPct = editPaymentForm.percentage;
+                            if (projectData?.summary?.total_value && amt > 0) {
+                              newPct = ((amt / projectData.summary.total_value) * 100).toFixed(2);
+                            }
+                            setEditPaymentForm({ ...editPaymentForm, amount: e.target.value, percentage: newPct });
+                          }}
+                          placeholder="e.g., 100000"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-due-date">Due Date</Label>
+                      <Input
+                        id="edit-due-date"
+                        data-testid="edit-payment-due-date"
+                        type="date"
+                        value={editPaymentForm.due_date}
+                        onChange={(e) => setEditPaymentForm({ ...editPaymentForm, due_date: e.target.value })}
+                      />
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
+                      <p>Project Total Value: <span className="font-semibold">₹{projectData?.summary?.total_value?.toLocaleString() || 0}</span></p>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setEditPaymentDialog(false)}>Cancel</Button>
+                    <Button data-testid="save-payment-edit-btn" onClick={handleSavePaymentEdit}>Save Changes</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <div className="overflow-x-auto">
                 <table className="w-full">
@@ -1294,15 +1437,15 @@ export default function ProjectDetail() {
                     ) : (
                       payment_stages.map((stage, index) => {
                         const balance = stage.amount - (stage.amount_received || 0);
-                        const isEditing = editingPayment === stage.stage_id;
                         const isPaid = balance <= 0;
+                        const isDraft = stage.workflow_status === 'draft';
                         const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
                         const isPartial = stage.amount_received > 0 && balance > 0;
                         
                         // Determine status badge
                         let statusBadge;
                         if (isPaid) {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Done</span>;
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Collected</span>;
                         } else if (isPartial) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partially Collected</span>;
                         } else if (isRequested) {
@@ -1323,17 +1466,7 @@ export default function ProjectDetail() {
                             <td className="px-4 py-3 text-right">{stage.percentage}%</td>
                             <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
                             <td className="px-4 py-3 text-right">
-                              {isEditing ? (
-                                <Input
-                                  type="number"
-                                  className="w-28 text-right"
-                                  defaultValue={stage.amount_received}
-                                  onBlur={(e) => handleUpdatePayment(stage.stage_id, { amount_received: parseFloat(e.target.value) || 0 })}
-                                  autoFocus
-                                />
-                              ) : (
-                                <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
-                              )}
+                              <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
                             </td>
                             <td className="px-4 py-3 text-right">
                               <span className={balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
@@ -1346,8 +1479,9 @@ export default function ProjectDetail() {
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 {/* Request Payment - for Planning/Admin, only if draft and balance > 0 */}
-                                {canManage && stage.workflow_status === 'draft' && balance > 0 && (
+                                {canManage && isDraft && balance > 0 && (
                                   <Button
+                                    data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
                                     size="sm"
                                     className="text-blue-600 border-blue-300 hover:bg-blue-50"
@@ -1360,6 +1494,7 @@ export default function ProjectDetail() {
                                 {/* Request Balance - for partially collected */}
                                 {canManage && isPartial && !isRequested && (
                                   <Button
+                                    data-testid={`req-balance-${stage.stage_id}`}
                                     variant="outline"
                                     size="sm"
                                     className="text-orange-600 border-orange-300 hover:bg-orange-50"
@@ -1369,19 +1504,27 @@ export default function ProjectDetail() {
                                     Req Balance
                                   </Button>
                                 )}
-                                {/* Edit button */}
-                                {canManage && !isPaid && (
+                                {/* Edit button - only for draft items that are not paid */}
+                                {canManage && isDraft && !isPaid && (
                                   <Button
+                                    data-testid={`edit-payment-${stage.stage_id}`}
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => setEditingPayment(isEditing ? null : stage.stage_id)}
+                                    onClick={() => openEditPaymentDialog(stage)}
+                                    title="Edit payment stage"
                                   >
-                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                    <Edit className="h-4 w-4 text-blue-500" />
                                   </Button>
                                 )}
-                                {/* Delete button */}
-                                {canManage && !isPaid && (
-                                  <Button variant="ghost" size="icon" onClick={() => handleDeletePayment(stage.stage_id)}>
+                                {/* Delete button - only for draft items that are not paid */}
+                                {canManage && isDraft && !isPaid && (
+                                  <Button 
+                                    data-testid={`delete-payment-${stage.stage_id}`}
+                                    variant="ghost" 
+                                    size="icon" 
+                                    onClick={() => handleDeletePayment(stage.stage_id)}
+                                    title="Delete payment stage"
+                                  >
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                   </Button>
                                 )}
