@@ -1221,13 +1221,13 @@ export default function ProjectDetail() {
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                      {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {payment_stages.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                           No payment stages defined yet. Click "Add Payments" to define milestones.
                         </td>
                       </tr>
@@ -1235,11 +1235,31 @@ export default function ProjectDetail() {
                       payment_stages.map((stage, index) => {
                         const balance = stage.amount - (stage.amount_received || 0);
                         const isEditing = editingPayment === stage.stage_id;
+                        const isPaid = balance <= 0;
+                        const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
+                        const isPartial = stage.amount_received > 0 && balance > 0;
+                        
+                        // Determine status badge
+                        let statusBadge;
+                        if (isPaid) {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Done</span>;
+                        } else if (isPartial) {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partially Collected</span>;
+                        } else if (isRequested) {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Requested</span>;
+                        } else {
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Draft</span>;
+                        }
                         
                         return (
-                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className="hover:bg-gray-50">
+                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
-                            <td className="px-4 py-3 font-medium">{stage.stage_name}</td>
+                            <td className="px-4 py-3">
+                              <p className="font-medium">{stage.stage_name}</p>
+                              {stage.due_date && (
+                                <p className="text-xs text-gray-500">Due: {new Date(stage.due_date).toLocaleDateString('en-IN')}</p>
+                              )}
+                            </td>
                             <td className="px-4 py-3 text-right">{stage.percentage}%</td>
                             <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
                             <td className="px-4 py-3 text-right">
@@ -1252,20 +1272,45 @@ export default function ProjectDetail() {
                                   autoFocus
                                 />
                               ) : (
-                                <span className="text-green-600">₹{(stage.amount_received || 0).toLocaleString()}</span>
+                                <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-right">
-                              <span className={balance > 0 ? 'text-red-600' : 'text-green-600'}>
+                              <span className={balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
                                 ₹{balance.toLocaleString()}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <WorkflowBadge status={stage.workflow_status || 'draft'} />
+                              {statusBadge}
                             </td>
-                            {canManage && (
-                              <td className="px-4 py-3 text-center">
-                                <div className="flex items-center justify-center gap-1">
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                {/* Request Payment - for Planning/Admin, only if draft and balance > 0 */}
+                                {canManage && stage.workflow_status === 'draft' && balance > 0 && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                    onClick={() => handleRequestPayment(stage.stage_id)}
+                                  >
+                                    <Send className="h-3 w-3 mr-1" />
+                                    Req Payment
+                                  </Button>
+                                )}
+                                {/* Request Balance - for partially collected */}
+                                {canManage && isPartial && !isRequested && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                    onClick={() => handleRequestPayment(stage.stage_id)}
+                                  >
+                                    <Send className="h-3 w-3 mr-1" />
+                                    Req Balance
+                                  </Button>
+                                )}
+                                {/* Edit button */}
+                                {canManage && !isPaid && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -1273,12 +1318,19 @@ export default function ProjectDetail() {
                                   >
                                     {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
                                   </Button>
+                                )}
+                                {/* Delete button */}
+                                {canManage && !isPaid && (
                                   <Button variant="ghost" size="icon" onClick={() => handleDeletePayment(stage.stage_id)}>
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                   </Button>
-                                </div>
-                              </td>
-                            )}
+                                )}
+                                {/* Done badge */}
+                                {isPaid && (
+                                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         );
                       })
