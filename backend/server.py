@@ -6555,11 +6555,47 @@ async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_
 class CROProjectCreateInput(BaseModel):
     name: str
     client_name: str
+    client_phone: Optional[str] = None
+    client_email: Optional[str] = None
     location: str
     sqft: float
     building_type: str
     expected_start_date: str
     package_id: str
+    # Advance payment fields
+    advance_date: Optional[str] = None
+    advance_amount: Optional[float] = 0
+    advance_payment_mode: Optional[str] = None
+    rough_estimate_url: Optional[str] = None
+
+
+# Project stages definition for display
+PROJECT_STAGES = [
+    {"id": "drawing", "name": "Drawing Stage", "order": 1},
+    {"id": "yet_to_start", "name": "Yet to Start", "order": 2},
+    {"id": "foundation", "name": "Foundation", "order": 3},
+    {"id": "basement", "name": "Basement", "order": 4},
+    {"id": "brick_work", "name": "SS - Brick Work", "order": 5},
+    {"id": "plastering", "name": "SS - Plastering", "order": 6},
+    {"id": "finishing", "name": "Finishing", "order": 7},
+    {"id": "handover", "name": "Handover", "order": 8}
+]
+
+
+async def generate_project_code():
+    """Generate project code in format USB010226 (USB + serial + month + year)"""
+    now = datetime.now(timezone.utc)
+    month = now.strftime("%m")
+    year = now.strftime("%y")
+    
+    # Count projects this month to generate serial
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    count = await db.projects.count_documents({
+        "created_at": {"$gte": start_of_month.isoformat()}
+    })
+    serial = str(count + 1).zfill(2)
+    
+    return f"USB{serial}{month}{year}"
 
 
 @api_router.get("/cro/dashboard")
@@ -6569,27 +6605,65 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only CRO can access this")
     
     # Get counts by status
-    draft_count = await db.projects.count_documents({"status": "draft", "created_by": user.user_id})
-    planning_review_count = await db.projects.count_documents({"status": "planning_review"})
-    awaiting_approval_count = await db.projects.count_documents({"status": "awaiting_approval"})
-    approved_count = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active"]}})
+    base_query = {"created_by": user.user_id} if user.role == UserRole.CRO else {}
+    draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
+    planning_review_count = await db.projects.count_documents({**base_query, "status": "planning_review"})
+    awaiting_approval_count = await db.projects.count_documents({**base_query, "status": "awaiting_approval"})
+    approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active"]}})
+    
+    # Total ongoing projects
+    total_ongoing = await db.projects.count_documents({
+        **base_query,
+        "status": {"$nin": ["draft", "completed", "cancelled"]}
+    })
+    
+    # Total project value
+    total_value_agg = await db.projects.aggregate([
+        {"$match": base_query},
+        {"$group": {"_id": None, "total": {"$sum": "$total_value"}}}
+    ]).to_list(1)
+    total_project_value = total_value_agg[0]["total"] if total_value_agg else 0
     
     # Get recent projects created by CRO
     recent_projects = await db.projects.find(
-        {"created_by": user.user_id} if user.role == UserRole.CRO else {},
+        base_query,
         {"_id": 0}
-    ).sort("created_at", -1).limit(10).to_list(10)
+    ).sort("created_at", -1).limit(20).to_list(20)
     
-    # Get active packages
-    packages = await db.packages.find({"is_active": True}, {"_id": 0, "package_id": 1, "name": 1, "code": 1}).to_list(10)
+    # Count projects by stage
+    stage_counts = {}
+    for stage in PROJECT_STAGES:
+        count = await db.projects.count_documents({
+            **base_query,
+            "current_stage": stage["id"],
+            "status": {"$nin": ["draft", "completed", "cancelled"]}
+        })
+        stage_counts[stage["id"]] = count
+    
+    # Get active packages with base_rate_per_sqft
+    packages = await db.packages.find(
+        {"is_active": True}, 
+        {"_id": 0, "package_id": 1, "name": 1, "code": 1, "base_rate_per_sqft": 1, "description": 1}
+    ).to_list(10)
+    
+    # Payments to collect (projects with pending payment milestones)
+    payments_to_collect = await db.projects.find(
+        {**base_query, "payments_to_collect": {"$exists": True, "$ne": []}},
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "payments_to_collect": 1}
+    ).to_list(50)
     
     return {
         "draft_count": draft_count,
         "planning_review_count": planning_review_count,
         "awaiting_approval_count": awaiting_approval_count,
         "approved_count": approved_count,
+        "total_ongoing": total_ongoing,
+        "total_project_value": total_project_value,
         "recent_projects": recent_projects,
-        "packages": packages
+        "packages": packages,
+        "project_stages": PROJECT_STAGES,
+        "stage_counts": stage_counts,
+        "payments_to_collect": payments_to_collect
     }
 
 
