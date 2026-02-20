@@ -91,6 +91,7 @@ function AppRouter() {
       <Route path="/accountant-dashboard" element={<ProtectedRoute><AccountantDashboard /></ProtectedRoute>} />
       <Route path="/hr-portal" element={<ProtectedRoute><HRPortal /></ProtectedRoute>} />
       <Route path="/cheque-management" element={<ProtectedRoute><ChequeManagement /></ProtectedRoute>} />
+      <Route path="/payment-processing" element={<ProtectedRoute><PaymentProcessing /></ProtectedRoute>} />
       <Route path="/work-order-management" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
       <Route path="/labour-contractors" element={<ProtectedRoute><LabourContractorManagement /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
