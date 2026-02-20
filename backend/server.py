@@ -6691,16 +6691,27 @@ async def cro_create_project(project_input: CROProjectCreateInput, user: User = 
     except:
         start_date = datetime.now(timezone.utc)
     
-    # Create project
+    # Generate project code
+    project_code = await generate_project_code()
+    
+    # Create project with new fields
     project = Project(
+        project_code=project_code,
         name=project_input.name,
         client_name=project_input.client_name,
+        client_phone=project_input.client_phone,
+        client_email=project_input.client_email,
         location=project_input.location,
         sqft=project_input.sqft,
         building_type=project_input.building_type,
         package_id=project_input.package_id,
         package_name=package.get("name"),
         total_value=total_value,
+        current_stage="yet_to_start",
+        advance_date=project_input.advance_date,
+        advance_amount=project_input.advance_amount or 0,
+        advance_payment_mode=project_input.advance_payment_mode,
+        rough_estimate_url=project_input.rough_estimate_url,
         start_date=start_date,
         expected_completion=start_date + timedelta(days=365),
         status=ProjectStatus.DRAFT,
