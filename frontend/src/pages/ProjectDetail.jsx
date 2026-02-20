@@ -394,8 +394,10 @@ export default function ProjectDetail() {
   };
 
   const canDeleteProject = user?.role === 'super_admin' || 
-    (user?.role === 'planning' && ['in_planning', 'draft', 'pending'].includes(projectData?.project?.status?.toLowerCase()) ||
-     ['in_planning', 'draft', 'pending'].includes(projectData?.project?.project_stage?.toLowerCase()));
+    (user?.role === 'planning' && (
+      ['in_planning', 'draft', 'pending', 'planning'].includes(projectData?.project?.status?.toLowerCase()) ||
+      ['in_planning', 'draft', 'pending', 'planning'].includes(projectData?.project?.project_stage?.toLowerCase())
+    ));
 
   const formatCurrency = (amount) => {
     if (amount >= 100000) {
