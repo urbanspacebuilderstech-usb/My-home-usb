@@ -692,6 +692,90 @@ Build a Construction Accounting CRM with:
   - `GET /api/procurement/reports/vendor-spend`
   - `GET /api/procurement/reports/material-spend`
 
+### Comprehensive Accountant Board (February 20, 2026) - NEW
+- [x] **Accountant Dashboard** (`/accountant-dashboard`):
+  - Total Income, Total Expense, Net Profit, Pending Requests summary cards
+  - Income by Payment Method breakdown (Cash, Cheque, Bank Transfer, UPI, Credit Card)
+  - HR & Payroll summary (Total Staff, Pending Payroll)
+  - Cheque Management summary (Pending Cheques, Bounced)
+  - Project-wise Income & Expense table with profit margins
+  - Quick action buttons: Record Income, View Expenses, Process Payroll, Pending Approvals
+  - Navigation to OTP Payments, Approvals, HR, Cheques
+
+- [x] **HR Portal** (`/hr-portal`):
+  - **Staff Management Tab**:
+    - Staff Directory with search and department filters
+    - Add/Edit Staff dialog with complete details:
+      - Basic: Name, Email, Phone, Department, Designation, Date of Joining
+      - Salary: Basic Salary, HRA, DA, TA, Other Allowances
+      - Deductions: PF, ESI, Professional Tax, TDS, Other Deductions
+      - Bank: Bank Name, Account Number, IFSC Code, Payment Method
+    - Auto-calculated Gross Salary, Total Deductions, Net Salary
+    - Employee code auto-generation (EMP0001, EMP0002, etc.)
+  - **Payroll Tab**:
+    - Generate Payroll for any month/year
+    - Attendance-based pro-rata salary calculation
+    - Overtime pay calculation (1.5x rate)
+    - Approval workflow: Draft → Approved → Paid
+    - Bulk pay all approved payrolls for a month
+    - Transaction ID recording after payment
+
+- [x] **Cheque Management** (`/cheque-management`):
+  - Summary cards: Total, Incoming, Outgoing, Pending (with amount), Bounced (with amount), Cleared
+  - Filter tabs: All, Incoming, Outgoing, Pending, Bounced
+  - Search cheques by number, party name, bank
+  - **Add Cheque Dialog**:
+    - Cheque Details: Number, Amount, Date, Type (Incoming/Outgoing)
+    - Bank Details: Bank Name, Branch, Account Number, IFSC
+    - Party & Project: Party Name, Party Type (Client/Vendor), Project (optional)
+    - Post-Dated Cheque option with reminder date
+    - Remarks
+  - **Update Cheque Status**:
+    - Statuses: Issued, Deposited, Cleared, Bounced, Cancelled, Post-Dated
+    - Deposit Date, Clearance Date tracking
+    - Bounce Reason and Bounce Charges
+  - **Post-Dated Cheque Reminders**:
+    - Alert card for cheques due within 7 days
+    - Displays details: Number, Party, Amount, Due Date
+
+- [x] **Payment Processing** (`/payment-processing`) - OTP-Verified Payments:
+  - Summary cards: Awaiting OTP, OTP Verified, Completed, Total Processed
+  - Payment Requests table with status tracking
+  - **New Payment Flow**:
+    1. Initiate: Enter Payment Type, Party Name, Amount, Email/Phone
+    2. OTP Sent: System generates 6-digit OTP (Mock mode shows on screen)
+    3. Verify: Enter OTP to verify payment
+    4. Complete: Enter Transaction ID, Payment Method, Remarks
+  - **Payment Types**: Vendor Payment, Contractor Payment, Material Payment, Salary, Other
+  - **Mock OTP**: When no email configured, OTP displays on screen for testing
+  - **Email OTP**: Ready for Resend integration (needs API key)
+
+- [x] **Backend Models**:
+  - `Transaction` - Unified transaction tracking (income/expense/salary/vendor)
+  - `ChequeRecord` - Comprehensive cheque management
+  - `Staff` - Employee details with full salary structure
+  - `Attendance` - Daily attendance tracking
+  - `Payroll` - Monthly payroll with attendance-based calculation
+  - `PaymentVerification` - OTP-based payment verification
+
+- [x] **Backend API Endpoints**:
+  - **Dashboard**: `GET /api/accountant/comprehensive-dashboard`
+  - **Project Financials**: `GET /api/accountant/project-financials/{project_id}`
+  - **Transactions**: `GET/POST/DELETE /api/accountant/transactions`
+  - **Cheques**: `GET/POST /api/accountant/cheques`, `PATCH /{id}/status`, `GET /reminders`
+  - **Staff**: `GET/POST/PATCH/DELETE /api/hr/staff/{id}`
+  - **Attendance**: `GET/POST /api/hr/attendance`, `POST /bulk`
+  - **Payroll**: `GET/POST /api/hr/payroll`, `PATCH /{id}/approve`, `PATCH /{id}/pay`, `POST /bulk-pay`
+  - **Payment Verification**: `POST /api/accountant/payment-request/initiate`, `/verify-otp`, `/complete`, `GET /payment-requests`
+
+- [x] **Frontend Pages**:
+  - `/app/frontend/src/pages/AccountantDashboard.jsx`
+  - `/app/frontend/src/pages/HRPortal.jsx`
+  - `/app/frontend/src/pages/ChequeManagement.jsx`
+  - `/app/frontend/src/pages/PaymentProcessing.jsx`
+
+- [x] **Testing**: 100% frontend test success rate (iteration_12.json)
+
 ---
 
 ## File Structure
