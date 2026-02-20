@@ -2654,6 +2654,43 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
     return {"message": "Payment stage deleted"}
 
 
+@api_router.patch("/payment-stages/{stage_id}/request")
+async def request_payment(stage_id: str, user: User = Depends(get_current_user)):
+    """Planning/PM requests payment from CRO - updates workflow_status to 'requested'"""
+    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can request payments")
+    
+    stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+    
+    project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
+    
+    # Update workflow status to requested
+    await db.payment_stages.update_one(
+        {"stage_id": stage_id},
+        {"$set": {
+            "workflow_status": "requested",
+            "requested_by": user.user_id,
+            "requested_by_name": user.name,
+            "requested_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify all CRO users about the payment request
+    cro_users = await db.users.find({"role": "cro"}, {"_id": 0, "user_id": 1}).to_list(10)
+    balance = stage.get("amount", 0) - stage.get("amount_received", 0)
+    for cro in cro_users:
+        await create_notification(
+            cro["user_id"],
+            f"Payment Request: ₹{balance:,.0f} for {project.get('name', 'Project')} - {stage.get('stage_name', 'Stage')}"
+        )
+    
+    await create_audit_log(user.user_id, "request_payment", "payment_stage", stage_id, {"amount": balance})
+    
+    return {"message": "Payment request sent to CRO", "stage_id": stage_id}
+
+
 # ==================== PAYMENT SCHEDULE MANAGEMENT ====================
 
 @api_router.post("/projects/{project_id}/payment-schedule/generate")
