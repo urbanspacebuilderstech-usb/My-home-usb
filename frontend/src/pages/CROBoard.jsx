@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { 
   Building2, LogOut, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
-  Phone, Mail, Upload, Bell, CreditCard, Search
+  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -69,7 +69,7 @@ export default function CROBoard() {
     building_type: 'residential',
     expected_start_date: new Date().toISOString().split('T')[0],
     package_id: '',
-    advance_date: '',
+    advance_date: new Date().toISOString().split('T')[0],
     advance_amount: '',
     advance_payment_mode: '',
     rough_estimate_url: ''
@@ -111,9 +111,9 @@ export default function CROBoard() {
     }
   };
 
-  const fetchProjectsByStatus = async (status) => {
+  const fetchProjectsByStatus = async (statuses) => {
     try {
-      const res = await axios.get(`${API}/projects?status=${status}`);
+      const res = await axios.get(`${API}/cro/projects/all?status=${statuses}`);
       setProjects(res.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -124,7 +124,7 @@ export default function CROBoard() {
     try {
       let url = `${API}/cro/projects/all?`;
       if (filters.status) url += `status=${filters.status}&`;
-      if (filters.stage) url += `stage=${filters.stage}&`;
+      if (filters.stage && filters.stage !== 'all') url += `stage=${filters.stage}&`;
       if (filters.dateFrom) url += `date_from=${filters.dateFrom}&`;
       if (filters.dateTo) url += `date_to=${filters.dateTo}&`;
       
@@ -151,8 +151,12 @@ export default function CROBoard() {
     setActiveTab(tab);
     if (tab === 'draft') {
       fetchProjectsByStatus('draft');
-    } else if (tab === 'review') {
-      fetchProjectsByStatus('planning_review');
+    } else if (tab === 'pending_payment') {
+      fetchProjectsByStatus('pending_payment');
+    } else if (tab === 'payment_received') {
+      fetchProjectsByStatus('payment_verified');
+    } else if (tab === 'in_planning') {
+      fetchProjectsByStatus('planning_review,awaiting_approval');
     } else if (tab === 'approved') {
       fetchProjectsByStatus('planning_approved,active');
     }
@@ -174,6 +178,11 @@ export default function CROBoard() {
       return;
     }
 
+    if (!form.advance_amount || parseFloat(form.advance_amount) <= 0) {
+      toast.error('Advance payment amount is required');
+      return;
+    }
+
     try {
       const res = await axios.post(`${API}/cro/projects`, {
         ...form,
@@ -189,13 +198,23 @@ export default function CROBoard() {
     }
   };
 
-  const handleSubmitProject = async (projectId) => {
+  const handleSubmitForPayment = async (projectId) => {
     try {
       await axios.patch(`${API}/cro/projects/${projectId}/submit`);
-      toast.success('Project submitted for planning review');
+      toast.success('Project submitted for payment verification');
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit project');
+    }
+  };
+
+  const handleSubmitToPlanning = async (projectId) => {
+    try {
+      await axios.patch(`${API}/cro/projects/${projectId}/submit-to-planning`);
+      toast.success('Project submitted to Planning Department');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to submit to Planning');
     }
   };
 
@@ -210,7 +229,7 @@ export default function CROBoard() {
       building_type: 'residential',
       expected_start_date: new Date().toISOString().split('T')[0],
       package_id: '',
-      advance_date: '',
+      advance_date: new Date().toISOString().split('T')[0],
       advance_amount: '',
       advance_payment_mode: '',
       rough_estimate_url: ''
@@ -234,7 +253,9 @@ export default function CROBoard() {
   const getStatusBadge = (status) => {
     const config = {
       draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
-      planning_review: { label: 'In Review', className: 'bg-blue-100 text-blue-700' },
+      pending_payment: { label: 'Payment Pending', className: 'bg-orange-100 text-orange-700' },
+      payment_verified: { label: 'Payment Received', className: 'bg-emerald-100 text-emerald-700' },
+      planning_review: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
       awaiting_approval: { label: 'Awaiting Approval', className: 'bg-yellow-100 text-yellow-700' },
       gm_approved: { label: 'GM Approved', className: 'bg-purple-100 text-purple-700' },
       planning_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
@@ -247,6 +268,35 @@ export default function CROBoard() {
   const getStageBadge = (stage) => {
     const stageInfo = projectStages.find(s => s.id === stage);
     return stageInfo ? stageInfo.name : stage || 'Yet to Start';
+  };
+
+  const getActionButton = (project) => {
+    switch (project.status) {
+      case 'draft':
+        return (
+          <Button size="sm" className="gap-1 bg-orange-500 hover:bg-orange-600" onClick={() => handleSubmitForPayment(project.project_id)} data-testid={`submit-payment-btn-${project.project_id}`}>
+            <CreditCard className="h-3 w-3" /> Submit for Verification
+          </Button>
+        );
+      case 'pending_payment':
+        return (
+          <Badge variant="outline" className="text-orange-600 border-orange-300">
+            <Clock className="h-3 w-3 mr-1" /> Awaiting Accountant
+          </Badge>
+        );
+      case 'payment_verified':
+        return (
+          <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
+            <Send className="h-3 w-3" /> Send to Planning
+          </Button>
+        );
+      default:
+        return (
+          <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
+            <Eye className="h-3 w-3 mr-1" /> View
+          </Button>
+        );
+    }
   };
 
   if (loading) {
@@ -286,8 +336,8 @@ export default function CROBoard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Dashboard Metrics Row 1 */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4">
+        {/* Dashboard Metrics Row 1 - Status Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-4">
           <Card className="bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('draft')} data-testid="draft-card">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-gray-600 mb-1">
@@ -298,23 +348,33 @@ export default function CROBoard() {
             </CardContent>
           </Card>
           
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('review')} data-testid="review-card">
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('pending_payment')} data-testid="pending-payment-card">
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">In Review</span>
+              <div className="flex items-center gap-2 text-orange-600 mb-1">
+                <CreditCard className="h-4 w-4" />
+                <span className="text-xs sm:text-sm">Pending Payment</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.planning_review_count || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-orange-700">{dashboard.pending_payment_count || 0}</p>
             </CardContent>
           </Card>
           
-          <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100" data-testid="awaiting-card">
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('payment_received')} data-testid="payment-received-card">
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-yellow-600 mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Awaiting</span>
+              <div className="flex items-center gap-2 text-emerald-600 mb-1">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-xs sm:text-sm">Payment Received</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-yellow-700">{dashboard.awaiting_approval_count || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-emerald-700">{dashboard.payment_verified_count || 0}</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('in_planning')} data-testid="planning-card">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-blue-600 mb-1">
+                <Clock className="h-4 w-4" />
+                <span className="text-xs sm:text-sm">In Planning</span>
+              </div>
+              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.planning_review_count || 0}</p>
             </CardContent>
           </Card>
           
@@ -328,6 +388,23 @@ export default function CROBoard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Workflow Info Banner */}
+        <Card className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
+              <Badge variant="outline" className="bg-gray-100">Draft</Badge>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+              <Badge variant="outline" className="bg-orange-100 text-orange-700">Submit for Payment</Badge>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+              <Badge variant="outline" className="bg-purple-100 text-purple-700">Accountant Verifies</Badge>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+              <Badge variant="outline" className="bg-emerald-100 text-emerald-700">Payment Received</Badge>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+              <Badge variant="outline" className="bg-blue-100 text-blue-700">Send to Planning</Badge>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Dashboard Section - Total Ongoing & Value */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
@@ -435,7 +512,7 @@ export default function CROBoard() {
                 </div>
                 <div>
                   <Label className="text-xs">Stage</Label>
-                  <Select value={filters.stage || "all"} onValueChange={(v) => setFilters({ ...filters, stage: v === "all" ? "" : v })}>
+                  <Select value={filters.stage || 'all'} onValueChange={(v) => setFilters({ ...filters, stage: v === 'all' ? '' : v })}>
                     <SelectTrigger data-testid="filter-stage">
                       <SelectValue placeholder="All Stages" />
                     </SelectTrigger>
@@ -460,14 +537,20 @@ export default function CROBoard() {
         <Card>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b p-3 sm:p-4">
-              <TabsList className="bg-transparent p-0">
-                <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none" data-testid="tab-draft">
+              <TabsList className="bg-transparent p-0 flex-wrap">
+                <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm" data-testid="tab-draft">
                   Draft
                 </TabsTrigger>
-                <TabsTrigger value="review" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-review">
-                  In Review
+                <TabsTrigger value="pending_payment" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none text-xs sm:text-sm" data-testid="tab-pending-payment">
+                  Pending Payment
                 </TabsTrigger>
-                <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none" data-testid="tab-approved">
+                <TabsTrigger value="payment_received" className="data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 rounded-none text-xs sm:text-sm" data-testid="tab-payment-received">
+                  Payment Received
+                </TabsTrigger>
+                <TabsTrigger value="in_planning" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-xs sm:text-sm" data-testid="tab-planning">
+                  In Planning
+                </TabsTrigger>
+                <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm" data-testid="tab-approved">
                   Approved
                 </TabsTrigger>
               </TabsList>
@@ -501,16 +584,8 @@ export default function CROBoard() {
                           {formatCurrency(project.total_value)}
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        {project.status === 'draft' ? (
-                          <Button size="sm" className="flex-1 gap-2 bg-yellow-500 hover:bg-yellow-600" onClick={() => handleSubmitProject(project.project_id)} data-testid={`submit-btn-${project.project_id}`}>
-                            <Send className="h-3 w-3" /> Submit
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" className="flex-1" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
-                            <Eye className="h-3 w-3 mr-1" /> View
-                          </Button>
-                        )}
+                      <div className="flex justify-end">
+                        {getActionButton(project)}
                       </div>
                     </div>
                   ))
@@ -555,15 +630,7 @@ export default function CROBoard() {
                           </td>
                           <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
                           <td className="px-4 py-3 text-center">
-                            {project.status === 'draft' ? (
-                              <Button size="sm" className="gap-1 bg-yellow-500 hover:bg-yellow-600" onClick={() => handleSubmitProject(project.project_id)} data-testid={`submit-btn-${project.project_id}`}>
-                                <Send className="h-3 w-3" /> Submit
-                              </Button>
-                            ) : (
-                              <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
-                                <Eye className="h-3 w-3 mr-1" /> View
-                              </Button>
-                            )}
+                            {getActionButton(project)}
                           </td>
                         </tr>
                       ))
@@ -704,17 +771,18 @@ export default function CROBoard() {
               </div>
             </div>
 
-            {/* Advance Payment Section */}
+            {/* Advance Payment Section - Required */}
             <Card className="bg-amber-50 border-amber-200">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" /> Advance Payment Details
+                  <CreditCard className="h-4 w-4" /> Advance Payment Details *
+                  <Badge variant="destructive" className="text-xs">Required</Badge>
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <Label className="text-xs">Date of Advance Received</Label>
+                    <Label className="text-xs">Date of Advance Received *</Label>
                     <Input 
                       type="date"
                       value={form.advance_date}
@@ -723,7 +791,7 @@ export default function CROBoard() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Advance Amount</Label>
+                    <Label className="text-xs">Advance Amount *</Label>
                     <Input 
                       type="number"
                       value={form.advance_amount}
@@ -733,7 +801,7 @@ export default function CROBoard() {
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Payment Mode</Label>
+                    <Label className="text-xs">Payment Mode *</Label>
                     <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v })}>
                       <SelectTrigger data-testid="select-payment-mode">
                         <SelectValue placeholder="Select mode" />
