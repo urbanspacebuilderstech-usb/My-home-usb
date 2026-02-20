@@ -436,6 +436,30 @@ Build a Construction Accounting CRM with:
   - `DELETE /api/payment-stages/{id}` - Delete payment stage (Planning role added)
   - `POST /api/projects/{id}/payment-schedule/submit` - Submit all draft stages for collection (NEW)
 
+#### ✅ Client Portal & Share as PDF (February 20, 2026)
+- [x] **Enhanced Client Portal**:
+  - "My Projects" list showing all projects linked to client user
+  - Full project detail view with tabbed interface
+  - Tabs: Overview, Payment Schedule, Scope of Work, Photos, Documents
+  - Construction stage progress visualization
+  - Financial summary cards (Project Value, Received, Balance, Progress)
+- [x] **Share as PDF**:
+  - "Share as PDF" button in Client Portal (uses browser print)
+  - "Share as PDF" button in Admin Project Detail view
+  - Print-optimized CSS for professional PDF output
+- [x] **Client Access Control**:
+  - Automatic access to linked projects (no manual sharing needed)
+  - Excludes: Work Orders, Expenses, Internal Notes
+  - Shows only verified/approved scope items
+- [x] **Demo Client Setup**:
+  - Mr. Mohan (mohan@client.com) linked to "Mohan Home" project
+  - Quick access button on login page
+  - Auto-redirect to client portal on login
+- [x] **Backend Endpoints**:
+  - `GET /api/client-portal/my-projects` - Get all projects for client
+  - `GET /api/client-portal/project/{id}` - Get full project details
+  - `POST /api/projects/{id}/link-client` - Link client user to project
+
 ---
 
 ## API Endpoints
