@@ -7072,6 +7072,130 @@ async def planning_submit_for_approval(project_id: str, user: User = Depends(get
     return {"message": "Project submitted for approval"}
 
 
+# ==================== PROJECT CONSTRUCTION STAGES ENDPOINTS ====================
+
+@api_router.get("/planning/stage-dashboard")
+async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
+    """Get planning dashboard with project stages - Tab view like CRO Board"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    
+    # Count projects by construction stage (only working/active projects)
+    stage_counts = {}
+    for stage in PROJECT_STAGES:
+        count = await db.projects.count_documents({
+            "current_stage": stage["id"],
+            "status": {"$in": ["planning_review", "planning_approved", "active", "gm_approved"]}
+        })
+        stage_counts[stage["id"]] = count
+    
+    # Count by workflow status
+    new_projects = await db.projects.count_documents({"status": "planning_review"})
+    awaiting_approval = await db.projects.count_documents({"status": "awaiting_approval"})
+    working_projects = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active", "gm_approved"]}})
+    completed_projects = await db.projects.count_documents({"status": "completed"})
+    
+    # Pending requests
+    pending_material_requests = await db.material_requests.count_documents({"status": "requested"})
+    pending_labour_requests = await db.labour_expenses.count_documents({"status": "requested"})
+    
+    return {
+        "new_projects": new_projects,
+        "awaiting_approval": awaiting_approval,
+        "working_projects": working_projects,
+        "completed_projects": completed_projects,
+        "pending_material_requests": pending_material_requests,
+        "pending_labour_requests": pending_labour_requests,
+        "stage_counts": stage_counts,
+        "stages": PROJECT_STAGES
+    }
+
+
+@api_router.get("/planning/projects-by-stage")
+async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get projects filtered by construction stage"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    
+    query = {"status": {"$in": ["planning_review", "planning_approved", "active", "gm_approved"]}}
+    
+    if stage and stage != "all":
+        query["current_stage"] = stage
+    
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return projects
+
+
+@api_router.patch("/planning/projects/{project_id}/update-stage")
+async def update_project_stage(project_id: str, stage: str, user: User = Depends(get_current_user)):
+    """Update project construction stage - Planning can move projects through stages"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can update project stage")
+    
+    # Validate stage
+    valid_stages = [s["id"] for s in PROJECT_STAGES]
+    if stage not in valid_stages:
+        raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {valid_stages}")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    old_stage = project.get("current_stage", "yet_to_start")
+    
+    # Add to stage history
+    stage_change = {
+        "from_stage": old_stage,
+        "to_stage": stage,
+        "changed_by": user.user_id,
+        "changed_by_name": user.name,
+        "changed_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {"current_stage": stage},
+            "$push": {"stage_history": stage_change}
+        }
+    )
+    
+    # Create audit log
+    await create_audit_log(user.user_id, "update_stage", "project", project_id, {
+        "from": old_stage,
+        "to": stage
+    })
+    
+    # Get stage name for notification
+    stage_name = next((s["name"] for s in PROJECT_STAGES if s["id"] == stage), stage)
+    
+    return {
+        "message": f"Project stage updated to {stage_name}",
+        "project_id": project_id,
+        "new_stage": stage,
+        "stage_name": stage_name
+    }
+
+
+@api_router.get("/planning/projects/{project_id}/stage-history")
+async def get_project_stage_history(project_id: str, user: User = Depends(get_current_user)):
+    """Get project stage change history"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    return {
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "current_stage": project.get("current_stage", "yet_to_start"),
+        "stage_history": project.get("stage_history", []),
+        "stages": PROJECT_STAGES
+    }
+
+
 # ==================== GM / SUPER ADMIN APPROVAL ENDPOINTS ====================
 
 @api_router.get("/approvals/projects")
