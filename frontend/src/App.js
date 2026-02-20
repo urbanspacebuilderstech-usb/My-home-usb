@@ -28,6 +28,7 @@ import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
 import SiteEngineerProject from '@/pages/SiteEngineerProject';
+import MaterialReceipt from '@/pages/MaterialReceipt';
 import ProcurementDashboard from '@/pages/ProcurementDashboard';
 import ProcurementBoardV2 from '@/pages/ProcurementBoardV2';
 import PackageManagement from '@/pages/PackageManagement';
