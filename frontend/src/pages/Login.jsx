@@ -119,7 +119,7 @@ export default function Login() {
                 { label: 'Super Admin', email: 'admin@constructionos.com' },
                 { label: 'Accountant', email: 'accountant@constructionos.com' },
                 { label: 'PM', email: 'pm@constructionos.com' },
-                { label: 'Client', email: 'raj@client.com' },
+                { label: 'Client (Mohan)', email: 'mohan@client.com' },
               ].map((quick) => (
                 <Button
                   key={quick.email}
