@@ -6918,6 +6918,727 @@ async def quick_add_vendor(vendor_input: NewVendorInput, user: User = Depends(ge
     return {"vendor_id": vendor_id, "name": vendor_input.name, "message": "Vendor added"}
 
 
+# ==================== ENHANCED PROCUREMENT FLOW ====================
+
+class VendorSelectionInput(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_rate: float
+    transport_cost: float = 0
+    discount: float = 0
+    payment_type: str  # advance, partial, credit
+    advance_amount: Optional[float] = None  # For partial payment
+    expected_delivery: Optional[str] = None
+
+
+class PaymentApprovalInput(BaseModel):
+    action: str  # approve, reject
+    payment_reference: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class DispatchInput(BaseModel):
+    vehicle_number: str
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    estimated_arrival: Optional[str] = None
+
+
+class ReceiptInput(BaseModel):
+    received_qty: float
+    gps_lat: float
+    gps_lng: float
+    photo_id: Optional[str] = None
+    otp: str
+    remarks: Optional[str] = None
+
+
+@api_router.post("/procurement/v2/select-vendor/{request_id}")
+async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: User = Depends(get_current_user)):
+    """Procurement selects vendor and pricing for material request"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can select vendors")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Request must be planning approved first")
+    
+    # Get vendor details
+    vendor = await db.vendor_master.find_one({"vendor_id": data.vendor_id}, {"_id": 0})
+    
+    # Calculate total
+    quantity = request.get("quantity", 0)
+    total_amount = (data.unit_rate * quantity) + data.transport_cost - data.discount
+    
+    # Determine status based on payment type
+    if data.payment_type == "credit":
+        new_status = "vendor_selected"  # Can generate PO directly for credit
+    else:
+        new_status = "waiting_payment"  # Needs accounts approval
+    
+    update_data = {
+        "vendor_id": data.vendor_id,
+        "vendor_name": data.vendor_name,
+        "unit_rate": data.unit_rate,
+        "transport_cost": data.transport_cost,
+        "discount": data.discount,
+        "total_amount": total_amount,
+        "payment_type": data.payment_type,
+        "advance_amount": data.advance_amount if data.payment_type == "partial" else (total_amount if data.payment_type == "advance" else 0),
+        "balance_amount": total_amount - (data.advance_amount or 0) if data.payment_type == "partial" else (0 if data.payment_type == "advance" else total_amount),
+        "expected_delivery": data.expected_delivery,
+        "status": new_status,
+        "procurement_approved_by": user.user_id,
+        "procurement_approved_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": update_data}
+    )
+    
+    # Notify accounts if payment required
+    if data.payment_type in ["advance", "partial"]:
+        accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for acc in accountants:
+            await create_notification(
+                acc["user_id"],
+                f"Payment approval needed: {request.get('material_name')} - ₹{total_amount:,.0f} ({data.payment_type})"
+            )
+    
+    return {"message": "Vendor selected", "status": new_status, "total_amount": total_amount}
+
+
+@api_router.patch("/procurement/v2/accounts-approval/{request_id}")
+async def accounts_approval_v2(request_id: str, data: PaymentApprovalInput, user: User = Depends(get_current_user)):
+    """Accounts approves or rejects payment for material request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve payments")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "waiting_payment":
+        raise HTTPException(status_code=400, detail="Request is not waiting for payment approval")
+    
+    if data.action == "approve":
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "payment_approved",
+                "accountant_approved_by": user.user_id,
+                "accountant_approved_at": datetime.now(timezone.utc).isoformat(),
+                "payment_reference": data.payment_reference
+            }}
+        )
+        
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for pu in proc_users:
+            await create_notification(pu["user_id"], f"Payment approved for {request.get('material_name')}. Ready for PO generation.")
+        
+        return {"message": "Payment approved", "status": "payment_approved"}
+    else:
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "rejected",
+                "rejection_reason": data.remarks,
+                "rejected_by": user.user_id
+            }}
+        )
+        return {"message": "Payment rejected", "status": "rejected"}
+
+
+@api_router.post("/procurement/v2/generate-po/{request_id}")
+async def generate_purchase_order_v2(request_id: str, user: User = Depends(get_current_user)):
+    """Generate Purchase Order after payment approval (or directly for credit)"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can generate PO")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Allow PO generation for payment_approved or vendor_selected (credit)
+    if request.get("status") not in ["payment_approved", "vendor_selected"]:
+        raise HTTPException(status_code=400, detail="Payment must be approved first (or credit selected)")
+    
+    if request.get("payment_type") not in ["credit"] and request.get("status") != "payment_approved":
+        raise HTTPException(status_code=400, detail="Payment must be approved for advance/partial payments")
+    
+    # Get project and vendor details
+    project = await db.projects.find_one({"project_id": request.get("project_id")}, {"_id": 0, "name": 1, "location": 1})
+    vendor = await db.vendor_master.find_one({"vendor_id": request.get("vendor_id")}, {"_id": 0})
+    
+    # Generate PO
+    po_id = f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    po_number = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    po_doc = {
+        "po_id": po_id,
+        "po_number": po_number,
+        "request_id": request_id,
+        "order_id": request.get("order_id"),
+        "project_id": request.get("project_id"),
+        "project_name": project.get("name") if project else "",
+        "vendor_id": request.get("vendor_id"),
+        "vendor_name": request.get("vendor_name"),
+        "vendor_phone": vendor.get("phone") if vendor else "",
+        "vendor_address": vendor.get("address") if vendor else "",
+        "material_name": request.get("material_name"),
+        "quantity": request.get("quantity"),
+        "unit": request.get("unit"),
+        "unit_rate": request.get("unit_rate"),
+        "transport_cost": request.get("transport_cost", 0),
+        "discount": request.get("discount", 0),
+        "total_amount": request.get("total_amount"),
+        "payment_type": request.get("payment_type"),
+        "advance_paid": request.get("advance_amount", 0),
+        "balance_due": request.get("balance_amount", 0),
+        "delivery_address": project.get("location") if project else "",
+        "expected_delivery": request.get("expected_delivery"),
+        "status": "generated",
+        "generated_by": user.user_id,
+        "generated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.purchase_orders_v2.insert_one(po_doc)
+    
+    # Update material request
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "po_generated",
+            "po_id": po_id,
+            "po_generated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # If credit, add to credit ledger
+    if request.get("payment_type") == "credit":
+        credit_entry = {
+            "entry_id": f"cle_{uuid.uuid4().hex[:12]}",
+            "vendor_id": request.get("vendor_id"),
+            "vendor_name": request.get("vendor_name"),
+            "project_id": request.get("project_id"),
+            "project_name": project.get("name") if project else "",
+            "request_id": request_id,
+            "po_id": po_id,
+            "credit_amount": request.get("total_amount"),
+            "paid_amount": 0,
+            "balance_amount": request.get("total_amount"),
+            "status": "outstanding",
+            "payment_history": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.credit_ledger.insert_one(credit_entry)
+    
+    return {"message": "Purchase Order generated", "po_id": po_id, "po_number": po_number}
+
+
+@api_router.patch("/procurement/v2/dispatch/{request_id}")
+async def mark_dispatched(request_id: str, data: DispatchInput, user: User = Depends(get_current_user)):
+    """Mark material as dispatched / in transit"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update dispatch")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "po_generated":
+        raise HTTPException(status_code=400, detail="PO must be generated first")
+    
+    # Generate OTP for site engineer receipt verification
+    otp = str(random.randint(100000, 999999))
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "in_transit",
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+            "vehicle_number": data.vehicle_number,
+            "driver_phone": data.driver_phone,
+            "receipt_otp": otp
+        }}
+    )
+    
+    # Update PO status
+    if request.get("po_id"):
+        await db.purchase_orders_v2.update_one(
+            {"po_id": request.get("po_id")},
+            {"$set": {
+                "status": "in_transit",
+                "dispatched_at": datetime.now(timezone.utc).isoformat(),
+                "vehicle_number": data.vehicle_number,
+                "driver_name": data.driver_name,
+                "driver_phone": data.driver_phone
+            }}
+        )
+    
+    # Create transit tracking entry
+    tracking_doc = {
+        "tracking_id": f"trk_{uuid.uuid4().hex[:12]}",
+        "po_id": request.get("po_id"),
+        "request_id": request_id,
+        "project_id": request.get("project_id"),
+        "status": "dispatched",
+        "vehicle_number": data.vehicle_number,
+        "driver_name": data.driver_name,
+        "driver_phone": data.driver_phone,
+        "estimated_arrival": data.estimated_arrival,
+        "updates": [{
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "dispatched",
+            "remarks": "Material dispatched from vendor"
+        }],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.transit_tracking.insert_one(tracking_doc)
+    
+    # Notify site engineer
+    await create_notification(
+        request.get("site_engineer_id"),
+        f"Material {request.get('material_name')} dispatched. Vehicle: {data.vehicle_number}. OTP for receipt: {otp}"
+    )
+    
+    return {"message": "Marked as dispatched", "otp": otp, "status": "in_transit"}
+
+
+@api_router.post("/procurement/v2/receive/{request_id}")
+async def receive_material(request_id: str, data: ReceiptInput, user: User = Depends(get_current_user)):
+    """Site Engineer receives material with OTP verification"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can receive materials")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "in_transit":
+        raise HTTPException(status_code=400, detail="Material must be in transit")
+    
+    # Verify OTP
+    if request.get("receipt_otp") != data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    # Determine if partial or complete
+    requested_qty = request.get("quantity", 0)
+    is_partial = data.received_qty < requested_qty
+    new_status = "received_partial" if is_partial else "received_completed"
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": new_status,
+            "received_qty": data.received_qty,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+            "receipt_photo_id": data.photo_id,
+            "receipt_gps_lat": data.gps_lat,
+            "receipt_gps_lng": data.gps_lng,
+            "receipt_otp_verified": True
+        }}
+    )
+    
+    # Update PO
+    if request.get("po_id"):
+        await db.purchase_orders_v2.update_one(
+            {"po_id": request.get("po_id")},
+            {"$set": {
+                "status": "delivered" if not is_partial else "partial_delivery",
+                "received_qty": data.received_qty,
+                "actual_delivery": datetime.now(timezone.utc).isoformat(),
+                "receipt_verified": True
+            }}
+        )
+    
+    # Update transit tracking
+    await db.transit_tracking.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": "delivered"},
+         "$push": {"updates": {
+             "timestamp": datetime.now(timezone.utc).isoformat(),
+             "status": "delivered",
+             "remarks": f"Received {data.received_qty} {request.get('unit')} at site"
+         }}}
+    )
+    
+    # Notify procurement
+    proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for pu in proc_users:
+        status_msg = f"{'Partial' if is_partial else 'Full'} receipt: {request.get('material_name')} - {data.received_qty}/{requested_qty}"
+        await create_notification(pu["user_id"], status_msg)
+    
+    return {
+        "message": "Material received",
+        "status": new_status,
+        "received_qty": data.received_qty,
+        "requested_qty": requested_qty,
+        "is_partial": is_partial
+    }
+
+
+# ==================== CREDIT LEDGER ENDPOINTS ====================
+
+@api_router.get("/procurement/credit-ledger")
+async def get_credit_ledger(
+    vendor_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get credit ledger entries"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    if status:
+        query["status"] = status
+    
+    entries = await db.credit_ledger.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    
+    # Calculate totals
+    total_outstanding = sum(e.get("balance_amount", 0) for e in entries if e.get("status") != "paid")
+    
+    return {
+        "entries": entries,
+        "total_outstanding": total_outstanding,
+        "count": len(entries)
+    }
+
+
+class CreditPaymentInput(BaseModel):
+    amount: float
+    payment_reference: str
+    remarks: Optional[str] = None
+
+
+@api_router.post("/procurement/credit-ledger/{entry_id}/pay")
+async def pay_credit(entry_id: str, data: CreditPaymentInput, user: User = Depends(get_current_user)):
+    """Record payment against credit ledger entry"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can record payments")
+    
+    entry = await db.credit_ledger.find_one({"entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    
+    new_paid = entry.get("paid_amount", 0) + data.amount
+    new_balance = entry.get("credit_amount", 0) - new_paid
+    new_status = "paid" if new_balance <= 0 else "partially_paid"
+    
+    payment_record = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "amount": data.amount,
+        "reference": data.payment_reference,
+        "paid_by": user.user_id,
+        "remarks": data.remarks
+    }
+    
+    await db.credit_ledger.update_one(
+        {"entry_id": entry_id},
+        {
+            "$set": {
+                "paid_amount": new_paid,
+                "balance_amount": max(0, new_balance),
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            },
+            "$push": {"payment_history": payment_record}
+        }
+    )
+    
+    return {
+        "message": "Payment recorded",
+        "paid_amount": new_paid,
+        "balance_amount": max(0, new_balance),
+        "status": new_status
+    }
+
+
+# ==================== VENDOR MASTER ENHANCED ENDPOINTS ====================
+
+class VendorMasterInput(BaseModel):
+    name: str
+    category: str = "material"  # material or labour
+    contact_person: Optional[str] = None
+    phone: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: str = "bank"
+    upi_id: Optional[str] = None
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    labour_category: Optional[str] = None
+    location_coverage: Optional[str] = None
+    rate_type: Optional[str] = None
+    materials_supplied: List[str] = []
+    tags: List[str] = []
+    payment_terms: str = "full"
+    credit_limit: Optional[float] = None
+
+
+@api_router.post("/vendor-master/create")
+async def create_vendor_master(data: VendorMasterInput, user: User = Depends(get_current_user)):
+    """Create new vendor in vendor master"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can create vendors")
+    
+    # Check duplicate
+    existing = await db.vendor_master.find_one({"name": data.name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    vendor_id = f"vm_{uuid.uuid4().hex[:12]}"
+    vendor_doc = {
+        "vendor_id": vendor_id,
+        **data.model_dump(),
+        "is_active": True,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.vendor_master.insert_one(vendor_doc)
+    
+    return {"message": "Vendor created", "vendor_id": vendor_id}
+
+
+@api_router.get("/vendor-master")
+async def get_vendors_master(
+    category: Optional[str] = None,
+    labour_category: Optional[str] = None,
+    is_active: bool = True,
+    user: User = Depends(get_current_user)
+):
+    """Get all vendors from vendor master"""
+    query = {"is_active": is_active}
+    if category:
+        query["category"] = category
+    if labour_category:
+        query["labour_category"] = labour_category
+    
+    vendors = await db.vendor_master.find(query, {"_id": 0}).sort("name", 1).to_list(500)
+    return vendors
+
+
+@api_router.get("/vendor-master/{vendor_id}")
+async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_user)):
+    """Get single vendor details"""
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    # Get spending history
+    spending = await db.purchase_orders_v2.aggregate([
+        {"$match": {"vendor_id": vendor_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}, "count": {"$sum": 1}}}
+    ]).to_list(1)
+    
+    # Get credit status
+    credit = await db.credit_ledger.aggregate([
+        {"$match": {"vendor_id": vendor_id, "status": {"$ne": "paid"}}},
+        {"$group": {"_id": None, "total_credit": {"$sum": "$balance_amount"}}}
+    ]).to_list(1)
+    
+    vendor["total_spend"] = spending[0]["total"] if spending else 0
+    vendor["order_count"] = spending[0]["count"] if spending else 0
+    vendor["outstanding_credit"] = credit[0]["total_credit"] if credit else 0
+    
+    return vendor
+
+
+@api_router.patch("/vendor-master/{vendor_id}")
+async def update_vendor_master(vendor_id: str, data: VendorMasterInput, user: User = Depends(get_current_user)):
+    """Update vendor in vendor master"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update vendors")
+    
+    update_dict = data.model_dump()
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    result = await db.vendor_master.update_one(
+        {"vendor_id": vendor_id},
+        {"$set": update_dict}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    return {"message": "Vendor updated"}
+
+
+@api_router.post("/vendor-master/{vendor_id}/upload-aadhar")
+async def upload_vendor_aadhar(
+    vendor_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user)
+):
+    """Upload Aadhar document for labour vendor"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can upload documents")
+    
+    contents = await file.read()
+    file_id = await fs.upload_from_stream(
+        f"aadhar_{vendor_id}_{file.filename}",
+        contents,
+        metadata={"contentType": file.content_type, "vendor_id": vendor_id, "type": "aadhar"}
+    )
+    
+    await db.vendor_master.update_one(
+        {"vendor_id": vendor_id},
+        {"$set": {"aadhar_file_id": str(file_id), "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Aadhar uploaded", "file_id": str(file_id)}
+
+
+# ==================== TRANSIT TRACKING ENDPOINTS ====================
+
+@api_router.get("/procurement/transit")
+async def get_transit_orders(user: User = Depends(get_current_user)):
+    """Get all in-transit orders"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SITE_ENGINEER, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {"status": "in_transit"}
+    if user.role == UserRole.SITE_ENGINEER:
+        # Site engineers see only their project's transit orders
+        assignments = await db.site_engineer_assignments.find(
+            {"user_id": user.user_id, "is_active": True}, {"project_id": 1}
+        ).to_list(100)
+        project_ids = [a["project_id"] for a in assignments]
+        query["project_id"] = {"$in": project_ids}
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("dispatched_at", -1).to_list(100)
+    
+    # Enrich with project names
+    for req in requests:
+        project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+        req["project_name"] = project.get("name") if project else ""
+    
+    return requests
+
+
+@api_router.get("/procurement/transit/{request_id}/tracking")
+async def get_transit_tracking(request_id: str, user: User = Depends(get_current_user)):
+    """Get tracking details for a transit order"""
+    tracking = await db.transit_tracking.find_one({"request_id": request_id}, {"_id": 0})
+    if not tracking:
+        raise HTTPException(status_code=404, detail="Tracking not found")
+    return tracking
+
+
+@api_router.patch("/procurement/transit/{request_id}/update")
+async def update_transit_status(
+    request_id: str,
+    status: str,
+    location: Optional[str] = None,
+    remarks: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update transit tracking status"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update tracking")
+    
+    update = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "location": location,
+        "remarks": remarks
+    }
+    
+    await db.transit_tracking.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": status, "current_location": location}, "$push": {"updates": update}}
+    )
+    
+    return {"message": "Tracking updated"}
+
+
+# ==================== PROCUREMENT REPORTS ====================
+
+@api_router.get("/procurement/reports/vendor-spend")
+async def vendor_spend_report(user: User = Depends(get_current_user)):
+    """Get vendor-wise spending report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    pipeline = [
+        {"$match": {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}}},
+        {"$group": {
+            "_id": "$vendor_id",
+            "vendor_name": {"$first": "$vendor_name"},
+            "total_amount": {"$sum": "$total_amount"},
+            "order_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_amount": -1}}
+    ]
+    
+    result = await db.material_requests.aggregate(pipeline).to_list(100)
+    return result
+
+
+@api_router.get("/procurement/reports/material-spend")
+async def material_spend_report(user: User = Depends(get_current_user)):
+    """Get material-wise spending report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    pipeline = [
+        {"$match": {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}}},
+        {"$group": {
+            "_id": "$material_name",
+            "total_amount": {"$sum": "$total_amount"},
+            "total_quantity": {"$sum": "$quantity"},
+            "order_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_amount": -1}}
+    ]
+    
+    result = await db.material_requests.aggregate(pipeline).to_list(100)
+    return result
+
+
+@api_router.get("/procurement/reports/monthly")
+async def monthly_procurement_report(year: int = None, user: User = Depends(get_current_user)):
+    """Get monthly procurement value report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not year:
+        year = datetime.now().year
+    
+    # This is a simplified version - in production you'd parse dates properly
+    requests = await db.material_requests.find(
+        {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}},
+        {"_id": 0, "total_amount": 1, "created_at": 1}
+    ).to_list(1000)
+    
+    monthly_totals = {}
+    for req in requests:
+        created = req.get("created_at")
+        if isinstance(created, str):
+            try:
+                dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                if dt.year == year:
+                    month = dt.month
+                    monthly_totals[month] = monthly_totals.get(month, 0) + req.get("total_amount", 0)
+            except:
+                pass
+    
+    return {"year": year, "monthly": monthly_totals}
+
+
 # ==================== PACKAGE SYSTEM ENDPOINTS ====================
 
 class PackageScopeItemInput(BaseModel):
