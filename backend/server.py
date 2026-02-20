@@ -6623,6 +6623,23 @@ async def cro_create_project(project_input: CROProjectCreateInput, user: User = 
         }
         await db.scope_items.insert_one(scope_item)
     
+    # Auto-create material specifications from package (can be edited by Planning until approved)
+    for item in package.get("material_items", []):
+        project_material = {
+            "material_id": f"pm_{uuid.uuid4().hex[:12]}",
+            "project_id": project.project_id,
+            "name": item.get("name"),
+            "brand": item.get("brand"),
+            "specification": item.get("specification"),
+            "quantity": item.get("quantity", 1),
+            "unit": item.get("unit", "nos"),
+            "estimated_rate": item.get("estimated_rate", 0),
+            "from_package": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.project_materials.insert_one(project_material)
+    
     # Notify planning department
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
     for pu in planning_users:
