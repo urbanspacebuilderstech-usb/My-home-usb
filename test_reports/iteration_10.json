@@ -1,0 +1,97 @@
+{
+  "summary": "Payment Schedule CRUD Testing Complete - Backend 100% (11/11 tests passed), Frontend UI Verified with full CRUD flow",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PaymentSchedule Total Row",
+        "issue": "Balance column shows '₹NaN' in totals footer when summary.payment_received might be undefined",
+        "selector": "tfoot tr td",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_payment_schedule_crud.py",
+    "/app/test_reports/pytest/pytest_payment_schedule_crud.xml"
+  ],
+  "action_items": [
+    "Fix ₹NaN in totals row - check if summary.payment_received is undefined before calculation"
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_payment_schedule_crud.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)",
+    "frontend": "100% (all CRUD operations working)"
+  },
+  "test_credentials": {
+    "planning": "planning@constructionos.com (Amit Patel)"
+  },
+  "seed_data_creation": "Test payment stages created with 'TEST_' and 'UI Test' prefix, cleaned up after tests",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Payment Schedule CRUD fully functional for Planning role. Flow: Add via bulk dialog → Edit via edit dialog → Delete via trash icon → Submit to change status from Draft to Requested. All APIs tested: POST /api/payment-stages/bulk, PATCH /api/payment-stages/{id}, DELETE /api/payment-stages/{id}, POST /api/projects/{id}/payment-schedule/submit",
+  "features_tested": {
+    "add_payment_stages_bulk": {
+      "status": "PASS",
+      "details": "Planning can add multiple payment stages via bulk add dialog with stage_name, percentage, amount, due_date"
+    },
+    "edit_payment_stage": {
+      "status": "PASS",
+      "details": "Edit dialog opens with current values, auto-calculation works for percentage/amount, Save Changes persists data"
+    },
+    "delete_draft_payment_stage": {
+      "status": "PASS",
+      "details": "Trash icon visible only for Draft stages, confirmation dialog shown, stage deleted successfully"
+    },
+    "submit_payment_schedule": {
+      "status": "PASS",
+      "details": "Submit Schedule button shows count of draft items, confirmation dialog shows summary, status changes from Draft to Requested"
+    },
+    "status_transitions": {
+      "status": "PASS",
+      "details": "Draft → Requested transition verified. Edit/Delete buttons hidden for Requested stages"
+    },
+    "auto_calculation": {
+      "status": "PASS",
+      "details": "When percentage entered, amount auto-calculates. When amount entered, percentage auto-calculates based on project total value"
+    }
+  },
+  "api_endpoints_tested": {
+    "POST /api/payment-stages/bulk": "PASS - Creates multiple payment stages in draft status",
+    "PATCH /api/payment-stages/{id}": "PASS - Updates stage_name, percentage, amount, due_date",
+    "DELETE /api/payment-stages/{id}": "PASS - Deletes payment stage (Planning role allowed)",
+    "POST /api/projects/{id}/payment-schedule/submit": "PASS - Changes all draft stages to 'requested' status",
+    "GET /api/projects/{id}/payment-stages": "PASS - Returns all payment stages for project"
+  },
+  "ui_verified": {
+    "payments_tab": "PASS - Shows table with S.NO, STAGE, %, AMOUNT, RECEIVED, BALANCE, STATUS, ACTIONS columns",
+    "add_payments_button": "PASS - Opens bulk add dialog with multiple rows",
+    "edit_button": "PASS - Pencil icon visible for draft items, opens edit dialog",
+    "delete_button": "PASS - Trash icon visible for draft items, confirmation required",
+    "submit_schedule_button": "PASS - Shows count of draft items, opens confirmation dialog",
+    "status_badges": "PASS - Draft (gray), Requested (blue) badges display correctly"
+  },
+  "data_testid_elements": {
+    "add-payment-btn": "Add Payments button in header",
+    "submit-schedule-btn": "Submit Schedule button (shows when drafts exist)",
+    "confirm-submit-schedule-btn": "Confirm button in submit dialog",
+    "submit-bulk-payment-btn": "Submit All button in bulk add dialog",
+    "edit-payment-{stage_id}": "Edit button for each payment row",
+    "delete-payment-{stage_id}": "Delete button for each payment row",
+    "edit-payment-stage-name": "Stage name input in edit dialog",
+    "edit-payment-percentage": "Percentage input in edit dialog",
+    "edit-payment-amount": "Amount input in edit dialog",
+    "save-payment-edit-btn": "Save Changes button in edit dialog"
+  },
+  "mocked_apis": {
+    "none": "All APIs are real - no mocked endpoints"
+  }
+}
