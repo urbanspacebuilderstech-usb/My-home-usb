@@ -451,6 +451,11 @@ Build a Construction Accounting CRM with:
 - `GET /api/projects/{id}` - Get project
 - `PATCH /api/projects/{id}` - Update project
 - `DELETE /api/projects/{id}` - Delete project
+- `POST /api/projects/{id}/link-client` - Link client user to project
+
+### Client Portal
+- `GET /api/client-portal/my-projects` - Get all projects for logged-in client
+- `GET /api/client-portal/project/{id}` - Get full project details for client (excludes internal notes)
 
 ### BOQ
 - `GET /api/boq/{project_id}` - Get BOQ items
