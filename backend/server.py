@@ -2774,8 +2774,7 @@ async def submit_payment_schedule(project_id: str, user: User = Depends(get_curr
     for cro in cro_users:
         await create_notification(
             cro["user_id"], 
-            f"Payment schedule submitted for {project.get('name')}. {result.modified_count} stages ready for collection.",
-            "payment_request"
+            f"Payment schedule submitted for {project.get('name')}. {result.modified_count} stages ready for collection."
         )
     
     return {"message": f"Payment schedule submitted. {result.modified_count} stages sent for collection.", "count": result.modified_count}
