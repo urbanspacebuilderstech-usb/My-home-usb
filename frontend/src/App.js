@@ -75,6 +75,7 @@ function AppRouter() {
       <Route path="/vendor-management" element={<ProtectedRoute><VendorMasterManagement /></ProtectedRoute>} />
       <Route path="/vendor-portal" element={<ProtectedRoute><VendorPortal /></ProtectedRoute>} />
       <Route path="/procurement-board" element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} />
+      <Route path="/procurement-board-v2" element={<ProtectedRoute><ProcurementBoardV2 /></ProtectedRoute>} />
       <Route path="/site-engineer" element={<ProtectedRoute><SiteEngineerDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer/project/:projectId" element={<ProtectedRoute><SiteEngineerProject /></ProtectedRoute>} />
       <Route path="/packages" element={<ProtectedRoute><PackageManagement /></ProtectedRoute>} />
