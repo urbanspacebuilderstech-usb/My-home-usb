@@ -346,6 +346,50 @@ Build a Construction Accounting CRM with:
   - `current_stage`: Current construction stage
   - `stage_history`: Array of stage changes with timestamps
 
+#### ✅ Payment Schedule System (P0 - February 20, 2026)
+- [x] **13-Stage Payment Schedule** (from user's design):
+  1. Advance payment for project confirmation (2%) - 1st shot
+  2. Foundation, Plinth Beam and upto Basement (20%)
+  2a. Underground water storage sump
+  2b. Underground Septic tank
+  2c. Additional cost for car parking basement
+  3. Super Structure - Ground Floor (18%) - 3rd shot
+  4. Super Structure - First Floor (18%) - 4th shot
+  5. Super Structure - Second Floor (12%) - 5th shot
+  6. Plastering (9%) - 6th shot
+  7. Flooring Work (8%) - 7th shot
+  8. Electrical, Plumbing, Doors, Windows (7%) - 8th shot
+  9. Painting & Electrical commissioning (5%) - 9th shot
+  10. Handover (75% Pre + 25% Post) (1%) - 10th shot
+- [x] **Payment Schedule Creation by Planning**:
+  - Generate Payment Schedule from template
+  - Auto-calculates amounts based on project value
+  - Planning creates schedule after GM approves project
+- [x] **CRO Payment Collection**:
+  - Collect Payment button for each pending stage
+  - Dialog with: Amount, Payment Mode (Bank/UPI/Cheque/Cash), Reference ID, Remarks
+  - Updates status: pending → partial → paid
+  - Creates income record automatically
+- [x] **Payment Summary Tab in Project Detail**:
+  - Summary Cards: Total Scheduled, Total Received, Balance Due, Collection %
+  - Progress bar with stages paid count
+  - Complete payment schedule table with all details
+  - Status badges (Pending, Partial, Paid)
+  - CRO sees "Collect" action buttons
+- [x] **Planning Team Notifications**:
+  - Notified when CRO collects a payment
+  - Can track all payment status in project view
+- [x] **Income Module Integration**:
+  - All collected payments automatically recorded in Income
+  - Visible to Super Admin, Admin, Accountant
+- [x] **Backend Endpoints**:
+  - `POST /api/projects/{id}/payment-schedule/generate` - Planning generates schedule
+  - `POST /api/payment-stages/{id}/collect` - CRO collects payment
+  - `GET /api/projects/{id}/payment-summary` - Complete payment summary
+  - `GET /api/payment-schedule/due-payments` - Due/overdue payments
+  - `GET /api/projects/search` - Project ID search
+  - `GET /api/projects/list-for-filter` - Project dropdown filter
+
 ---
 
 ## API Endpoints
