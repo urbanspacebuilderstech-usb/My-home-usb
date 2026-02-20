@@ -458,6 +458,27 @@ Build a Construction Accounting CRM with:
 
 ---
 
+## Pending/Backlog Tasks
+
+### P1 - Code Refactoring
+- [ ] **Refactor server.py Monolith** - Split 7000+ line file into modular router files:
+  - `/app/backend/routes/auth.py`
+  - `/app/backend/routes/projects.py`
+  - `/app/backend/routes/work_orders.py`
+  - `/app/backend/routes/packages.py`
+  - etc.
+
+### P2 - Features
+- [ ] **Unified Approval Dashboard** for GM/Admin roles
+- [ ] **Email Notifications** via Resend (requires API key)
+
+### P3 - Future
+- [ ] Gantt Chart for Project Timelines
+- [ ] Enhanced Client Portal with document upload
+- [ ] Bulk-add scope items approval workflow refinement
+
+---
+
 ## File Structure
 
 ```
