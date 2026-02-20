@@ -3608,13 +3608,21 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
 class MaterialRequestStatus(str, Enum):
     REQUESTED = "requested"
     PLANNING_APPROVED = "planning_approved"
-    PROCUREMENT_APPROVED = "procurement_approved"
-    ACCOUNTANT_APPROVED = "accountant_approved"
-    READY_FOR_DELIVERY = "ready_for_delivery"
-    DELIVERED = "delivered"
+    VENDOR_SELECTED = "vendor_selected"  # Procurement selected vendor & pricing
+    WAITING_PAYMENT = "waiting_payment"  # Waiting for accounts approval
+    PAYMENT_APPROVED = "payment_approved"  # Accounts approved payment
+    PO_GENERATED = "po_generated"  # Purchase order generated
+    IN_TRANSIT = "in_transit"  # Material dispatched
     RECEIVED_PARTIAL = "received_partial"
     RECEIVED_COMPLETED = "received_completed"
     REJECTED = "rejected"
+    CLOSED = "closed"
+
+
+class PaymentType(str, Enum):
+    ADVANCE = "advance"  # Full payment upfront
+    PARTIAL = "partial"  # Partial payment, balance later
+    CREDIT = "credit"  # No payment now, add to ledger
 
 
 class LabourRequestStatus(str, Enum):
@@ -3623,6 +3631,22 @@ class LabourRequestStatus(str, Enum):
     ACCOUNTANT_APPROVED = "accountant_approved"
     APPROVED = "approved"
     REJECTED = "rejected"
+
+
+class VendorCategory(str, Enum):
+    MATERIAL = "material"
+    LABOUR = "labour"
+
+
+class LabourCategory(str, Enum):
+    CIVIL = "civil"
+    ELECTRICAL = "electrical"
+    PLUMBING = "plumbing"
+    WELDER = "welder"
+    CARPENTER = "carpenter"
+    TILES_GRANITE = "tiles_granite"
+    PAINTING = "painting"
+    NMR = "nmr"  # Non-Measurement Rate
 
 
 class SiteEngineerAssignment(BaseModel):
@@ -3638,22 +3662,56 @@ class MaterialRequest(BaseModel):
     request_id: str = Field(default_factory=lambda: f"mreq_{uuid.uuid4().hex[:12]}")
     order_id: str = Field(default_factory=lambda: f"ORD-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
     project_id: str
+    project_name: Optional[str] = None
     site_engineer_id: str
     material_id: str
     material_name: str
     quantity: float
     unit: str
+    stage: Optional[str] = None  # Construction stage
     remarks: Optional[str] = None
     status: MaterialRequestStatus = MaterialRequestStatus.REQUESTED
+    # Planning approval
     planning_approved_by: Optional[str] = None
     planning_approved_at: Optional[datetime] = None
+    # Vendor selection & pricing
+    vendor_id: Optional[str] = None
+    vendor_name: Optional[str] = None
+    unit_rate: Optional[float] = None
+    transport_cost: Optional[float] = 0
+    discount: Optional[float] = 0
+    total_amount: Optional[float] = None
+    # Payment details
+    payment_type: Optional[str] = None  # advance, partial, credit
+    advance_amount: Optional[float] = None
+    balance_amount: Optional[float] = None
+    # Accounts approval
+    accountant_approved_by: Optional[str] = None
+    accountant_approved_at: Optional[datetime] = None
+    payment_reference: Optional[str] = None
+    # PO details
+    po_id: Optional[str] = None
+    po_generated_at: Optional[datetime] = None
+    expected_delivery: Optional[datetime] = None
+    # Transit
+    dispatched_at: Optional[datetime] = None
+    vehicle_number: Optional[str] = None
+    driver_phone: Optional[str] = None
+    # Receipt
+    received_qty: Optional[float] = None
+    received_at: Optional[datetime] = None
+    receipt_photo_id: Optional[str] = None
+    receipt_gps_lat: Optional[float] = None
+    receipt_gps_lng: Optional[float] = None
+    receipt_otp: Optional[str] = None
+    receipt_otp_verified: bool = False
+    # Rejection
+    rejection_reason: Optional[str] = None
+    rejected_by: Optional[str] = None
+    # Legacy fields for compatibility
     procurement_approved_by: Optional[str] = None
     procurement_approved_at: Optional[datetime] = None
     procurement_pricing: Optional[float] = None
-    vendor_id: Optional[str] = None
-    accountant_approved_by: Optional[str] = None
-    accountant_approved_at: Optional[datetime] = None
-    rejection_reason: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -3692,6 +3750,122 @@ class MaterialReceipt(BaseModel):
     otp_code: Optional[str] = None
     otp_expires_at: Optional[datetime] = None
     verified_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Enhanced Vendor Master Model
+class VendorMaster(BaseModel):
+    vendor_id: str = Field(default_factory=lambda: f"vm_{uuid.uuid4().hex[:12]}")
+    name: str
+    category: str = "material"  # material or labour
+    contact_person: Optional[str] = None
+    phone: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    # Bank Details
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: str = "bank"  # bank, upi, cash
+    upi_id: Optional[str] = None
+    # Tax & Compliance
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    # For Labour Vendors
+    labour_category: Optional[str] = None  # civil, electrical, plumbing, etc.
+    aadhar_file_id: Optional[str] = None  # Uploaded Aadhar PDF
+    location_coverage: Optional[str] = None
+    rate_type: Optional[str] = None  # per_day, per_sqft, contract
+    # Materials supplied (for material vendors)
+    materials_supplied: List[str] = []
+    # Tags & Status
+    tags: List[str] = []  # premium, local, bulk_supplier
+    is_active: bool = True
+    payment_terms: str = "full"  # full, partial, credit
+    credit_limit: Optional[float] = None
+    # Metadata
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+
+
+# Credit Ledger Entry
+class CreditLedgerEntry(BaseModel):
+    entry_id: str = Field(default_factory=lambda: f"cle_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    project_id: str
+    project_name: Optional[str] = None
+    request_id: str  # Links to MaterialRequest
+    po_id: Optional[str] = None
+    credit_amount: float
+    paid_amount: float = 0
+    balance_amount: float
+    due_date: Optional[datetime] = None
+    status: str = "outstanding"  # outstanding, partially_paid, paid, overdue
+    payment_history: List[dict] = []  # [{date, amount, reference, paid_by}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+
+
+# Purchase Order (Enhanced)
+class PurchaseOrderV2(BaseModel):
+    po_id: str = Field(default_factory=lambda: f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
+    po_number: str = Field(default_factory=lambda: f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+    request_id: str
+    project_id: str
+    project_name: Optional[str] = None
+    # Vendor Details
+    vendor_id: str
+    vendor_name: str
+    vendor_phone: Optional[str] = None
+    vendor_address: Optional[str] = None
+    # Material Details
+    material_name: str
+    quantity: float
+    unit: str
+    unit_rate: float
+    transport_cost: float = 0
+    discount: float = 0
+    total_amount: float
+    # Payment Details
+    payment_type: str  # advance, partial, credit
+    payment_terms: Optional[str] = None
+    advance_paid: float = 0
+    balance_due: float = 0
+    # Delivery Details
+    delivery_address: str
+    expected_delivery: datetime
+    actual_delivery: Optional[datetime] = None
+    # Status
+    status: str = "generated"  # generated, dispatched, in_transit, delivered, closed
+    dispatched_at: Optional[datetime] = None
+    vehicle_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    # Receipt
+    received_qty: Optional[float] = None
+    receipt_verified: bool = False
+    # Metadata
+    generated_by: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Transit Tracking
+class TransitTracking(BaseModel):
+    tracking_id: str = Field(default_factory=lambda: f"trk_{uuid.uuid4().hex[:12]}")
+    po_id: str
+    request_id: str
+    project_id: str
+    status: str  # dispatched, in_transit, reached, unloading, delivered
+    vehicle_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    current_location: Optional[str] = None
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    estimated_arrival: Optional[datetime] = None
+    updates: List[dict] = []  # [{timestamp, status, location, remarks}]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
