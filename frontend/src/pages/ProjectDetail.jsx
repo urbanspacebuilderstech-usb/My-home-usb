@@ -1543,9 +1543,9 @@ export default function ProjectDetail() {
                     <tfoot className="bg-green-50 border-t-2">
                       <tr>
                         <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
-                        <td className="px-4 py-3 text-right font-bold">₹{summary.payment_schedule_total?.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{summary.payment_received?.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{(summary.payment_schedule_total - summary.payment_received)?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold">₹{(summary.payment_schedule_total || 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{(summary.payment_received || 0).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{((summary.payment_schedule_total || 0) - (summary.payment_received || 0)).toLocaleString()}</td>
                         <td colSpan={canManage ? 2 : 1}></td>
                       </tr>
                     </tfoot>
