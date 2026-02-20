@@ -1554,6 +1554,18 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     payments = await db.payments.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     total_paid = sum(p.get("amount", 0) for p in payments)
     
+    # Get payment stages (schedule) - exclude internal notes
+    payment_stages = await db.payment_stages.find(
+        {"project_id": project_id}, 
+        {"_id": 0, "internal_notes": 0}
+    ).to_list(100)
+    
+    # Get scope items for client view
+    scope_items = await db.scope_items.find(
+        {"project_id": project_id, "workflow_status": {"$in": ["verified", "approved"]}}, 
+        {"_id": 0, "internal_notes": 0}
+    ).to_list(500)
+    
     stages = await db.site_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     
     photos = await db.site_photos.find({"project_id": project_id}, {"_id": 0}).sort("captured_at", -1).to_list(1000)
@@ -1564,10 +1576,40 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "project": project,
         "total_paid": total_paid,
         "balance": project.get("total_value", 0) - total_paid,
+        "payment_stages": payment_stages,
+        "scope_items": scope_items,
         "stages": stages,
         "photos": photos,
         "documents": documents
     }
+
+
+@api_router.get("/client-portal/my-projects")
+async def get_client_projects(user: User = Depends(get_current_user)):
+    """Get all projects linked to the current client user"""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+    
+    projects = await db.projects.find(
+        {"client_user_id": user.user_id}, 
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Enrich with summary data
+    result = []
+    for p in projects:
+        payment_stages = await db.payment_stages.find({"project_id": p["project_id"]}, {"_id": 0}).to_list(100)
+        total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
+        total_received = sum(s.get("amount_received", 0) or 0 for s in payment_stages)
+        
+        result.append({
+            **p,
+            "payment_scheduled": total_scheduled,
+            "payment_received": total_received,
+            "payment_balance": total_scheduled - total_received
+        })
+    
+    return result
 
 
 @api_router.post("/site-photos/upload")
