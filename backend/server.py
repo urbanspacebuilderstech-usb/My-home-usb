@@ -7332,6 +7332,13 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accounts can access this")
     
+    # New project advance payments pending verification
+    pending_advance_payments = await db.projects.count_documents({"status": "pending_payment"})
+    advance_payments_total = await db.projects.aggregate([
+        {"$match": {"status": "pending_payment"}},
+        {"$group": {"_id": None, "total": {"$sum": "$advance_amount"}}}
+    ]).to_list(1)
+    
     # Pending payments (approved by planning)
     pending_material = await db.material_expenses.count_documents({"status": "planning_approved"})
     pending_labour = await db.labour_expenses.count_documents({"status": "planning_approved"})
@@ -7370,6 +7377,8 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
     ]).to_list(1)
     
     return {
+        "pending_advance_payments": pending_advance_payments,
+        "advance_payments_total": advance_payments_total[0]["total"] if advance_payments_total else 0,
         "pending_material": pending_material,
         "pending_labour": pending_labour,
         "pending_procurement": pending_procurement,
@@ -7381,8 +7390,93 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
         "total_pending": (material_total[0]["total"] if material_total else 0) + 
                         (labour_total[0]["total"] if labour_total else 0) +
                         (procurement_total[0]["total"] if procurement_total else 0) +
-                        stage_payments_total
+                        stage_payments_total +
+                        (advance_payments_total[0]["total"] if advance_payments_total else 0)
     }
+
+
+@api_router.get("/accounts/pending-advance-payments")
+async def get_pending_advance_payments(user: User = Depends(get_current_user)):
+    """Get projects pending advance payment verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can access this")
+    
+    projects = await db.projects.find(
+        {"status": "pending_payment"},
+        {"_id": 0}
+    ).sort("submitted_for_payment_at", -1).to_list(100)
+    
+    return projects
+
+
+@api_router.patch("/accounts/verify-advance-payment/{project_id}")
+async def verify_advance_payment(project_id: str, verification: dict, user: User = Depends(get_current_user)):
+    """Accountant verifies advance payment and adds transaction details"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can verify payments")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "pending_payment":
+        raise HTTPException(status_code=400, detail="Project not pending payment verification")
+    
+    # Update project with payment verification
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "payment_verified",
+            "payment_verified_by": user.user_id,
+            "payment_verified_at": datetime.now(timezone.utc).isoformat(),
+            "payment_transaction_id": verification.get("transaction_id"),
+            "payment_verification_remarks": verification.get("remarks"),
+            "payment_bank_name": verification.get("bank_name")
+        }}
+    )
+    
+    # Notify CRO
+    if project.get("created_by"):
+        await create_notification(
+            project["created_by"], 
+            f"Payment verified for {project.get('name')}. You can now submit to Planning."
+        )
+    
+    return {"message": "Payment verified successfully"}
+
+
+@api_router.patch("/accounts/reject-advance-payment/{project_id}")
+async def reject_advance_payment(project_id: str, rejection: dict, user: User = Depends(get_current_user)):
+    """Accountant rejects advance payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject payments")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "pending_payment":
+        raise HTTPException(status_code=400, detail="Project not pending payment verification")
+    
+    # Reject and send back to CRO
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "draft",
+            "payment_rejection_reason": rejection.get("reason"),
+            "payment_rejected_by": user.user_id,
+            "payment_rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify CRO
+    if project.get("created_by"):
+        await create_notification(
+            project["created_by"], 
+            f"Payment rejected for {project.get('name')}: {rejection.get('reason')}"
+        )
+    
+    return {"message": "Payment rejected"}
 
 
 @api_router.get("/accounts/pending-payments")
