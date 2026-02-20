@@ -7387,8 +7387,8 @@ class VendorMasterInput(BaseModel):
     credit_limit: Optional[float] = None
 
 
-@api_router.post("/vendor-master/create")
-async def create_vendor_master(data: VendorMasterInput, user: User = Depends(get_current_user)):
+@api_router.post("/vendor-master/v2/create")
+async def create_vendor_master_v2(data: VendorMasterInput, user: User = Depends(get_current_user)):
     """Create new vendor in vendor master"""
     if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Procurement can create vendors")
