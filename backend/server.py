@@ -7457,8 +7457,8 @@ async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_use
     return vendor
 
 
-@api_router.patch("/vendor-master/{vendor_id}")
-async def update_vendor_master(vendor_id: str, data: VendorMasterInput, user: User = Depends(get_current_user)):
+@api_router.patch("/vendor-master/v2/{vendor_id}")
+async def update_vendor_master_v2(vendor_id: str, data: VendorMasterInput, user: User = Depends(get_current_user)):
     """Update vendor in vendor master"""
     if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Procurement can update vendors")
