@@ -407,6 +407,60 @@ export default function ProjectDetail() {
     }
   };
 
+  // ==================== PAYMENT COLLECTION HANDLERS ====================
+  const openCollectDialog = (stage) => {
+    setSelectedStage(stage);
+    setCollectForm({ 
+      amount_received: stage.amount - (stage.amount_received || 0), 
+      payment_mode: 'bank_transfer', 
+      payment_reference: '', 
+      remarks: '' 
+    });
+    setCollectPaymentDialog(true);
+  };
+
+  const handleCollectPayment = async () => {
+    if (!selectedStage || !collectForm.amount_received) {
+      toast.error('Please enter amount');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/payment-stages/${selectedStage.stage_id}/collect`, {
+        amount_received: parseFloat(collectForm.amount_received),
+        payment_mode: collectForm.payment_mode,
+        payment_reference: collectForm.payment_reference || null,
+        remarks: collectForm.remarks || null
+      });
+      toast.success('Payment collected successfully');
+      setCollectPaymentDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to collect payment');
+    }
+  };
+
+  const handleGenerateSchedule = async () => {
+    try {
+      await axios.post(`${API}/projects/${projectId}/payment-schedule/generate`);
+      toast.success('Payment schedule generated');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to generate schedule');
+    }
+  };
+
+  const getPaymentStatusBadge = (status) => {
+    const config = {
+      pending: { label: 'Pending', color: 'bg-gray-100 text-gray-700' },
+      partial: { label: 'Partial', color: 'bg-yellow-100 text-yellow-700' },
+      paid: { label: 'Paid', color: 'bg-green-100 text-green-700' },
+      collected: { label: 'Collected', color: 'bg-blue-100 text-blue-700' }
+    };
+    const c = config[status] || config.pending;
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${c.color}`}>{c.label}</span>;
+  };
+
   const canDeleteProject = user?.role === 'super_admin' || 
     (user?.role === 'planning' && (
       ['in_planning', 'draft', 'pending', 'planning'].includes(projectData?.project?.status?.toLowerCase()) ||
