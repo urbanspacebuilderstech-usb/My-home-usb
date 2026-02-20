@@ -617,47 +617,60 @@ export default function ProjectDetail() {
               </div>
             </div>
             {/* Delete Project Button - visible for super_admin or planning (for draft/in_planning projects) */}
-            {canDeleteProject && (
-              <Dialog open={deleteProjectDialog} onOpenChange={setDeleteProjectDialog}>
-                <DialogTrigger asChild>
-                  <Button 
-                    data-testid="delete-project-btn"
-                    variant="destructive" 
-                    size="sm" 
-                    className="gap-2 flex-shrink-0"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">Delete Project</span>
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="text-red-600 flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5" />
-                      Delete Project
-                    </DialogTitle>
-                    <DialogDescription>
-                      This action <strong>cannot be undone</strong>. This will permanently delete the project 
-                      <strong> "{project.name}"</strong> and all related data including scope items, payment stages, 
-                      additions, and deductions.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <p className="text-sm text-red-700">
-                        Type <strong>DELETE</strong> to confirm:
-                      </p>
-                      <Input
-                        data-testid="delete-confirm-input"
-                        placeholder="Type DELETE to confirm"
-                        value={deleteConfirmText}
-                        onChange={(e) => setDeleteConfirmText(e.target.value)}
-                        className="mt-2"
-                      />
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Share as PDF Button */}
+              <Button 
+                data-testid="share-pdf-btn"
+                variant="outline" 
+                size="sm" 
+                className="gap-2"
+                onClick={() => window.print()}
+              >
+                <Printer className="h-4 w-4" />
+                <span className="hidden sm:inline">Share as PDF</span>
+              </Button>
+              
+              {canDeleteProject && (
+                <Dialog open={deleteProjectDialog} onOpenChange={setDeleteProjectDialog}>
+                  <DialogTrigger asChild>
+                    <Button 
+                      data-testid="delete-project-btn"
+                      variant="destructive" 
+                      size="sm" 
+                      className="gap-2"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Delete Project</span>
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle className="text-red-600 flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5" />
+                        Delete Project
+                      </DialogTitle>
+                      <DialogDescription>
+                        This action <strong>cannot be undone</strong>. This will permanently delete the project 
+                        <strong> "{project.name}"</strong> and all related data including scope items, payment stages, 
+                        additions, and deductions.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <p className="text-sm text-red-700">
+                          Type <strong>DELETE</strong> to confirm:
+                        </p>
+                        <Input
+                          data-testid="delete-confirm-input"
+                          placeholder="Type DELETE to confirm"
+                          value={deleteConfirmText}
+                          onChange={(e) => setDeleteConfirmText(e.target.value)}
+                          className="mt-2"
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => { setDeleteProjectDialog(false); setDeleteConfirmText(''); }}>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => { setDeleteProjectDialog(false); setDeleteConfirmText(''); }}>
                       Cancel
                     </Button>
                     <Button 
