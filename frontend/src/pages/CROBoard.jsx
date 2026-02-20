@@ -249,6 +249,34 @@ export default function CROBoard() {
     setSelectedPackage(null);
   };
 
+  const openCollectDialog = (stage) => {
+    setSelectedPaymentStage(stage);
+    const balance = (stage.amount || 0) - (stage.amount_received || 0);
+    setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '' });
+    setCollectDialog(true);
+  };
+
+  const handleCollectPayment = async () => {
+    if (!selectedPaymentStage || !collectForm.amount) {
+      toast.error('Please enter amount');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, {
+        amount_received: parseFloat(collectForm.amount),
+        payment_mode: collectForm.mode,
+        payment_reference: collectForm.reference || null,
+        remarks: collectForm.remarks || null
+      });
+      toast.success('Payment collected successfully');
+      setCollectDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to collect payment');
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await axios.post(`${API}/auth/logout`);
