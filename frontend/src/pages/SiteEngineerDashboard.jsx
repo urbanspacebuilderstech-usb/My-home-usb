@@ -162,6 +162,15 @@ export default function SiteEngineerDashboard() {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
+            <Button 
+              variant="outline" 
+              className="text-white border-white/50 hover:bg-orange-500 h-8 text-xs sm:text-sm"
+              onClick={() => window.location.href = '/site-engineer/material-receipt'}
+            >
+              <Package className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Material Receipt</span>
+              <span className="sm:hidden">Receipt</span>
+            </Button>
             <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-white">{user.name}</p>
               <p className="text-xs text-orange-100">Site Engineer</p>
