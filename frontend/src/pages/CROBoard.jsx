@@ -937,6 +937,85 @@ export default function CROBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Collect Payment Dialog */}
+      <Dialog open={collectDialog} onOpenChange={setCollectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-green-600" />
+              Collect Payment
+            </DialogTitle>
+            <DialogDescription>
+              {selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg">
+              <div>
+                <p className="text-xs text-gray-500">Stage Amount</p>
+                <p className="font-semibold">₹{(selectedPaymentStage?.amount || 0).toLocaleString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Already Received</p>
+                <p className="font-semibold text-green-600">₹{(selectedPaymentStage?.amount_received || 0).toLocaleString()}</p>
+              </div>
+            </div>
+            
+            <div>
+              <Label>Amount to Collect *</Label>
+              <Input
+                type="number"
+                value={collectForm.amount}
+                onChange={(e) => setCollectForm({...collectForm, amount: e.target.value})}
+                placeholder="Enter amount"
+                className="mt-1"
+              />
+            </div>
+            
+            <div>
+              <Label>Payment Mode *</Label>
+              <select
+                value={collectForm.mode}
+                onChange={(e) => setCollectForm({...collectForm, mode: e.target.value})}
+                className="w-full mt-1 p-2 border rounded-md"
+              >
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="upi">UPI</option>
+                <option value="cheque">Cheque</option>
+                <option value="cash">Cash</option>
+              </select>
+            </div>
+            
+            <div>
+              <Label>Reference / Transaction ID</Label>
+              <Input
+                value={collectForm.reference}
+                onChange={(e) => setCollectForm({...collectForm, reference: e.target.value})}
+                placeholder="Transaction ID or Cheque No."
+                className="mt-1"
+              />
+            </div>
+            
+            <div>
+              <Label>Remarks</Label>
+              <Input
+                value={collectForm.remarks}
+                onChange={(e) => setCollectForm({...collectForm, remarks: e.target.value})}
+                placeholder="Optional remarks"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCollectDialog(false)}>Cancel</Button>
+            <Button onClick={handleCollectPayment} className="bg-green-600 hover:bg-green-700">
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+              Confirm Collection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
