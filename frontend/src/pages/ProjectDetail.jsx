@@ -849,27 +849,137 @@ export default function ProjectDetail() {
                         </td>
                       </tr>
                     ) : (
-                      scope_items.map((item, index) => (
-                        <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm">{index + 1}</td>
-                          <td className="px-4 py-3 font-medium">{item.item_name}</td>
-                          <td className="px-4 py-3 text-right">{item.quantity}</td>
-                          <td className="px-4 py-3 text-center">{item.unit}</td>
-                          <td className="px-4 py-3 text-right">₹{item.unit_rate?.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-blue-600">₹{item.total_amount?.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-center">
-                            <WorkflowBadge status={item.workflow_status || 'draft'} />
-                          </td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{item.remarks || '-'}</td>
-                          {canManage && (
-                            <td className="px-4 py-3 text-center">
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteScope(item.scope_id)}>
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
+                      scope_items.map((item, index) => {
+                        const isEditing = editingScopeItem === item.scope_id;
+                        
+                        return (
+                          <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm">{index + 1}</td>
+                            <td className="px-4 py-3 font-medium">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-scope-name-${item.scope_id}`}
+                                  value={editScopeForm.item_name}
+                                  onChange={(e) => setEditScopeForm({...editScopeForm, item_name: e.target.value})}
+                                  className="h-8 w-full min-w-[150px]"
+                                />
+                              ) : (
+                                item.item_name
+                              )}
                             </td>
-                          )}
-                        </tr>
-                      ))
+                            <td className="px-4 py-3 text-right">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-scope-qty-${item.scope_id}`}
+                                  type="number"
+                                  value={editScopeForm.quantity}
+                                  onChange={(e) => setEditScopeForm({...editScopeForm, quantity: e.target.value})}
+                                  className="h-8 w-20 text-right"
+                                />
+                              ) : (
+                                item.quantity
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-scope-unit-${item.scope_id}`}
+                                  value={editScopeForm.unit}
+                                  onChange={(e) => setEditScopeForm({...editScopeForm, unit: e.target.value})}
+                                  className="h-8 w-16 text-center"
+                                />
+                              ) : (
+                                item.unit
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-scope-rate-${item.scope_id}`}
+                                  type="number"
+                                  value={editScopeForm.unit_rate}
+                                  onChange={(e) => setEditScopeForm({...editScopeForm, unit_rate: e.target.value})}
+                                  className="h-8 w-24 text-right"
+                                />
+                              ) : (
+                                `₹${item.unit_rate?.toLocaleString()}`
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold text-blue-600">
+                              {isEditing ? (
+                                `₹${((parseFloat(editScopeForm.quantity) || 0) * (parseFloat(editScopeForm.unit_rate) || 0)).toLocaleString()}`
+                              ) : (
+                                `₹${item.total_amount?.toLocaleString()}`
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <WorkflowBadge status={item.workflow_status || 'draft'} />
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-500">
+                              {isEditing ? (
+                                <Input
+                                  data-testid={`edit-scope-remarks-${item.scope_id}`}
+                                  value={editScopeForm.remarks}
+                                  onChange={(e) => setEditScopeForm({...editScopeForm, remarks: e.target.value})}
+                                  className="h-8 w-full"
+                                  placeholder="Remarks"
+                                />
+                              ) : (
+                                item.remarks || '-'
+                              )}
+                            </td>
+                            {canManage && (
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  {isEditing ? (
+                                    <>
+                                      <Button 
+                                        data-testid={`save-scope-${item.scope_id}`}
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={handleUpdateScope}
+                                        className="h-8 w-8"
+                                      >
+                                        <Save className="h-4 w-4 text-green-500" />
+                                      </Button>
+                                      <Button 
+                                        data-testid={`cancel-scope-edit-${item.scope_id}`}
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={cancelScopeEdit}
+                                        className="h-8 w-8"
+                                      >
+                                        <X className="h-4 w-4 text-gray-500" />
+                                      </Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Button 
+                                        data-testid={`edit-scope-${item.scope_id}`}
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={() => openScopeEdit(item)}
+                                        className="h-8 w-8"
+                                      >
+                                        <Edit className="h-4 w-4 text-blue-500" />
+                                      </Button>
+                                      <Button 
+                                        data-testid={`delete-scope-${item.scope_id}`}
+                                        variant="ghost" 
+                                        size="icon" 
+                                        onClick={() => handleDeleteScope(item.scope_id)}
+                                        className="h-8 w-8"
+                                      >
+                                        <Trash2 className="h-4 w-4 text-red-500" />
+                                      </Button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                   {scope_items.length > 0 && (
