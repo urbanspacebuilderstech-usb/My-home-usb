@@ -435,12 +435,12 @@ export default function CROBoard() {
                 </div>
                 <div>
                   <Label className="text-xs">Stage</Label>
-                  <Select value={filters.stage} onValueChange={(v) => setFilters({ ...filters, stage: v })}>
+                  <Select value={filters.stage || "all"} onValueChange={(v) => setFilters({ ...filters, stage: v === "all" ? "" : v })}>
                     <SelectTrigger data-testid="filter-stage">
                       <SelectValue placeholder="All Stages" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All Stages</SelectItem>
+                      <SelectItem value="all">All Stages</SelectItem>
                       {projectStages.map((stage) => (
                         <SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>
                       ))}
