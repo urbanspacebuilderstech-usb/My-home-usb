@@ -600,10 +600,11 @@ Build a Construction Accounting CRM with:
 | Accountant | accountant@constructionos.com | Approvals, expenses |
 | Project Manager | pm@constructionos.com | Projects, work orders |
 | Planning | planning@constructionos.com | BOQ management, Payment Schedule CRUD |
-| Procurement | procurement@constructionos.com | Vendors, POs |
-| Site Engineer | engineer@constructionos.com | Site receipts |
+| Procurement | procurement@constructionos.com | Vendors, POs, Transit tracking |
+| Site Engineer | engineer@constructionos.com | Site receipts, Material receipt |
 | Vendor | vendor@balaji.com | Vendor portal (after linking) |
 | Client | raj@client.com | Read-only portal |
+| Client (Mohan) | mohan@client.com | Mohan Home project portal |
 | CRO | cro@constructionos.com | Project onboarding, payment collection |
 
 ---
@@ -611,10 +612,11 @@ Build a Construction Accounting CRM with:
 ## Pending/Backlog Tasks
 
 ### P1 - Code Refactoring (HIGH PRIORITY)
-- [ ] **Refactor server.py Monolith** - Split 7000+ line file into modular router files:
+- [ ] **Refactor server.py Monolith** - Split 8000+ line file into modular router files:
   - `/app/backend/routes/auth.py`
   - `/app/backend/routes/projects.py`
   - `/app/backend/routes/payments.py`
+  - `/app/backend/routes/procurement.py`
   - `/app/backend/routes/work_orders.py`
   - `/app/backend/routes/packages.py`
   - etc.
@@ -628,11 +630,67 @@ Build a Construction Accounting CRM with:
 ### P2 - Features
 - [ ] **Unified Approval Dashboard** for GM/Admin roles
 - [ ] **Email Notifications** via Resend (requires API key)
+- [ ] **Aadhar Document Upload** for labour contractors (encrypted storage)
 
 ### P3 - Future
 - [ ] Gantt Chart for Project Timelines
 - [ ] Enhanced Client Portal with document upload
 - [ ] Bulk-add scope items approval workflow refinement
+
+---
+
+## Recently Completed Features
+
+### Procurement Board V2 (February 20, 2026)
+- [x] **Complete 8-Step Material Procurement Flow**:
+  1. Site Request (Site Engineer)
+  2. Planning Approval
+  3. Procurement Board Entry
+  4. Vendor Selection & Pricing
+  5. Payment Type Selection (Advance/Partial/Credit)
+  6. Accounts Approval (for Advance/Partial)
+  7. PO Generation
+  8. Dispatch & In Transit
+  9. Site Receipt with OTP Verification
+
+- [x] **Payment Types**:
+  - Advance: Full payment upfront → Accounts approval → PO
+  - Partial: Advance + Balance tracking → Accounts approval → PO
+  - Credit: No payment → Direct PO → Credit Ledger entry
+
+- [x] **Vendor Management**:
+  - Material Vendors (bank details, GST, tags)
+  - Labour Contractors (categories: Civil, Electrical, Plumbing, etc.)
+  - Bank details: Name, Account, IFSC, Payment Method (Bank/UPI/Cash)
+  - Tax & Compliance: GST, PAN
+
+- [x] **Credit Ledger**:
+  - Track outstanding credit per vendor
+  - Record payments with reference
+  - Status: Outstanding → Partially Paid → Paid
+
+- [x] **Transit Tracking**:
+  - OTP generation on dispatch
+  - Vehicle/driver details
+  - Status updates
+
+- [x] **Dashboard Metrics**:
+  - Pending, In Progress, Awaiting Payment
+  - In Transit, Credit Outstanding, Delivered
+
+- [x] **API Endpoints**:
+  - `POST /api/procurement/v2/select-vendor/{id}`
+  - `PATCH /api/procurement/v2/accounts-approval/{id}`
+  - `POST /api/procurement/v2/generate-po/{id}`
+  - `PATCH /api/procurement/v2/dispatch/{id}`
+  - `POST /api/procurement/v2/receive/{id}`
+  - `GET /api/procurement/credit-ledger`
+  - `POST /api/procurement/credit-ledger/{id}/pay`
+  - `POST /api/vendor-master/v2/create`
+  - `GET /api/vendor-master`
+  - `GET /api/procurement/transit`
+  - `GET /api/procurement/reports/vendor-spend`
+  - `GET /api/procurement/reports/material-spend`
 
 ---
 
@@ -655,17 +713,18 @@ Build a Construction Accounting CRM with:
 │   │   │   ├── WorkOrders.jsx
 │   │   │   ├── ApprovalQueue.jsx
 │   │   │   ├── Procurement.jsx
+│   │   │   ├── ProcurementBoardV2.jsx  # NEW (Feb 20, 2026)
 │   │   │   ├── SiteReceipt.jsx
 │   │   │   ├── Expenses.jsx
 │   │   │   ├── UserManagement.jsx
 │   │   │   ├── Notifications.jsx
 │   │   │   ├── ClientPortal.jsx
-│   │   │   ├── VendorPortal.jsx  # NEW
-│   │   │   ├── FinancialOverview.jsx  # NEW
-│   │   │   ├── ComprehensiveProjectView.jsx  # NEW (Jan 18, 2026)
-│   │   │   ├── Settings.jsx  # NEW (Feb 6, 2026)
-│   │   │   ├── MaterialManagement.jsx  # NEW (Feb 6, 2026)
-│   │   │   ├── VendorMasterManagement.jsx  # NEW (Feb 6, 2026)
+│   │   │   ├── VendorPortal.jsx
+│   │   │   ├── FinancialOverview.jsx
+│   │   │   ├── ComprehensiveProjectView.jsx
+│   │   │   ├── Settings.jsx
+│   │   │   ├── MaterialManagement.jsx
+│   │   │   ├── VendorMasterManagement.jsx
 │   │   │   └── Login.jsx
 │   │   ├── components/
 │   │   └── App.js
