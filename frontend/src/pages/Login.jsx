@@ -136,7 +136,7 @@ export default function Login() {
                   className="text-xs"
                   onClick={() => {
                     setSelectedEmail(quick.email);
-                    setTimeout(() => handleDemoLogin(), 100);
+                    handleDemoLogin(quick.email);
                   }}
                   disabled={isLoading}
                 >
