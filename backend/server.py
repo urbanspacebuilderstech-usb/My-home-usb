@@ -9937,11 +9937,10 @@ async def get_site_engineer_work_orders(user: User = Depends(get_current_user)):
 
 # ==================== COMPREHENSIVE ACCOUNTANT BOARD ENDPOINTS ====================
 
-import random
-import string
-
-def generate_otp():
-    """Generate a 6-digit OTP"""
+def generate_payment_otp():
+    """Generate a 6-digit OTP for payment verification"""
+    import random
+    import string
     return ''.join(random.choices(string.digits, k=6))
 
 
