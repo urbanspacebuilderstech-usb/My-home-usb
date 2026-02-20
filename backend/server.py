@@ -2099,6 +2099,60 @@ async def get_financial_overview(user: User = Depends(get_current_user)):
     }
 
 
+# ==================== PROJECT SEARCH & FILTER ====================
+
+@api_router.get("/projects/search")
+async def search_projects(
+    q: Optional[str] = None,
+    project_id: Optional[str] = None,
+    project_code: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Search projects by name, ID, code, or client name - available to all authenticated users"""
+    query = {}
+    
+    if project_id:
+        query["project_id"] = project_id
+    elif project_code:
+        query["project_code"] = {"$regex": project_code, "$options": "i"}
+    elif q:
+        query["$or"] = [
+            {"name": {"$regex": q, "$options": "i"}},
+            {"project_id": {"$regex": q, "$options": "i"}},
+            {"project_code": {"$regex": q, "$options": "i"}},
+            {"client_name": {"$regex": q, "$options": "i"}}
+        ]
+    
+    projects = await db.projects.find(query, {
+        "_id": 0,
+        "project_id": 1,
+        "project_code": 1,
+        "name": 1,
+        "client_name": 1,
+        "location": 1,
+        "status": 1,
+        "current_stage": 1,
+        "total_value": 1
+    }).sort("created_at", -1).to_list(50)
+    
+    return projects
+
+
+@api_router.get("/projects/list-for-filter")
+async def get_projects_for_filter(user: User = Depends(get_current_user)):
+    """Get minimal project list for dropdown filters across all boards"""
+    projects = await db.projects.find({}, {
+        "_id": 0,
+        "project_id": 1,
+        "project_code": 1,
+        "name": 1,
+        "client_name": 1,
+        "status": 1
+    }).sort("name", 1).to_list(500)
+    
+    return projects
+
+
 # ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
 
 # Project Update/Delete
