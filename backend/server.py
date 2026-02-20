@@ -51,6 +51,8 @@ class UserRole(str, Enum):
 
 class ProjectStatus(str, Enum):
     DRAFT = "draft"  # CRO created, not yet submitted
+    PENDING_PAYMENT = "pending_payment"  # CRO submitted, waiting Accountant verification
+    PAYMENT_VERIFIED = "payment_verified"  # Accountant verified payment, CRO can submit to Planning
     PLANNING_REVIEW = "planning_review"  # Submitted to Planning
     AWAITING_APPROVAL = "awaiting_approval"  # Planning submitted for GM/Admin approval
     GM_APPROVED = "gm_approved"  # GM approved, waiting Super Admin
