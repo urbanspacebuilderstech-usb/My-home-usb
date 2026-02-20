@@ -6793,6 +6793,140 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
     return {"message": "Project submitted for planning review"}
 
 
+@api_router.post("/cro/projects/{project_id}/add-payment-milestone")
+async def add_payment_milestone(project_id: str, milestone: dict, user: User = Depends(get_current_user)):
+    """CRO adds a payment milestone to collect from client"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can add payment milestones")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    payment_milestone = {
+        "milestone_id": f"pm_{uuid.uuid4().hex[:8]}",
+        "description": milestone.get("description", "Payment"),
+        "amount": milestone.get("amount", 0),
+        "due_date": milestone.get("due_date"),
+        "status": "pending",  # pending, notified, collected, approved
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user.user_id
+    }
+    
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$push": {"payments_to_collect": payment_milestone}}
+    )
+    
+    return {"message": "Payment milestone added", "milestone_id": payment_milestone["milestone_id"]}
+
+
+@api_router.patch("/cro/projects/{project_id}/notify-client/{milestone_id}")
+async def notify_client_for_payment(project_id: str, milestone_id: str, user: User = Depends(get_current_user)):
+    """CRO notifies client about pending payment"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can notify clients")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Update milestone status
+    await db.projects.update_one(
+        {"project_id": project_id, "payments_to_collect.milestone_id": milestone_id},
+        {"$set": {
+            "payments_to_collect.$.status": "notified",
+            "payments_to_collect.$.notified_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # If client has user_id, create notification
+    if project.get("client_user_id"):
+        milestone = next((m for m in project.get("payments_to_collect", []) if m["milestone_id"] == milestone_id), None)
+        if milestone:
+            await create_notification(
+                project["client_user_id"], 
+                f"Payment reminder for {project.get('name')}: ₹{milestone.get('amount', 0):,.0f}"
+            )
+    
+    return {"message": "Client notified for payment"}
+
+
+@api_router.patch("/cro/projects/{project_id}/collect-payment/{milestone_id}")
+async def collect_payment(project_id: str, milestone_id: str, payment_details: dict, user: User = Depends(get_current_user)):
+    """CRO records payment collected from client"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can collect payments")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Update milestone with collection details
+    await db.projects.update_one(
+        {"project_id": project_id, "payments_to_collect.milestone_id": milestone_id},
+        {"$set": {
+            "payments_to_collect.$.status": "collected",
+            "payments_to_collect.$.collected_at": datetime.now(timezone.utc).isoformat(),
+            "payments_to_collect.$.collected_by": user.user_id,
+            "payments_to_collect.$.payment_mode": payment_details.get("payment_mode"),
+            "payments_to_collect.$.reference_number": payment_details.get("reference_number"),
+            "payments_to_collect.$.remarks": payment_details.get("remarks")
+        }}
+    )
+    
+    # Notify accountant for approval
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Payment collected for {project.get('name')} - needs approval")
+    
+    return {"message": "Payment recorded. Sent to accountant for approval."}
+
+
+@api_router.get("/cro/projects/all")
+async def get_all_cro_projects(
+    status: Optional[str] = None,
+    stage: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all projects with filters for CRO"""
+    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    
+    query = {}
+    if user.role == UserRole.CRO:
+        query["created_by"] = user.user_id
+    
+    if status:
+        statuses = status.split(",")
+        query["status"] = {"$in": statuses}
+    
+    if stage:
+        query["current_stage"] = stage
+    
+    if date_from:
+        try:
+            from_date = datetime.strptime(date_from, "%Y-%m-%d")
+            query["created_at"] = {"$gte": from_date.isoformat()}
+        except:
+            pass
+    
+    if date_to:
+        try:
+            to_date = datetime.strptime(date_to, "%Y-%m-%d")
+            if "created_at" in query:
+                query["created_at"]["$lte"] = to_date.isoformat()
+            else:
+                query["created_at"] = {"$lte": to_date.isoformat()}
+        except:
+            pass
+    
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return projects
+
+
 # ==================== PLANNING BOARD ENDPOINTS ====================
 
 @api_router.get("/planning/dashboard")
