@@ -1,4 +1,4 @@
-import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X } from 'lucide-react';
+import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { toast } from 'sonner';
