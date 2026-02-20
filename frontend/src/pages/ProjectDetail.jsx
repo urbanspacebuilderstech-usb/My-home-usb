@@ -339,6 +339,64 @@ export default function ProjectDetail() {
     }
   };
 
+  // ==================== SCOPE ITEM EDIT HANDLERS ====================
+  const openScopeEdit = (item) => {
+    setEditingScopeItem(item.scope_id);
+    setEditScopeForm({
+      item_name: item.item_name || '',
+      quantity: item.quantity || 1,
+      unit: item.unit || 'Nos',
+      unit_rate: item.unit_rate || 0,
+      remarks: item.remarks || ''
+    });
+  };
+
+  const handleUpdateScope = async () => {
+    if (!editingScopeItem) return;
+    
+    try {
+      await axios.patch(`${API}/scope-items/${editingScopeItem}`, {
+        item_name: editScopeForm.item_name,
+        quantity: parseFloat(editScopeForm.quantity) || 1,
+        unit: editScopeForm.unit,
+        unit_rate: parseFloat(editScopeForm.unit_rate) || 0,
+        remarks: editScopeForm.remarks || null
+      });
+      toast.success('Scope item updated');
+      setEditingScopeItem(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update scope item');
+    }
+  };
+
+  const cancelScopeEdit = () => {
+    setEditingScopeItem(null);
+    setEditScopeForm({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
+  };
+
+  // ==================== DELETE PROJECT HANDLER ====================
+  const handleDeleteProject = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      toast.error("Please type 'DELETE' exactly in capital letters to confirm");
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API}/projects/${projectId}`);
+      toast.success('Project deleted successfully');
+      setDeleteProjectDialog(false);
+      // Redirect to projects list
+      window.location.href = '/projects';
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete project');
+    }
+  };
+
+  const canDeleteProject = user?.role === 'super_admin' || 
+    (user?.role === 'planning' && ['in_planning', 'draft', 'pending'].includes(projectData?.project?.status?.toLowerCase()) ||
+     ['in_planning', 'draft', 'pending'].includes(projectData?.project?.project_stage?.toLowerCase()));
+
   const formatCurrency = (amount) => {
     if (amount >= 100000) {
       return `₹${(amount / 100000).toFixed(2)}L`;
