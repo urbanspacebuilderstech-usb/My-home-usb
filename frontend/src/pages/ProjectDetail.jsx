@@ -684,7 +684,8 @@ export default function ProjectDetail() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-            )}
+              )}
+            </div>
           </div>
         </div>
 
