@@ -105,6 +105,14 @@ export default function CROBoard() {
       setProjects(dashboardRes.data.recent_projects || []);
       setProjectStages(dashboardRes.data.project_stages || []);
       setStageCounts(dashboardRes.data.stage_counts || {});
+      
+      // Fetch payment requests for CRO
+      try {
+        const paymentReqRes = await axios.get(`${API}/cro/payment-requests`);
+        setPaymentRequests(paymentReqRes.data);
+      } catch (e) {
+        console.log('Payment requests endpoint not available');
+      }
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
