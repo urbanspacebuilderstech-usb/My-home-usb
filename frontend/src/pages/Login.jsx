@@ -30,11 +30,12 @@ export default function Login() {
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleDemoLogin = async () => {
+  const handleDemoLogin = async (emailOverride = null) => {
+    const emailToUse = emailOverride || selectedEmail;
     setIsLoading(true);
     try {
       const response = await axios.post(`${API}/auth/demo-login`, {
-        email: selectedEmail
+        email: emailToUse
       }, {
         withCredentials: true
       });
