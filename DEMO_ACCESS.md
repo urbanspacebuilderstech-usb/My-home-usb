@@ -13,10 +13,12 @@ Just click the role you want to test:
 | **Super Admin** | admin@constructionos.com | **Everything!** Create projects, users, approve, manage |
 | Accountant | accountant@constructionos.com | Approve/reject work orders, manage expenses |
 | Project Manager | pm@constructionos.com | Create projects, submit work orders |
-| Planning | planning@constructionos.com | Create and manage BOQ (budgets) |
+| Planning | planning@constructionos.com | Create and manage BOQ (budgets), payment schedule |
+| CRO | cro@constructionos.com | Project onboarding, payment collection |
 | Procurement | procurement@constructionos.com | Create purchase orders, assign vendors |
 | Site Engineer | engineer@constructionos.com | Submit site receipts with GPS + photos |
-| Client | raj@client.com | View-only project portal |
+| Client (Raj) | raj@client.com | View-only project portal |
+| **Client (Mohan)** | mohan@client.com | View Mohan Home project portal |
 
 ## 🚀 Getting Started
 
