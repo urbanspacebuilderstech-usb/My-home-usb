@@ -672,18 +672,47 @@ class AuditLog(BaseModel):
 class PaymentStage(BaseModel):
     stage_id: str = Field(default_factory=lambda: f"ps_{uuid.uuid4().hex[:12]}")
     project_id: str
-    stage_name: str  # e.g., "Agreement", "Foundation", "1st Floor", "2nd Floor", "Finishing"
+    stage_number: int = 1  # 1, 2, 2a, 2b, 2c, 3, 4, etc. (stored as order)
+    stage_label: str = "1"  # Display label like "1", "2a", "2b"
+    stage_name: str  # e.g., "Advance payment for project confirmation"
     percentage: float  # Percentage of project value
     amount: float  # Calculated or manual amount
     amount_received: float = 0  # Amount received for this stage
-    status: str = "pending"  # pending, partial, completed
-    workflow_status: str = "draft"  # draft, pending_verification, pending_approval, approved, rejected
+    status: str = "pending"  # pending, partial, paid
+    workflow_status: str = "draft"  # draft, pending_collection, collected, verified, approved
     due_date: Optional[datetime] = None
-    completed_date: Optional[datetime] = None
-    created_by: Optional[str] = None
+    # Payment Collection Details
+    payment_mode: Optional[str] = None  # cash, cheque, bank_transfer, upi
+    payment_reference: Optional[str] = None  # Transaction ID / Cheque No
+    payment_date: Optional[datetime] = None  # When payment was collected
+    collected_by: Optional[str] = None  # CRO who collected
+    collected_by_name: Optional[str] = None
+    # Approval tracking
     verified_by: Optional[str] = None
+    verified_at: Optional[datetime] = None
     approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    remarks: Optional[str] = None
+    created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Default Payment Schedule Template (based on user's image)
+DEFAULT_PAYMENT_SCHEDULE = [
+    {"stage_label": "1", "stage_name": "Advance payment for project confirmation", "percentage": 2, "remarks": "1st shot payment"},
+    {"stage_label": "2", "stage_name": "Advance payment for Foundation, Plinth Beam and upto Basement", "percentage": 20, "remarks": ""},
+    {"stage_label": "2a", "stage_name": "Advance payment for Underground water storage sump", "percentage": 0, "remarks": "2nd shot payment"},
+    {"stage_label": "2b", "stage_name": "Advance payment for Underground Septic tank", "percentage": 0, "remarks": ""},
+    {"stage_label": "2c", "stage_name": "Additional cost for car parking basement", "percentage": 0, "remarks": ""},
+    {"stage_label": "3", "stage_name": "Advance payment for Super Structure - Ground Floor- Brick work and Slab casting", "percentage": 18, "remarks": "3rd shot payment"},
+    {"stage_label": "4", "stage_name": "Advance payment for Super Structure - First Floor- Brick work and Slab casting", "percentage": 18, "remarks": "4th shot payment"},
+    {"stage_label": "5", "stage_name": "Advance payment for Super Structure - Second Floor- Brick work and Slab casting", "percentage": 12, "remarks": "5th shot payment"},
+    {"stage_label": "6", "stage_name": "Advance Payment for Plastering", "percentage": 9, "remarks": "6th shot payment"},
+    {"stage_label": "7", "stage_name": "Advance Payment for Flooring Work", "percentage": 8, "remarks": "7th shot payment"},
+    {"stage_label": "8", "stage_name": "Advance payment for Electrical, Plumbing, Doors, windows", "percentage": 7, "remarks": "8th shot payment"},
+    {"stage_label": "9", "stage_name": "Advance payment for Painting, electrical commissioning", "percentage": 5, "remarks": "9th shot payment"},
+    {"stage_label": "10", "stage_name": "Advance payment for Handover (75% Prehanding over and 25% Posthanding over)", "percentage": 1, "remarks": "10th shot payment"}
+]
 
 
 class AdditionalCostItem(BaseModel):
