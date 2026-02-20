@@ -6872,6 +6872,162 @@ async def reject_project(project_id: str, reason: str, user: User = Depends(get_
     return {"message": "Project rejected and sent back to planning"}
 
 
+# ==================== PROJECT MATERIALS (BRAND MANAGEMENT) ====================
+
+class ProjectMaterialInput(BaseModel):
+    name: str
+    brand: Optional[str] = None
+    specification: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    estimated_rate: float = 0
+
+
+@api_router.get("/projects/{project_id}/materials")
+async def get_project_materials(project_id: str, user: User = Depends(get_current_user)):
+    """Get material specifications for a project"""
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "materials_locked": 1, "name": 1, "status": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    materials = await db.project_materials.find({"project_id": project_id}, {"_id": 0}).to_list(100)
+    
+    return {
+        "project_name": project.get("name"),
+        "materials_locked": project.get("materials_locked", False),
+        "project_status": project.get("status"),
+        "materials": materials
+    }
+
+
+@api_router.post("/projects/{project_id}/materials")
+async def add_project_material(project_id: str, material_input: ProjectMaterialInput, user: User = Depends(get_current_user)):
+    """Add a new material specification to project (Planning only, before approval)"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can add materials")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("materials_locked"):
+        raise HTTPException(status_code=400, detail="Material brands are locked after project approval. Request re-approval to make changes.")
+    
+    material = {
+        "material_id": f"pm_{uuid.uuid4().hex[:12]}",
+        "project_id": project_id,
+        "name": material_input.name,
+        "brand": material_input.brand,
+        "specification": material_input.specification,
+        "quantity": material_input.quantity,
+        "unit": material_input.unit,
+        "estimated_rate": material_input.estimated_rate,
+        "from_package": False,
+        "modified_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.project_materials.insert_one(material)
+    return {"material_id": material["material_id"], "message": "Material added"}
+
+
+@api_router.patch("/projects/{project_id}/materials/{material_id}")
+async def update_project_material(project_id: str, material_id: str, material_input: ProjectMaterialInput, user: User = Depends(get_current_user)):
+    """Update material specification (Planning only, before approval)"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can update materials")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("materials_locked"):
+        raise HTTPException(status_code=400, detail="Material brands are locked after project approval. Request re-approval to make changes.")
+    
+    existing = await db.project_materials.find_one({"material_id": material_id, "project_id": project_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Material not found")
+    
+    await db.project_materials.update_one(
+        {"material_id": material_id},
+        {
+            "$set": {
+                "name": material_input.name,
+                "brand": material_input.brand,
+                "specification": material_input.specification,
+                "quantity": material_input.quantity,
+                "unit": material_input.unit,
+                "estimated_rate": material_input.estimated_rate,
+                "modified_by": user.user_id,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    return {"message": "Material updated"}
+
+
+@api_router.delete("/projects/{project_id}/materials/{material_id}")
+async def delete_project_material(project_id: str, material_id: str, user: User = Depends(get_current_user)):
+    """Delete material specification (Planning only, before approval)"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete materials")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("materials_locked"):
+        raise HTTPException(status_code=400, detail="Material brands are locked after project approval. Request re-approval to make changes.")
+    
+    result = await db.project_materials.delete_one({"material_id": material_id, "project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Material not found")
+    
+    return {"message": "Material deleted"}
+
+
+@api_router.post("/projects/{project_id}/request-material-unlock")
+async def request_material_unlock(project_id: str, reason: str, user: User = Depends(get_current_user)):
+    """Request to unlock material brands (requires re-approval)"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can request unlock")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if not project.get("materials_locked"):
+        return {"message": "Materials are not locked"}
+    
+    # Send project back for re-approval
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {
+            "$set": {
+                "status": "awaiting_approval",
+                "materials_locked": False,
+                "planning_submitted_at": datetime.now(timezone.utc).isoformat(),
+                "gm_approved_by": None,
+                "gm_approved_at": None,
+                "admin_approved_by": None,
+                "admin_approved_at": None,
+                "rejection_reason": f"Re-approval requested for material changes: {reason}"
+            }
+        }
+    )
+    
+    # Notify GM and Admin
+    gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0, "user_id": 1}).to_list(10)
+    admin_users = await db.users.find({"role": "super_admin"}, {"_id": 0, "user_id": 1}).to_list(10)
+    
+    for u in gm_users + admin_users:
+        await create_notification(u["user_id"], f"Material change requested for {project.get('name')}: {reason}")
+    
+    return {"message": "Material unlock requested. Project sent for re-approval."}
+
+
 # ==================== ACCOUNTS BOARD ENDPOINTS ====================
 
 @api_router.get("/accounts/dashboard")
