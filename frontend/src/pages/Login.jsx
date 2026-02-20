@@ -31,7 +31,8 @@ export default function Login() {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDemoLogin = async (emailOverride = null) => {
-    const emailToUse = emailOverride || selectedEmail;
+    // Handle case where emailOverride might be an event object (when called from onClick directly)
+    const emailToUse = (typeof emailOverride === 'string') ? emailOverride : selectedEmail;
     setIsLoading(true);
     try {
       const response = await axios.post(`${API}/auth/demo-login`, {
