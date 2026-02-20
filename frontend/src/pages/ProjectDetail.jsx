@@ -358,6 +358,50 @@ export default function ProjectDetail() {
     }
   };
 
+  // Open edit dialog for payment stage
+  const openEditPaymentDialog = (stage) => {
+    setEditPaymentStage(stage);
+    setEditPaymentForm({
+      stage_name: stage.stage_name || '',
+      percentage: stage.percentage?.toString() || '',
+      amount: stage.amount?.toString() || '',
+      due_date: stage.due_date ? new Date(stage.due_date).toISOString().split('T')[0] : ''
+    });
+    setEditPaymentDialog(true);
+  };
+
+  // Handle save from edit payment dialog
+  const handleSavePaymentEdit = async () => {
+    if (!editPaymentStage) return;
+    
+    try {
+      await axios.patch(`${API}/payment-stages/${editPaymentStage.stage_id}`, {
+        stage_name: editPaymentForm.stage_name,
+        percentage: parseFloat(editPaymentForm.percentage) || 0,
+        amount: parseFloat(editPaymentForm.amount) || 0,
+        due_date: editPaymentForm.due_date || null
+      });
+      toast.success('Payment stage updated');
+      setEditPaymentDialog(false);
+      setEditPaymentStage(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update payment stage');
+    }
+  };
+
+  // Submit/finalize draft payment schedule
+  const handleSubmitPaymentSchedule = async () => {
+    try {
+      await axios.post(`${API}/projects/${projectId}/payment-schedule/submit`);
+      toast.success('Payment schedule submitted for collection');
+      setSubmitScheduleDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to submit payment schedule');
+    }
+  };
+
   const handleUpdateAddition = async (costId, updates) => {
     try {
       await axios.patch(`${API}/additional-costs/${costId}`, updates);
