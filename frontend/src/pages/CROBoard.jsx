@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import { 
   Building2, LogOut, Plus, FileText, Clock, CheckCircle, Send,
-  MapPin, Package, Eye, Users, ArrowRight
+  MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
+  Phone, Mail, Upload, Bell, CreditCard, Search
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -26,6 +27,14 @@ const BUILDING_TYPES = [
   { value: 'office', label: 'Office' }
 ];
 
+const PAYMENT_MODES = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'bank_transfer', label: 'Bank Transfer' },
+  { value: 'upi', label: 'UPI' },
+  { value: 'credit_card', label: 'Credit Card' }
+];
+
 export default function CROBoard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,16 +42,37 @@ export default function CROBoard() {
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeTab, setActiveTab] = useState('draft');
+  const [projectStages, setProjectStages] = useState([]);
+  const [stageCounts, setStageCounts] = useState({});
+  
+  // Filters
+  const [filters, setFilters] = useState({
+    status: '',
+    stage: '',
+    dateFrom: '',
+    dateTo: '',
+    search: ''
+  });
+  const [showFilters, setShowFilters] = useState(false);
   
   const [createDialog, setCreateDialog] = useState(false);
+  const [viewDialog, setViewDialog] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  
   const [form, setForm] = useState({
     name: '',
     client_name: '',
+    client_phone: '',
+    client_email: '',
     location: '',
     sqft: '',
     building_type: 'residential',
     expected_start_date: new Date().toISOString().split('T')[0],
-    package_id: ''
+    package_id: '',
+    advance_date: '',
+    advance_amount: '',
+    advance_payment_mode: '',
+    rough_estimate_url: ''
   });
   
   const [selectedPackage, setSelectedPackage] = useState(null);
@@ -69,6 +99,8 @@ export default function CROBoard() {
       setDashboard(dashboardRes.data);
       setPackages(dashboardRes.data.packages || []);
       setProjects(dashboardRes.data.recent_projects || []);
+      setProjectStages(dashboardRes.data.project_stages || []);
+      setStageCounts(dashboardRes.data.stage_counts || {});
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
@@ -85,6 +117,33 @@ export default function CROBoard() {
       setProjects(res.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
+    }
+  };
+
+  const fetchFilteredProjects = async () => {
+    try {
+      let url = `${API}/cro/projects/all?`;
+      if (filters.status) url += `status=${filters.status}&`;
+      if (filters.stage) url += `stage=${filters.stage}&`;
+      if (filters.dateFrom) url += `date_from=${filters.dateFrom}&`;
+      if (filters.dateTo) url += `date_to=${filters.dateTo}&`;
+      
+      const res = await axios.get(url);
+      let filtered = res.data;
+      
+      // Client-side search filter
+      if (filters.search) {
+        const search = filters.search.toLowerCase();
+        filtered = filtered.filter(p => 
+          p.name?.toLowerCase().includes(search) ||
+          p.client_name?.toLowerCase().includes(search) ||
+          p.project_code?.toLowerCase().includes(search)
+        );
+      }
+      
+      setProjects(filtered);
+    } catch (error) {
+      console.error('Error fetching filtered projects:', error);
     }
   };
 
@@ -118,20 +177,12 @@ export default function CROBoard() {
     try {
       const res = await axios.post(`${API}/cro/projects`, {
         ...form,
-        sqft: parseFloat(form.sqft) || 0
+        sqft: parseFloat(form.sqft) || 0,
+        advance_amount: parseFloat(form.advance_amount) || 0
       });
-      toast.success(`Project created! Value: ₹${res.data.total_value.toLocaleString('en-IN')}`);
+      toast.success(`Project created! ID: ${res.data.project_id}`);
       setCreateDialog(false);
-      setForm({
-        name: '',
-        client_name: '',
-        location: '',
-        sqft: '',
-        building_type: 'residential',
-        expected_start_date: new Date().toISOString().split('T')[0],
-        package_id: ''
-      });
-      setSelectedPackage(null);
+      resetForm();
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create project');
@@ -146,6 +197,25 @@ export default function CROBoard() {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit project');
     }
+  };
+
+  const resetForm = () => {
+    setForm({
+      name: '',
+      client_name: '',
+      client_phone: '',
+      client_email: '',
+      location: '',
+      sqft: '',
+      building_type: 'residential',
+      expected_start_date: new Date().toISOString().split('T')[0],
+      package_id: '',
+      advance_date: '',
+      advance_amount: '',
+      advance_payment_mode: '',
+      rough_estimate_url: ''
+    });
+    setSelectedPackage(null);
   };
 
   const handleLogout = async () => {
@@ -163,15 +233,20 @@ export default function CROBoard() {
 
   const getStatusBadge = (status) => {
     const config = {
-      draft: { label: 'Draft', variant: 'secondary' },
-      planning_review: { label: 'In Review', variant: 'default' },
-      awaiting_approval: { label: 'Awaiting Approval', variant: 'outline' },
-      gm_approved: { label: 'GM Approved', variant: 'default' },
-      planning_approved: { label: 'Approved', variant: 'default' },
-      active: { label: 'Active', variant: 'default' }
+      draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
+      planning_review: { label: 'In Review', className: 'bg-blue-100 text-blue-700' },
+      awaiting_approval: { label: 'Awaiting Approval', className: 'bg-yellow-100 text-yellow-700' },
+      gm_approved: { label: 'GM Approved', className: 'bg-purple-100 text-purple-700' },
+      planning_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
+      active: { label: 'Active', className: 'bg-green-100 text-green-700' }
     };
-    const c = config[status] || { label: status, variant: 'secondary' };
-    return <Badge variant={c.variant}>{c.label}</Badge>;
+    const c = config[status] || { label: status, className: 'bg-gray-100 text-gray-700' };
+    return <span className={`px-2 py-1 rounded text-xs font-medium ${c.className}`}>{c.label}</span>;
+  };
+
+  const getStageBadge = (stage) => {
+    const stageInfo = projectStages.find(s => s.id === stage);
+    return stageInfo ? stageInfo.name : stage || 'Yet to Start';
   };
 
   if (loading) {
@@ -211,9 +286,9 @@ export default function CROBoard() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Dashboard Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer" onClick={() => handleTabChange('draft')}>
+        {/* Dashboard Metrics Row 1 */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-4">
+          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('draft')} data-testid="draft-card">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-gray-600 mb-1">
                 <FileText className="h-4 w-4" />
@@ -223,7 +298,7 @@ export default function CROBoard() {
             </CardContent>
           </Card>
           
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleTabChange('review')}>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('review')} data-testid="review-card">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-blue-600 mb-1">
                 <Clock className="h-4 w-4" />
@@ -233,7 +308,7 @@ export default function CROBoard() {
             </CardContent>
           </Card>
           
-          <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100">
+          <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100" data-testid="awaiting-card">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-yellow-600 mb-1">
                 <Clock className="h-4 w-4" />
@@ -243,7 +318,7 @@ export default function CROBoard() {
             </CardContent>
           </Card>
           
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer" onClick={() => handleTabChange('approved')}>
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('approved')} data-testid="approved-card">
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-green-600 mb-1">
                 <CheckCircle className="h-4 w-4" />
@@ -254,26 +329,145 @@ export default function CROBoard() {
           </Card>
         </div>
 
-        {/* Create Project Button */}
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">My Projects</h2>
-          <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-blue-600 hover:bg-blue-700">
-            <Plus className="h-4 w-4" /> Create Project
-          </Button>
+        {/* Dashboard Section - Total Ongoing & Value */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total Ongoing Projects</p>
+                  <p className="text-3xl font-bold text-blue-600">{dashboard.total_ongoing || 0}</p>
+                </div>
+                <Button variant="outline" onClick={() => window.location.href = '/projects'}>
+                  View All Projects
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Total Project Value</p>
+                  <p className="text-2xl font-bold text-green-600">{formatCurrency(dashboard.total_project_value)}</p>
+                </div>
+                <DollarSign className="h-10 w-10 text-green-200" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Projects Tabs */}
+        {/* Project Stages Overview */}
+        {projectStages.length > 0 && (
+          <Card className="mb-6">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Project Stages</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {projectStages.map((stage) => (
+                  <div 
+                    key={stage.id}
+                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                    onClick={() => {
+                      setFilters({ ...filters, stage: stage.id });
+                      fetchFilteredProjects();
+                    }}
+                  >
+                    <span className="text-sm font-medium">{stage.name}</span>
+                    <Badge variant="secondary" className="text-xs">{stageCounts[stage.id] || 0}</Badge>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* My Projects Section */}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
+          <h2 className="text-lg font-semibold">My Projects</h2>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} data-testid="filter-btn">
+              <Filter className="h-4 w-4 mr-1" /> Filters
+            </Button>
+            <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-blue-600 hover:bg-blue-700" data-testid="create-project-btn">
+              <Plus className="h-4 w-4" /> Create Project
+            </Button>
+          </div>
+        </div>
+
+        {/* Filters Panel */}
+        {showFilters && (
+          <Card className="mb-4">
+            <CardContent className="p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div>
+                  <Label className="text-xs">Search</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                    <Input 
+                      placeholder="Project/Client..."
+                      value={filters.search}
+                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                      className="pl-8"
+                      data-testid="filter-search"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Date From</Label>
+                  <Input 
+                    type="date"
+                    value={filters.dateFrom}
+                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+                    data-testid="filter-date-from"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Date To</Label>
+                  <Input 
+                    type="date"
+                    value={filters.dateTo}
+                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+                    data-testid="filter-date-to"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Stage</Label>
+                  <Select value={filters.stage} onValueChange={(v) => setFilters({ ...filters, stage: v })}>
+                    <SelectTrigger data-testid="filter-stage">
+                      <SelectValue placeholder="All Stages" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">All Stages</SelectItem>
+                      {projectStages.map((stage) => (
+                        <SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button onClick={fetchFilteredProjects} className="flex-1" data-testid="apply-filters-btn">Apply</Button>
+                  <Button variant="outline" onClick={() => { setFilters({ status: '', stage: '', dateFrom: '', dateTo: '', search: '' }); fetchData(); }}>Clear</Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Projects Table/Cards */}
         <Card>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b p-3 sm:p-4">
               <TabsList className="bg-transparent p-0">
-                <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none">
+                <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none" data-testid="tab-draft">
                   Draft
                 </TabsTrigger>
-                <TabsTrigger value="review" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none">
+                <TabsTrigger value="review" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none" data-testid="tab-review">
                   In Review
                 </TabsTrigger>
-                <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none">
+                <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none" data-testid="tab-approved">
                   Approved
                 </TabsTrigger>
               </TabsList>
@@ -286,30 +480,38 @@ export default function CROBoard() {
                   <div className="p-8 text-center text-gray-500">No projects found</div>
                 ) : (
                   projects.map((project) => (
-                    <div key={project.project_id} className="p-4">
+                    <div key={project.project_id} className="p-4" data-testid={`project-card-${project.project_id}`}>
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <p className="font-semibold">{project.name}</p>
+                          <p className="text-xs text-gray-400">{project.project_code}</p>
                           <p className="text-sm text-gray-500">{project.client_name}</p>
                         </div>
                         {getStatusBadge(project.status)}
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm mb-3">
                         <div className="flex items-center gap-1 text-gray-500">
-                          <MapPin className="h-3 w-3" /> {project.location}
+                          <MapPin className="h-3 w-3" /> {project.location || 'N/A'}
                         </div>
                         <div className="flex items-center gap-1 text-gray-500">
                           <Package className="h-3 w-3" /> {project.package_name || 'N/A'}
                         </div>
-                        <div className="col-span-2 font-semibold text-green-600">
+                        <div>{project.sqft?.toLocaleString()} sqft</div>
+                        <div className="font-semibold text-green-600">
                           {formatCurrency(project.total_value)}
                         </div>
                       </div>
-                      {project.status === 'draft' && (
-                        <Button size="sm" className="w-full gap-2" onClick={() => handleSubmitProject(project.project_id)}>
-                          <Send className="h-3 w-3" /> Submit for Review
-                        </Button>
-                      )}
+                      <div className="flex gap-2">
+                        {project.status === 'draft' ? (
+                          <Button size="sm" className="flex-1 gap-2 bg-yellow-500 hover:bg-yellow-600" onClick={() => handleSubmitProject(project.project_id)} data-testid={`submit-btn-${project.project_id}`}>
+                            <Send className="h-3 w-3" /> Submit
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" className="flex-1" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
+                            <Eye className="h-3 w-3 mr-1" /> View
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))
                 )}
@@ -337,10 +539,13 @@ export default function CROBoard() {
                       </tr>
                     ) : (
                       projects.map((project) => (
-                        <tr key={project.project_id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium">{project.name}</td>
+                        <tr key={project.project_id} className="hover:bg-gray-50" data-testid={`project-row-${project.project_id}`}>
+                          <td className="px-4 py-3">
+                            <p className="font-medium">{project.name}</p>
+                            <p className="text-xs text-gray-400">{project.project_code}</p>
+                          </td>
                           <td className="px-4 py-3">{project.client_name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{project.location}</td>
+                          <td className="px-4 py-3 text-sm text-gray-500">{project.location || '-'}</td>
                           <td className="px-4 py-3">
                             <Badge variant="outline">{project.package_name || 'N/A'}</Badge>
                           </td>
@@ -351,11 +556,11 @@ export default function CROBoard() {
                           <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
                           <td className="px-4 py-3 text-center">
                             {project.status === 'draft' ? (
-                              <Button size="sm" className="gap-1" onClick={() => handleSubmitProject(project.project_id)}>
+                              <Button size="sm" className="gap-1 bg-yellow-500 hover:bg-yellow-600" onClick={() => handleSubmitProject(project.project_id)} data-testid={`submit-btn-${project.project_id}`}>
                                 <Send className="h-3 w-3" /> Submit
                               </Button>
                             ) : (
-                              <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
+                              <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
                                 <Eye className="h-3 w-3 mr-1" /> View
                               </Button>
                             )}
@@ -379,6 +584,7 @@ export default function CROBoard() {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Basic Info */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label>Project Name *</Label>
@@ -386,6 +592,7 @@ export default function CROBoard() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="Enter project name"
+                  data-testid="input-project-name"
                 />
               </div>
               <div>
@@ -394,7 +601,38 @@ export default function CROBoard() {
                   value={form.client_name}
                   onChange={(e) => setForm({ ...form, client_name: e.target.value })}
                   placeholder="Enter client name"
+                  data-testid="input-client-name"
                 />
+              </div>
+            </div>
+
+            {/* Client Contact */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label>Client Phone</Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                  <Input 
+                    value={form.client_phone}
+                    onChange={(e) => setForm({ ...form, client_phone: e.target.value })}
+                    placeholder="+91 9876543210"
+                    className="pl-10"
+                    data-testid="input-client-phone"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Client Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                  <Input 
+                    value={form.client_email}
+                    onChange={(e) => setForm({ ...form, client_email: e.target.value })}
+                    placeholder="client@email.com"
+                    className="pl-10"
+                    data-testid="input-client-email"
+                  />
+                </div>
               </div>
             </div>
 
@@ -404,6 +642,7 @@ export default function CROBoard() {
                 value={form.location}
                 onChange={(e) => setForm({ ...form, location: e.target.value })}
                 placeholder="Project location"
+                data-testid="input-location"
               />
             </div>
 
@@ -415,12 +654,13 @@ export default function CROBoard() {
                   value={form.sqft}
                   onChange={(e) => setForm({ ...form, sqft: e.target.value })}
                   placeholder="0"
+                  data-testid="input-sqft"
                 />
               </div>
               <div>
                 <Label>Building Type</Label>
                 <Select value={form.building_type} onValueChange={(v) => setForm({ ...form, building_type: v })}>
-                  <SelectTrigger>
+                  <SelectTrigger data-testid="select-building-type">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -436,6 +676,7 @@ export default function CROBoard() {
                   type="date"
                   value={form.expected_start_date}
                   onChange={(e) => setForm({ ...form, expected_start_date: e.target.value })}
+                  data-testid="input-start-date"
                 />
               </div>
             </div>
@@ -449,54 +690,104 @@ export default function CROBoard() {
                     key={pkg.package_id}
                     className={`cursor-pointer transition-all ${form.package_id === pkg.package_id ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:shadow-md'}`}
                     onClick={() => handlePackageSelect(pkg.package_id)}
+                    data-testid={`package-${pkg.code}`}
                   >
                     <CardContent className="p-4 text-center">
                       <Badge variant="outline" className="text-lg mb-2">{pkg.code}</Badge>
                       <p className="font-semibold">{pkg.name}</p>
+                      {pkg.base_rate_per_sqft > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">{formatCurrency(pkg.base_rate_per_sqft)}/sqft</p>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
               </div>
             </div>
 
+            {/* Advance Payment Section */}
+            <Card className="bg-amber-50 border-amber-200">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <CreditCard className="h-4 w-4" /> Advance Payment Details
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Date of Advance Received</Label>
+                    <Input 
+                      type="date"
+                      value={form.advance_date}
+                      onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
+                      data-testid="input-advance-date"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Advance Amount</Label>
+                    <Input 
+                      type="number"
+                      value={form.advance_amount}
+                      onChange={(e) => setForm({ ...form, advance_amount: e.target.value })}
+                      placeholder="0"
+                      data-testid="input-advance-amount"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Payment Mode</Label>
+                    <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v })}>
+                      <SelectTrigger data-testid="select-payment-mode">
+                        <SelectValue placeholder="Select mode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAYMENT_MODES.map((mode) => (
+                          <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Rough Estimate Upload */}
+            <div>
+              <Label>Rough Estimate (PDF URL)</Label>
+              <div className="relative">
+                <Upload className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <Input 
+                  value={form.rough_estimate_url}
+                  onChange={(e) => setForm({ ...form, rough_estimate_url: e.target.value })}
+                  placeholder="https://... (PDF link)"
+                  className="pl-10"
+                  data-testid="input-estimate-url"
+                />
+              </div>
+            </div>
+
             {/* Selected Package Details */}
-            {selectedPackage && (
+            {selectedPackage && form.sqft && (
               <Card className="bg-gray-50">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Package Details - {selectedPackage.name}</CardTitle>
+                  <CardTitle className="text-sm">Estimated Project Value</CardTitle>
                 </CardHeader>
-                <CardContent className="text-sm">
-                  <div className="grid grid-cols-3 gap-4">
+                <CardContent>
+                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-gray-500">Scope Items</p>
-                      <p className="font-semibold">{selectedPackage.scope_items?.length || 0}</p>
+                      <p className="text-sm text-gray-500">{form.sqft} sqft × {formatCurrency(selectedPackage.base_rate_per_sqft || 0)}/sqft</p>
+                      <p className="text-sm text-gray-500">Package: {selectedPackage.name}</p>
                     </div>
-                    <div>
-                      <p className="text-gray-500">Materials</p>
-                      <p className="font-semibold">{selectedPackage.material_items?.length || 0}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Labour Items</p>
-                      <p className="font-semibold">{selectedPackage.labour_items?.length || 0}</p>
-                    </div>
+                    <p className="text-2xl font-bold text-green-600">
+                      {formatCurrency(parseFloat(form.sqft) * (selectedPackage.base_rate_per_sqft || 0))}
+                    </p>
                   </div>
-                  {selectedPackage.base_rate_per_sqft > 0 && form.sqft && (
-                    <div className="mt-3 pt-3 border-t">
-                      <p className="text-gray-500">Estimated Value</p>
-                      <p className="text-xl font-bold text-green-600">
-                        {formatCurrency(parseFloat(form.sqft) * selectedPackage.base_rate_per_sqft)}
-                      </p>
-                      <p className="text-xs text-gray-400">{form.sqft} sqft × {formatCurrency(selectedPackage.base_rate_per_sqft)}/sqft</p>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialog(false)}>Cancel</Button>
-            <Button onClick={handleCreateProject} className="bg-blue-600 hover:bg-blue-700">
+            <Button variant="outline" onClick={() => { setCreateDialog(false); resetForm(); }}>Cancel</Button>
+            <Button onClick={handleCreateProject} className="bg-blue-600 hover:bg-blue-700" data-testid="btn-create-project">
               <Plus className="h-4 w-4 mr-2" /> Create Project
             </Button>
           </DialogFooter>
