@@ -9937,12 +9937,6 @@ async def get_site_engineer_work_orders(user: User = Depends(get_current_user)):
 
 # ==================== COMPREHENSIVE ACCOUNTANT BOARD ENDPOINTS ====================
 
-def generate_payment_otp():
-    """Generate a 6-digit OTP for payment verification"""
-    import random
-    import string
-    return ''.join(random.choices(string.digits, k=6))
-
 
 @api_router.get("/accountant/comprehensive-dashboard")
 async def get_accountant_comprehensive_dashboard(user: User = Depends(get_current_user)):
