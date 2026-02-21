@@ -40,7 +40,37 @@ Build a Construction Accounting CRM with:
 
 ## Implementation Status
 
-### ✅ COMPLETED (December 2025 - January 2026)
+### ✅ COMPLETED (December 2025 - February 2026)
+
+#### Authentication & User Management (February 21, 2026) - NEW
+- [x] **Google Login Integration**:
+  - Emergent-managed Google OAuth
+  - Only invited users can login via Google
+  - Non-invited users get 403 error with clear message
+  
+- [x] **User Invitation System**:
+  - Super Admin can invite users by email
+  - Assign role during invitation
+  - User created with `status: "invited"`
+  - Invited user can login with Google using that email
+  - Email invitation (requires Resend API key - currently MOCKED)
+  
+- [x] **Demo Login Preserved**:
+  - Quick access buttons for testing
+  - Demo Mode section on login page
+  - Multiple demo users available
+
+- [x] **API Endpoints**:
+  - `POST /api/auth/invite-user` - Invite user (Super Admin only)
+  - `GET /api/auth/invitations` - List all invitations
+  - `DELETE /api/auth/invitations/{id}` - Cancel invitation
+  - `POST /api/auth/resend-invitation/{email}` - Resend invitation email
+  - `POST /api/auth/session` - Exchange Google OAuth session (rejects non-invited)
+
+- [x] **Frontend Updates**:
+  - Login page with Google Login button
+  - "Only invited users can login" message
+  - User Management uses invite system
 
 #### Core Infrastructure
 - [x] FastAPI backend with all API endpoints
