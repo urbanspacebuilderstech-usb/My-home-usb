@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://procure-ops.preview.emergentagent.com
-- Backend API: https://procure-ops.preview.emergentagent.com/api
+- Frontend: https://acct-erp-os.preview.emergentagent.com
+- Backend API: https://acct-erp-os.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

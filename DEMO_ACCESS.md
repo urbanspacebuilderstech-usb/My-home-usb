@@ -2,7 +2,7 @@
 
 ## Instant Login - No Google OAuth Required!
 
-**URL:** https://procure-ops.preview.emergentagent.com/login
+**URL:** https://acct-erp-os.preview.emergentagent.com/login
 
 ### 📋 Demo Credentials
 
@@ -23,7 +23,7 @@ Just click the role you want to test:
 ## 🚀 Getting Started
 
 ### Step 1: Login
-1. Go to: https://procure-ops.preview.emergentagent.com/login
+1. Go to: https://acct-erp-os.preview.emergentagent.com/login
 2. Select "Super Admin" from dropdown (or click quick button)
 3. Click "LOGIN AS DEMO USER"
 4. You're in! 🎉
@@ -124,10 +124,10 @@ Once logged in as Super Admin, you'll see:
 
 ## 🔗 Direct Links
 
-- **Login:** https://procure-ops.preview.emergentagent.com/login
-- **Dashboard:** https://procure-ops.preview.emergentagent.com/dashboard  
-- **Projects:** https://procure-ops.preview.emergentagent.com/projects
-- **Users:** https://procure-ops.preview.emergentagent.com/users
+- **Login:** https://acct-erp-os.preview.emergentagent.com/login
+- **Dashboard:** https://acct-erp-os.preview.emergentagent.com/dashboard  
+- **Projects:** https://acct-erp-os.preview.emergentagent.com/projects
+- **Users:** https://acct-erp-os.preview.emergentagent.com/users
 
 ## ❓ FAQ
 
@@ -148,4 +148,4 @@ A: Yes, everything is saved in MongoDB
 
 ---
 
-**🎉 Start exploring now: https://procure-ops.preview.emergentagent.com/login**
+**🎉 Start exploring now: https://acct-erp-os.preview.emergentagent.com/login**
