@@ -955,6 +955,126 @@ class PayrollStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+# ==================== FINANCIAL CONTROL MODELS ====================
+
+class IndirectCostCategory(str, Enum):
+    OFFICE_RENT = "office_rent"
+    STAFF_SALARY = "staff_salary"
+    UTILITIES = "utilities"
+    INSURANCE = "insurance"
+    MAINTENANCE = "maintenance"
+    TRAVEL = "travel"
+    COMMUNICATION = "communication"
+    LEGAL_PROFESSIONAL = "legal_professional"
+    BANK_CHARGES = "bank_charges"
+    DEPRECIATION = "depreciation"
+    OTHER = "other"
+
+
+class IndirectCostStatus(str, Enum):
+    PENDING = "pending"  # Created by Accountant, awaiting approval
+    APPROVED = "approved"  # Approved by Super Admin/GM
+    REJECTED = "rejected"  # Rejected by approver
+    CONFIRMED = "confirmed"  # Payment confirmed/processed
+    CANCELLED = "cancelled"  # Cancelled
+
+
+class SuspenseEntryStatus(str, Enum):
+    PENDING = "pending"  # Awaiting allocation
+    ALLOCATED = "allocated"  # Allocated to proper account
+    REJECTED = "rejected"  # Rejected/invalid
+
+
+class FinancialAuditAction(str, Enum):
+    CREATED = "created"
+    VERIFIED = "verified"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CONFIRMED = "confirmed"
+    MODIFIED = "modified"
+    CANCELLED = "cancelled"
+    CHEQUE_CLEARED = "cheque_cleared"
+    CHEQUE_RETURNED = "cheque_returned"
+
+
+# Indirect Cost (Overheads) - Accountant can create, requires approval
+class IndirectCost(BaseModel):
+    indirect_cost_id: str = Field(default_factory=lambda: f"ic_{uuid.uuid4().hex[:12]}")
+    category: IndirectCostCategory
+    description: str
+    amount: float
+    payment_method: PaymentMethodType
+    reference_number: Optional[str] = None
+    vendor_name: Optional[str] = None  # Payee name
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    payment_date: Optional[datetime] = None
+    supporting_document: Optional[str] = None  # File URL
+    remarks: Optional[str] = None
+    # Workflow
+    status: IndirectCostStatus = IndirectCostStatus.PENDING
+    created_by: str
+    created_by_name: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    confirmed_by: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    # Audit
+    is_locked: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Suspense Account Entry - For unclear transactions
+class SuspenseEntry(BaseModel):
+    suspense_id: str = Field(default_factory=lambda: f"sus_{uuid.uuid4().hex[:12]}")
+    amount: float
+    transaction_type: str  # income or expense
+    description: str
+    source: Optional[str] = None  # Where did this come from
+    reference_number: Optional[str] = None
+    payment_method: Optional[PaymentMethodType] = None
+    remarks: Optional[str] = None
+    # Allocation
+    status: SuspenseEntryStatus = SuspenseEntryStatus.PENDING
+    allocated_to: Optional[str] = None  # project_id or 'indirect_cost'
+    allocation_category: Optional[str] = None
+    allocation_reason: Optional[str] = None
+    # Workflow
+    created_by: str
+    created_by_name: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    # Audit
+    is_locked: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Financial Audit Log - Immutable record of all financial actions
+class FinancialAuditLog(BaseModel):
+    audit_id: str = Field(default_factory=lambda: f"fal_{uuid.uuid4().hex[:12]}")
+    entity_type: str  # income, expense, indirect_cost, cheque, suspense
+    entity_id: str  # ID of the affected record
+    action: FinancialAuditAction
+    old_value: Optional[dict] = None  # Previous state
+    new_value: Optional[dict] = None  # New state
+    amount: Optional[float] = None
+    project_id: Optional[str] = None
+    description: str
+    performed_by: str
+    performed_by_name: Optional[str] = None
+    performed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ip_address: Optional[str] = None
+
+
+# ==================== END FINANCIAL CONTROL MODELS ====================
+
+
 # Unified Transaction Model
 class Transaction(BaseModel):
     transaction_id: str = Field(default_factory=lambda: f"txn_{uuid.uuid4().hex[:12]}")
