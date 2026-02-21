@@ -32,10 +32,27 @@ export default function AuthCallback() {
         });
 
         const user = response.data;
-        navigate('/dashboard', { state: { user }, replace: true });
+        toast.success(`Welcome, ${user.name}!`);
+        
+        // Navigate based on role
+        if (user.role === 'client') {
+          navigate('/client-portal', { state: { user }, replace: true });
+        } else {
+          navigate('/dashboard', { state: { user }, replace: true });
+        }
       } catch (error) {
         console.error('Auth error:', error);
-        toast.error('Authentication failed');
+        const errorMessage = error.response?.data?.detail || 'Authentication failed';
+        
+        // Show specific message for uninvited users
+        if (error.response?.status === 403) {
+          toast.error('Access Denied: You must be invited by an administrator to access this system.', {
+            duration: 5000
+          });
+        } else {
+          toast.error(errorMessage);
+        }
+        
         navigate('/login');
       }
     };
@@ -44,10 +61,11 @@ export default function AuthCallback() {
   }, [navigate]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex items-center justify-center min-h-screen bg-gray-50">
       <div className="text-center">
         <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
-        <p className="mt-4 text-lg font-semibold">Authenticating...</p>
+        <p className="mt-4 text-lg font-semibold text-gray-700">Authenticating...</p>
+        <p className="text-sm text-gray-500 mt-2">Please wait while we verify your account</p>
       </div>
     </div>
   );
