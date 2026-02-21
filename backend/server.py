@@ -11442,6 +11442,640 @@ async def get_payment_requests(
 # ==================== END COMPREHENSIVE ACCOUNTANT BOARD ENDPOINTS ====================
 
 
+# ==================== FINANCIAL CONTROL ENDPOINTS ====================
+
+async def create_financial_audit_log(
+    entity_type: str,
+    entity_id: str,
+    action: FinancialAuditAction,
+    description: str,
+    user: User,
+    amount: Optional[float] = None,
+    project_id: Optional[str] = None,
+    old_value: Optional[dict] = None,
+    new_value: Optional[dict] = None
+):
+    """Create an immutable financial audit log entry"""
+    audit = FinancialAuditLog(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        description=description,
+        performed_by=user.user_id,
+        performed_by_name=user.name,
+        amount=amount,
+        project_id=project_id,
+        old_value=old_value,
+        new_value=new_value
+    )
+    audit_dict = audit.model_dump()
+    audit_dict["performed_at"] = audit_dict["performed_at"].isoformat()
+    await db.financial_audit_logs.insert_one(audit_dict)
+    return audit
+
+
+# ==================== INDIRECT COST ENDPOINTS ====================
+
+INDIRECT_COST_CATEGORIES = [
+    {"value": "office_rent", "label": "Office Rent"},
+    {"value": "staff_salary", "label": "Staff Salary"},
+    {"value": "utilities", "label": "Utilities (Electricity, Water, etc.)"},
+    {"value": "insurance", "label": "Insurance"},
+    {"value": "maintenance", "label": "Maintenance"},
+    {"value": "travel", "label": "Travel & Conveyance"},
+    {"value": "communication", "label": "Communication (Phone, Internet)"},
+    {"value": "legal_professional", "label": "Legal & Professional Fees"},
+    {"value": "bank_charges", "label": "Bank Charges"},
+    {"value": "depreciation", "label": "Depreciation"},
+    {"value": "other", "label": "Other"}
+]
+
+
+@api_router.get("/financial/indirect-cost-categories")
+async def get_indirect_cost_categories():
+    """Get list of indirect cost categories"""
+    return INDIRECT_COST_CATEGORIES
+
+
+@api_router.get("/financial/indirect-costs")
+async def get_indirect_costs(
+    status: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get indirect costs (Accountant, Super Admin, GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    if category:
+        query["category"] = category
+    
+    costs = await db.indirect_costs.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return costs
+
+
+class IndirectCostCreate(BaseModel):
+    category: IndirectCostCategory
+    description: str
+    amount: float
+    payment_method: PaymentMethodType
+    reference_number: Optional[str] = None
+    vendor_name: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+    remarks: Optional[str] = None
+
+
+@api_router.post("/financial/indirect-costs")
+async def create_indirect_cost(data: IndirectCostCreate, user: User = Depends(get_current_user)):
+    """Create indirect cost entry (Accountant only) - Requires approval"""
+    if user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Only Accountant can create indirect cost entries")
+    
+    cost = IndirectCost(
+        category=data.category,
+        description=data.description,
+        amount=data.amount,
+        payment_method=data.payment_method,
+        reference_number=data.reference_number,
+        vendor_name=data.vendor_name,
+        invoice_number=data.invoice_number,
+        invoice_date=data.invoice_date,
+        remarks=data.remarks,
+        status=IndirectCostStatus.PENDING,
+        created_by=user.user_id,
+        created_by_name=user.name
+    )
+    
+    cost_dict = cost.model_dump()
+    if cost_dict.get("invoice_date"):
+        cost_dict["invoice_date"] = cost_dict["invoice_date"].isoformat()
+    cost_dict["created_at"] = cost_dict["created_at"].isoformat()
+    cost_dict["updated_at"] = cost_dict["updated_at"].isoformat()
+    
+    await db.indirect_costs.insert_one(cost_dict)
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="indirect_cost",
+        entity_id=cost.indirect_cost_id,
+        action=FinancialAuditAction.CREATED,
+        description=f"Indirect cost created: {data.category} - {data.description}",
+        user=user,
+        amount=data.amount
+    )
+    
+    return {"message": "Indirect cost created. Pending approval from Super Admin or GM.", "indirect_cost_id": cost.indirect_cost_id}
+
+
+class IndirectCostApproval(BaseModel):
+    approved: bool
+    rejection_reason: Optional[str] = None
+
+
+@api_router.patch("/financial/indirect-costs/{cost_id}/approve")
+async def approve_indirect_cost(cost_id: str, data: IndirectCostApproval, user: User = Depends(get_current_user)):
+    """Approve or reject indirect cost (Super Admin or GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or GM can approve indirect costs")
+    
+    cost = await db.indirect_costs.find_one({"indirect_cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Indirect cost not found")
+    
+    if cost.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Can only approve/reject pending entries")
+    
+    if data.approved:
+        update = {
+            "status": "approved",
+            "approved_by": user.user_id,
+            "approved_by_name": user.name,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        action = FinancialAuditAction.APPROVED
+        message = "Indirect cost approved"
+    else:
+        update = {
+            "status": "rejected",
+            "approved_by": user.user_id,
+            "approved_by_name": user.name,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "rejection_reason": data.rejection_reason,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        action = FinancialAuditAction.REJECTED
+        message = "Indirect cost rejected"
+    
+    await db.indirect_costs.update_one({"indirect_cost_id": cost_id}, {"$set": update})
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="indirect_cost",
+        entity_id=cost_id,
+        action=action,
+        description=f"{message}: {cost.get('description')}",
+        user=user,
+        amount=cost.get("amount")
+    )
+    
+    return {"message": message}
+
+
+class IndirectCostConfirm(BaseModel):
+    payment_date: datetime
+    reference_number: str
+    remarks: Optional[str] = None
+
+
+@api_router.patch("/financial/indirect-costs/{cost_id}/confirm")
+async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: User = Depends(get_current_user)):
+    """Confirm payment of approved indirect cost (Accountant only)"""
+    if user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Only Accountant can confirm payment")
+    
+    cost = await db.indirect_costs.find_one({"indirect_cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Indirect cost not found")
+    
+    if cost.get("status") != "approved":
+        raise HTTPException(status_code=400, detail="Can only confirm approved entries")
+    
+    update = {
+        "status": "confirmed",
+        "payment_date": data.payment_date.isoformat(),
+        "reference_number": data.reference_number,
+        "remarks": data.remarks or cost.get("remarks"),
+        "confirmed_by": user.user_id,
+        "confirmed_at": datetime.now(timezone.utc).isoformat(),
+        "is_locked": True,  # Lock after confirmation
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.indirect_costs.update_one({"indirect_cost_id": cost_id}, {"$set": update})
+    
+    # Create transaction record
+    txn = Transaction(
+        transaction_type=TransactionType.EXPENSE,
+        amount=cost.get("amount", 0),
+        payment_method=cost.get("payment_method", PaymentMethodType.BANK_TRANSFER),
+        payment_date=data.payment_date,
+        reference_number=data.reference_number,
+        party_name=cost.get("vendor_name"),
+        party_type="vendor",
+        description=f"Indirect Cost: {cost.get('category')} - {cost.get('description')}",
+        category="indirect_cost",
+        recorded_by=user.user_id,
+        recorded_by_name=user.name
+    )
+    txn_dict = txn.model_dump()
+    txn_dict["payment_date"] = txn_dict["payment_date"].isoformat()
+    txn_dict["created_at"] = txn_dict["created_at"].isoformat()
+    txn_dict["updated_at"] = txn_dict["updated_at"].isoformat()
+    await db.transactions.insert_one(txn_dict)
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="indirect_cost",
+        entity_id=cost_id,
+        action=FinancialAuditAction.CONFIRMED,
+        description=f"Payment confirmed: {cost.get('description')}",
+        user=user,
+        amount=cost.get("amount")
+    )
+    
+    return {"message": "Payment confirmed and locked"}
+
+
+# ==================== SUSPENSE ACCOUNT ENDPOINTS ====================
+
+@api_router.get("/financial/suspense")
+async def get_suspense_entries(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get suspense entries (Accountant, Super Admin only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    entries = await db.suspense_entries.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return entries
+
+
+class SuspenseEntryCreate(BaseModel):
+    amount: float
+    transaction_type: str  # income or expense
+    description: str
+    source: Optional[str] = None
+    reference_number: Optional[str] = None
+    payment_method: Optional[PaymentMethodType] = None
+    remarks: Optional[str] = None
+
+
+@api_router.post("/financial/suspense")
+async def create_suspense_entry(data: SuspenseEntryCreate, user: User = Depends(get_current_user)):
+    """Create suspense entry for unclear transactions (Accountant only)"""
+    if user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Only Accountant can create suspense entries")
+    
+    entry = SuspenseEntry(
+        amount=data.amount,
+        transaction_type=data.transaction_type,
+        description=data.description,
+        source=data.source,
+        reference_number=data.reference_number,
+        payment_method=data.payment_method,
+        remarks=data.remarks,
+        status=SuspenseEntryStatus.PENDING,
+        created_by=user.user_id,
+        created_by_name=user.name
+    )
+    
+    entry_dict = entry.model_dump()
+    entry_dict["created_at"] = entry_dict["created_at"].isoformat()
+    entry_dict["updated_at"] = entry_dict["updated_at"].isoformat()
+    
+    await db.suspense_entries.insert_one(entry_dict)
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="suspense",
+        entity_id=entry.suspense_id,
+        action=FinancialAuditAction.CREATED,
+        description=f"Suspense entry created: {data.description}",
+        user=user,
+        amount=data.amount
+    )
+    
+    return {"message": "Suspense entry created. Requires Super Admin approval for allocation.", "suspense_id": entry.suspense_id}
+
+
+class SuspenseAllocation(BaseModel):
+    approved: bool
+    allocated_to: Optional[str] = None  # project_id or 'indirect_cost'
+    allocation_category: Optional[str] = None
+    allocation_reason: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+@api_router.patch("/financial/suspense/{suspense_id}/allocate")
+async def allocate_suspense_entry(suspense_id: str, data: SuspenseAllocation, user: User = Depends(get_current_user)):
+    """Approve and allocate suspense entry (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can allocate suspense entries")
+    
+    entry = await db.suspense_entries.find_one({"suspense_id": suspense_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Suspense entry not found")
+    
+    if entry.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Can only allocate pending entries")
+    
+    if data.approved:
+        if not data.allocated_to:
+            raise HTTPException(status_code=400, detail="Allocation target required for approval")
+        
+        update = {
+            "status": "allocated",
+            "allocated_to": data.allocated_to,
+            "allocation_category": data.allocation_category,
+            "allocation_reason": data.allocation_reason,
+            "approved_by": user.user_id,
+            "approved_by_name": user.name,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "is_locked": True,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        action = FinancialAuditAction.APPROVED
+        message = "Suspense entry allocated"
+    else:
+        update = {
+            "status": "rejected",
+            "approved_by": user.user_id,
+            "approved_by_name": user.name,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "rejection_reason": data.rejection_reason,
+            "is_locked": True,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        action = FinancialAuditAction.REJECTED
+        message = "Suspense entry rejected"
+    
+    await db.suspense_entries.update_one({"suspense_id": suspense_id}, {"$set": update})
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="suspense",
+        entity_id=suspense_id,
+        action=action,
+        description=f"{message}: {entry.get('description')}",
+        user=user,
+        amount=entry.get("amount")
+    )
+    
+    return {"message": message}
+
+
+# ==================== CHEQUE RETURN HANDLING ====================
+
+@api_router.patch("/financial/cheques/{cheque_id}/return")
+async def process_cheque_return(cheque_id: str, user: User = Depends(get_current_user)):
+    """Process cheque return - Auto-reduce income and create penalty entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    
+    if cheque.get("status") not in ["issued", "deposited", "cleared"]:
+        raise HTTPException(status_code=400, detail="Cheque cannot be marked as returned")
+    
+    project_id = cheque.get("project_id")
+    amount = cheque.get("amount", 0)
+    
+    # Update cheque status
+    await db.cheques.update_one(
+        {"cheque_id": cheque_id},
+        {"$set": {
+            "status": "bounced",
+            "bounce_reason": "Returned by bank",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # If this was an income cheque for a project, reduce project income
+    if project_id and cheque.get("cheque_type") == "incoming":
+        # Find and update related income entry
+        income_entry = await db.income_entries.find_one({
+            "project_id": project_id,
+            "payment_mode": "cheque",
+            "amount": amount
+        }, {"_id": 0})
+        
+        if income_entry:
+            # Mark income entry as reversed
+            await db.income_entries.update_one(
+                {"entry_id": income_entry.get("entry_id")},
+                {"$set": {
+                    "status": "reversed",
+                    "reversal_reason": f"Cheque returned: {cheque.get('cheque_number')}",
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
+            )
+        
+        # Create cheque return penalty expense
+        penalty_amount = cheque.get("bounce_charges", 500)  # Default penalty
+        penalty = IndirectCost(
+            category=IndirectCostCategory.BANK_CHARGES,
+            description=f"Cheque Return Penalty - {cheque.get('cheque_number')} from {cheque.get('party_name')}",
+            amount=penalty_amount,
+            payment_method=PaymentMethodType.BANK_TRANSFER,
+            vendor_name="Bank Charges",
+            remarks=f"Auto-created for bounced cheque {cheque.get('cheque_number')}",
+            status=IndirectCostStatus.PENDING,  # Still needs approval
+            created_by=user.user_id,
+            created_by_name=user.name
+        )
+        
+        penalty_dict = penalty.model_dump()
+        penalty_dict["created_at"] = penalty_dict["created_at"].isoformat()
+        penalty_dict["updated_at"] = penalty_dict["updated_at"].isoformat()
+        await db.indirect_costs.insert_one(penalty_dict)
+        
+        # Create notification for Planning department
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "type": "cheque_returned",
+            "title": "Cheque Returned",
+            "message": f"Cheque {cheque.get('cheque_number')} from {cheque.get('party_name')} for ₹{amount:,.2f} has been returned.",
+            "target_roles": ["planning", "super_admin"],
+            "project_id": project_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.notifications.insert_one(notification)
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="cheque",
+        entity_id=cheque_id,
+        action=FinancialAuditAction.CHEQUE_RETURNED,
+        description=f"Cheque returned: {cheque.get('cheque_number')} - {cheque.get('party_name')}",
+        user=user,
+        amount=amount,
+        project_id=project_id
+    )
+    
+    return {
+        "message": "Cheque marked as returned. Income reversed and penalty entry created.",
+        "penalty_created": True,
+        "notification_sent": True
+    }
+
+
+# ==================== INCOME VERIFICATION (Accountant can only verify, not create) ====================
+
+@api_router.get("/financial/pending-income-verification")
+async def get_pending_income_verification(user: User = Depends(get_current_user)):
+    """Get income entries pending verification (from Planning stage payments)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Get income entries that are pending verification
+    entries = await db.income_entries.find({
+        "status": {"$in": ["pending_verification", "pending"]}
+    }, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    return entries
+
+
+class IncomeVerification(BaseModel):
+    verified: bool
+    reference_number: Optional[str] = None
+    payment_method_confirmed: Optional[PaymentMethodType] = None
+    remarks: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+@api_router.patch("/financial/income/{entry_id}/verify")
+async def verify_income_entry(entry_id: str, data: IncomeVerification, user: User = Depends(get_current_user)):
+    """Verify income entry (Accountant only - cannot modify amount)"""
+    if user.role != UserRole.ACCOUNTANT:
+        raise HTTPException(status_code=403, detail="Only Accountant can verify income")
+    
+    entry = await db.income_entries.find_one({"entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    
+    if entry.get("status") not in ["pending", "pending_verification"]:
+        raise HTTPException(status_code=400, detail="Entry is not pending verification")
+    
+    if data.verified:
+        update = {
+            "status": "verified",
+            "verified_by": user.user_id,
+            "verified_by_name": user.name,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+            "reference_number": data.reference_number or entry.get("reference_number"),
+            "remarks": data.remarks,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        if data.payment_method_confirmed:
+            update["payment_mode"] = data.payment_method_confirmed
+        
+        action = FinancialAuditAction.VERIFIED
+        message = "Income verified"
+    else:
+        update = {
+            "status": "rejected",
+            "verified_by": user.user_id,
+            "verified_by_name": user.name,
+            "verified_at": datetime.now(timezone.utc).isoformat(),
+            "rejection_reason": data.rejection_reason,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        action = FinancialAuditAction.REJECTED
+        message = "Income rejected"
+    
+    await db.income_entries.update_one({"entry_id": entry_id}, {"$set": update})
+    
+    # Create audit log
+    await create_financial_audit_log(
+        entity_type="income",
+        entity_id=entry_id,
+        action=action,
+        description=f"{message}: {entry.get('description', 'Stage payment')}",
+        user=user,
+        amount=entry.get("amount"),
+        project_id=entry.get("project_id")
+    )
+    
+    return {"message": message}
+
+
+# ==================== FINANCIAL AUDIT LOG ENDPOINTS ====================
+
+@api_router.get("/financial/audit-logs")
+async def get_financial_audit_logs(
+    entity_type: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    limit: int = 100,
+    user: User = Depends(get_current_user)
+):
+    """Get financial audit logs (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can view audit logs")
+    
+    query = {}
+    if entity_type:
+        query["entity_type"] = entity_type
+    if entity_id:
+        query["entity_id"] = entity_id
+    if project_id:
+        query["project_id"] = project_id
+    
+    logs = await db.financial_audit_logs.find(query, {"_id": 0}).sort("performed_at", -1).to_list(limit)
+    return logs
+
+
+# ==================== FINANCIAL DASHBOARD SUMMARY ====================
+
+@api_router.get("/financial/control-dashboard")
+async def get_financial_control_dashboard(user: User = Depends(get_current_user)):
+    """Get financial control dashboard summary"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Pending verifications
+    pending_income = await db.income_entries.count_documents({"status": {"$in": ["pending", "pending_verification"]}})
+    
+    # Pending indirect cost approvals
+    pending_indirect = await db.indirect_costs.count_documents({"status": "pending"})
+    approved_indirect = await db.indirect_costs.count_documents({"status": "approved"})
+    
+    # Suspense entries
+    pending_suspense = await db.suspense_entries.count_documents({"status": "pending"})
+    
+    # Cheque status
+    pending_cheques = await db.cheques.count_documents({"status": {"$in": ["issued", "deposited", "post_dated"]}})
+    bounced_cheques = await db.cheques.count_documents({"status": "bounced"})
+    
+    # Calculate totals
+    indirect_costs_total = await db.indirect_costs.aggregate([
+        {"$match": {"status": "confirmed"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]).to_list(1)
+    
+    suspense_total = await db.suspense_entries.aggregate([
+        {"$match": {"status": "pending"}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]).to_list(1)
+    
+    return {
+        "pending_income_verification": pending_income,
+        "pending_indirect_cost_approvals": pending_indirect,
+        "approved_indirect_costs_pending_payment": approved_indirect,
+        "pending_suspense_allocation": pending_suspense,
+        "pending_cheques": pending_cheques,
+        "bounced_cheques": bounced_cheques,
+        "indirect_costs_total": indirect_costs_total[0]["total"] if indirect_costs_total else 0,
+        "suspense_total": suspense_total[0]["total"] if suspense_total else 0
+    }
+
+
+# ==================== END FINANCIAL CONTROL ENDPOINTS ====================
+
+
 app.include_router(api_router)
 
 app.add_middleware(
