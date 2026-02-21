@@ -1263,6 +1263,7 @@ async def demo_login(login_request: DemoLoginRequest, response: Response):
 
 @api_router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
+    """Exchange Google OAuth session - ONLY for invited users"""
     session_id = request.headers.get("X-Session-ID")
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session ID")
@@ -1279,26 +1280,29 @@ async def exchange_session(request: Request, response: Response):
             logger.error(f"Failed to fetch session data: {str(e)}")
             raise HTTPException(status_code=400, detail="Invalid session")
     
-    email = data["email"]
+    email = data["email"].lower()
     user_doc = await db.users.find_one({"email": email}, {"_id": 0})
     
+    # ONLY invited users can login via Google
     if not user_doc:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        new_user = User(
-            user_id=user_id,
-            email=email,
-            name=data.get("name", ""),
-            picture=data.get("picture"),
-            role=UserRole.CLIENT,
-            created_at=datetime.now(timezone.utc)
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied. You must be invited by an administrator to access this system. Please contact your Super Admin."
         )
-        user_dict = new_user.model_dump()
-        user_dict["created_at"] = user_dict["created_at"].isoformat()
-        await db.users.insert_one(user_dict)
-        user_doc = user_dict
-    else:
-        if isinstance(user_doc.get("created_at"), str):
-            user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
+    
+    # Update user profile picture and name from Google if available
+    update_fields = {}
+    if data.get("picture") and not user_doc.get("picture"):
+        update_fields["picture"] = data["picture"]
+    if data.get("name") and not user_doc.get("name"):
+        update_fields["name"] = data["name"]
+    
+    if update_fields:
+        await db.users.update_one({"email": email}, {"$set": update_fields})
+        user_doc.update(update_fields)
+    
+    if isinstance(user_doc.get("created_at"), str):
+        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
     
     session_token = data["session_token"]
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
@@ -1326,6 +1330,230 @@ async def exchange_session(request: Request, response: Response):
     )
     
     return User(**user_doc)
+
+
+# ==================== USER INVITATION SYSTEM ====================
+
+class UserInvitationStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+
+
+class UserInvitation(BaseModel):
+    invitation_id: str = Field(default_factory=lambda: f"inv_{uuid.uuid4().hex[:12]}")
+    email: str
+    role: UserRole
+    invited_by: str
+    invited_by_name: Optional[str] = None
+    status: UserInvitationStatus = UserInvitationStatus.PENDING
+    invitation_token: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(days=7))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class InviteUserRequest(BaseModel):
+    email: str
+    role: UserRole
+    name: Optional[str] = None
+
+
+@api_router.post("/auth/invite-user")
+async def invite_user(invite: InviteUserRequest, user: User = Depends(get_current_user)):
+    """Super Admin invites a new user by email"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can invite users")
+    
+    email = invite.email.lower()
+    
+    # Check if user already exists
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    # Check for existing pending invitation
+    existing_invite = await db.user_invitations.find_one({
+        "email": email, 
+        "status": "pending"
+    }, {"_id": 0})
+    
+    if existing_invite:
+        # Update existing invitation
+        await db.user_invitations.update_one(
+            {"invitation_id": existing_invite["invitation_id"]},
+            {"$set": {
+                "role": invite.role,
+                "invitation_token": uuid.uuid4().hex,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                "invited_by": user.user_id,
+                "invited_by_name": user.name
+            }}
+        )
+        invitation_token = existing_invite["invitation_token"]
+    else:
+        # Create new invitation
+        invitation = UserInvitation(
+            email=email,
+            role=invite.role,
+            invited_by=user.user_id,
+            invited_by_name=user.name
+        )
+        
+        inv_dict = invitation.model_dump()
+        inv_dict["expires_at"] = inv_dict["expires_at"].isoformat()
+        inv_dict["created_at"] = inv_dict["created_at"].isoformat()
+        await db.user_invitations.insert_one(inv_dict)
+        invitation_token = invitation.invitation_token
+    
+    # Create the user in database (status: invited, pending activation)
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    new_user = {
+        "user_id": user_id,
+        "email": email,
+        "name": invite.name or "",
+        "role": invite.role,
+        "status": "invited",  # User is invited but hasn't logged in yet
+        "invited_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(new_user)
+    
+    # Send invitation email (or mock it)
+    frontend_url = os.environ.get("FRONTEND_URL", "https://procure-ops.preview.emergentagent.com")
+    
+    if resend.api_key:
+        try:
+            await send_notification_email(
+                email,
+                "You've been invited to ConstructionOS",
+                f"""
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <div style="background: #FBBF24; padding: 20px; text-align: center;">
+                        <h1 style="margin: 0; color: #1F2937;">ConstructionOS</h1>
+                    </div>
+                    <div style="padding: 30px; background: #ffffff;">
+                        <h2 style="color: #1F2937;">You've been invited!</h2>
+                        <p style="color: #4B5563;">
+                            <strong>{user.name}</strong> has invited you to join ConstructionOS as a <strong>{invite.role.replace('_', ' ').title()}</strong>.
+                        </p>
+                        <p style="color: #4B5563;">
+                            Click the button below to login with your Google account:
+                        </p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="{frontend_url}/login" 
+                               style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                                Login with Google
+                            </a>
+                        </div>
+                        <p style="color: #6B7280; font-size: 14px;">
+                            Note: You must login using this email address ({email}) to access the system.
+                        </p>
+                    </div>
+                    <div style="background: #F3F4F6; padding: 15px; text-align: center; color: #6B7280; font-size: 12px;">
+                        This invitation expires in 7 days.
+                    </div>
+                </div>
+                """
+            )
+            email_sent = True
+        except Exception as e:
+            logger.error(f"Failed to send invitation email: {e}")
+            email_sent = False
+    else:
+        email_sent = False
+    
+    return {
+        "message": f"User invited successfully",
+        "email": email,
+        "role": invite.role,
+        "email_sent": email_sent,
+        "note": "User can now login with Google using this email" if email_sent else "Email not sent (Resend API key not configured). User can login with Google using this email."
+    }
+
+
+@api_router.get("/auth/invitations")
+async def get_invitations(user: User = Depends(get_current_user)):
+    """Get all user invitations (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can view invitations")
+    
+    invitations = await db.user_invitations.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return invitations
+
+
+@api_router.delete("/auth/invitations/{invitation_id}")
+async def cancel_invitation(invitation_id: str, user: User = Depends(get_current_user)):
+    """Cancel a pending invitation (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can cancel invitations")
+    
+    invitation = await db.user_invitations.find_one({"invitation_id": invitation_id}, {"_id": 0})
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    
+    # Delete the invitation
+    await db.user_invitations.delete_one({"invitation_id": invitation_id})
+    
+    # Also delete the user if they haven't logged in yet
+    await db.users.delete_one({"email": invitation["email"], "status": "invited"})
+    
+    return {"message": "Invitation cancelled"}
+
+
+@api_router.post("/auth/resend-invitation/{email}")
+async def resend_invitation(email: str, user: User = Depends(get_current_user)):
+    """Resend invitation email (Super Admin only)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can resend invitations")
+    
+    email = email.lower()
+    user_doc = await db.users.find_one({"email": email, "status": "invited"}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="Pending invitation not found for this email")
+    
+    frontend_url = os.environ.get("FRONTEND_URL", "https://procure-ops.preview.emergentagent.com")
+    
+    if not resend.api_key:
+        return {
+            "message": "Email not sent (Resend API key not configured)",
+            "email_sent": False,
+            "note": f"User can login at {frontend_url}/login with Google using {email}"
+        }
+    
+    try:
+        await send_notification_email(
+            email,
+            "Reminder: You've been invited to ConstructionOS",
+            f"""
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #FBBF24; padding: 20px; text-align: center;">
+                    <h1 style="margin: 0; color: #1F2937;">ConstructionOS</h1>
+                </div>
+                <div style="padding: 30px; background: #ffffff;">
+                    <h2 style="color: #1F2937;">Reminder: You're invited!</h2>
+                    <p style="color: #4B5563;">
+                        You were invited to join ConstructionOS as a <strong>{user_doc.get('role', 'user').replace('_', ' ').title()}</strong>.
+                    </p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="{frontend_url}/login" 
+                           style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                            Login with Google
+                        </a>
+                    </div>
+                    <p style="color: #6B7280; font-size: 14px;">
+                        Login using: {email}
+                    </p>
+                </div>
+            </div>
+            """
+        )
+        return {"message": "Invitation email resent", "email_sent": True}
+    except Exception as e:
+        logger.error(f"Failed to resend invitation: {e}")
+        return {"message": "Failed to send email", "email_sent": False, "error": str(e)}
+
+
+# ==================== END USER INVITATION SYSTEM ====================
 
 
 @api_router.get("/auth/me")
