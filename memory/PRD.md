@@ -15,16 +15,20 @@ Build a Construction Accounting CRM with:
 - Multi-role dashboards
 - Client Portal for project visibility
 - Notifications & Audit Logs
+- **Google Login** with invited users only
+- **User Invitation System** - Super Admin can add users by email
 
 ### User Roles
-1. **Super Admin** - Full system access
-2. **Accountant** - Approve/reject work orders, manage expenses
-3. **Project Manager** - Create projects, submit work orders
-4. **Planning Department** - Create and manage BOQ
-5. **Procurement Department** - Create POs, manage vendors
-6. **Site Engineer** - Submit site receipts with GPS + photos
-7. **Vendor** - View assigned orders via Vendor Portal
-8. **Client** - Read-only project portal
+1. **Super Admin** - Full system access, invite users
+2. **General Manager** - Overall management
+3. **CRO** - Client relations & payment collection
+4. **Accountant** - Approve/reject work orders, manage expenses
+5. **Project Manager** - Create projects, submit work orders
+6. **Planning Department** - Create and manage BOQ
+7. **Procurement Department** - Create POs, manage vendors
+8. **Site Engineer** - Submit site receipts with GPS + photos
+9. **Vendor** - View assigned orders via Vendor Portal
+10. **Client** - Read-only project portal
 
 ### Tech Stack
 - **Backend**: FastAPI (Python)
