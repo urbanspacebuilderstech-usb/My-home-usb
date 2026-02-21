@@ -136,6 +136,12 @@ export default function AccountantDashboard() {
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/cheque-management'} data-testid="goto-cheques-btn">
               <FileText className="h-4 w-4 mr-1" /> Cheques
             </Button>
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/indirect-costs'} data-testid="goto-indirect-costs-btn">
+              <Building2 className="h-4 w-4 mr-1" /> Overheads
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/suspense-account'} data-testid="goto-suspense-btn">
+              <AlertTriangle className="h-4 w-4 mr-1" /> Suspense
+            </Button>
             <div className="flex items-center gap-2 pl-4 border-l">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold">{user?.name}</p>
