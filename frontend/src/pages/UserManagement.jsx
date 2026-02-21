@@ -110,6 +110,7 @@ export default function UserManagement() {
     e.preventDefault();
     try {
       if (editingUser) {
+        // Update existing user
         await axios.patch(`${API}/users/${editingUser.user_id}`, {
           name: formData.name,
           phone: formData.phone || null,
@@ -118,16 +119,13 @@ export default function UserManagement() {
         });
         toast.success('User updated successfully');
       } else {
-        await axios.post(`${API}/users`, {
-          user_id: `user_${Date.now()}`,
+        // Invite new user via the invitation system
+        await axios.post(`${API}/auth/invite-user`, {
           email: formData.email.toLowerCase(),
-          name: formData.name,
-          role: formData.role,
-          phone: formData.phone || null,
-          department: formData.department || null,
-          created_at: new Date().toISOString()
+          name: formData.name || null,
+          role: formData.role
         });
-        toast.success('User created successfully');
+        toast.success('Invitation sent! User can now login with Google using this email.');
       }
       setDialogOpen(false);
       fetchData();
