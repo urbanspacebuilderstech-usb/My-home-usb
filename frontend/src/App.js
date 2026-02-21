@@ -42,6 +42,8 @@ import PaymentProcessing from '@/pages/PaymentProcessing';
 import WorkOrderManagement from '@/pages/WorkOrderManagement';
 import LabourContractorManagement from '@/pages/LabourContractorManagement';
 import ProjectMaterials from '@/pages/ProjectMaterials';
+import IndirectCostManagement from '@/pages/IndirectCostManagement';
+import SuspenseAccount from '@/pages/SuspenseAccount';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
