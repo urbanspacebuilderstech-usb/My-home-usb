@@ -1,0 +1,126 @@
+{
+  "summary": "Financial Control Structure Testing Complete - All backend APIs and frontend UI features verified working. Indirect Cost Management (create → approve → confirm → lock) and Suspense Account (create → allocate → lock) workflows tested successfully.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_financial_control.py",
+    "/app/test_reports/pytest/pytest_financial_control.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_financial_control.py"
+  ],
+  "success_rate": {
+    "backend": "100% (29/29 tests passed)",
+    "frontend": "100% (all UI workflows verified)"
+  },
+  "test_credentials": {
+    "accountant": "accountant@constructionos.com (Priya Sharma)",
+    "super_admin": "admin@constructionos.com (Super Admin)"
+  },
+  "seed_data_creation": "Created test indirect costs and suspense entries prefixed with TEST_ during automated testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Financial Control Structure fully implemented and tested. Indirect Cost workflow: Accountant creates → Super Admin/GM approves → Accountant confirms payment → Entry locked. Suspense Account workflow: Accountant creates unclear transaction → Super Admin allocates to project/indirect cost or rejects → Entry locked. All audit logs being created for financial actions.",
+  "features_tested": {
+    "indirect_cost_management": {
+      "accountant_create": "PASS - Accountant can create indirect cost entries",
+      "admin_cannot_create": "PASS - Super Admin blocked from creating (403)",
+      "admin_approve": "PASS - Super Admin can approve pending entries",
+      "accountant_cannot_approve": "PASS - Accountant blocked from approving (403)",
+      "admin_reject_with_reason": "PASS - Super Admin can reject with reason",
+      "accountant_confirm_payment": "PASS - Accountant can confirm approved entries",
+      "entry_locked_after_confirm": "PASS - Entry marked as locked after confirmation"
+    },
+    "suspense_account": {
+      "accountant_create": "PASS - Accountant can create suspense entries",
+      "admin_cannot_create": "PASS - Super Admin blocked from creating (403)",
+      "admin_allocate": "PASS - Super Admin can allocate to project or indirect cost",
+      "accountant_cannot_allocate": "PASS - Accountant blocked from allocating (403)",
+      "admin_reject": "PASS - Super Admin can reject with reason",
+      "entry_locked_after_allocation": "PASS - Entry marked as locked after allocation"
+    },
+    "financial_audit_logs": {
+      "admin_can_view": "PASS - Super Admin can view audit logs",
+      "accountant_cannot_view": "PASS - Accountant blocked from viewing (403)",
+      "log_structure": "PASS - Logs contain entity_type, entity_id, action, performed_by, performed_at"
+    },
+    "frontend_navigation": {
+      "accountant_dashboard_links": "PASS - Overheads and Suspense buttons navigate correctly",
+      "indirect_costs_page": "PASS - Shows stats, tabs (Pending/Approved/Confirmed/Rejected), Add Overhead button",
+      "suspense_account_page": "PASS - Shows rules banner, stats, entry table, Add Entry button"
+    },
+    "ui_workflow": {
+      "create_indirect_cost": "PASS - Accountant can fill form and submit (category dropdown, description, amount, payment method)",
+      "admin_review_approve": "PASS - Super Admin sees Review button, opens dialog, can Approve/Reject"
+    }
+  },
+  "api_endpoints_tested": {
+    "GET /api/financial/indirect-cost-categories": "PASS - Returns list of categories",
+    "GET /api/financial/indirect-costs": "PASS - Returns list of indirect costs with status filter",
+    "POST /api/financial/indirect-costs": "PASS - Creates pending entry (Accountant only)",
+    "PATCH /api/financial/indirect-costs/{id}/approve": "PASS - Approves/rejects (Super Admin/GM only)",
+    "PATCH /api/financial/indirect-costs/{id}/confirm": "PASS - Confirms payment (Accountant only)",
+    "GET /api/financial/suspense": "PASS - Returns list of suspense entries",
+    "POST /api/financial/suspense": "PASS - Creates pending entry (Accountant only)",
+    "PATCH /api/financial/suspense/{id}/allocate": "PASS - Allocates/rejects (Super Admin only)",
+    "GET /api/financial/audit-logs": "PASS - Returns audit logs (Super Admin only)",
+    "GET /api/financial/control-dashboard": "PASS - Returns dashboard summary"
+  },
+  "role_based_access": {
+    "accountant": {
+      "can_create_indirect_costs": true,
+      "can_approve_indirect_costs": false,
+      "can_confirm_indirect_costs": true,
+      "can_create_suspense": true,
+      "can_allocate_suspense": false,
+      "can_view_audit_logs": false
+    },
+    "super_admin": {
+      "can_create_indirect_costs": false,
+      "can_approve_indirect_costs": true,
+      "can_confirm_indirect_costs": false,
+      "can_create_suspense": false,
+      "can_allocate_suspense": true,
+      "can_view_audit_logs": true
+    }
+  },
+  "mocked_apis": {
+    "email_notifications": "MOCKED - Resend email for OTP/notifications not configured"
+  },
+  "data_testid_elements": {
+    "accountant_dashboard": [
+      "goto-indirect-costs-btn",
+      "goto-suspense-btn",
+      "quick-income-btn",
+      "quick-indirect-btn",
+      "quick-suspense-btn"
+    ],
+    "indirect_costs_page": [
+      "create-indirect-cost-btn",
+      "select-category",
+      "input-description",
+      "input-amount",
+      "submit-indirect-cost",
+      "approve-btn",
+      "reject-btn",
+      "confirm-btn-{id}"
+    ],
+    "suspense_account_page": [
+      "create-suspense-btn",
+      "input-amount",
+      "input-description",
+      "submit-suspense",
+      "allocate-btn-{id}",
+      "confirm-allocation"
+    ]
+  }
+}
