@@ -467,7 +467,7 @@ export default function AccountantDashboard() {
         )}
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mt-6">
           <Button 
             className="bg-emerald-600 hover:bg-emerald-700 h-auto py-4 flex-col gap-2"
             onClick={() => window.location.href = '/income'}
@@ -488,11 +488,29 @@ export default function AccountantDashboard() {
           
           <Button 
             className="bg-violet-600 hover:bg-violet-700 h-auto py-4 flex-col gap-2"
+            onClick={() => window.location.href = '/indirect-costs'}
+            data-testid="quick-indirect-btn"
+          >
+            <Building2 className="h-6 w-6" />
+            <span>Indirect Costs</span>
+          </Button>
+          
+          <Button 
+            className="bg-orange-600 hover:bg-orange-700 h-auto py-4 flex-col gap-2"
+            onClick={() => window.location.href = '/suspense-account'}
+            data-testid="quick-suspense-btn"
+          >
+            <AlertTriangle className="h-6 w-6" />
+            <span>Suspense A/C</span>
+          </Button>
+          
+          <Button 
+            className="bg-pink-600 hover:bg-pink-700 h-auto py-4 flex-col gap-2"
             onClick={() => window.location.href = '/hr-portal'}
             data-testid="quick-payroll-btn"
           >
             <Briefcase className="h-6 w-6" />
-            <span>Process Payroll</span>
+            <span>HR & Payroll</span>
           </Button>
           
           <Button 
@@ -501,7 +519,7 @@ export default function AccountantDashboard() {
             data-testid="quick-approvals-btn"
           >
             <CheckCircle className="h-6 w-6" />
-            <span>Pending Approvals</span>
+            <span>Approvals</span>
           </Button>
         </div>
       </div>
