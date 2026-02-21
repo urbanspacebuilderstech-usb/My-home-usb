@@ -167,17 +167,21 @@ class TestUserInvitation:
         assert "already exists" in data.get("detail", "").lower()
         print("✓ Cannot invite duplicate user")
     
-    def test_invite_user_non_admin_forbidden(self, api_client):
+    def test_invite_user_non_admin_forbidden(self):
         """Non-Super Admin cannot invite users"""
+        # Create fresh session for accountant
+        accountant_session = requests.Session()
+        accountant_session.headers.update({"Content-Type": "application/json"})
+        
         # Login as Accountant (not super admin)
-        login_response = api_client.post(f"{BASE_URL}/api/auth/demo-login", json={
+        login_response = accountant_session.post(f"{BASE_URL}/api/auth/demo-login", json={
             "email": "accountant@constructionos.com"
         })
         assert login_response.status_code == 200
         
         # Try to invite user
         unique_email = f"TEST_forbidden_{uuid.uuid4().hex[:8]}@example.com"
-        response = api_client.post(f"{BASE_URL}/api/auth/invite-user", json={
+        response = accountant_session.post(f"{BASE_URL}/api/auth/invite-user", json={
             "email": unique_email,
             "role": "project_manager",
             "name": "Forbidden Invite"
