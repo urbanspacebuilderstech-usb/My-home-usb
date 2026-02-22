@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { 
   Building2, LogOut, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
-  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2
+  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
