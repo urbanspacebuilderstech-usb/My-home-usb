@@ -12601,15 +12601,20 @@ async def get_default_custom_fields():
 
 @api_router.get("/crm/pre-sales/dashboard")
 async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
-    """Get Pre-Sales dashboard with stage counts"""
+    """Get Pre-Sales dashboard with stage counts - filtered by assigned user for non-admins"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     stages = await get_default_pre_sales_stages()
     
+    # Build query - filter by assigned_to for Pre-Sales users (not for Super Admin)
+    base_query = {"stage_type": "pre_sales"}
+    if user.role == "pre_sales":
+        base_query["assigned_to"] = user.user_id
+    
     # Get lead counts per stage
     pipeline = [
-        {"$match": {"stage_type": "pre_sales"}},
+        {"$match": base_query},
         {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
     ]
     stage_counts = await db.leads.aggregate(pipeline).to_list(100)
@@ -12617,18 +12622,18 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     
     # Get recent leads
     recent_leads = await db.leads.find(
-        {"stage_type": "pre_sales"}, 
+        base_query, 
         {"_id": 0}
     ).sort("created_at", -1).limit(10).to_list(10)
     
     # Get source breakdown
     source_pipeline = [
-        {"$match": {"stage_type": "pre_sales"}},
+        {"$match": base_query},
         {"$group": {"_id": "$source", "count": {"$sum": 1}}}
     ]
     source_counts = await db.leads.aggregate(source_pipeline).to_list(20)
     
-    total_leads = await db.leads.count_documents({"stage_type": "pre_sales"})
+    total_leads = await db.leads.count_documents(base_query)
     
     return {
         "stages": [
@@ -12637,7 +12642,10 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
         ],
         "total_leads": total_leads,
         "recent_leads": recent_leads,
-        "source_breakdown": {s["_id"]: s["count"] for s in source_counts}
+        "source_breakdown": {s["_id"]: s["count"] for s in source_counts},
+        "is_filtered": user.role == "pre_sales",
+        "user_name": user.name if user.role == "pre_sales" else None
+    }
     }
 
 
