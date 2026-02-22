@@ -680,6 +680,7 @@ const GMDashboard = () => {
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <Button 
+                            type="button"
                             size="sm" 
                             variant="outline"
                             className="text-purple-600 hover:bg-purple-50"
@@ -693,6 +694,7 @@ const GMDashboard = () => {
                             <Download className="h-4 w-4" />
                           </Button>
                           <Button 
+                            type="button"
                             size="sm" 
                             variant="outline"
                             onClick={(e) => {
@@ -707,16 +709,26 @@ const GMDashboard = () => {
                           {(re.status === 're_awaiting_approval' || re.status === 're_in_progress') && (
                             <>
                               <Button 
+                                type="button"
                                 size="sm" 
                                 className="bg-green-600 hover:bg-green-700"
-                                onClick={() => openApprovalDialog(re, 're_project', 'approve')}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openApprovalDialog(re, 're_project', 'approve');
+                                }}
                               >
                                 <CheckCircle className="h-4 w-4 mr-1" /> Approve
                               </Button>
                               <Button 
+                                type="button"
                                 size="sm" 
                                 variant="destructive"
-                                onClick={() => openApprovalDialog(re, 're_project', 'reject')}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  openApprovalDialog(re, 're_project', 'reject');
+                                }}
                               >
                                 <XCircle className="h-4 w-4 mr-1" /> Reject
                               </Button>
