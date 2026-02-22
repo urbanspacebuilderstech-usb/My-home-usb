@@ -5587,6 +5587,232 @@ async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = D
     return {"message": "Petty cash rejected"}
 
 
+# ==================== PROJECT MANAGER MODULE ====================
+
+class TeamAssignmentCreate(BaseModel):
+    project_id: str
+    user_id: str
+    role: str  # associate_pm, sr_site_engineer, site_engineer
+
+@api_router.get("/pm/dashboard")
+async def get_pm_dashboard(user: User = Depends(get_current_user)):
+    """Project Manager dashboard"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    # Get all projects (PM sees all projects)
+    total_projects = await db.projects.count_documents({})
+    active_projects = await db.projects.count_documents({"status": {"$in": ["in_planning", "planning_approved", "active"]}})
+    
+    # Pending material requests (need PM approval)
+    pending_material = await db.material_requests.count_documents({"status": "requested"})
+    
+    # Pending labour requests (need PM approval)
+    pending_labour = await db.labour_expenses.count_documents({"status": "requested"})
+    
+    # Team members count
+    team_members = await db.users.count_documents({
+        "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
+    })
+    
+    return {
+        "total_projects": total_projects,
+        "active_projects": active_projects,
+        "pending_material_requests": pending_material,
+        "pending_labour_requests": pending_labour,
+        "team_members": team_members
+    }
+
+
+@api_router.get("/pm/projects")
+async def get_pm_projects(user: User = Depends(get_current_user)):
+    """Get all projects for PM"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    # Enrich with team assignments
+    for proj in projects:
+        assignments = await db.site_engineer_assignments.find({
+            "project_id": proj["project_id"],
+            "is_active": True
+        }, {"_id": 0}).to_list(10)
+        proj["team_assignments"] = assignments
+        
+        # Get team member details
+        team = []
+        for a in assignments:
+            u = await db.users.find_one({"user_id": a["user_id"]}, {"_id": 0, "user_id": 1, "name": 1, "role": 1})
+            if u:
+                team.append(u)
+        proj["team"] = team
+    
+    return projects
+
+
+@api_router.get("/pm/material-requests")
+async def get_pm_material_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get material requests pending PM approval"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    else:
+        query["status"] = "requested"  # Default: pending PM approval
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    # Enrich with project name and requester name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+        
+        requester = await db.users.find_one({"user_id": r["site_engineer_id"]}, {"_id": 0, "name": 1})
+        r["requester_name"] = requester["name"] if requester else "Unknown"
+    
+    return requests
+
+
+@api_router.get("/pm/labour-requests")
+async def get_pm_labour_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get labour requests pending PM verification"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    else:
+        query["status"] = "requested"
+    
+    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+
+@api_router.patch("/pm/labour-requests/{request_id}/verify")
+async def pm_verify_labour_request(
+    request_id: str,
+    action: str,  # approve, reject
+    rejection_reason: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """PM verifies labour request, then it goes to GM for final approval"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can verify")
+    
+    request = await db.labour_expenses.find_one({"labour_expense_id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="Labour request not found")
+    
+    if action == "approve":
+        await db.labour_expenses.update_one(
+            {"labour_expense_id": request_id},
+            {"$set": {
+                "status": "pm_verified",
+                "pm_verified_by": user.user_id,
+                "pm_verified_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        # Notify GM
+        gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0}).to_list(10)
+        for gm in gm_users:
+            await create_notification(gm["user_id"], f"Labour request needs GM approval: {request.get('description', 'Labour payment')}")
+        return {"message": "Labour request verified by PM, sent to GM for approval"}
+    
+    elif action == "reject":
+        await db.labour_expenses.update_one(
+            {"labour_expense_id": request_id},
+            {"$set": {
+                "status": "rejected",
+                "pm_rejected_by": user.user_id,
+                "pm_rejection_reason": rejection_reason,
+                "pm_rejected_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"message": "Labour request rejected by PM"}
+    
+    raise HTTPException(status_code=400, detail="Invalid action")
+
+
+@api_router.post("/pm/assign-team")
+async def assign_team_to_project(data: TeamAssignmentCreate, user: User = Depends(get_current_user)):
+    """Project Manager assigns team members to project"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can assign team")
+    
+    # Validate project exists
+    project = await db.projects.find_one({"project_id": data.project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Validate user exists and has correct role
+    team_member = await db.users.find_one({"user_id": data.user_id})
+    if not team_member:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if team_member["role"] not in ["associate_pm", "sr_site_engineer", "site_engineer"]:
+        raise HTTPException(status_code=400, detail="User must be Associate PM, Sr. Site Engineer, or Site Engineer")
+    
+    # Check if already assigned
+    existing = await db.site_engineer_assignments.find_one({
+        "user_id": data.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="User already assigned to this project")
+    
+    assignment = {
+        "assignment_id": f"sea_{secrets.token_hex(6)}",
+        "user_id": data.user_id,
+        "user_name": team_member["name"],
+        "user_role": team_member["role"],
+        "project_id": data.project_id,
+        "project_name": project["name"],
+        "assigned_by": user.user_id,
+        "assigned_by_name": user.name,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.site_engineer_assignments.insert_one(assignment)
+    
+    # Notify team member
+    await create_notification(data.user_id, f"You have been assigned to project: {project['name']}")
+    
+    return {"message": f"Assigned {team_member['name']} to {project['name']}", "assignment": assignment}
+
+
+@api_router.get("/pm/team-members")
+async def get_team_members(user: User = Depends(get_current_user)):
+    """Get all team members (Associate PM, Sr. Site Engineer, Site Engineer)"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    team = await db.users.find({
+        "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
+    }, {"_id": 0, "password": 0}).to_list(100)
+    
+    # Add current project assignments
+    for member in team:
+        assignments = await db.site_engineer_assignments.find({
+            "user_id": member["user_id"],
+            "is_active": True
+        }, {"_id": 0}).to_list(10)
+        member["active_projects"] = len(assignments)
+        member["assignments"] = assignments
+    
+    return team
+
+
 # ==================== INCOME MODULE ENDPOINTS ====================
 
 class IncomeCreate(BaseModel):
