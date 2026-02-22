@@ -43,6 +43,8 @@ class UserRole(str, Enum):
     CRE = "cre"  # Client Relationship Officer
     ACCOUNTANT = "accountant"
     PROJECT_MANAGER = "project_manager"
+    ASSOCIATE_PM = "associate_pm"  # Associate Project Manager
+    SR_SITE_ENGINEER = "sr_site_engineer"  # Senior Site Engineer
     PLANNING = "planning"
     PROCUREMENT = "procurement"
     SITE_ENGINEER = "site_engineer"
