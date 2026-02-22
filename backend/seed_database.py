@@ -275,6 +275,8 @@ async def seed_database():
     print("Planning:       planning@constructionos.com")
     print("Procurement:    procurement@constructionos.com")
     print("Site Engineer:  engineer@constructionos.com")
+    print("Pre-Sales:      presales@constructionos.com")
+    print("Sales:          sales@constructionos.com")
     print("Client:         raj@client.com")
     print("=" * 50)
     print("\n🔑 Use Google OAuth to login with any of these emails")
