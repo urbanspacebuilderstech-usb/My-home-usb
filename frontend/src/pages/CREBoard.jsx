@@ -864,89 +864,148 @@ export default function CREBoard() {
                 </div>
               </TabsContent>
 
-              {/* Original Tab Contents */}
+              {/* Draft/Other Status Tabs - Show same project list format */}
               <TabsContent value="draft" className="m-0">
-              {/* Mobile Card View */}
-              <div className="block sm:hidden divide-y">
-                {projects.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">No projects found</div>
-                ) : (
-                  projects.map((project) => (
-                    <div key={project.project_id} className="p-4" data-testid={`project-card-${project.project_id}`}>
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-semibold">{project.name}</p>
-                          <p className="text-xs text-gray-400">{project.project_code}</p>
-                          <p className="text-sm text-gray-500">{project.client_name}</p>
-                        </div>
-                        {getStatusBadge(project.status)}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                        <div className="flex items-center gap-1 text-gray-500">
-                          <MapPin className="h-3 w-3" /> {project.location || 'N/A'}
-                        </div>
-                        <div className="flex items-center gap-1 text-gray-500">
-                          <Package className="h-3 w-3" /> {project.package_name || 'N/A'}
-                        </div>
-                        <div>{project.sqft?.toLocaleString()} sqft</div>
-                        <div className="font-semibold text-green-600">
-                          {formatCurrency(project.total_value)}
-                        </div>
-                      </div>
-                      <div className="flex justify-end">
-                        {getActionButton(project)}
-                      </div>
+                <div className="p-4 text-center text-gray-500">
+                  {projects.length === 0 ? (
+                    <div className="py-8">
+                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No draft projects</p>
                     </div>
-                  ))
-                )}
-              </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3 text-left">Project</th>
+                            <th className="px-4 py-3 text-left">Client</th>
+                            <th className="px-4 py-3 text-right">Value</th>
+                            <th className="px-4 py-3 text-center">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {projects.map((project) => (
+                            <tr key={project.project_id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 font-medium">{project.name}</td>
+                              <td className="px-4 py-3">{project.client_name}</td>
+                              <td className="px-4 py-3 text-right font-medium">{formatCurrency(project.total_value)}</td>
+                              <td className="px-4 py-3 text-center">{getActionButton(project)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
 
-              {/* Desktop Table View */}
-              <div className="hidden sm:block overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CLIENT</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">LOCATION</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PACKAGE</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">SQFT</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">VALUE</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {projects.length === 0 ? (
-                      <tr>
-                        <td colSpan="8" className="px-4 py-8 text-center text-gray-500">No projects found</td>
-                      </tr>
-                    ) : (
-                      projects.map((project) => (
-                        <tr key={project.project_id} className="hover:bg-gray-50" data-testid={`project-row-${project.project_id}`}>
-                          <td className="px-4 py-3">
+              <TabsContent value="pending_payment" className="m-0">
+                <div className="p-4">
+                  {projects.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <CreditCard className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No pending payments</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {projects.map((project) => (
+                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                          <div>
                             <p className="font-medium">{project.name}</p>
-                            <p className="text-xs text-gray-400">{project.project_code}</p>
-                          </td>
-                          <td className="px-4 py-3">{project.client_name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-500">{project.location || '-'}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant="outline">{project.package_name || 'N/A'}</Badge>
-                          </td>
-                          <td className="px-4 py-3">{project.sqft?.toLocaleString()} sqft</td>
-                          <td className="px-4 py-3 text-right font-semibold text-green-600">
-                            {formatCurrency(project.total_value)}
-                          </td>
-                          <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
-                          <td className="px-4 py-3 text-center">
-                            {getActionButton(project)}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                            <p className="text-sm text-gray-500">{project.client_name}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-orange-600">{formatCurrency(project.total_value)}</p>
+                            <Badge className="bg-orange-100 text-orange-700">Awaiting Accountant</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="payment_received" className="m-0">
+                <div className="p-4">
+                  {projects.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No verified payments</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {projects.map((project) => (
+                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                          <div>
+                            <p className="font-medium">{project.name}</p>
+                            <p className="text-sm text-gray-500">{project.client_name}</p>
+                          </div>
+                          <div className="text-right flex items-center gap-3">
+                            <p className="font-bold text-emerald-600">{formatCurrency(project.total_value)}</p>
+                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)}>
+                              <Send className="h-3 w-3 mr-1" /> Send to Planning
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="in_planning" className="m-0">
+                <div className="p-4">
+                  {projects.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No projects in planning</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {projects.map((project) => (
+                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <div>
+                            <p className="font-medium">{project.name}</p>
+                            <p className="text-sm text-gray-500">{project.client_name}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-blue-600">{formatCurrency(project.total_value)}</p>
+                            <Badge className="bg-blue-100 text-blue-700">In Planning</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="approved" className="m-0">
+                <div className="p-4">
+                  {projects.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No approved projects</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {projects.map((project) => (
+                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                          <div>
+                            <p className="font-medium">{project.name}</p>
+                            <p className="text-sm text-gray-500">{project.client_name}</p>
+                          </div>
+                          <div className="text-right flex items-center gap-3">
+                            <p className="font-bold text-green-600">{formatCurrency(project.total_value)}</p>
+                            <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
+                              <Eye className="h-3 w-3 mr-1" /> View
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
             </CardContent>
           </Tabs>
         </Card>
