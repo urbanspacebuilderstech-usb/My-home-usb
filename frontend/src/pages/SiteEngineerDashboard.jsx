@@ -670,6 +670,161 @@ export default function SiteEngineerDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Petty Cash Request Dialog */}
+      <Dialog open={pettyCashDialog} onOpenChange={setPettyCashDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Request Petty Cash</DialogTitle>
+            <DialogDescription>
+              Request petty cash for site expenses. Will be sent to Accountant for approval.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Project *</label>
+              <Select 
+                value={pettyCashForm.project_id} 
+                onValueChange={(v) => setPettyCashForm({...pettyCashForm, project_id: v})}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select project" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => (
+                    <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Amount *</label>
+              <Input 
+                type="number"
+                value={pettyCashForm.amount}
+                onChange={(e) => setPettyCashForm({...pettyCashForm, amount: e.target.value})}
+                placeholder="Enter amount"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Purpose *</label>
+              <Input 
+                value={pettyCashForm.purpose}
+                onChange={(e) => setPettyCashForm({...pettyCashForm, purpose: e.target.value})}
+                placeholder="e.g., Site expenses for week"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Remarks</label>
+              <Textarea 
+                value={pettyCashForm.remarks}
+                onChange={(e) => setPettyCashForm({...pettyCashForm, remarks: e.target.value})}
+                placeholder="Additional notes..."
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPettyCashDialog(false)}>Cancel</Button>
+            <Button onClick={handleRequestPettyCash} className="bg-green-600 hover:bg-green-700">
+              <Wallet className="h-4 w-4 mr-2" /> Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Petty Cash Expense Dialog */}
+      <Dialog open={pettyCashExpenseDialog} onOpenChange={setPettyCashExpenseDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Expense</DialogTitle>
+            <DialogDescription>
+              Record an expense from your petty cash
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedPettyCash && (
+            <div className="space-y-4">
+              <Card className="bg-green-50">
+                <CardContent className="p-3">
+                  <div className="flex justify-between">
+                    <div>
+                      <p className="text-sm text-gray-500">Available Balance</p>
+                      <p className="text-xl font-bold text-green-600">
+                        ₹{(selectedPettyCash.amount_issued - selectedPettyCash.amount_spent).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-500">Total Issued</p>
+                      <p className="font-semibold">₹{selectedPettyCash.amount_issued?.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <div>
+                <label className="text-sm font-medium">Amount *</label>
+                <Input 
+                  type="number"
+                  value={expenseForm.amount}
+                  onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
+                  placeholder="Expense amount"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Expense Type *</label>
+                <Select 
+                  value={expenseForm.expense_type}
+                  onValueChange={(v) => setExpenseForm({...expenseForm, expense_type: v})}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="transport">Transport</SelectItem>
+                    <SelectItem value="food">Food & Refreshments</SelectItem>
+                    <SelectItem value="tools">Tools & Equipment</SelectItem>
+                    <SelectItem value="misc">Miscellaneous</SelectItem>
+                    <SelectItem value="printing">Printing & Stationery</SelectItem>
+                    <SelectItem value="courier">Courier & Delivery</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Description *</label>
+                <Input 
+                  value={expenseForm.description}
+                  onChange={(e) => setExpenseForm({...expenseForm, description: e.target.value})}
+                  placeholder="Brief description of expense"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Date</label>
+                <Input 
+                  type="date"
+                  value={expenseForm.date}
+                  onChange={(e) => setExpenseForm({...expenseForm, date: e.target.value})}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPettyCashExpenseDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddExpense} className="bg-green-600 hover:bg-green-700">
+              <Receipt className="h-4 w-4 mr-2" /> Add Expense
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
