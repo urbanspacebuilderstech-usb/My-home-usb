@@ -306,11 +306,11 @@ export default function CREBoard() {
 
   const handleSubmitToPlanning = async (projectId) => {
     try {
-      await axios.patch(`${API}/cre/projects/${projectId}/submit-to-planning`);
-      toast.success('Project submitted to Planning Department');
+      await axios.patch(`${API}/cre/projects/${projectId}/send-to-planning`);
+      toast.success('Project sent to Planning Department');
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit to Planning');
+      toast.error(error.response?.data?.detail || 'Failed to send to Planning');
     }
   };
 
