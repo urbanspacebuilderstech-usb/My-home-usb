@@ -1013,12 +1013,24 @@ export default function ProjectDetail() {
 
             {/* ==================== ROUGH ESTIMATE TAB ==================== */}
             <TabsContent value="rough-estimate" className="p-3 sm:p-6">
-              <div className="mb-4">
-                <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-purple-600" />
-                  Rough Estimate Reference
-                </h3>
-                <p className="text-xs sm:text-sm text-gray-500">Original rough estimate from Planning department</p>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-purple-600" />
+                    Rough Estimate Reference
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-500">Original rough estimate from Planning department</p>
+                </div>
+                {reProject && (
+                  <Button 
+                    onClick={generateREPDF} 
+                    className="bg-purple-600 hover:bg-purple-700"
+                    data-testid="download-re-pdf"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </Button>
+                )}
               </div>
               
               {reProject ? (
