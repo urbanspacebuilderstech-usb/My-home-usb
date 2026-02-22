@@ -61,10 +61,11 @@ export default function PlanningBoard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes, paymentReqRes] = await Promise.all([
+      const [userRes, dashboardRes, paymentReqRes, reProjectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/planning/stage-dashboard`),
-        axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] }))
+        axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
+        axios.get(`${API}/crm/re-projects?status=re_requested`).catch(() => ({ data: [] }))
       ]);
       
       if (!['planning', 'super_admin'].includes(userRes.data.role)) {
@@ -78,6 +79,7 @@ export default function PlanningBoard() {
       setStages(dashboardRes.data.stages || []);
       setStageCounts(dashboardRes.data.stage_counts || {});
       setPaymentRequests(paymentReqRes.data);
+      setReProjectsCount(reProjectsRes.data.length || 0);
       
       // Fetch projects based on active tab
       if (activeTab === 'stages') {
