@@ -3368,7 +3368,7 @@ async def request_payment(stage_id: str, user: User = Depends(get_current_user))
 
 @api_router.post("/projects/{project_id}/payment-schedule/generate")
 async def generate_payment_schedule(project_id: str, user: User = Depends(get_current_user)):
-    """Planning team generates payment schedule from template based on project value"""
+    """Planning team generates payment schedule from template based on project value (minus advance)"""
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can create payment schedule")
     
@@ -3381,11 +3381,25 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
     if existing > 0:
         raise HTTPException(status_code=400, detail="Payment schedule already exists. Delete existing stages first.")
     
-    project_value = project.get("total_value", 0)
+    # Calculate total project value from scopes + additional costs
+    scope_total = project.get("scope_total", 0) or project.get("total_value", 0) or 0
+    additional_cost = project.get("additional_cost", 0) or 0
+    project_value = scope_total + additional_cost
+    
+    # Get advance payment (already received)
+    advance_amount = project.get("advance_amount", 0) or 0
+    
+    # Balance to be scheduled = Project Value - Advance Payment
+    balance_to_schedule = project_value - advance_amount
+    
+    if balance_to_schedule <= 0:
+        raise HTTPException(status_code=400, detail="No balance to schedule. Project value is less than or equal to advance payment.")
+    
     stages_created = []
     
     for idx, template in enumerate(DEFAULT_PAYMENT_SCHEDULE):
-        amount = (project_value * template["percentage"]) / 100 if template["percentage"] > 0 else 0
+        # Calculate amount from balance (not total project value)
+        amount = (balance_to_schedule * template["percentage"]) / 100 if template["percentage"] > 0 else 0
         
         stage = PaymentStage(
             project_id=project_id,
@@ -3406,11 +3420,16 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
         stage_dict.pop("_id", None)
         stages_created.append(stage_dict)
     
-    await create_audit_log(user.user_id, "generate_schedule", "payment_schedule", project_id, {"stages": len(stages_created)})
+    await create_audit_log(user.user_id, "generate_schedule", "payment_schedule", project_id, {
+        "stages": len(stages_created),
+        "project_value": project_value,
+        "advance_amount": advance_amount,
+        "balance_scheduled": balance_to_schedule
+    })
     
     # Notify CRE about new payment schedule
     if project.get("created_by"):
-        await create_notification(project["created_by"], f"Payment schedule created for {project.get('name')}. Start collecting payments.")
+        await create_notification(project["created_by"], f"Payment schedule created for {project.get('name')}. Advance: ₹{advance_amount:,}, Balance: ₹{balance_to_schedule:,}. Start collecting payments.")
     
     return {"message": f"Payment schedule generated with {len(stages_created)} stages", "stages": stages_created}
 
