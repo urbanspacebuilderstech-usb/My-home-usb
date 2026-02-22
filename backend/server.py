@@ -8732,8 +8732,8 @@ async def convert_deal_to_project(
     if not data.accountant_confirmed:
         raise HTTPException(status_code=400, detail="Accountant confirmation required")
     
-    # Get the lead
-    lead = await db.crm_leads.find_one({"lead_id": lead_id})
+    # Get the lead - use 'leads' collection
+    lead = await db.leads.find_one({"lead_id": lead_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     
