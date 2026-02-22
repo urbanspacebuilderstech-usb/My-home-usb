@@ -787,6 +787,21 @@ Build a Construction Accounting CRM with:
 - [x] **Result**: GM users now correctly redirect to GM Command Center upon login
 - [x] **Testing**: 100% frontend success rate verified via testing agent (iteration_17.json)
 
+### GM Dashboard - RE Project Approval Fix
+- [x] **Fixed approval API**: Changed from POST to PATCH method in frontend
+- [x] **Extended approval status**: Now allows approval for `re_in_progress` status (not just `re_submitted`)
+- [x] **Added Approve/Reject buttons**: Now visible for RE Projects with "In Progress" status
+
+### Sales CRM - Deal Close with Advance Collection
+- [x] **New Deal Close Dialog**: When moving a lead to "Deal Closed" stage, shows dialog to collect:
+  - Project summary (name, location, area, handover months, total value)
+  - Advance amount input with percentage calculation
+  - Payment mode selection (Cash, UPI, Bank Transfer, Cheque, Card)
+  - Payment reference/Transaction ID
+  - Balance after advance preview
+- [x] **Backend updated**: `LeadStageUpdate` model now accepts advance payment data
+- [x] **Project creation updated**: Main projects created with advance amount, payment mode, payment reference, and timestamps
+
 ---
 
 ## Pending/Backlog Tasks
