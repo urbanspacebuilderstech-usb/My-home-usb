@@ -44,7 +44,40 @@ Build a Construction Accounting CRM with:
 
 ### ✅ COMPLETED (December 2025 - February 2026)
 
-#### Project Details UI Update (February 22, 2026) - NEW
+#### GM RE Approval → CRE New Deals Workflow (February 22, 2026) - LATEST
+- [x] **RE Approval Workflow**:
+  - Planning submits RE for GM approval (status: `re_submitted`)
+  - GM Dashboard Planning tab shows pending RE approvals
+  - GM can Approve/Reject RE projects
+  - Approved RE projects (status: `re_approved`) appear in CRE's New Deals
+
+- [x] **CRE New Deals Enhancement**:
+  - New Deals now shows both Sales closed deals AND GM-approved RE projects
+  - "GM Approved RE" badge for RE projects
+  - Shows full RE details: client name, phone, email, location, sqft, estimated total, handover months
+  - "Convert to Project" button for each deal
+
+- [x] **API Endpoints**:
+  - `GET /api/cre/new-deals` - Now returns both approved RE projects and sales closed deals
+  - `POST /api/cre/convert-re-project/{re_project_id}` - NEW: Convert approved RE directly to project
+  - `PATCH /api/crm/re-projects/{id}/approve` - GM approves RE project
+
+- [x] **GM Dashboard Updates**:
+  - Planning tab filters RE projects by `re_submitted` status
+  - "Pending GM Approval" badge for submitted RE projects
+  - Approve/Reject buttons with confirmation dialog
+
+#### Project Financial Fixes (February 22, 2026)
+- [x] **Projects List "Received" Column**:
+  - Now correctly shows total received (advance payment + stage payments)
+  - Backend `/api/projects` endpoint calculates `total_received`, `total_spent`, `balance`
+  
+- [x] **Payment Summary Verification**:
+  - Advance payment included in total received
+  - Payment schedule generation subtracts advance from project value
+  - "incl. advance" label shown on Total Received card
+
+#### Project Details UI Update (February 22, 2026)
 - [x] **Rough Estimate Tab Added**:
   - New "Rough Estimate" tab as first tab in Project Detail view
   - Tab order: Rough Estimate | Scope | Payment Schedule | Additional | Deduction | Payment Summary
