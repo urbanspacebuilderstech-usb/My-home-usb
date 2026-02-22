@@ -8595,7 +8595,7 @@ async def generate_project_code():
     return f"USB{serial}{month}{year}"
 
 
-@api_router.get("/cro/dashboard")
+@api_router.get("/cre/dashboard")
 async def get_cro_dashboard(user: User = Depends(get_current_user)):
     """Get CRE dashboard data"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8669,7 +8669,7 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     }
 
 
-@api_router.get("/cro/payment-requests")
+@api_router.get("/cre/payment-requests")
 async def get_cro_payment_requests(user: User = Depends(get_current_user)):
     """Get all payment stages that are requested for collection by CRO"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8716,7 +8716,7 @@ async def get_cro_payment_requests(user: User = Depends(get_current_user)):
     return payment_requests
 
 
-@api_router.post("/cro/projects")
+@api_router.post("/cre/projects")
 async def cro_create_project(project_input: CREProjectCreateInput, user: User = Depends(get_current_user)):
     """CRE creates a new project with package selection"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8816,7 +8816,7 @@ async def cro_create_project(project_input: CREProjectCreateInput, user: User = 
     return {"project_id": project.project_id, "total_value": total_value, "message": "Project created"}
 
 
-@api_router.patch("/cro/projects/{project_id}/submit")
+@api_router.patch("/cre/projects/{project_id}/submit")
 async def cro_submit_project(project_id: str, user: User = Depends(get_current_user)):
     """CRE submits project for planning review"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8850,7 +8850,7 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
     return {"message": "Project submitted for payment verification"}
 
 
-@api_router.patch("/cro/projects/{project_id}/submit-to-planning")
+@api_router.patch("/cre/projects/{project_id}/submit-to-planning")
 async def cro_submit_to_planning(project_id: str, user: User = Depends(get_current_user)):
     """CRE submits project to Planning after payment verification"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8879,7 +8879,7 @@ async def cro_submit_to_planning(project_id: str, user: User = Depends(get_curre
     return {"message": "Project submitted to Planning Department"}
 
 
-@api_router.post("/cro/projects/{project_id}/add-payment-milestone")
+@api_router.post("/cre/projects/{project_id}/add-payment-milestone")
 async def add_payment_milestone(project_id: str, milestone: dict, user: User = Depends(get_current_user)):
     """CRE adds a payment milestone to collect from client"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8907,7 +8907,7 @@ async def add_payment_milestone(project_id: str, milestone: dict, user: User = D
     return {"message": "Payment milestone added", "milestone_id": payment_milestone["milestone_id"]}
 
 
-@api_router.patch("/cro/projects/{project_id}/notify-client/{milestone_id}")
+@api_router.patch("/cre/projects/{project_id}/notify-client/{milestone_id}")
 async def notify_client_for_payment(project_id: str, milestone_id: str, user: User = Depends(get_current_user)):
     """CRE notifies client about pending payment"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8938,7 +8938,7 @@ async def notify_client_for_payment(project_id: str, milestone_id: str, user: Us
     return {"message": "Client notified for payment"}
 
 
-@api_router.patch("/cro/projects/{project_id}/collect-payment/{milestone_id}")
+@api_router.patch("/cre/projects/{project_id}/collect-payment/{milestone_id}")
 async def collect_payment(project_id: str, milestone_id: str, payment_details: dict, user: User = Depends(get_current_user)):
     """CRE records payment collected from client"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
@@ -8969,7 +8969,7 @@ async def collect_payment(project_id: str, milestone_id: str, payment_details: d
     return {"message": "Payment recorded. Sent to accountant for approval."}
 
 
-@api_router.get("/cro/projects/all")
+@api_router.get("/cre/projects/all")
 async def get_all_cro_projects(
     status: Optional[str] = None,
     stage: Optional[str] = None,
