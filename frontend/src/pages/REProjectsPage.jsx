@@ -588,6 +588,15 @@ export default function REProjectsPage() {
                         )}
                         
                         <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => generateREPDF(project)}
+                          className="text-purple-600 hover:text-purple-700"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        
+                        <Button 
                           variant="ghost" 
                           size="sm"
                           onClick={() => openEditDialog(project)}
