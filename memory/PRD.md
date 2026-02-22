@@ -44,7 +44,17 @@ Build a Construction Accounting CRM with:
 
 ### ✅ COMPLETED (December 2025 - February 2026)
 
-#### CRE Workflow (February 22, 2026) - NEW
+#### Project Details UI Update (February 22, 2026) - NEW
+- [x] **Rough Estimate Tab Added**:
+  - New "Rough Estimate" tab as first tab in Project Detail view
+  - Tab order: Rough Estimate | Scope | Payment Schedule | Additional | Deduction | Payment Summary
+  - Shows original RE project data: name, location, area, building type
+  - Displays estimated total, handover timeline, status
+  - Shows RE scope items table (if available)
+  - Shows RE payment schedule (if available)
+  - Falls back to "No Rough Estimate Available" for projects without RE
+
+#### CRE Workflow (February 22, 2026)
 - [x] **CRE Role Implementation**:
   - Renamed CRO to CRE (Customer Relationship Executive)
   - New CRE Board at `/cre-board`
@@ -55,15 +65,18 @@ Build a Construction Accounting CRM with:
   - CRE can view closed deals waiting for conversion
   - Shows client info, contact details, RE project details if available
   
-- [x] **Convert Deal to Project**:
+- [x] **Convert Deal to Project** (Updated Flow):
   - "Convert to Project" button for each new deal
   - Collect advance payment (amount, mode, reference)
   - Accountant confirmation checkbox
-  - Creates project with status "planning"
+  - Creates project with status "pending_payment" (awaiting accountant)
+  - Accountant verifies → status becomes "payment_received"
+  - CRE sends to Planning → status becomes "in_planning"
+  - Income recorded automatically in income_entries collection
   
 - [x] **CRE Dashboard**:
-  - Status cards: Draft, Pending Payment, Payment Received, In Planning, Approved
-  - Workflow banner showing project lifecycle
+  - Status cards: Draft, Pending Payment, Payment Verified, In Planning, Approved
+  - Workflow banner: Draft → Submit for Payment → Accountant Verifies → Payment Received → Send to Planning
   - Payment Collection Requests section
   - Total Ongoing Projects and Total Value metrics
   - Project Stages visualization
@@ -71,6 +84,8 @@ Build a Construction Accounting CRM with:
 - [x] **API Endpoints**:
   - `GET /api/cre/new-deals` - Get closed deals from Sales
   - `POST /api/cre/convert-deal/{lead_id}` - Convert deal to project
+  - `PATCH /api/cre/projects/{id}/accountant-verify` - Accountant verifies advance
+  - `PATCH /api/cre/projects/{id}/send-to-planning` - CRE sends to Planning
   - `GET /api/cre/dashboard` - Get CRE dashboard metrics
   - `GET /api/cre/payment-requests` - Get payment collection requests
   - `GET /api/cre/projects/all` - Get all CRE projects
