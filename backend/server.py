@@ -13167,8 +13167,13 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
     stages = await get_default_sales_stages()
     
     # Get lead counts per stage
+    # Build query - filter by assigned_to for Sales users (not for Super Admin)
+    base_query = {"stage_type": "sales"}
+    if user.role == "sales":
+        base_query["assigned_to"] = user.user_id
+    
     pipeline = [
-        {"$match": {"stage_type": "sales"}},
+        {"$match": base_query},
         {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
     ]
     stage_counts = await db.leads.aggregate(pipeline).to_list(100)
@@ -13176,11 +13181,11 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
     
     # Get recent leads
     recent_leads = await db.leads.find(
-        {"stage_type": "sales"}, 
+        base_query, 
         {"_id": 0}
     ).sort("created_at", -1).limit(10).to_list(10)
     
-    total_leads = await db.leads.count_documents({"stage_type": "sales"})
+    total_leads = await db.leads.count_documents(base_query)
     
     # Get RE project stats
     re_stats = {
@@ -13197,7 +13202,9 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
         ],
         "total_leads": total_leads,
         "recent_leads": recent_leads,
-        "re_stats": re_stats
+        "re_stats": re_stats,
+        "is_filtered": user.role == "sales",
+        "user_name": user.name if user.role == "sales" else None
     }
 
 
@@ -13208,11 +13215,15 @@ async def get_sales_leads(
     has_re_project: Optional[bool] = None,
     user: User = Depends(get_current_user)
 ):
-    """Get Sales leads with filters"""
+    """Get Sales leads with filters - filtered by assigned user for non-admins"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     query = {"stage_type": "sales"}
+    
+    # Filter by assigned_to for Sales users (not for Super Admin/CRE)
+    if user.role == "sales":
+        query["assigned_to"] = user.user_id
     
     if stage_id:
         query["current_stage_id"] = stage_id
