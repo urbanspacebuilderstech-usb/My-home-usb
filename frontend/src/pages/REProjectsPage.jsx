@@ -96,24 +96,22 @@ export default function REProjectsPage() {
       sqft: project.sqft || '',
       building_type: project.building_type || '',
       rough_scope_items: project.rough_scope_items || [],
-      rough_materials: project.rough_materials || [],
-      rough_labour: project.rough_labour || [],
-      estimated_material_cost: project.estimated_material_cost || '',
-      estimated_labour_cost: project.estimated_labour_cost || '',
-      estimated_overhead: project.estimated_overhead || '',
+      handover_months: project.handover_months || '',
       planning_notes: project.planning_notes || ''
     });
     setEditDialog(true);
   };
 
   const handleSaveProject = async () => {
+    // Calculate total from scope items
+    const scopeTotal = editForm.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0);
+    
     try {
       await axios.patch(`${API}/crm/re-projects/${selectedProject.re_project_id}`, {
         ...editForm,
         sqft: editForm.sqft ? parseFloat(editForm.sqft) : null,
-        estimated_material_cost: editForm.estimated_material_cost ? parseFloat(editForm.estimated_material_cost) : 0,
-        estimated_labour_cost: editForm.estimated_labour_cost ? parseFloat(editForm.estimated_labour_cost) : 0,
-        estimated_overhead: editForm.estimated_overhead ? parseFloat(editForm.estimated_overhead) : 0
+        handover_months: editForm.handover_months ? parseInt(editForm.handover_months) : null,
+        estimated_total: scopeTotal
       });
       toast.success('RE Project updated');
       setEditDialog(false);
