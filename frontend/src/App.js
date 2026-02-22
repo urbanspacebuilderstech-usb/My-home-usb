@@ -94,6 +94,7 @@ function AppRouter() {
       <Route path="/site-engineer/material-receipt" element={<ProtectedRoute><MaterialReceipt /></ProtectedRoute>} />
       <Route path="/packages" element={<ProtectedRoute><PackageManagement /></ProtectedRoute>} />
       <Route path="/cre-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
+      <Route path="/cro-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><AccountantDashboard /></ProtectedRoute>} />
