@@ -4833,10 +4833,11 @@ async def get_material_requests(
 @api_router.patch("/site-engineer/material-requests/{request_id}/approve")
 async def approve_material_request(
     request_id: str,
-    action: str,  # planning_approve, procurement_approve, accountant_approve, reject
+    action: str,  # pm_approve, planning_approve, procurement_assign, accountant_approve, reject
     rejection_reason: Optional[str] = None,
     pricing: Optional[float] = None,
     vendor_id: Optional[str] = None,
+    vendor_payment_type: Optional[str] = None,  # advance, full_payment, credit
     user: User = Depends(get_current_user)
 ):
     """Approve or reject a material request at various stages"""
@@ -4846,10 +4847,27 @@ async def approve_material_request(
     
     update_data = {}
     
-    if action == "planning_approve":
-        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
-            raise HTTPException(status_code=403, detail="Permission denied")
+    # Step 1: Project Manager approves (first approval)
+    if action == "pm_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+            raise HTTPException(status_code=403, detail="Only Project Manager can approve this")
         if request["status"] != "requested":
+            raise HTTPException(status_code=400, detail="Invalid status for PM approval")
+        update_data = {
+            "status": MaterialRequestStatus.PM_APPROVED.value,
+            "pm_approved_by": user.user_id,
+            "pm_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify planning
+        planning_users = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
+        for p in planning_users:
+            await create_notification(p["user_id"], f"Material request needs planning approval: {request['material_name']}")
+    
+    # Step 2: Planning approves
+    elif action == "planning_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+            raise HTTPException(status_code=403, detail="Only Planning can approve this")
+        if request["status"] not in ["requested", "pm_approved"]:
             raise HTTPException(status_code=400, detail="Invalid status for planning approval")
         update_data = {
             "status": MaterialRequestStatus.PLANNING_APPROVED.value,
@@ -4859,52 +4877,78 @@ async def approve_material_request(
         # Notify procurement
         proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
         for p in proc_users:
-            await create_notification(p["user_id"], f"Material request approved for procurement: {request['material_name']}")
+            await create_notification(p["user_id"], f"Material request ready for vendor assignment: {request['material_name']}")
     
-    elif action == "procurement_approve":
+    # Step 3: Procurement assigns vendor
+    elif action == "procurement_assign":
         if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
-            raise HTTPException(status_code=403, detail="Permission denied")
+            raise HTTPException(status_code=403, detail="Only Procurement can assign vendor")
         if request["status"] != "planning_approved":
-            raise HTTPException(status_code=400, detail="Invalid status for procurement approval")
+            raise HTTPException(status_code=400, detail="Invalid status for procurement assignment")
+        if not vendor_id:
+            raise HTTPException(status_code=400, detail="Vendor ID is required")
+        
+        # Get vendor details
+        vendor = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        
         update_data = {
-            "status": MaterialRequestStatus.PROCUREMENT_APPROVED.value,
-            "procurement_approved_by": user.user_id,
-            "procurement_approved_at": datetime.now(timezone.utc).isoformat(),
+            "status": MaterialRequestStatus.PROCUREMENT_ASSIGNED.value,
+            "vendor_id": vendor_id,
+            "vendor_name": vendor.get("name", "Unknown"),
+            "vendor_payment_type": vendor_payment_type or "full_payment",
             "procurement_pricing": pricing,
-            "vendor_id": vendor_id
+            "procurement_assigned_by": user.user_id,
+            "procurement_assigned_at": datetime.now(timezone.utc).isoformat()
         }
-        # Notify accountant
-        acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
-        for a in acc_users:
-            await create_notification(a["user_id"], f"Material request ready for accountant approval: {request['material_name']}")
+        
+        # If advance payment type, notify accountant
+        if vendor_payment_type == "advance":
+            acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+            for a in acc_users:
+                await create_notification(a["user_id"], f"Advance payment required for: {request['material_name']} - ₹{pricing or 0}")
+            update_data["status"] = MaterialRequestStatus.WAITING_PAYMENT.value
+        else:
+            # For full_payment and credit, order can be placed directly
+            update_data["status"] = MaterialRequestStatus.ORDER_PLACED.value
+            await create_notification(request["site_engineer_id"], f"Order placed: {request['material_name']}")
     
+    # Step 4: Accountant approves payment (for advance payment)
     elif action == "accountant_approve":
         if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
-            raise HTTPException(status_code=403, detail="Permission denied")
-        if request["status"] != "procurement_approved":
-            raise HTTPException(status_code=400, detail="Invalid status for accountant approval")
+            raise HTTPException(status_code=403, detail="Only Accountant can approve payment")
+        if request["status"] != "waiting_payment":
+            raise HTTPException(status_code=400, detail="Invalid status for payment approval")
         update_data = {
-            "status": MaterialRequestStatus.ACCOUNTANT_APPROVED.value,
-            "accountant_approved_by": user.user_id,
-            "accountant_approved_at": datetime.now(timezone.utc).isoformat()
+            "status": MaterialRequestStatus.ORDER_PLACED.value,
+            "payment_approved_by": user.user_id,
+            "payment_approved_at": datetime.now(timezone.utc).isoformat()
         }
-        # Notify site engineer
-        await create_notification(request["site_engineer_id"], f"Material request approved: {request['material_name']} - Ready for delivery")
+        # Notify procurement and site engineer
+        await create_notification(request.get("procurement_assigned_by", ""), f"Payment approved, order can be placed: {request['material_name']}")
+        await create_notification(request["site_engineer_id"], f"Order placed: {request['material_name']}")
     
-    elif action == "mark_delivered":
+    # Mark as in transit
+    elif action == "mark_in_transit":
         if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
-            raise HTTPException(status_code=403, detail="Permission denied")
-        if request["status"] != "accountant_approved":
+            raise HTTPException(status_code=403, detail="Only Procurement can mark as in transit")
+        if request["status"] != "order_placed":
             raise HTTPException(status_code=400, detail="Invalid status")
-        update_data = {"status": MaterialRequestStatus.READY_FOR_DELIVERY.value}
+        update_data = {
+            "status": MaterialRequestStatus.IN_TRANSIT.value,
+            "dispatched_at": datetime.now(timezone.utc).isoformat()
+        }
         await create_notification(request["site_engineer_id"], f"Material dispatched: {request['material_name']}")
     
     elif action == "reject":
         update_data = {
             "status": MaterialRequestStatus.REJECTED.value,
-            "rejection_reason": rejection_reason
+            "rejected_by": user.user_id,
+            "rejection_reason": rejection_reason,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
         }
-        await create_notification(request["site_engineer_id"], f"Material request rejected: {request['material_name']}")
+        await create_notification(request["site_engineer_id"], f"Material request rejected: {request['material_name']} - {rejection_reason or 'No reason'}")
     
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
