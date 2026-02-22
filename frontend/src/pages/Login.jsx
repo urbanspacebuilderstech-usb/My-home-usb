@@ -165,11 +165,11 @@ export default function Login() {
                   { label: 'CRE', email: 'cre@constructionos.com' },
                   { label: 'Accountant', email: 'accountant@constructionos.com' },
                   { label: 'Planning', email: 'planning@constructionos.com' },
-                  { label: 'Pre-Sales A', email: 'presales@constructionos.com' },
-                  { label: 'Pre-Sales B', email: 'presales.b@constructionos.com' },
-                  { label: 'Sales A', email: 'sales@constructionos.com' },
-                  { label: 'Sales B', email: 'sales.b@constructionos.com' },
                   { label: 'PM', email: 'pm@constructionos.com' },
+                  { label: 'Site Engineer', email: 'engineer@constructionos.com' },
+                  { label: 'Procurement', email: 'procurement@constructionos.com' },
+                  { label: 'Pre-Sales A', email: 'presales@constructionos.com' },
+                  { label: 'Sales A', email: 'sales@constructionos.com' },
                 ].map((quick) => (
                   <Button
                     key={quick.email}
