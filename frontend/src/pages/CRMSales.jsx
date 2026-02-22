@@ -524,16 +524,16 @@ export default function CRMSales() {
             </div>
 
             {/* List Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="w-full">
+              <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Lead</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Contact</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Stage</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">RE Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Created</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Stage</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">RE Status</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Created</th>
+                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -543,60 +543,56 @@ export default function CRMSales() {
                       className="hover:bg-gray-50 cursor-pointer transition-colors"
                       onClick={() => { setSelectedLead(lead); setViewLeadDialog(true); }}
                     >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
                             {lead.name?.charAt(0)?.toUpperCase()}
                           </div>
-                          <div>
-                            <p className="font-medium text-gray-900 text-sm">{lead.name}</p>
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 text-xs truncate">{lead.name}</p>
                             {lead.custom_fields?.sqft && (
-                              <p className="text-xs text-gray-500">{lead.custom_fields.sqft} sqft</p>
+                              <p className="text-[10px] text-gray-500">{lead.custom_fields.sqft} sqft</p>
                             )}
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1">
+                      <td className="px-2 py-2">
+                        <div className="space-y-0 min-w-0">
                           {lead.phone && (
-                            <p className="text-xs text-gray-600 flex items-center gap-1">
-                              <Phone className="h-3 w-3" /> {lead.phone}
-                            </p>
+                            <p className="text-xs text-gray-600 truncate">{lead.phone}</p>
                           )}
                           {lead.email && (
-                            <p className="text-xs text-gray-500 flex items-center gap-1">
-                              <Mail className="h-3 w-3" /> {lead.email}
-                            </p>
+                            <p className="text-[10px] text-gray-500 truncate">{lead.email}</p>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-2">
                         <Badge 
                           variant="outline" 
-                          className="text-xs"
+                          className="text-[10px] px-1.5 truncate"
                           style={{ borderColor: stages.find(s => s.stage_id === lead.current_stage_id)?.color }}
                         >
-                          {getStageName(lead.current_stage_id)}
+                          {getStageName(lead.current_stage_id)?.substring(0, 12)}
                         </Badge>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-2">
                         {lead.re_project_id ? (
                           <Badge 
-                            className="bg-purple-100 text-purple-700 text-xs cursor-pointer"
+                            className="bg-purple-100 text-purple-700 text-[10px] px-1.5 cursor-pointer"
                             onClick={(e) => { e.stopPropagation(); handleViewREProject(lead.re_project_id); }}
                           >
-                            <FileText className="h-3 w-3 mr-1" /> View RE
+                            View RE
                           </Badge>
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
                           {new Date(lead.created_at).toLocaleDateString()}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-2 py-2 text-center">
                         <Button 
                           variant="ghost" 
                           size="sm"
