@@ -1592,18 +1592,42 @@ export default function MarketingBoard() {
                         )}
 
                         {/* Source Name & Save */}
-                        <div className="flex items-end gap-3">
-                          <div className="flex-1">
-                            <Label>Source Name</Label>
-                            <Input
-                              value={sourceName}
-                              onChange={(e) => setSourceName(e.target.value)}
-                              placeholder="e.g., Website, Meta Ads"
-                            />
+                        <div className="flex flex-col gap-4">
+                          {/* Info about importing all tabs */}
+                          {sheetPreview.sheets?.length > 1 && (
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <div className="flex items-start gap-2">
+                                <Layers className="h-5 w-5 text-blue-600 mt-0.5" />
+                                <div>
+                                  <p className="font-medium text-blue-800">Multiple Sheets Detected</p>
+                                  <p className="text-sm text-blue-700">Found {sheetPreview.sheets.length} tabs: {sheetPreview.sheets.join(', ')}</p>
+                                  <p className="text-sm text-blue-600 mt-1">Click "Import All Tabs" to import leads from all sheets. Each tab name will become the lead source.</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          <div className="flex items-end gap-3 flex-wrap">
+                            <div className="flex-1 min-w-[200px]">
+                              <Label>Source Name (for single sheet)</Label>
+                              <Input
+                                value={sourceName}
+                                onChange={(e) => setSourceName(e.target.value)}
+                                placeholder="e.g., Website, Meta Ads"
+                              />
+                            </div>
+                            <Button onClick={addSheetSource} variant="outline">
+                              <Plus className="h-4 w-4 mr-2" /> Add Single Source
+                            </Button>
+                            <Button 
+                              onClick={importAllSheets} 
+                              disabled={isImporting}
+                              className="bg-emerald-600 hover:bg-emerald-700"
+                            >
+                              {isImporting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                              Import All Tabs ({sheetPreview.sheets?.length || 1})
+                            </Button>
                           </div>
-                          <Button onClick={addSheetSource} className="bg-emerald-600 hover:bg-emerald-700">
-                            <Plus className="h-4 w-4 mr-2" /> Add Source
-                          </Button>
                         </div>
                       </CardContent>
                     </Card>
