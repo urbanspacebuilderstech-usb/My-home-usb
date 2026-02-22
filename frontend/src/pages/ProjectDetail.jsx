@@ -2328,6 +2328,46 @@ export default function ProjectDetail() {
                 </div>
               )}
 
+              {/* Advance Payment Card */}
+              {paymentSummary?.advance_payment && paymentSummary.advance_payment.amount > 0 && (
+                <Card className="mb-6 border-2 border-green-300 bg-gradient-to-r from-green-50 to-emerald-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-green-700">
+                      <Wallet className="h-5 w-5" />
+                      Advance Payment Collected
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-xs text-gray-500">Amount</p>
+                        <p className="text-xl font-bold text-green-700">{formatCurrency(paymentSummary.advance_payment.amount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Payment Mode</p>
+                        <Badge className="bg-green-100 text-green-700 mt-1 capitalize">
+                          {paymentSummary.advance_payment.mode?.replace('_', ' ') || 'N/A'}
+                        </Badge>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Date Received</p>
+                        <p className="font-medium">
+                          {paymentSummary.advance_payment.date 
+                            ? new Date(paymentSummary.advance_payment.date).toLocaleDateString('en-IN')
+                            : 'N/A'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Status</p>
+                        <Badge className="bg-green-600 text-white mt-1">
+                          <CheckCircle2 className="h-3 w-3 mr-1" /> Received
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Progress Bar */}
               {paymentSummary?.summary && (
                 <div className="mb-6">
@@ -2345,6 +2385,10 @@ export default function ProjectDetail() {
               )}
 
               {/* Payment Schedule Table */}
+              <div className="mb-8">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Stage-wise Payment Schedule
+                </h4>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b-2 border-gray-200">
