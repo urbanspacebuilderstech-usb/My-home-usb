@@ -51,6 +51,7 @@ import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
 import CSVImportPage from '@/pages/CSVImportPage';
 import GMDashboard from '@/pages/GMDashboard';
 import MarketingBoard from '@/pages/MarketingBoard';
+import PMDashboard from '@/pages/PMDashboard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
