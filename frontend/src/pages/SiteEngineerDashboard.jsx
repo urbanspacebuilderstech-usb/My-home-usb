@@ -2,14 +2,17 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
-  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck
+  Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck,
+  Wallet, Plus, Receipt, Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -25,6 +28,24 @@ export default function SiteEngineerDashboard() {
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedStage, setSelectedStage] = useState(null);
   const [paymentRemarks, setPaymentRemarks] = useState('');
+  
+  // Petty Cash states
+  const [pettyCashList, setPettyCashList] = useState([]);
+  const [pettyCashDialog, setPettyCashDialog] = useState(false);
+  const [pettyCashExpenseDialog, setPettyCashExpenseDialog] = useState(false);
+  const [selectedPettyCash, setSelectedPettyCash] = useState(null);
+  const [pettyCashForm, setPettyCashForm] = useState({
+    project_id: '',
+    amount: '',
+    purpose: '',
+    remarks: ''
+  });
+  const [expenseForm, setExpenseForm] = useState({
+    amount: '',
+    expense_type: '',
+    description: '',
+    date: new Date().toISOString().split('T')[0]
+  });
 
   useEffect(() => {
     fetchData();
@@ -33,14 +54,16 @@ export default function SiteEngineerDashboard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, projectsRes, workOrdersRes] = await Promise.all([
+      const [userRes, projectsRes, workOrdersRes, pettyCashRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/site-engineer/my-projects`),
-        axios.get(`${API}/site-engineer/work-orders`).catch(() => ({ data: [] }))
+        axios.get(`${API}/site-engineer/work-orders`).catch(() => ({ data: [] })),
+        axios.get(`${API}/site-engineer/petty-cash`).catch(() => ({ data: [] }))
       ]);
       setUser(userRes.data);
       setProjects(projectsRes.data);
       setWorkOrders(workOrdersRes.data);
+      setPettyCashList(pettyCashRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -52,6 +75,73 @@ export default function SiteEngineerDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  // Petty Cash Functions
+  const handleRequestPettyCash = async () => {
+    if (!pettyCashForm.project_id || !pettyCashForm.amount || !pettyCashForm.purpose) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+    try {
+      await axios.post(`${API}/site-engineer/petty-cash/request`, {
+        project_id: pettyCashForm.project_id,
+        amount: parseFloat(pettyCashForm.amount),
+        purpose: pettyCashForm.purpose,
+        remarks: pettyCashForm.remarks
+      });
+      toast.success('Petty cash requested');
+      setPettyCashDialog(false);
+      setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to request petty cash');
+    }
+  };
+  
+  const handleAddExpense = async () => {
+    if (!expenseForm.amount || !expenseForm.expense_type || !expenseForm.description) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+    try {
+      await axios.post(`${API}/site-engineer/petty-cash/${selectedPettyCash.petty_cash_id}/expense`, {
+        petty_cash_id: selectedPettyCash.petty_cash_id,
+        amount: parseFloat(expenseForm.amount),
+        expense_type: expenseForm.expense_type,
+        description: expenseForm.description,
+        date: expenseForm.date
+      });
+      toast.success('Expense added');
+      setPettyCashExpenseDialog(false);
+      setExpenseForm({ amount: '', expense_type: '', description: '', date: new Date().toISOString().split('T')[0] });
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add expense');
+    }
+  };
+  
+  const handleSubmitPettyCash = async (pettyCashId) => {
+    try {
+      await axios.post(`${API}/site-engineer/petty-cash/${pettyCashId}/submit`);
+      toast.success('Petty cash submitted for settlement');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to submit petty cash');
+    }
+  };
+  
+  const getPettyCashStatusBadge = (status) => {
+    const config = {
+      requested: { label: 'Requested', className: 'bg-yellow-100 text-yellow-700' },
+      issued: { label: 'Issued', className: 'bg-green-100 text-green-700' },
+      partially_spent: { label: 'In Use', className: 'bg-blue-100 text-blue-700' },
+      pending_settlement: { label: 'Pending Settlement', className: 'bg-orange-100 text-orange-700' },
+      settled: { label: 'Settled', className: 'bg-gray-100 text-gray-700' },
+      rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' }
+    };
+    const c = config[status] || { label: status, className: 'bg-gray-100' };
+    return <Badge className={c.className}>{c.label}</Badge>;
   };
 
   const handleStartStage = async (workOrderId, stageId) => {
