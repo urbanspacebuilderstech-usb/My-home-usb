@@ -416,11 +416,19 @@ export default function CREBoard() {
             <Clock className="h-3 w-3 mr-1" /> Awaiting Accountant
           </Badge>
         );
+      case 'payment_received':
       case 'payment_verified':
         return (
           <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
             <Send className="h-3 w-3" /> Send to Planning
           </Button>
+        );
+      case 'in_planning':
+      case 'planning':
+        return (
+          <Badge variant="outline" className="text-blue-600 border-blue-300">
+            <Clock className="h-3 w-3 mr-1" /> In Planning
+          </Badge>
         );
       default:
         return (
