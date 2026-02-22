@@ -8961,6 +8961,130 @@ async def convert_deal_to_project(
     }
 
 
+@api_router.post("/cre/convert-re-project/{re_project_id}")
+async def convert_re_project_to_project(
+    re_project_id: str,
+    data: ConvertDealInput,
+    user: User = Depends(get_current_user)
+):
+    """Convert a GM-approved RE project directly to a project (without sales lead)"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can convert RE projects")
+    
+    if not data.accountant_confirmed:
+        raise HTTPException(status_code=400, detail="Accountant confirmation required")
+    
+    # Get the RE project
+    re_project = await db.re_projects.find_one({"re_project_id": re_project_id})
+    if not re_project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    # Check if RE is approved
+    if re_project.get("status") not in ["re_approved", "deal_closed"]:
+        raise HTTPException(status_code=400, detail="RE Project must be approved by GM first")
+    
+    # Check if already converted
+    if re_project.get("converted_to_project") or re_project.get("status") == "converted":
+        raise HTTPException(status_code=400, detail="RE Project already converted to a project")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Calculate expected completion
+    handover_months = re_project.get("handover_months") or 12
+    expected_completion = now + timedelta(days=handover_months * 30)
+    
+    # Generate project ID
+    project_id = f"proj_{secrets.token_hex(6)}"
+    
+    # Create the main project with CRE-edited details
+    project_name = data.project_name or re_project.get("project_name") or f"RE - {re_project.get('client_name', 'Project')}"
+    client_name = data.client_name or re_project.get("client_name")
+    client_phone = data.client_phone or re_project.get("client_phone")
+    client_email = data.client_email or re_project.get("client_email")
+    location = data.location or re_project.get("location", "")
+    sqft = data.sqft or re_project.get("sqft") or re_project.get("area_sqft") or 0
+    building_type = data.building_type or re_project.get("building_type") or "residential"
+    total_value = re_project.get("estimated_total", 0)
+    
+    main_project = {
+        "project_id": project_id,
+        "name": project_name,
+        # Client details (editable by CRE)
+        "client_name": client_name,
+        "client_email": client_email,
+        "client_phone": client_phone,
+        "location": location,
+        "sqft": sqft,
+        "building_type": building_type,
+        # Financial
+        "total_value": total_value,
+        "advance_amount": data.advance_amount,
+        "advance_payment_mode": data.payment_mode,
+        "advance_payment_reference": data.payment_reference,
+        "advance_received_at": now,
+        "advance_collected_by": user.user_id,
+        "additional_cost": 0,
+        "income_project": data.advance_amount,
+        "income_additional": 0,
+        "total_expense": 0,
+        # Stage - Not yet started construction
+        "current_stage": "yet_to_start",
+        "stage_history": [],
+        "materials_locked": False,
+        # Dates
+        "start_date": now,
+        "expected_completion": expected_completion,
+        # Status - Set to 'pending_payment' for accountant verification
+        "status": "pending_payment",
+        "accountant_verified": False,
+        # Links
+        "re_project_id": re_project_id,
+        "lead_id": re_project.get("lead_id"),
+        # Package if selected
+        "package_id": data.package_id or re_project.get("package_id"),
+        # Workflow
+        "created_by": user.user_id,
+        "created_at": now,
+        "converted_by_cre": user.user_id,
+        "converted_at": now
+    }
+    
+    await db.projects.insert_one(main_project)
+    
+    # Update RE Project
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "status": "converted",
+            "converted_to_project": True,
+            "converted_project_id": project_id,
+            "converted_at": now,
+            "converted_by": user.user_id,
+            "advance_collected": data.advance_amount
+        }}
+    )
+    
+    # Update linked lead if exists
+    if re_project.get("lead_id"):
+        await db.leads.update_one(
+            {"lead_id": re_project["lead_id"]},
+            {"$set": {
+                "project_created": True,
+                "project_id": project_id,
+                "converted_at": now,
+                "converted_by": user.user_id
+            }}
+        )
+    
+    return {
+        "success": True,
+        "project_id": project_id,
+        "message": "RE Project converted to project successfully",
+        "advance_collected": data.advance_amount,
+        "status": "pending_payment"
+    }
+
+
 @api_router.patch("/cre/projects/{project_id}/accountant-verify")
 async def accountant_verify_advance(project_id: str, user: User = Depends(get_current_user)):
     """Accountant verifies the advance payment - moves project to payment_received"""
