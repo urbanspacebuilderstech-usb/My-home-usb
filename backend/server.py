@@ -13361,8 +13361,8 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
     
-    if project["status"] != "re_submitted":
-        raise HTTPException(status_code=400, detail="Project not in submitted state")
+    if project["status"] not in ["re_submitted", "re_in_progress", "re_awaiting_approval"]:
+        raise HTTPException(status_code=400, detail="Project not in submitted/in-progress state")
     
     if data.approved:
         update = {
