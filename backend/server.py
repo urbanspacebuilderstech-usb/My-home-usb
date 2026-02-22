@@ -1700,6 +1700,33 @@ async def get_projects(user: User = Depends(get_current_user)):
     else:
         projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     
+    # Collect all project IDs for batch queries
+    project_ids = [p["project_id"] for p in projects]
+    
+    # Batch fetch payment stages and income for all projects
+    all_payment_stages = await db.payment_stages.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0}
+    ).to_list(10000)
+    
+    all_expenses = await db.expenses.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0}
+    ).to_list(10000)
+    
+    # Group payment stages and expenses by project_id
+    stages_by_project = {}
+    for stage in all_payment_stages:
+        pid = stage["project_id"]
+        if pid not in stages_by_project:
+            stages_by_project[pid] = []
+        stages_by_project[pid].append(stage)
+    
+    expenses_by_project = {}
+    for expense in all_expenses:
+        pid = expense["project_id"]
+        if pid not in expenses_by_project:
+            expenses_by_project[pid] = []
+        expenses_by_project[pid].append(expense)
+    
     for proj in projects:
         if isinstance(proj.get("start_date"), str):
             proj["start_date"] = datetime.fromisoformat(proj["start_date"])
@@ -1707,6 +1734,19 @@ async def get_projects(user: User = Depends(get_current_user)):
             proj["expected_completion"] = datetime.fromisoformat(proj["expected_completion"])
         if isinstance(proj.get("created_at"), str):
             proj["created_at"] = datetime.fromisoformat(proj["created_at"])
+        
+        # Calculate total received = advance payment + stage payments received
+        advance_amount = proj.get("advance_amount", 0) or 0
+        project_stages = stages_by_project.get(proj["project_id"], [])
+        stages_received = sum(s.get("amount_received", 0) or 0 for s in project_stages)
+        proj["total_received"] = advance_amount + stages_received
+        
+        # Calculate total spent from expenses
+        project_expenses = expenses_by_project.get(proj["project_id"], [])
+        proj["total_spent"] = sum(e.get("amount", 0) or 0 for e in project_expenses if e.get("status") == "approved")
+        
+        # Calculate balance = total_value - total_spent  (or total_received - total_spent for cash flow)
+        proj["balance"] = proj.get("total_value", 0) - proj["total_spent"]
     
     return projects
 
