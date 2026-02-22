@@ -745,6 +745,7 @@ Build a Construction Accounting CRM with:
   - Review and implement security best practices
 
 ### P2 - Features
+- [ ] **Google Sheets Integration** for CRM - Sync leads from Google Sheets tabs (Meta, SEO, Other)
 - [ ] **Unified Approval Dashboard** for GM/Admin roles
 - [ ] **Email Notifications** via Resend (requires API key)
 - [ ] **Aadhar Document Upload** for labour contractors (encrypted storage)
