@@ -732,6 +732,13 @@ Build a Construction Accounting CRM with:
   - Dynamic options for Dropdown type
   - Fields immediately available after creation
 
+- [x] **Manage Custom Fields Dialog**:
+  - "Manage" button next to Custom Fields section
+  - Lists all custom fields with type and ID
+  - Delete button for each field
+  - **DELETE confirmation**: Must type "DELETE" to confirm deletion
+  - Warning about data loss before deletion
+
 - [x] **Lead Detail Dialog with Tabbed Interface**:
   - Opens when clicking on any lead card in Kanban board
   - 4 Tabs: Overview, Remarks, Follow-up, Activity
