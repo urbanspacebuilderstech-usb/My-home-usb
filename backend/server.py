@@ -14084,6 +14084,26 @@ async def get_all_leads_for_marketing(
     return {"leads": leads, "total": total}
 
 
+@api_router.delete("/marketing/leads/{lead_id}")
+async def delete_lead(lead_id: str, user: User = Depends(get_current_user)):
+    """Delete a lead - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Check if lead exists
+    lead = await db.leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Delete the lead
+    await db.leads.delete_one({"lead_id": lead_id})
+    
+    # Also delete from sales_leads if exists
+    await db.sales_leads.delete_one({"lead_id": lead_id})
+    
+    return {"message": "Lead deleted successfully"}
+
+
 # ==================== END LEAD DISTRIBUTION ENGINE ====================
 
 
