@@ -151,7 +151,7 @@ export default function CREBoard() {
     }
   };
   
-  // Open deal conversion dialog
+  // Open deal conversion dialog with pre-filled data
   const openConvertDealDialog = async (deal) => {
     setSelectedDeal(deal);
     setAdvanceAmount('');
@@ -160,16 +160,35 @@ export default function CREBoard() {
     setAccountantConfirmed(false);
     
     // Fetch RE Project if available
+    let reData = null;
     if (deal.re_project_id) {
       try {
         const reRes = await axios.get(`${API}/crm/re-projects/${deal.re_project_id}`);
-        setSelectedDealRE(reRes.data);
+        reData = reRes.data;
+        setSelectedDealRE(reData);
       } catch (e) {
         setSelectedDealRE(null);
       }
     } else {
       setSelectedDealRE(null);
     }
+    
+    // Pre-fill form with deal and RE data
+    setForm({
+      name: reData?.project_name || deal.name || '',
+      client_name: deal.name || '',
+      client_phone: deal.phone || '',
+      client_email: deal.email || '',
+      location: reData?.location || deal.city || '',
+      sqft: reData?.sqft || '',
+      building_type: reData?.building_type || 'residential',
+      expected_start_date: new Date().toISOString().split('T')[0],
+      package_id: reData?.package_id || '',
+      advance_date: new Date().toISOString().split('T')[0],
+      advance_amount: '',
+      advance_payment_mode: '',
+      rough_estimate_url: ''
+    });
     
     setConvertDealDialog(true);
   };
