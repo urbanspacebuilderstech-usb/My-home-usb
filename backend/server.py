@@ -12628,7 +12628,11 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             re_project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
             if re_project and re_project.get("status") == "re_approved":
                 # Create main project from RE
-                project_code = f"USB{str(await db.projects.count_documents({}) + 1).zfill(2)}{datetime.now().strftime('%m%y')}"
+                project_count = await db.projects.count_documents({}) + 1
+                project_code = f"USB{str(project_count).zfill(2)}{datetime.now().strftime('%m%y')}"
+                
+                now = datetime.now(timezone.utc)
+                expected_completion = now + timedelta(days=365)  # Default 1 year
                 
                 main_project = {
                     "project_id": f"proj_{uuid.uuid4().hex[:12]}",
@@ -12637,15 +12641,31 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                     "client_name": lead["name"],
                     "client_email": lead.get("email"),
                     "client_phone": lead.get("phone"),
-                    "location": re_project.get("location"),
-                    "sqft": re_project.get("sqft"),
-                    "building_type": re_project.get("building_type"),
-                    "status": "active",
-                    "initial_value": re_project.get("estimated_total", 0),
+                    "location": re_project.get("location") or "",
+                    "sqft": re_project.get("sqft") or 0,
+                    "building_type": re_project.get("building_type") or "residential",
+                    # Financial
+                    "total_value": re_project.get("estimated_total", 0),
+                    "advance_amount": 0,
+                    "additional_cost": 0,
+                    "income_project": 0,
+                    "income_additional": 0,
+                    "total_expense": 0,
+                    # Stage
+                    "current_stage": "yet_to_start",
+                    "stage_history": [],
+                    "materials_locked": False,
+                    # Dates
+                    "start_date": now,
+                    "expected_completion": expected_completion,
+                    # Status - Set to 'planning' so Planning can add BOQ
+                    "status": "planning",
+                    # Links
                     "re_project_id": re_project_id,
                     "lead_id": lead_id,
+                    # Workflow
                     "created_by": user.user_id,
-                    "created_at": datetime.now(timezone.utc)
+                    "created_at": now
                 }
                 
                 await db.projects.insert_one(main_project)
@@ -12656,26 +12676,28 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                     {"$set": {
                         "status": "converted",
                         "converted_project_id": main_project["project_id"],
-                        "converted_at": datetime.now(timezone.utc),
+                        "converted_at": now,
                         "converted_by": user.user_id
                     }}
                 )
                 
                 result["project_created"] = True
                 result["project_id"] = main_project["project_id"]
+                result["project_code"] = project_code
                 
-                # Notify CRO
-                notification = {
-                    "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-                    "user_id": "all_cro",
-                    "title": "New Project Created",
-                    "message": f"Deal closed! Project '{main_project['name']}' created from RE",
-                    "type": "project_created",
-                    "reference_id": main_project["project_id"],
-                    "is_read": False,
-                    "created_at": datetime.now(timezone.utc)
-                }
-                await db.notifications.insert_one(notification)
+                # Notify CRO and Planning
+                for target in ["all_cro", "all_planning"]:
+                    notification = {
+                        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                        "user_id": target,
+                        "title": "New Project Created from CRM",
+                        "message": f"Deal closed! Project '{main_project['name']}' (₹{re_project.get('estimated_total', 0):,.0f}) ready for setup",
+                        "type": "project_created",
+                        "reference_id": main_project["project_id"],
+                        "is_read": False,
+                        "created_at": now
+                    }
+                    await db.notifications.insert_one(notification)
     
     return result
 
