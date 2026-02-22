@@ -1064,10 +1064,10 @@ const GMDashboard = () => {
       </Dialog>
 
       {/* View Details Dialog */}
-      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
+      <Dialog open={viewDialog} onOpenChange={(open) => setViewDialog(open)}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center justify-between">
+            <DialogTitle className="flex items-center justify-between pr-8">
               <div className="flex items-center gap-2">
                 <Eye className="h-5 w-5 text-blue-600" />
                 {viewType === 're_project' && 'RE Project Details'}
@@ -1077,8 +1077,13 @@ const GMDashboard = () => {
               {viewType === 're_project' && viewItem && (
                 <Button 
                   size="sm"
-                  onClick={() => generateREPDF(viewItem)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    generateREPDF(viewItem);
+                  }}
                   className="bg-purple-600 hover:bg-purple-700"
+                  data-testid="download-pdf-dialog"
                 >
                   <Download className="h-4 w-4 mr-1" /> Download PDF
                 </Button>
