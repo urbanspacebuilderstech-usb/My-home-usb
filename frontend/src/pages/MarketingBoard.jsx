@@ -108,6 +108,16 @@ export default function MarketingBoard() {
   const [showEditLead, setShowEditLead] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   
+  // Lead Detail View
+  const [showLeadDetail, setShowLeadDetail] = useState(false);
+  const [selectedLead, setSelectedLead] = useState(null);
+  const [detailTab, setDetailTab] = useState('overview');
+  
+  // Delete Lead
+  const [showDeleteLead, setShowDeleteLead] = useState(false);
+  const [deletingLead, setDeletingLead] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  
   // Google Sheets Integration
   const [showSheetsDialog, setShowSheetsDialog] = useState(false);
   const [sheetsTab, setSheetsTab] = useState('website');
