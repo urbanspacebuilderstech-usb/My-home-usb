@@ -212,6 +212,149 @@ export default function MarketingBoard() {
     }
   }, [selectedPerson, personFilter]);
 
+  // Google Sheets Functions
+  const fetchSheetsConfig = async () => {
+    try {
+      const res = await axios.get(`${API}/api/sheets/config`, { withCredentials: true });
+      setSheetsConfig(res.data);
+      setSheetSources(res.data.sources || []);
+    } catch (error) {
+      console.error('Failed to fetch sheets config:', error);
+    }
+  };
+
+  const connectGoogleSheets = async () => {
+    try {
+      const res = await axios.get(`${API}/api/sheets/oauth/login`, { withCredentials: true });
+      if (res.data.auth_url) {
+        window.location.href = res.data.auth_url;
+      }
+    } catch (error) {
+      if (error.response?.data?.detail?.includes('credentials not configured')) {
+        toast.error('Google Sheets credentials not configured. Please contact admin to set up GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET in the backend.');
+      } else {
+        toast.error('Failed to start Google Sheets connection');
+      }
+    }
+  };
+
+  const disconnectGoogleSheets = async () => {
+    try {
+      await axios.post(`${API}/api/sheets/disconnect`, {}, { withCredentials: true });
+      toast.success('Google Sheets disconnected');
+      setSheetsConfig(prev => ({ ...prev, is_connected: false }));
+      setSheetSources([]);
+    } catch (error) {
+      toast.error('Failed to disconnect');
+    }
+  };
+
+  const previewSheet = async () => {
+    if (!sheetUrl) {
+      toast.error('Please enter a Google Sheet URL');
+      return;
+    }
+    setIsPreviewLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/preview`, {
+        spreadsheet_url: sheetUrl,
+        sheet_name: selectedSheetName || null
+      }, { withCredentials: true });
+      
+      setSheetPreview(res.data);
+      
+      // Auto-populate column mapping from suggestions
+      const mapping = {};
+      Object.entries(res.data.column_suggestions || {}).forEach(([col, info]) => {
+        if (info.suggested) {
+          mapping[col] = info.suggested;
+        }
+      });
+      setColumnMapping(mapping);
+      
+      // Set custom fields detected
+      setCustomFieldsToCreate(res.data.custom_fields_detected || []);
+      
+      toast.success(`Found ${res.data.total_rows} rows`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to preview sheet');
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
+  const addSheetSource = async () => {
+    if (!sourceName || !sheetPreview) {
+      toast.error('Please preview the sheet first');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/api/sheets/sources`, {
+        name: sourceName,
+        spreadsheet_url: sheetUrl,
+        sheet_name: sheetPreview.selected_sheet,
+        column_mapping: columnMapping,
+        custom_fields: customFieldsToCreate
+      }, { withCredentials: true });
+      
+      toast.success('Sheet source added');
+      fetchSheetsConfig();
+      
+      // Reset form
+      setSheetUrl('');
+      setSheetPreview(null);
+      setColumnMapping({});
+      setCustomFieldsToCreate([]);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add source');
+    }
+  };
+
+  const importLeads = async (sourceId) => {
+    setIsImporting(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/import`, {
+        source_id: sourceId
+      }, { withCredentials: true });
+      
+      toast.success(`Imported ${res.data.imported} leads (${res.data.skipped} skipped)`);
+      fetchDashboard();
+      fetchSheetsConfig();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import leads');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const deleteSheetSource = async (sourceId) => {
+    try {
+      await axios.delete(`${API}/api/sheets/sources/${sourceId}`, { withCredentials: true });
+      toast.success('Source removed');
+      fetchSheetsConfig();
+    } catch (error) {
+      toast.error('Failed to delete source');
+    }
+  };
+
+  // Check for sheets_connected URL param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sheets_connected') === 'true') {
+      toast.success('Google Sheets connected successfully!');
+      fetchSheetsConfig();
+      // Clean up URL
+      window.history.replaceState({}, '', '/marketing-board');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showSheetsDialog && user) {
+      fetchSheetsConfig();
+    }
+  }, [showSheetsDialog, user]);
+
   const toggleDistribution = async () => {
     try {
       await axios.patch(`${API}/api/marketing/distribution-settings`, 
