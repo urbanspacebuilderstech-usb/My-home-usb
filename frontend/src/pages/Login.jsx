@@ -161,6 +161,7 @@ export default function Login() {
                 {[
                   { label: 'Super Admin', email: 'admin@constructionos.com' },
                   { label: 'GM', email: 'gm@constructionos.com' },
+                  { label: 'CRE', email: 'cre@constructionos.com' },
                   { label: 'Accountant', email: 'accountant@constructionos.com' },
                   { label: 'Planning', email: 'planning@constructionos.com' },
                   { label: 'Pre-Sales', email: 'presales@constructionos.com' },
