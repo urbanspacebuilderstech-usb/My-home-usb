@@ -91,6 +91,20 @@ export default function MarketingBoard() {
   // Edit Lead
   const [showEditLead, setShowEditLead] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
+  
+  // Google Sheets Integration
+  const [showSheetsDialog, setShowSheetsDialog] = useState(false);
+  const [sheetsTab, setSheetsTab] = useState('website');
+  const [sheetsConfig, setSheetsConfig] = useState(null);
+  const [sheetSources, setSheetSources] = useState([]);
+  const [sheetPreview, setSheetPreview] = useState(null);
+  const [sheetUrl, setSheetUrl] = useState('');
+  const [selectedSheetName, setSelectedSheetName] = useState('');
+  const [sourceName, setSourceName] = useState('Website');
+  const [columnMapping, setColumnMapping] = useState({});
+  const [customFieldsToCreate, setCustomFieldsToCreate] = useState([]);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
