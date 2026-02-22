@@ -252,6 +252,8 @@ async def seed_database():
     print("\n📋 Demo Credentials:")
     print("=" * 50)
     print("Super Admin:    admin@constructionos.com")
+    print("GM:             gm@constructionos.com")
+    print("CRE:            cre@constructionos.com")
     print("Accountant:     accountant@constructionos.com")
     print("Project Manager: pm@constructionos.com")
     print("Planning:       planning@constructionos.com")
