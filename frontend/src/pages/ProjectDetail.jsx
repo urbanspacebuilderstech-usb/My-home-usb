@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
-  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer
+  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,9 +14,22 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Company Details for PDF
+const COMPANY_INFO = {
+  name: 'URBAN SPACE BUILDERS',
+  tagline: 'Building Dreams Into Reality',
+  address: 'No.123, Construction Lane, Chennai - 600001',
+  phone: '+91 44 2345 6789',
+  email: 'info@urbanspacebuilders.com',
+  website: 'www.urbanspacebuilders.com',
+  gstin: 'GSTIN: 33XXXXX1234X1ZX'
+};
 
 // Initial empty rows for bulk add
 const createEmptyRows = (type, count = 3) => {
