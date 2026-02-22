@@ -159,29 +159,29 @@ export default function CREBoard() {
     setAdvanceRef('');
     setAccountantConfirmed(false);
     
-    // Fetch RE Project if available
-    let reData = null;
-    if (deal.re_project_id) {
+    // For RE projects directly approved by GM, use embedded re_project data
+    let reData = deal.re_project || null;
+    
+    // Fetch RE Project if only re_project_id is available
+    if (!reData && deal.re_project_id) {
       try {
         const reRes = await axios.get(`${API}/crm/re-projects/${deal.re_project_id}`);
         reData = reRes.data;
-        setSelectedDealRE(reData);
       } catch (e) {
-        setSelectedDealRE(null);
+        reData = null;
       }
-    } else {
-      setSelectedDealRE(null);
     }
+    setSelectedDealRE(reData);
     
     // Pre-fill form with deal and RE data
     setForm({
-      name: reData?.project_name || deal.name || '',
-      client_name: deal.name || '',
-      client_phone: deal.phone || '',
-      client_email: deal.email || '',
-      location: reData?.location || deal.city || '',
-      sqft: reData?.sqft || '',
-      building_type: reData?.building_type || 'residential',
+      name: deal.project_name || reData?.project_name || deal.name || '',
+      client_name: deal.client_name || deal.name || '',
+      client_phone: deal.client_phone || deal.phone || '',
+      client_email: deal.client_email || deal.email || '',
+      location: deal.location || reData?.location || deal.city || '',
+      sqft: deal.sqft || reData?.sqft || reData?.area_sqft || '',
+      building_type: deal.building_type || reData?.building_type || 'residential',
       expected_start_date: new Date().toISOString().split('T')[0],
       package_id: reData?.package_id || '',
       advance_date: new Date().toISOString().split('T')[0],
