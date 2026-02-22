@@ -116,6 +116,16 @@ export default function ProjectDetail() {
       const projectRes = await axios.get(`${API}/projects/${projectId}/full-details`);
       setProjectData(projectRes.data);
       
+      // Fetch Rough Estimate (RE) project if available
+      if (projectRes.data.project?.re_project_id) {
+        try {
+          const reRes = await axios.get(`${API}/crm/re-projects/${projectRes.data.project.re_project_id}`);
+          setReProject(reRes.data);
+        } catch (e) {
+          console.log('RE project not available');
+        }
+      }
+      
       // Fetch payment summary
       try {
         const summaryRes = await axios.get(`${API}/projects/${projectId}/payment-summary`);
