@@ -1437,4 +1437,22 @@ Complete end-to-end payment flow for work order stages:
 
 ---
 
-*Last Updated: February 19, 2026*
+### ✅ Bug Fixes (February 22, 2026)
+
+#### PDF Download Fix
+- [x] **Fixed `doc.autoTable is not a function` error**
+  - **Root Cause**: jspdf-autotable v5.x changed API syntax
+  - **Fix**: Changed import to `import autoTable from 'jspdf-autotable'` and usage to `autoTable(doc, {...})`
+  - **Files Updated**: ProjectDetail.jsx, CRMSales.jsx, GMDashboard.jsx, REProjectsPage.jsx
+  - **Testing**: PDF download now works with success toast "Rough Estimate PDF downloaded successfully!"
+
+#### CRE Convert Deal Fix
+- [x] **Fixed `TypeError: unsupported operand type(s) for * : NoneType and int` error**
+  - **Root Cause**: `handover_months` could be `None` even when using `.get()` with default
+  - **Fix**: Changed to `(re_project.get("handover_months") if re_project else None) or 12`
+  - **File Updated**: `/app/backend/server.py` line 8762
+  - **Testing**: Convert deal workflow now works correctly
+
+---
+
+*Last Updated: February 22, 2026*
