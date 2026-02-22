@@ -8759,7 +8759,7 @@ async def convert_deal_to_project(
         re_project = await db.re_projects.find_one({"re_project_id": lead["re_project_id"]})
     
     # Calculate expected completion (default 12 months)
-    handover_months = re_project.get("handover_months", 12) if re_project else 12
+    handover_months = (re_project.get("handover_months") if re_project else None) or 12
     expected_completion = now + timedelta(days=handover_months * 30)
     
     # Generate project ID
