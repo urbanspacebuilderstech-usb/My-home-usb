@@ -90,7 +90,7 @@ export default function CREBoard() {
       setLoading(true);
       const [userRes, dashboardRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/cro/dashboard`)
+        axios.get(`${API}/cre/dashboard`)
       ]);
       
       if (!['cre', 'super_admin'].includes(userRes.data.role)) {
@@ -108,7 +108,7 @@ export default function CREBoard() {
       
       // Fetch payment requests for CRE
       try {
-        const paymentReqRes = await axios.get(`${API}/cro/payment-requests`);
+        const paymentReqRes = await axios.get(`${API}/cre/payment-requests`);
         setPaymentRequests(paymentReqRes.data);
       } catch (e) {
         console.log('Payment requests endpoint not available');
@@ -125,7 +125,7 @@ export default function CREBoard() {
 
   const fetchProjectsByStatus = async (statuses) => {
     try {
-      const res = await axios.get(`${API}/cro/projects/all?status=${statuses}`);
+      const res = await axios.get(`${API}/cre/projects/all?status=${statuses}`);
       setProjects(res.data);
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -134,7 +134,7 @@ export default function CREBoard() {
 
   const fetchFilteredProjects = async () => {
     try {
-      let url = `${API}/cro/projects/all?`;
+      let url = `${API}/cre/projects/all?`;
       if (filters.status) url += `status=${filters.status}&`;
       if (filters.stage && filters.stage !== 'all') url += `stage=${filters.stage}&`;
       if (filters.dateFrom) url += `date_from=${filters.dateFrom}&`;
@@ -196,7 +196,7 @@ export default function CREBoard() {
     }
 
     try {
-      const res = await axios.post(`${API}/cro/projects`, {
+      const res = await axios.post(`${API}/cre/projects`, {
         ...form,
         sqft: parseFloat(form.sqft) || 0,
         advance_amount: parseFloat(form.advance_amount) || 0
@@ -212,7 +212,7 @@ export default function CREBoard() {
 
   const handleSubmitForPayment = async (projectId) => {
     try {
-      await axios.patch(`${API}/cro/projects/${projectId}/submit`);
+      await axios.patch(`${API}/cre/projects/${projectId}/submit`);
       toast.success('Project submitted for payment verification');
       fetchData();
     } catch (error) {
@@ -222,7 +222,7 @@ export default function CREBoard() {
 
   const handleSubmitToPlanning = async (projectId) => {
     try {
-      await axios.patch(`${API}/cro/projects/${projectId}/submit-to-planning`);
+      await axios.patch(`${API}/cre/projects/${projectId}/submit-to-planning`);
       toast.success('Project submitted to Planning Department');
       fetchData();
     } catch (error) {
