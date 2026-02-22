@@ -47,6 +47,8 @@ class UserRole(str, Enum):
     SITE_ENGINEER = "site_engineer"
     VENDOR = "vendor"
     CLIENT = "client"
+    PRE_SALES = "pre_sales"  # CRM Pre-Sales
+    SALES = "sales"  # CRM Sales
 
 
 class ProjectStatus(str, Enum):
