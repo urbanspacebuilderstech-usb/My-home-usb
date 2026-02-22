@@ -209,7 +209,7 @@ export default function MarketingBoard() {
     if (user && activeTab === 'leads') {
       fetchAllLeads();
     }
-  }, [user, activeTab, leadsFilter]);
+  }, [user, activeTab, leadsFilter, selectedSource]);
 
   useEffect(() => {
     if (selectedPerson) {
