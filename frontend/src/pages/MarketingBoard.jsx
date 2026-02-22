@@ -363,10 +363,7 @@ export default function MarketingBoard() {
     }
   };
 
-  // Fetch unique lead sources for tabs
-  const [leadSources, setLeadSources] = useState([]);
-  const [selectedSource, setSelectedSource] = useState('all');
-  
+  // Fetch unique lead sources for tabs  
   const fetchLeadSources = async () => {
     try {
       const res = await axios.get(`${API}/api/leads/sources`, { withCredentials: true });
