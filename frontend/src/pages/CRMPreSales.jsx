@@ -1221,6 +1221,102 @@ export default function CRMPreSales() {
         </DialogContent>
       </Dialog>
 
+      {/* ============ EDIT LEAD DIALOG ============ */}
+      <Dialog open={editLeadDialog} onOpenChange={setEditLeadDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit2 className="h-5 w-5 text-blue-600" />
+              Edit Lead
+            </DialogTitle>
+            <DialogDescription>Update lead contact information and details</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <Label>Name *</Label>
+                <Input
+                  value={editLeadForm.name}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, name: e.target.value})}
+                  placeholder="Client name"
+                  data-testid="edit-lead-name"
+                />
+              </div>
+              
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={editLeadForm.email}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, email: e.target.value})}
+                  placeholder="email@example.com"
+                  data-testid="edit-lead-email"
+                />
+              </div>
+              
+              <div>
+                <Label>Phone</Label>
+                <Input
+                  value={editLeadForm.phone}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, phone: e.target.value})}
+                  placeholder="+91 9876543210"
+                  data-testid="edit-lead-phone"
+                />
+              </div>
+              
+              <div className="col-span-2">
+                <Label>Address</Label>
+                <Input
+                  value={editLeadForm.address}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, address: e.target.value})}
+                  placeholder="Street address"
+                  data-testid="edit-lead-address"
+                />
+              </div>
+              
+              <div>
+                <Label>City</Label>
+                <Input
+                  value={editLeadForm.city}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, city: e.target.value})}
+                  placeholder="City"
+                  data-testid="edit-lead-city"
+                />
+              </div>
+              
+              <div>
+                <Label>State</Label>
+                <Input
+                  value={editLeadForm.state}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, state: e.target.value})}
+                  placeholder="State"
+                  data-testid="edit-lead-state"
+                />
+              </div>
+              
+              <div className="col-span-2">
+                <Label>Notes</Label>
+                <Textarea
+                  value={editLeadForm.notes}
+                  onChange={(e) => setEditLeadForm({...editLeadForm, notes: e.target.value})}
+                  placeholder="Additional notes about the lead..."
+                  rows={3}
+                  data-testid="edit-lead-notes"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditLeadDialog(false)}>Cancel</Button>
+            <Button onClick={handleUpdateLead} data-testid="save-edit-lead">
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ============ CREATE STAGE DIALOG ============ */}
       <Dialog open={createStageDialog} onOpenChange={setCreateStageDialog}>
         <DialogContent className="max-w-sm">
