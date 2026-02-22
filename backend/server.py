@@ -8712,6 +8712,17 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
 
 
 class ConvertDealInput(BaseModel):
+    # Project details (editable by CRE)
+    project_name: Optional[str] = None
+    client_name: Optional[str] = None
+    client_phone: Optional[str] = None
+    client_email: Optional[str] = None
+    location: Optional[str] = None
+    sqft: Optional[float] = None
+    building_type: Optional[str] = "residential"
+    expected_start_date: Optional[str] = None
+    package_id: Optional[str] = None
+    # Advance payment details
     advance_amount: float
     payment_mode: str
     payment_reference: Optional[str] = ""
