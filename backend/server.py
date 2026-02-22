@@ -12652,9 +12652,12 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                     "building_type": re_project.get("building_type") or "residential",
                     # Financial
                     "total_value": re_project.get("estimated_total", 0),
-                    "advance_amount": 0,
+                    "advance_amount": data.advance_amount or 0,
+                    "advance_payment_mode": data.payment_mode,
+                    "advance_payment_reference": data.payment_reference,
+                    "advance_received_at": now if data.advance_amount else None,
                     "additional_cost": 0,
-                    "income_project": 0,
+                    "income_project": data.advance_amount or 0,  # Advance counts as income
                     "income_additional": 0,
                     "total_expense": 0,
                     # Stage
@@ -12683,11 +12686,13 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                         "status": "converted",
                         "converted_project_id": main_project["project_id"],
                         "converted_at": now,
-                        "converted_by": user.user_id
+                        "converted_by": user.user_id,
+                        "advance_collected": data.advance_amount or 0
                     }}
                 )
                 
                 result["project_created"] = True
+                result["advance_collected"] = data.advance_amount or 0
                 result["project_id"] = main_project["project_id"]
                 result["project_code"] = project_code
                 
