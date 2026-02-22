@@ -474,6 +474,9 @@ export default function MarketingBoard() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={() => setShowSheetsDialog(true)} className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" data-testid="connect-sheets-btn">
+                <FileSpreadsheet className="h-4 w-4 mr-2" /> Connect Google Sheets
+              </Button>
               <Button variant="outline" onClick={fetchDashboard}>
                 <RefreshCw className="h-4 w-4 mr-2" /> Refresh
               </Button>
