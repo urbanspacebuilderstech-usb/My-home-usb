@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 import { 
   Users, LogOut, Plus, Search, Upload, Phone, Mail, MapPin, Calendar, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
-  FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2
+  FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
+  LayoutGrid, List, MoreVertical
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
