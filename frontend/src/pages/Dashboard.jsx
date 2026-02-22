@@ -61,6 +61,12 @@ export default function Dashboard() {
         return;
       }
       
+      // Redirect GM users to GM Command Center
+      if (userRes.data.role === 'general_manager') {
+        window.location.href = '/gm-dashboard';
+        return;
+      }
+      
       const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),
         axios.get(`${API}/notifications`).catch(() => ({ data: [] }))
