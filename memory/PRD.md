@@ -1485,7 +1485,7 @@ Complete end-to-end payment flow for work order stages:
 
 ### ✅ Lead Distribution Engine (February 22, 2026)
 
-#### Marketing Board (Super Admin Only)
+#### Marketing Board (Super Admin Only) - ENHANCED
 - [x] **New Page**: `/marketing-board` - Lead Distribution Engine dashboard
 - [x] **Distribution Settings**:
   - Enable/Disable toggle for auto-distribution
@@ -1494,8 +1494,19 @@ Complete end-to-end payment flow for work order stages:
 - [x] **Team Performance Dashboard**:
   - Pre-Sales team stats: Total leads, Converted, Conversion rate
   - Sales team stats: Total appointments, Deals closed, Close rate
-- [x] **All Leads View**: Filter and reassign leads manually
-- [x] **Lead Sources Breakdown**: Visual stats by source
+- [x] **Individual Salesperson View** (ENHANCED February 22, 2026):
+  - Click on any team member to view detailed performance
+  - Summary stats: Total Leads/Appointments, Converted/Deals Closed, Rate
+  - Lead Stage Breakdown with visual badges
+  - **Filters**: Date From, Date To, Source, Stage
+  - Leads table with name, contact, source, stage, date, edit action
+- [x] **All Leads View**: 
+  - Search by name, email, phone
+  - Filter by Type (Pre-Sales/Sales), Assignee
+  - **Reassign leads** via dropdown directly in table
+  - **Edit lead** dialog: name, email, phone, city
+- [x] **Lead Sources Breakdown**: Visual stats by source with percentages
+- [x] **Add Team Member**: Create new Pre-Sales or Sales team members
 
 #### Multi-User Support
 - [x] **Pre-Sales Team**: Pre-Sales A (Kavitha), Pre-Sales B (Priya)
