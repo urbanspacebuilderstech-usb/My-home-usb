@@ -162,9 +162,14 @@ export default function MarketingBoard() {
       const params = new URLSearchParams();
       if (leadsFilter.stage_type && leadsFilter.stage_type !== 'all') params.append('stage_type', leadsFilter.stage_type);
       if (leadsFilter.assigned_to && leadsFilter.assigned_to !== 'all') params.append('assigned_to', leadsFilter.assigned_to);
+      if (selectedSource && selectedSource !== 'all') params.append('source', selectedSource);
       
       const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, { withCredentials: true });
-      setAllLeads(res.data.leads);
+      // Sort by created_at descending (newest first)
+      const sortedLeads = (res.data.leads || []).sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+      setAllLeads(sortedLeads);
     } catch (error) {
       toast.error('Failed to load leads');
     }
