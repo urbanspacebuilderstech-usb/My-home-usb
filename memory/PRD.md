@@ -1468,6 +1468,21 @@ Complete end-to-end payment flow for work order stages:
   - `/app/frontend/src/pages/CRMPreSales.jsx`
   - `/app/frontend/src/pages/CRMSales.jsx`
 
+### ✅ Enhanced Payment Summary (February 22, 2026)
+
+#### Payment Summary Tab Improvements
+- [x] **Advance Payment Card**: Green bordered card prominently displaying advance payment details
+  - Amount, Payment Mode (badge), Date Received, Status (Received badge)
+  - Only shows when advance payment exists
+- [x] **Stage-wise Payment Schedule**: Table showing all payment stages with collect button
+- [x] **Payment Collection History**: New section showing all collected payments
+  - Advance Payment row with green "Advance" badge
+  - Stage Payment rows with blue "Stage Payment" badge
+  - Partial payments with yellow "Partial" badge
+  - Income records with purple "Income" badge
+  - Total Collected footer with sum
+- [x] **Files Updated**: `/app/frontend/src/pages/ProjectDetail.jsx`
+
 ---
 
 *Last Updated: February 22, 2026*
