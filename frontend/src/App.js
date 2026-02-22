@@ -103,6 +103,11 @@ function AppRouter() {
       <Route path="/suspense-account" element={<ProtectedRoute><SuspenseAccount /></ProtectedRoute>} />
       <Route path="/work-order-management" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
       <Route path="/labour-contractors" element={<ProtectedRoute><LabourContractorManagement /></ProtectedRoute>} />
+      <Route path="/crm-pre-sales" element={<ProtectedRoute><CRMPreSales /></ProtectedRoute>} />
+      <Route path="/crm-sales" element={<ProtectedRoute><CRMSales /></ProtectedRoute>} />
+      <Route path="/crm/re-projects" element={<ProtectedRoute><REProjectsPage /></ProtectedRoute>} />
+      <Route path="/crm/custom-fields" element={<ProtectedRoute><CustomFieldsBuilder /></ProtectedRoute>} />
+      <Route path="/crm/import-csv" element={<ProtectedRoute><CSVImportPage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
   );
