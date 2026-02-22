@@ -41,8 +41,21 @@ const SOURCE_COLORS = {
   walk_in: 'bg-yellow-100 text-yellow-700',
   website: 'bg-pink-100 text-pink-700',
   csv_import: 'bg-orange-100 text-orange-700',
+  google_sheets: 'bg-emerald-100 text-emerald-700',
   other: 'bg-gray-100 text-gray-700'
 };
+
+// Standard lead fields for mapping
+const STANDARD_FIELDS = [
+  { value: 'name', label: 'Lead Name' },
+  { value: 'phone', label: 'Phone Number' },
+  { value: 'email', label: 'Email' },
+  { value: 'city', label: 'Location/City' },
+  { value: 'sqft', label: 'Sqft / Area' },
+  { value: 'budget', label: 'Budget' },
+  { value: 'notes', label: 'Notes/Remarks' },
+  { value: 'source', label: 'Lead Source' },
+];
 
 // Stage colors
 const STAGE_COLORS = {
