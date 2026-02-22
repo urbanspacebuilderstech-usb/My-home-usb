@@ -41,6 +41,7 @@ export default function PlanningBoard() {
   
   const [pendingRequests, setPendingRequests] = useState([]);
   const [requestsDialog, setRequestsDialog] = useState(false);
+  const [reProjectsCount, setReProjectsCount] = useState(0);
   
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [paymentDialog, setPaymentDialog] = useState(false);
