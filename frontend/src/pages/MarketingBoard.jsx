@@ -186,10 +186,9 @@ export default function MarketingBoard() {
 
   const toggleDistribution = async () => {
     try {
-      const token = localStorage.getItem('token');
       await axios.patch(`${API}/api/marketing/distribution-settings`, 
         { enabled: !settings.enabled },
-        { headers: { Authorization: `Bearer ${token}` }}
+        { withCredentials: true }
       );
       setSettings(prev => ({ ...prev, enabled: !prev.enabled }));
       toast.success(`Lead distribution ${settings.enabled ? 'disabled' : 'enabled'}`);
@@ -204,10 +203,7 @@ export default function MarketingBoard() {
       return;
     }
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API}/api/marketing/team-members`, newMember, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.post(`${API}/api/marketing/team-members`, newMember, { withCredentials: true });
       toast.success('Team member added successfully');
       setShowAddMember(false);
       setNewMember({ name: '', email: '', role: 'pre_sales', phone: '' });
@@ -219,10 +215,7 @@ export default function MarketingBoard() {
 
   const handleAssignLead = async (leadId, userId) => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(`${API}/api/marketing/assign-lead/${leadId}?assigned_to=${userId}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await axios.post(`${API}/api/marketing/assign-lead/${leadId}?assigned_to=${userId}`, {}, { withCredentials: true });
       toast.success('Lead reassigned successfully');
       fetchAllLeads();
       fetchDashboard();
@@ -237,15 +230,12 @@ export default function MarketingBoard() {
   const handleUpdateLead = async () => {
     if (!editingLead) return;
     try {
-      const token = localStorage.getItem('token');
       await axios.patch(`${API}/api/crm/leads/${editingLead.lead_id}`, {
         name: editingLead.name,
         email: editingLead.email,
         phone: editingLead.phone,
         city: editingLead.city
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      }, { withCredentials: true });
       toast.success('Lead updated successfully');
       setShowEditLead(false);
       setEditingLead(null);
