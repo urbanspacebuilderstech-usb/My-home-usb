@@ -4659,9 +4659,9 @@ async def remove_site_engineer_assignment(
 # Site Engineer Dashboard
 @api_router.get("/site-engineer/my-projects")
 async def get_site_engineer_projects(user: User = Depends(get_current_user)):
-    """Get projects assigned to the current site engineer"""
-    if user.role != UserRole.SITE_ENGINEER:
-        raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
+    """Get projects assigned to the current site engineer, associate PM, or Sr. site engineer"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
     
     assignments = await db.site_engineer_assignments.find({
         "user_id": user.user_id,
@@ -4672,6 +4672,15 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
     for a in assignments:
         project = await db.projects.find_one({"project_id": a["project_id"]}, {"_id": 0})
         if project:
+            # IMPORTANT: Remove financial details - Site Engineers cannot see client payments
+            project.pop("total_value", None)
+            project.pop("advance_amount", None)
+            project.pop("income_project", None)
+            project.pop("income_additional", None)
+            project.pop("agreement_value", None)
+            project.pop("received_amount", None)
+            project.pop("total_received", None)
+            
             # Get active orders count
             material_orders = await db.material_requests.count_documents({
                 "project_id": a["project_id"],
@@ -4683,7 +4692,16 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
                 "site_engineer_id": user.user_id,
                 "status": {"$nin": ["approved", "rejected"]}
             })
+            
+            # Get pending petty cash
+            petty_cash = await db.petty_cash.count_documents({
+                "project_id": a["project_id"],
+                "requested_by": user.user_id,
+                "status": {"$in": ["requested", "issued", "partially_spent"]}
+            })
+            
             project["active_orders"] = material_orders + labour_orders
+            project["active_petty_cash"] = petty_cash
             project["assignment_id"] = a["assignment_id"]
             projects.append(project)
     
@@ -4695,8 +4713,8 @@ async def get_site_engineer_project_detail(
     project_id: str,
     user: User = Depends(get_current_user)
 ):
-    """Get project detail for a site engineer"""
-    if user.role != UserRole.SITE_ENGINEER:
+    """Get project detail for a site engineer - LIMITED VIEW (no financial info)"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
     
     # Verify assignment
@@ -4713,10 +4731,14 @@ async def get_site_engineer_project_detail(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Remove financial details for site engineer
-    project.pop("agreement_value", None)
-    project.pop("received_amount", None)
-    project.pop("spent_amount", None)
+    # IMPORTANT: Remove ALL financial details - Site Engineers cannot see client payments/project value
+    financial_fields = [
+        "total_value", "advance_amount", "income_project", "income_additional",
+        "agreement_value", "received_amount", "total_received", "spent_amount",
+        "total_expense", "additional_cost", "scope_total"
+    ]
+    for field in financial_fields:
+        project.pop(field, None)
     
     # Get material requests
     material_requests = await db.material_requests.find({
@@ -4735,6 +4757,12 @@ async def get_site_engineer_project_detail(
         "project_id": project_id,
         "site_engineer_id": user.user_id
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get petty cash
+    petty_cash = await db.petty_cash.find({
+        "project_id": project_id,
+        "requested_by": user.user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(100)
     
     return {
         "project": project,
