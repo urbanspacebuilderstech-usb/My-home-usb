@@ -93,6 +93,9 @@ export default function ProjectDetail() {
   const [collectPaymentDialog, setCollectPaymentDialog] = useState(false);
   const [selectedStage, setSelectedStage] = useState(null);
   const [collectForm, setCollectForm] = useState({ amount_received: '', payment_mode: 'bank_transfer', payment_reference: '', remarks: '' });
+  
+  // Rough Estimate state
+  const [reProject, setReProject] = useState(null);
 
   useEffect(() => {
     fetchData();
