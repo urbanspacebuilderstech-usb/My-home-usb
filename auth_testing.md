@@ -29,11 +29,11 @@ print('User ID: ' + userId);
 
 ```bash
 # Test auth endpoint
-curl -X GET "https://acct-erp-os.preview.emergentagent.com/api/auth/me" \
+curl -X GET "https://lead-to-project-2.preview.emergentagent.com/api/auth/me" \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
 
 # Test projects endpoint
-curl -X GET "https://acct-erp-os.preview.emergentagent.com/api/projects" \
+curl -X GET "https://lead-to-project-2.preview.emergentagent.com/api/projects" \
   -H "Authorization: Bearer YOUR_SESSION_TOKEN"
 ```
 
@@ -50,7 +50,7 @@ await page.context().addCookies([{
     "secure": true,
     "sameSite": "None"
 }]);
-await page.goto("https://acct-erp-os.preview.emergentagent.com/dashboard");
+await page.goto("https://lead-to-project-2.preview.emergentagent.com/dashboard");
 ```
 
 ## Quick Debug

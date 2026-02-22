@@ -17,7 +17,7 @@ import os
 import time
 from datetime import datetime
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://acct-erp-os.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://lead-to-project-2.preview.emergentagent.com')
 
 # Test credentials
 PROCUREMENT_EMAIL = "procurement@constructionos.com"
