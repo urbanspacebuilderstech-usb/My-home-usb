@@ -8774,20 +8774,22 @@ async def convert_deal_to_project(
         "advance_payment_mode": data.payment_mode,
         "advance_payment_reference": data.payment_reference,
         "advance_received_at": now,
-        "advance_verified_by": user.user_id,
+        "advance_collected_by": user.user_id,
         "additional_cost": 0,
-        "income_project": data.advance_amount,
+        "income_project": data.advance_amount,  # Record advance as income
         "income_additional": 0,
         "total_expense": 0,
-        # Stage
+        # Stage - Not yet started construction
         "current_stage": "yet_to_start",
         "stage_history": [],
         "materials_locked": False,
         # Dates
         "start_date": now,
         "expected_completion": expected_completion,
-        # Status - Set to 'planning' so Planning can add BOQ
-        "status": "planning",
+        # Status - Set to 'pending_payment' for accountant verification
+        # Flow: pending_payment → payment_received → in_planning → drawing
+        "status": "pending_payment",
+        "accountant_verified": False,
         # Links
         "re_project_id": lead.get("re_project_id"),
         "lead_id": lead_id,
