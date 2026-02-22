@@ -478,8 +478,8 @@ export default function CRMPreSales() {
           ))}
         </div>
 
-        {/* Search & Filters */}
-        <div className="flex flex-wrap gap-3 mb-6">
+        {/* Search & Filters + View Toggle */}
+        <div className="flex flex-wrap gap-3 mb-6 items-center">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -512,9 +512,159 @@ export default function CRMPreSales() {
           >
             All Stages
           </Button>
+
+          {/* View Toggle */}
+          <div className="flex items-center border rounded-lg overflow-hidden bg-white ml-auto">
+            <Button
+              variant={viewMode === 'kanban' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('kanban')}
+              className="rounded-none px-3"
+              data-testid="kanban-view-btn"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              <span className="text-xs">Kanban</span>
+            </Button>
+            <Button
+              variant={viewMode === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('list')}
+              className="rounded-none px-3"
+              data-testid="list-view-btn"
+            >
+              <List className="h-4 w-4 mr-1" />
+              <span className="text-xs">List</span>
+            </Button>
+          </div>
         </div>
 
+        {/* List View */}
+        {viewMode === 'list' && (
+          <div className="bg-white rounded-lg border shadow-sm">
+            {/* Stage Tabs */}
+            <div className="border-b overflow-x-auto">
+              <div className="flex">
+                <button
+                  className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                    activeStage === 'all' 
+                      ? 'border-indigo-500 text-indigo-600 bg-indigo-50' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                  onClick={() => setActiveStage('all')}
+                >
+                  All ({leads.length})
+                </button>
+                {stages.map(stage => (
+                  <button
+                    key={stage.stage_id}
+                    className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                      activeStage === stage.stage_id 
+                        ? 'border-indigo-500 text-indigo-600 bg-indigo-50' 
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }`}
+                    onClick={() => setActiveStage(stage.stage_id)}
+                    style={{ borderBottomColor: activeStage === stage.stage_id ? stage.color : undefined }}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }}></span>
+                      {stage.name}
+                      <span className="text-gray-400">({getLeadsByStage(stage.stage_id).length})</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* List Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Lead</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Contact</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Source</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Stage</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Created</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => (
+                    <tr 
+                      key={lead.lead_id} 
+                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => openLeadDetail(lead)}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-sm font-semibold flex-shrink-0">
+                            {lead.name?.charAt(0)?.toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 text-sm">{lead.name}</p>
+                            {lead.city && <p className="text-xs text-gray-500">{lead.city}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="space-y-1">
+                          {lead.phone && (
+                            <p className="text-xs text-gray-600 flex items-center gap-1">
+                              <Phone className="h-3 w-3" /> {lead.phone}
+                            </p>
+                          )}
+                          {lead.email && (
+                            <p className="text-xs text-gray-500 flex items-center gap-1">
+                              <Mail className="h-3 w-3" /> {lead.email}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge className={`text-xs ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                          {lead.source?.replace('_', ' ')}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge 
+                          variant="outline" 
+                          className="text-xs"
+                          style={{ borderColor: stages.find(s => s.stage_id === lead.current_stage_id)?.color }}
+                        >
+                          {getStageName(lead.current_stage_id)}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-gray-500">
+                          {new Date(lead.created_at).toLocaleDateString()}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).length === 0 && (
+                    <tr>
+                      <td colSpan="6" className="px-4 py-12 text-center text-gray-500">
+                        No leads found
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Kanban Board */}
+        {viewMode === 'kanban' && (
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-max">
             {stages.map(stage => (
