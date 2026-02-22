@@ -26,7 +26,8 @@ import {
   Users, Target, TrendingUp, UserPlus, Settings, RefreshCw,
   Zap, BarChart3, ArrowRight, Phone, Mail, Clock, CheckCircle,
   User, ChevronRight, Filter, Search, Layers, Edit2, Eye, X,
-  Calendar, FileText, Building2, MapPin, ChevronDown, ArrowUpRight
+  Calendar, FileText, Building2, MapPin, ChevronDown, ArrowUpRight,
+  FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 
