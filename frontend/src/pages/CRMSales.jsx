@@ -654,12 +654,24 @@ export default function CRMSales() {
 
       {/* RE Project Dialog */}
       <Dialog open={reProjectDialog} onOpenChange={setReProjectDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calculator className="h-5 w-5 text-purple-600" />
-              Rough Estimate Project
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="h-5 w-5 text-purple-600" />
+                Rough Estimate Project
+              </div>
+              <Button 
+                onClick={generateREPDF} 
+                className="bg-purple-600 hover:bg-purple-700"
+                size="sm"
+              >
+                <Download className="h-4 w-4 mr-1" /> Download PDF
+              </Button>
             </DialogTitle>
+            <DialogDescription>
+              URBAN SPACE BUILDERS - Rough Estimate Details
+            </DialogDescription>
           </DialogHeader>
           
           {selectedREProject && (
@@ -672,6 +684,7 @@ export default function CRMSales() {
                     {RE_STATUS_CONFIG[selectedREProject.status].label}
                   </Badge>
                 )}
+                <span className="text-xs text-gray-400">Ref: {selectedREProject.re_project_id}</span>
               </div>
               
               {/* Client Info */}
@@ -703,7 +716,7 @@ export default function CRMSales() {
               <Card>
                 <CardContent className="p-4">
                   <h4 className="font-semibold mb-2">Project Details</h4>
-                  <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div className="grid grid-cols-4 gap-3 text-sm">
                     <div>
                       <span className="text-gray-500">Project Name:</span>
                       <p className="font-medium">{selectedREProject.project_name || '-'}</p>
@@ -716,7 +729,74 @@ export default function CRMSales() {
                       <span className="text-gray-500">Building Type:</span>
                       <p className="capitalize">{selectedREProject.building_type || '-'}</p>
                     </div>
+                    <div>
+                      <span className="text-gray-500">Handover:</span>
+                      <p>{selectedREProject.handover_months ? `${selectedREProject.handover_months} months` : '-'}</p>
+                    </div>
                   </div>
+                </CardContent>
+              </Card>
+              
+              {/* Full Scope of Works */}
+              <Card className="border-purple-200">
+                <CardContent className="p-4">
+                  <h4 className="font-semibold mb-3 text-purple-800">Scope of Works</h4>
+                  {selectedREProject.rough_scope_items?.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-gray-100 border-b">
+                            <th className="text-left p-2 font-semibold">S.No</th>
+                            <th className="text-left p-2 font-semibold">Description</th>
+                            <th className="text-center p-2 font-semibold">Qty</th>
+                            <th className="text-center p-2 font-semibold">Unit</th>
+                            <th className="text-right p-2 font-semibold">Rate</th>
+                            <th className="text-right p-2 font-semibold">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedREProject.rough_scope_items.map((item, idx) => (
+                            <tr key={idx} className="border-b hover:bg-gray-50">
+                              <td className="p-2 text-center">{idx + 1}</td>
+                              <td className="p-2">{item.description || '-'}</td>
+                              <td className="p-2 text-center">{item.quantity || '-'}</td>
+                              <td className="p-2 text-center">{item.unit || '-'}</td>
+                              <td className="p-2 text-right">{formatCurrency(item.rate || 0)}</td>
+                              <td className="p-2 text-right font-medium">{formatCurrency(item.total || 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-purple-50">
+                            <td colSpan={5} className="p-2 text-right font-bold text-purple-800">Total:</td>
+                            <td className="p-2 text-right font-bold text-purple-900 text-lg">
+                              {formatCurrency(selectedREProject.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0))}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-gray-500">
+                      <FileText className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                      No scope items added yet
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              
+              {/* Estimated Total Summary */}
+              <Card className="bg-gradient-to-r from-purple-600 to-purple-700">
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-purple-100">Estimated Total</p>
+                  <p className="text-3xl font-bold text-white">
+                    {formatCurrency(selectedREProject.estimated_total || selectedREProject.rough_scope_items?.reduce((sum, item) => sum + (item.total || 0), 0) || 0)}
+                  </p>
+                  {selectedREProject.handover_months && (
+                    <p className="text-sm text-purple-200 mt-1">
+                      Project Duration: {selectedREProject.handover_months} months
+                    </p>
+                  )}
                 </CardContent>
               </Card>
               
