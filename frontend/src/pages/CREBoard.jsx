@@ -344,6 +344,16 @@ export default function CREBoard() {
     }
   };
 
+  const handleMoveToDrawing = async (projectId) => {
+    try {
+      await axios.patch(`${API}/cre/projects/${projectId}/move-to-drawing`);
+      toast.success('Project moved to Drawing Stage');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to move to Drawing');
+    }
+  };
+
   const resetForm = () => {
     setForm({
       name: '',
