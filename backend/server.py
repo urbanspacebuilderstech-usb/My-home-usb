@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 class UserRole(str, Enum):
     SUPER_ADMIN = "super_admin"
     GENERAL_MANAGER = "general_manager"
-    CRO = "cro"  # Client Relationship Officer
+    CRE = "cre"  # Client Relationship Officer
     ACCOUNTANT = "accountant"
     PROJECT_MANAGER = "project_manager"
     PLANNING = "planning"
@@ -52,9 +52,9 @@ class UserRole(str, Enum):
 
 
 class ProjectStatus(str, Enum):
-    DRAFT = "draft"  # CRO created, not yet submitted
-    PENDING_PAYMENT = "pending_payment"  # CRO submitted, waiting Accountant verification
-    PAYMENT_VERIFIED = "payment_verified"  # Accountant verified payment, CRO can submit to Planning
+    DRAFT = "draft"  # CRE created, not yet submitted
+    PENDING_PAYMENT = "pending_payment"  # CRE submitted, waiting Accountant verification
+    PAYMENT_VERIFIED = "payment_verified"  # Accountant verified payment, CRE can submit to Planning
     PLANNING_REVIEW = "planning_review"  # Submitted to Planning
     AWAITING_APPROVAL = "awaiting_approval"  # Planning submitted for GM/Admin approval
     GM_APPROVED = "gm_approved"  # GM approved, waiting Super Admin
@@ -444,7 +444,7 @@ class Project(BaseModel):
     location: str
     latitude: Optional[float] = None
     longitude: Optional[float] = None
-    # New CRO fields
+    # New CRE fields
     sqft: float = 0  # Square footage
     building_type: str = "residential"  # residential, commercial, villa, apartment
     package_id: Optional[str] = None  # Selected package
@@ -470,7 +470,7 @@ class Project(BaseModel):
     expected_completion: datetime
     status: ProjectStatus = ProjectStatus.DRAFT
     # Workflow tracking
-    created_by: Optional[str] = None  # CRO user_id
+    created_by: Optional[str] = None  # CRE user_id
     planning_modified_by: Optional[str] = None
     planning_submitted_at: Optional[datetime] = None
     gm_approved_by: Optional[str] = None
@@ -687,7 +687,7 @@ class PaymentStage(BaseModel):
     payment_mode: Optional[str] = None  # cash, cheque, bank_transfer, upi
     payment_reference: Optional[str] = None  # Transaction ID / Cheque No
     payment_date: Optional[datetime] = None  # When payment was collected
-    collected_by: Optional[str] = None  # CRO who collected
+    collected_by: Optional[str] = None  # CRE who collected
     collected_by_name: Optional[str] = None
     # Approval tracking
     verified_by: Optional[str] = None
@@ -2795,7 +2795,7 @@ async def get_projects_for_filter(user: User = Depends(get_current_user)):
 @api_router.post("/projects/{project_id}/link-client")
 async def link_client_to_project(project_id: str, client_user_id: str, user: User = Depends(get_current_user)):
     """Link a client user to a project for portal access"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRO]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Verify client exists
@@ -3169,7 +3169,7 @@ class PaymentStageUpdate(BaseModel):
 
 
 class PaymentCollectionInput(BaseModel):
-    """Input for CRO to collect a payment"""
+    """Input for CRE to collect a payment"""
     amount_received: float
     payment_mode: str  # cash, cheque, bank_transfer, upi
     payment_reference: Optional[str] = None
@@ -3328,7 +3328,7 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
 
 @api_router.patch("/payment-stages/{stage_id}/request")
 async def request_payment(stage_id: str, user: User = Depends(get_current_user)):
-    """Planning/PM requests payment from CRO - updates workflow_status to 'requested'"""
+    """Planning/PM requests payment from CRE - updates workflow_status to 'requested'"""
     if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can request payments")
     
@@ -3349,12 +3349,12 @@ async def request_payment(stage_id: str, user: User = Depends(get_current_user))
         }}
     )
     
-    # Notify all CRO users about the payment request
-    cro_users = await db.users.find({"role": "cro"}, {"_id": 0, "user_id": 1}).to_list(10)
+    # Notify all CRE users about the payment request
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(10)
     balance = stage.get("amount", 0) - stage.get("amount_received", 0)
-    for cro in cro_users:
+    for cre in cre_users:
         await create_notification(
-            cro["user_id"],
+            cre["user_id"],
             f"Payment Request: ₹{balance:,.0f} for {project.get('name', 'Project')} - {stage.get('stage_name', 'Stage')}"
         )
     
@@ -3407,7 +3407,7 @@ async def generate_payment_schedule(project_id: str, user: User = Depends(get_cu
     
     await create_audit_log(user.user_id, "generate_schedule", "payment_schedule", project_id, {"stages": len(stages_created)})
     
-    # Notify CRO about new payment schedule
+    # Notify CRE about new payment schedule
     if project.get("created_by"):
         await create_notification(project["created_by"], f"Payment schedule created for {project.get('name')}. Start collecting payments.")
     
@@ -3441,11 +3441,11 @@ async def submit_payment_schedule(project_id: str, user: User = Depends(get_curr
     
     await create_audit_log(user.user_id, "submit_schedule", "payment_schedule", project_id, {"count": result.modified_count})
     
-    # Notify CRO users about new payment requests
-    cro_users = await db.users.find({"role": "cro"}, {"_id": 0, "user_id": 1, "name": 1}).to_list(50)
-    for cro in cro_users:
+    # Notify CRE users about new payment requests
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1, "name": 1}).to_list(50)
+    for cre in cre_users:
         await create_notification(
-            cro["user_id"], 
+            cre["user_id"], 
             f"Payment schedule submitted for {project.get('name')}. {result.modified_count} stages ready for collection."
         )
     
@@ -3454,9 +3454,9 @@ async def submit_payment_schedule(project_id: str, user: User = Depends(get_curr
 
 @api_router.post("/payment-stages/{stage_id}/collect")
 async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInput, user: User = Depends(get_current_user)):
-    """CRO collects payment for a stage"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can collect payments")
+    """CRE collects payment for a stage"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can collect payments")
     
     stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
     if not stage:
@@ -3593,8 +3593,8 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
 
 @api_router.get("/payment-schedule/due-payments")
 async def get_due_payments(user: User = Depends(get_current_user)):
-    """Get all payment stages that are due or overdue - for CRO dashboard"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+    """Get all payment stages that are due or overdue - for CRE dashboard"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     today = datetime.now(timezone.utc).isoformat()
@@ -8547,9 +8547,9 @@ async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_
     return {"message": "Labour contractor deleted"}
 
 
-# ==================== CRO BOARD ENDPOINTS ====================
+# ==================== CRE BOARD ENDPOINTS ====================
 
-class CROProjectCreateInput(BaseModel):
+class CREProjectCreateInput(BaseModel):
     name: str
     client_name: str
     client_phone: Optional[str] = None
@@ -8597,11 +8597,11 @@ async def generate_project_code():
 
 @api_router.get("/cro/dashboard")
 async def get_cro_dashboard(user: User = Depends(get_current_user)):
-    """Get CRO dashboard data"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    """Get CRE dashboard data"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
     
-    # CRO can see all projects (not filtered by created_by)
+    # CRE can see all projects (not filtered by created_by)
     # This allows them to manage projects created from CRM RE conversion
     base_query = {}
     draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
@@ -8672,8 +8672,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
 @api_router.get("/cro/payment-requests")
 async def get_cro_payment_requests(user: User = Depends(get_current_user)):
     """Get all payment stages that are requested for collection by CRO"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     # Get all payment stages with workflow_status = 'requested'
     pipeline = [
@@ -8717,10 +8717,10 @@ async def get_cro_payment_requests(user: User = Depends(get_current_user)):
 
 
 @api_router.post("/cro/projects")
-async def cro_create_project(project_input: CROProjectCreateInput, user: User = Depends(get_current_user)):
-    """CRO creates a new project with package selection"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can create projects")
+async def cro_create_project(project_input: CREProjectCreateInput, user: User = Depends(get_current_user)):
+    """CRE creates a new project with package selection"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can create projects")
     
     # Get package details
     package = await db.packages.find_one({"package_id": project_input.package_id, "is_active": True}, {"_id": 0})
@@ -8818,9 +8818,9 @@ async def cro_create_project(project_input: CROProjectCreateInput, user: User = 
 
 @api_router.patch("/cro/projects/{project_id}/submit")
 async def cro_submit_project(project_id: str, user: User = Depends(get_current_user)):
-    """CRO submits project for planning review"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can submit projects")
+    """CRE submits project for planning review"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can submit projects")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -8852,9 +8852,9 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
 
 @api_router.patch("/cro/projects/{project_id}/submit-to-planning")
 async def cro_submit_to_planning(project_id: str, user: User = Depends(get_current_user)):
-    """CRO submits project to Planning after payment verification"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can submit projects")
+    """CRE submits project to Planning after payment verification"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can submit projects")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -8881,9 +8881,9 @@ async def cro_submit_to_planning(project_id: str, user: User = Depends(get_curre
 
 @api_router.post("/cro/projects/{project_id}/add-payment-milestone")
 async def add_payment_milestone(project_id: str, milestone: dict, user: User = Depends(get_current_user)):
-    """CRO adds a payment milestone to collect from client"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can add payment milestones")
+    """CRE adds a payment milestone to collect from client"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can add payment milestones")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -8909,9 +8909,9 @@ async def add_payment_milestone(project_id: str, milestone: dict, user: User = D
 
 @api_router.patch("/cro/projects/{project_id}/notify-client/{milestone_id}")
 async def notify_client_for_payment(project_id: str, milestone_id: str, user: User = Depends(get_current_user)):
-    """CRO notifies client about pending payment"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can notify clients")
+    """CRE notifies client about pending payment"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can notify clients")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -8940,9 +8940,9 @@ async def notify_client_for_payment(project_id: str, milestone_id: str, user: Us
 
 @api_router.patch("/cro/projects/{project_id}/collect-payment/{milestone_id}")
 async def collect_payment(project_id: str, milestone_id: str, payment_details: dict, user: User = Depends(get_current_user)):
-    """CRO records payment collected from client"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can collect payments")
+    """CRE records payment collected from client"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can collect payments")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -8978,11 +8978,11 @@ async def get_all_cro_projects(
     user: User = Depends(get_current_user)
 ):
     """Get all projects with filters for CRO"""
-    if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRO can access this")
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     query = {}
-    if user.role == UserRole.CRO:
+    if user.role == UserRole.CRE:
         query["created_by"] = user.user_id
     
     if status:
@@ -9100,7 +9100,7 @@ async def planning_submit_for_approval(project_id: str, user: User = Depends(get
 
 @api_router.get("/planning/stage-dashboard")
 async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
-    """Get planning dashboard with project stages - Tab view like CRO Board"""
+    """Get planning dashboard with project stages - Tab view like CRE Board"""
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
@@ -12349,7 +12349,7 @@ async def get_default_custom_fields():
 @api_router.get("/crm/pre-sales/dashboard")
 async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     """Get Pre-Sales dashboard with stage counts"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     stages = await get_default_pre_sales_stages()
@@ -12398,7 +12398,7 @@ async def get_pre_sales_leads(
     user: User = Depends(get_current_user)
 ):
     """Get Pre-Sales leads with filters"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     query = {"stage_type": "pre_sales"}
@@ -12445,7 +12445,7 @@ class LeadCreate(BaseModel):
 @api_router.post("/crm/pre-sales/leads")
 async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_current_user)):
     """Create a new Pre-Sales lead"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     # Get default first stage
@@ -12498,9 +12498,9 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Check role based on stage type
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Get the target stage
@@ -12696,7 +12696,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                 result["project_id"] = main_project["project_id"]
                 result["project_code"] = project_code
                 
-                # Notify CRO and Planning
+                # Notify CRE and Planning
                 for target in ["all_cro", "all_planning"]:
                     notification = {
                         "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
@@ -12744,9 +12744,9 @@ async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     return lead
@@ -12760,9 +12760,9 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
@@ -12781,9 +12781,9 @@ async def add_lead_remark(lead_id: str, data: LeadRemarkInput, user: User = Depe
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Get user name for display
@@ -12818,9 +12818,9 @@ async def schedule_follow_up(lead_id: str, data: LeadFollowUpInput, user: User =
         raise HTTPException(status_code=404, detail="Lead not found")
     
     # Role-based access check
-    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
-    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     follow_up = {
@@ -12874,7 +12874,7 @@ async def complete_follow_up(lead_id: str, follow_up_id: str, user: User = Depen
 @api_router.get("/crm/sales/dashboard")
 async def get_sales_dashboard(user: User = Depends(get_current_user)):
     """Get Sales dashboard with stage counts"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     stages = await get_default_sales_stages()
@@ -12922,7 +12922,7 @@ async def get_sales_leads(
     user: User = Depends(get_current_user)
 ):
     """Get Sales leads with filters"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
     query = {"stage_type": "sales"}
@@ -12975,7 +12975,7 @@ class StageCreate(BaseModel):
 @api_router.post("/crm/stages")
 async def create_stage(data: StageCreate, user: User = Depends(get_current_user)):
     """Create a new lead stage"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales", "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Get max order for this stage type
@@ -13009,7 +13009,7 @@ class StageUpdate(BaseModel):
 @api_router.patch("/crm/stages/{stage_id}")
 async def update_stage(stage_id: str, data: StageUpdate, user: User = Depends(get_current_user)):
     """Update a lead stage"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     update = {"updated_at": datetime.now(timezone.utc)}
@@ -13071,7 +13071,7 @@ class CustomFieldCreate(BaseModel):
 @api_router.post("/crm/custom-fields")
 async def create_custom_field(data: CustomFieldCreate, user: User = Depends(get_current_user)):
     """Create a new custom field"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Check for duplicate name
@@ -13110,7 +13110,7 @@ async def create_custom_field(data: CustomFieldCreate, user: User = Depends(get_
 @api_router.patch("/crm/custom-fields/{field_id}")
 async def update_custom_field(field_id: str, data: CustomFieldCreate, user: User = Depends(get_current_user)):
     """Update a custom field"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     update = {
@@ -13166,7 +13166,7 @@ class CSVImportData(BaseModel):
 @api_router.post("/crm/import/csv")
 async def import_csv_leads(data: CSVImportData, user: User = Depends(get_current_user)):
     """Import leads from CSV data"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Get first stage
@@ -13237,7 +13237,7 @@ async def get_re_projects(
     user: User = Depends(get_current_user)
 ):
     """Get all RE projects"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.CRO, "sales"]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     query = {}
