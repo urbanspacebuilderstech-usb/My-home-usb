@@ -643,6 +643,89 @@ Build a Construction Accounting CRM with:
 
 ---
 
+#### ✅ CRM Lead Management System (February 22, 2026) - NEW
+- [x] **CRM Module A - Pre-Sales** (`/crm-pre-sales`):
+  - Kanban board with drag-and-drop between stages
+  - Default stages: New Lead, Contacted, Proposal, Follow-up, Appointment Booked
+  - Custom stage creation (name, color)
+  - Lead cards showing name, phone, email, source badge
+  - Source filtering (Meta, SEO, Referral, Walk-in, Website, Other)
+  - Search by name, email, phone
+  - Create lead with custom fields support
+  - Lead details dialog with stage change buttons
+  - **Auto-transfer to Sales** when moved to "Appointment Booked" (final stage)
+
+- [x] **CRM Module B - Sales** (`/crm-sales`):
+  - Kanban board with sales-specific stages
+  - Default stages: New Appointment, Discussion, Site Visit, Rough Estimate Requested, Rough Estimate Shared, Negotiation, Deal Closed, Lost
+  - RE Stats cards (Requested, In Progress, Approved, Converted)
+  - Leads from Pre-Sales automatically appear
+  - **RE Project trigger**: Moving to "Rough Estimate Requested" creates RE Project
+  - **Main Project conversion**: Moving to "Deal Closed" converts approved RE Project to Main Project
+  - RE Project badge on leads with linked estimates
+
+- [x] **RE Project Module** (`/crm/re-projects`):
+  - Planning Department dashboard for rough estimates
+  - Status cards: New Requests, In Progress, Submitted, Approved, Rejected
+  - **Planning Workflow**:
+    - View new RE requests from Sales
+    - Edit project details (name, location, sqft, building type)
+    - Add rough scope items with quantity, unit, rate
+    - Enter estimated costs (Material, Labour, Overhead)
+    - Auto-calculate total estimate
+    - Submit for GM approval
+  - **GM Approval**:
+    - Review submitted estimates
+    - Approve or Reject with reason
+    - Approval updates Sales lead stage to "Rough Estimate Shared"
+    - Rejection notifies Planning for revision
+
+- [x] **Custom Fields Builder** (`/crm/custom-fields`):
+  - No-code field configuration panel
+  - Supported field types:
+    - Text, Number, Textarea
+    - Dropdown, Multi-Select
+    - Checkbox, Date
+    - Email, Phone, URL
+    - Address, GPS Location
+  - Field properties: Name, Label, Required, Placeholder, Options
+  - Conditional field visibility (show when another field has specific value)
+  - Drag-reorder fields
+
+- [x] **CSV Import** (`/crm/import-csv`):
+  - 4-step import wizard (Upload → Map → Preview → Result)
+  - Download CSV template
+  - Auto-detect and map columns
+  - Preview imported data before commit
+  - Error handling with row-level error report
+  - Lead source selection for imports
+
+- [x] **New User Roles**:
+  - Pre-Sales (CRM A access)
+  - Sales (CRM B access)
+  - Demo users: presales@constructionos.com, sales@constructionos.com
+
+- [x] **Backend Endpoints**:
+  - CRM Pre-Sales: `GET /api/crm/pre-sales/dashboard`, `GET/POST /api/crm/pre-sales/leads`
+  - CRM Sales: `GET /api/crm/sales/dashboard`, `GET /api/crm/sales/leads`
+  - Lead Stage: `PATCH /api/crm/leads/{id}/stage` (with auto-triggers)
+  - Stages: `GET/POST/PATCH/DELETE /api/crm/stages`
+  - Custom Fields: `GET/POST/PATCH/DELETE /api/crm/custom-fields`
+  - RE Projects: `GET/PATCH /api/crm/re-projects`, `POST .../submit-for-approval`, `PATCH .../approve`
+  - Planning: `GET /api/crm/planning/re-dashboard`
+  - Import: `GET /api/crm/import/template`, `POST /api/crm/import/csv`
+
+- [x] **Workflow Automation**:
+  - Pre-Sales → "Appointment Booked" → Auto-transfer to Sales CRM
+  - Sales → "Rough Estimate Requested" → Auto-create RE Project → Notify Planning
+  - Planning → Submit for approval → Notify GM
+  - GM → Approve → Update Sales lead → Notify Sales
+  - Sales → "Deal Closed" (with approved RE) → Convert RE to Main Project → Notify CRO
+
+- [x] **Testing**: 18/19 backend tests passed (95%), 100% frontend success
+
+---
+
 ## Pending/Backlog Tasks
 
 ### P1 - Code Refactoring (HIGH PRIORITY)
