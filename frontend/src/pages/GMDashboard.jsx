@@ -1007,9 +1007,10 @@ const GMDashboard = () => {
         open={approvalDialog} 
         onOpenChange={(open) => {
           if (!open) {
-            const currentTab = activeTab;
             setApprovalDialog(false);
-            requestAnimationFrame(() => setActiveTab(currentTab));
+            setTimeout(() => {
+              setActiveTab(lastActiveTabRef.current);
+            }, 50);
           } else {
             setApprovalDialog(true);
           }
