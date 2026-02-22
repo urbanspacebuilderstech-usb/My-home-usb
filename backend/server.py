@@ -12220,16 +12220,12 @@ class REProject(BaseModel):
     location: Optional[str] = None
     sqft: Optional[float] = None
     building_type: Optional[str] = None
+    handover_months: Optional[int] = None  # Project handover time in months
     
     # Rough Scope
     rough_scope_items: List[Dict[str, Any]] = []  # [{name, quantity, unit, rate, total}]
-    rough_materials: List[Dict[str, Any]] = []  # [{material, qty, estimated_rate}]
-    rough_labour: List[Dict[str, Any]] = []  # [{type, workers, days, rate, total}]
     
-    # Estimated Value
-    estimated_material_cost: float = 0
-    estimated_labour_cost: float = 0
-    estimated_overhead: float = 0
+    # Estimated Value (calculated from scope items)
     estimated_total: float = 0
     
     # Status & Workflow
