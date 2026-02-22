@@ -318,11 +318,11 @@ export default function Projects() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Received</p>
-                        <p className="text-sm font-semibold text-green-600">₹0</p>
+                        <p className="text-sm font-semibold text-green-600">₹{((project.total_received || 0) / 100000).toFixed(2)}L</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Balance</p>
-                        <p className="text-sm font-semibold text-red-600">₹{(project.total_value / 100000).toFixed(2)}L</p>
+                        <p className="text-sm font-semibold text-red-600">₹{((project.balance || project.total_value) / 100000).toFixed(2)}L</p>
                       </div>
                     </div>
                   </div>
