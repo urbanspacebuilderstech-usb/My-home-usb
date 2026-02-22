@@ -12076,6 +12076,1202 @@ async def get_financial_control_dashboard(user: User = Depends(get_current_user)
 # ==================== END FINANCIAL CONTROL ENDPOINTS ====================
 
 
+# ==================== CRM MODULE ENUMS & MODELS ====================
+
+class LeadSource(str, Enum):
+    META = "meta"
+    SEO = "seo"
+    OTHER = "other"
+    REFERRAL = "referral"
+    WALK_IN = "walk_in"
+    WEBSITE = "website"
+    CSV_IMPORT = "csv_import"
+    GOOGLE_SHEETS = "google_sheets"
+
+
+class LeadStageType(str, Enum):
+    PRE_SALES = "pre_sales"
+    SALES = "sales"
+
+
+class CustomFieldType(str, Enum):
+    TEXT = "text"
+    NUMBER = "number"
+    DROPDOWN = "dropdown"
+    CHECKBOX = "checkbox"
+    MULTI_SELECT = "multi_select"
+    ADDRESS = "address"
+    LOCATION = "location"
+    DATE = "date"
+    EMAIL = "email"
+    PHONE = "phone"
+    TEXTAREA = "textarea"
+    URL = "url"
+
+
+class REProjectStatus(str, Enum):
+    RE_REQUESTED = "re_requested"
+    RE_IN_PROGRESS = "re_in_progress"
+    RE_SUBMITTED = "re_submitted"
+    RE_APPROVED = "re_approved"
+    RE_REJECTED = "re_rejected"
+    DEAL_CLOSED = "deal_closed"
+    CONVERTED = "converted"
+
+
+# Custom Field Definition
+class CustomFieldDefinition(BaseModel):
+    field_id: str = Field(default_factory=lambda: f"cf_{uuid.uuid4().hex[:8]}")
+    name: str
+    label: str
+    field_type: CustomFieldType
+    required: bool = False
+    options: List[str] = []  # For dropdown, multi_select
+    placeholder: Optional[str] = None
+    default_value: Optional[Any] = None
+    order: int = 0
+    is_conditional: bool = False
+    condition_field: Optional[str] = None  # Field ID that controls visibility
+    condition_value: Optional[Any] = None  # Value that triggers visibility
+
+
+# Lead Stage Definition (Customizable)
+class LeadStage(BaseModel):
+    stage_id: str = Field(default_factory=lambda: f"stg_{uuid.uuid4().hex[:8]}")
+    name: str
+    stage_type: LeadStageType  # pre_sales or sales
+    order: int = 0
+    color: str = "#6366f1"  # Default purple
+    is_final: bool = False  # True if this is the final stage (triggers transfer)
+    is_active: bool = True
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Lead Model for CRM A (Pre-Sales) and CRM B (Sales)
+class Lead(BaseModel):
+    lead_id: str = Field(default_factory=lambda: f"lead_{uuid.uuid4().hex[:12]}")
+    # Basic Fields
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    source: LeadSource = LeadSource.OTHER
+    source_detail: Optional[str] = None  # e.g., Sheet tab name, campaign name
+    
+    # Stage Info
+    current_stage_id: str
+    stage_type: LeadStageType = LeadStageType.PRE_SALES
+    stage_history: List[Dict[str, Any]] = []  # [{stage_id, moved_at, moved_by}]
+    
+    # Custom Fields Data
+    custom_fields: Dict[str, Any] = {}  # {field_id: value}
+    
+    # Address & Location
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    
+    # Transfer Info
+    transferred_from_lead_id: Optional[str] = None  # If transferred from CRM A
+    transferred_to_lead_id: Optional[str] = None  # If transferred to CRM B
+    transferred_at: Optional[datetime] = None
+    
+    # RE Project Link (for CRM B)
+    re_project_id: Optional[str] = None
+    
+    # Import Info
+    import_batch_id: Optional[str] = None  # For CSV/Sheets import tracking
+    google_sheet_row: Optional[int] = None  # Row number in Google Sheet
+    
+    # Metadata
+    assigned_to: Optional[str] = None
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_contacted: Optional[datetime] = None
+    notes: Optional[str] = None
+    tags: List[str] = []
+
+
+# Rough Estimate Project Model
+class REProject(BaseModel):
+    re_project_id: str = Field(default_factory=lambda: f"re_{uuid.uuid4().hex[:12]}")
+    lead_id: str  # Link to Sales lead
+    
+    # Client Info (copied from lead)
+    client_name: str
+    client_email: Optional[str] = None
+    client_phone: Optional[str] = None
+    
+    # Project Info
+    project_name: Optional[str] = None
+    location: Optional[str] = None
+    sqft: Optional[float] = None
+    building_type: Optional[str] = None
+    
+    # Rough Scope
+    rough_scope_items: List[Dict[str, Any]] = []  # [{name, quantity, unit, rate, total}]
+    rough_materials: List[Dict[str, Any]] = []  # [{material, qty, estimated_rate}]
+    rough_labour: List[Dict[str, Any]] = []  # [{type, workers, days, rate, total}]
+    
+    # Estimated Value
+    estimated_material_cost: float = 0
+    estimated_labour_cost: float = 0
+    estimated_overhead: float = 0
+    estimated_total: float = 0
+    
+    # Status & Workflow
+    status: REProjectStatus = REProjectStatus.RE_REQUESTED
+    
+    # Planning Department
+    planning_notes: Optional[str] = None
+    prepared_by: Optional[str] = None
+    prepared_at: Optional[datetime] = None
+    
+    # GM Approval
+    submitted_for_approval: bool = False
+    submitted_at: Optional[datetime] = None
+    gm_approved_by: Optional[str] = None
+    gm_approved_at: Optional[datetime] = None
+    gm_rejection_reason: Optional[str] = None
+    
+    # Conversion to Main Project
+    converted_project_id: Optional[str] = None
+    converted_at: Optional[datetime] = None
+    converted_by: Optional[str] = None
+    
+    # Metadata
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Google Sheets Integration Config
+class GoogleSheetsConfig(BaseModel):
+    config_id: str = Field(default_factory=lambda: f"gsc_{uuid.uuid4().hex[:8]}")
+    spreadsheet_id: str
+    spreadsheet_name: Optional[str] = None
+    tabs: List[Dict[str, Any]] = []  # [{tab_name, source_type, column_mapping}]
+    auto_sync: bool = True
+    sync_interval_minutes: int = 30
+    last_sync_at: Optional[datetime] = None
+    column_mapping: Dict[str, str] = {}  # {sheet_column: lead_field}
+    created_by: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Google OAuth Token Storage
+class GoogleOAuthToken(BaseModel):
+    token_id: str = Field(default_factory=lambda: f"gat_{uuid.uuid4().hex[:8]}")
+    user_id: str
+    access_token: str
+    refresh_token: Optional[str] = None
+    token_uri: str = "https://oauth2.googleapis.com/token"
+    client_id: str
+    client_secret: str
+    expires_at: datetime
+    scopes: List[str] = []
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ==================== CRM HELPER FUNCTIONS ====================
+
+async def get_default_pre_sales_stages():
+    """Get or create default Pre-Sales stages"""
+    stages = await db.lead_stages.find({"stage_type": "pre_sales"}, {"_id": 0}).sort("order", 1).to_list(100)
+    if not stages:
+        # Create default stages
+        default_stages = [
+            {"stage_id": "stg_new_lead", "name": "New Lead", "stage_type": "pre_sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_contacted", "name": "Contacted", "stage_type": "pre_sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_proposal", "name": "Proposal", "stage_type": "pre_sales", "order": 3, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 5, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
+        ]
+        for stage in default_stages:
+            stage["created_at"] = datetime.now(timezone.utc)
+            await db.lead_stages.insert_one(stage)
+        stages = default_stages
+    return stages
+
+
+async def get_default_sales_stages():
+    """Get or create default Sales stages"""
+    stages = await db.lead_stages.find({"stage_type": "sales"}, {"_id": 0}).sort("order", 1).to_list(100)
+    if not stages:
+        # Create default stages
+        default_stages = [
+            {"stage_id": "stg_new_appt", "name": "New Appointment", "stage_type": "sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_site_visit", "name": "Site Visit", "stage_type": "sales", "order": 3, "color": "#8b5cf6", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 6, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 7, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 8, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+        ]
+        for stage in default_stages:
+            stage["created_at"] = datetime.now(timezone.utc)
+            await db.lead_stages.insert_one(stage)
+        stages = default_stages
+    return stages
+
+
+async def get_default_custom_fields():
+    """Get or create default custom fields for leads"""
+    fields = await db.custom_fields.find({"is_active": True}, {"_id": 0}).sort("order", 1).to_list(100)
+    if not fields:
+        # Create default custom fields
+        default_fields = [
+            {"field_id": "cf_budget", "name": "budget", "label": "Budget Range", "field_type": "dropdown", "required": False, "options": ["Under 50L", "50L - 1Cr", "1Cr - 2Cr", "2Cr - 5Cr", "Above 5Cr"], "order": 1, "is_active": True, "created_by": "system"},
+            {"field_id": "cf_project_type", "name": "project_type", "label": "Project Type", "field_type": "dropdown", "required": False, "options": ["Residential", "Commercial", "Villa", "Apartment", "Office", "Industrial"], "order": 2, "is_active": True, "created_by": "system"},
+            {"field_id": "cf_sqft", "name": "sqft", "label": "Square Feet", "field_type": "number", "required": False, "order": 3, "is_active": True, "created_by": "system"},
+            {"field_id": "cf_timeline", "name": "timeline", "label": "Expected Timeline", "field_type": "dropdown", "required": False, "options": ["Immediate", "1-3 months", "3-6 months", "6-12 months", "1+ year"], "order": 4, "is_active": True, "created_by": "system"},
+            {"field_id": "cf_requirement", "name": "requirement", "label": "Requirements", "field_type": "textarea", "required": False, "order": 5, "is_active": True, "created_by": "system"},
+        ]
+        for field in default_fields:
+            field["created_at"] = datetime.now(timezone.utc)
+            await db.custom_fields.insert_one(field)
+        fields = default_fields
+    return fields
+
+
+# ==================== CRM A (PRE-SALES) ENDPOINTS ====================
+
+@api_router.get("/crm/pre-sales/dashboard")
+async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
+    """Get Pre-Sales dashboard with stage counts"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    stages = await get_default_pre_sales_stages()
+    
+    # Get lead counts per stage
+    pipeline = [
+        {"$match": {"stage_type": "pre_sales"}},
+        {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
+    ]
+    stage_counts = await db.leads.aggregate(pipeline).to_list(100)
+    count_map = {s["_id"]: s["count"] for s in stage_counts}
+    
+    # Get recent leads
+    recent_leads = await db.leads.find(
+        {"stage_type": "pre_sales"}, 
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    
+    # Get source breakdown
+    source_pipeline = [
+        {"$match": {"stage_type": "pre_sales"}},
+        {"$group": {"_id": "$source", "count": {"$sum": 1}}}
+    ]
+    source_counts = await db.leads.aggregate(source_pipeline).to_list(20)
+    
+    total_leads = await db.leads.count_documents({"stage_type": "pre_sales"})
+    
+    return {
+        "stages": [
+            {**stage, "lead_count": count_map.get(stage["stage_id"], 0)}
+            for stage in stages
+        ],
+        "total_leads": total_leads,
+        "recent_leads": recent_leads,
+        "source_breakdown": {s["_id"]: s["count"] for s in source_counts}
+    }
+
+
+@api_router.get("/crm/pre-sales/leads")
+async def get_pre_sales_leads(
+    stage_id: Optional[str] = None,
+    source: Optional[str] = None,
+    search: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get Pre-Sales leads with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    query = {"stage_type": "pre_sales"}
+    
+    if stage_id:
+        query["current_stage_id"] = stage_id
+    if source:
+        query["source"] = source
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}}
+        ]
+    if date_from:
+        query["created_at"] = {"$gte": datetime.fromisoformat(date_from.replace('Z', '+00:00'))}
+    if date_to:
+        if "created_at" in query:
+            query["created_at"]["$lte"] = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+        else:
+            query["created_at"] = {"$lte": datetime.fromisoformat(date_to.replace('Z', '+00:00'))}
+    
+    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return leads
+
+
+class LeadCreate(BaseModel):
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    source: LeadSource = LeadSource.OTHER
+    source_detail: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    custom_fields: Dict[str, Any] = {}
+    notes: Optional[str] = None
+    tags: List[str] = []
+
+
+@api_router.post("/crm/pre-sales/leads")
+async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_current_user)):
+    """Create a new Pre-Sales lead"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    # Get default first stage
+    stages = await get_default_pre_sales_stages()
+    first_stage = stages[0] if stages else {"stage_id": "stg_new_lead"}
+    
+    lead = Lead(
+        name=data.name,
+        email=data.email,
+        phone=data.phone,
+        source=data.source,
+        source_detail=data.source_detail,
+        current_stage_id=first_stage["stage_id"],
+        stage_type=LeadStageType.PRE_SALES,
+        stage_history=[{
+            "stage_id": first_stage["stage_id"],
+            "moved_at": datetime.now(timezone.utc).isoformat(),
+            "moved_by": user.user_id
+        }],
+        address=data.address,
+        city=data.city,
+        state=data.state,
+        pincode=data.pincode,
+        latitude=data.latitude,
+        longitude=data.longitude,
+        custom_fields=data.custom_fields,
+        notes=data.notes,
+        tags=data.tags,
+        created_by=user.user_id
+    )
+    
+    lead_dict = lead.model_dump()
+    await db.leads.insert_one(lead_dict)
+    
+    return {"message": "Lead created", "lead_id": lead.lead_id}
+
+
+class LeadStageUpdate(BaseModel):
+    stage_id: str
+
+
+@api_router.patch("/crm/leads/{lead_id}/stage")
+async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = Depends(get_current_user)):
+    """Move lead to a new stage (Kanban drag & drop)"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Check role based on stage type
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    # Get the target stage
+    stage = await db.lead_stages.find_one({"stage_id": data.stage_id}, {"_id": 0})
+    if not stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    old_stage_id = lead["current_stage_id"]
+    
+    # Update lead
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": data.stage_id,
+        "from_stage_id": old_stage_id,
+        "moved_at": datetime.now(timezone.utc).isoformat(),
+        "moved_by": user.user_id
+    })
+    
+    update = {
+        "current_stage_id": data.stage_id,
+        "stage_history": stage_history,
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": update})
+    
+    # Check for special stage triggers
+    result = {"message": "Lead stage updated", "new_stage": stage["name"]}
+    
+    # TRIGGER: Pre-Sales "Appointment Booked" -> Transfer to CRM B
+    if lead["stage_type"] == "pre_sales" and stage.get("is_final") and stage["name"] == "Appointment Booked":
+        # Auto-transfer to Sales
+        sales_stages = await get_default_sales_stages()
+        first_sales_stage = sales_stages[0] if sales_stages else {"stage_id": "stg_new_appt"}
+        
+        new_lead = Lead(
+            name=lead["name"],
+            email=lead.get("email"),
+            phone=lead.get("phone"),
+            source=lead["source"],
+            source_detail=lead.get("source_detail"),
+            current_stage_id=first_sales_stage["stage_id"],
+            stage_type=LeadStageType.SALES,
+            stage_history=[{
+                "stage_id": first_sales_stage["stage_id"],
+                "moved_at": datetime.now(timezone.utc).isoformat(),
+                "moved_by": user.user_id,
+                "action": "transferred_from_pre_sales"
+            }],
+            address=lead.get("address"),
+            city=lead.get("city"),
+            state=lead.get("state"),
+            pincode=lead.get("pincode"),
+            latitude=lead.get("latitude"),
+            longitude=lead.get("longitude"),
+            custom_fields=lead.get("custom_fields", {}),
+            transferred_from_lead_id=lead_id,
+            transferred_at=datetime.now(timezone.utc),
+            notes=lead.get("notes"),
+            tags=lead.get("tags", []),
+            created_by=user.user_id
+        )
+        
+        new_lead_dict = new_lead.model_dump()
+        await db.leads.insert_one(new_lead_dict)
+        
+        # Update original lead with transfer info
+        await db.leads.update_one(
+            {"lead_id": lead_id},
+            {"$set": {"transferred_to_lead_id": new_lead.lead_id, "transferred_at": datetime.now(timezone.utc)}}
+        )
+        
+        result["transferred_to_sales"] = True
+        result["new_lead_id"] = new_lead.lead_id
+        
+        # Notify Sales team
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": "all_sales",
+            "title": "New Sales Lead",
+            "message": f"Lead '{lead['name']}' transferred from Pre-Sales (Appointment Booked)",
+            "type": "lead_transfer",
+            "reference_id": new_lead.lead_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notification)
+    
+    # TRIGGER: Sales "Rough Estimate Requested" -> Create RE Project
+    if lead["stage_type"] == "sales" and stage["name"] == "Rough Estimate Requested":
+        # Create RE Project
+        re_project = REProject(
+            lead_id=lead_id,
+            client_name=lead["name"],
+            client_email=lead.get("email"),
+            client_phone=lead.get("phone"),
+            project_name=f"RE - {lead['name']}",
+            location=lead.get("address"),
+            sqft=lead.get("custom_fields", {}).get("sqft"),
+            building_type=lead.get("custom_fields", {}).get("project_type"),
+            status=REProjectStatus.RE_REQUESTED,
+            created_by=user.user_id
+        )
+        
+        re_dict = re_project.model_dump()
+        await db.re_projects.insert_one(re_dict)
+        
+        # Link RE project to lead
+        await db.leads.update_one({"lead_id": lead_id}, {"$set": {"re_project_id": re_project.re_project_id}})
+        
+        result["re_project_created"] = True
+        result["re_project_id"] = re_project.re_project_id
+        
+        # Notify Planning Department
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": "all_planning",
+            "title": "New Rough Estimate Request",
+            "message": f"Rough Estimate requested for lead '{lead['name']}'",
+            "type": "re_request",
+            "reference_id": re_project.re_project_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notification)
+    
+    # TRIGGER: Sales "Deal Closed" -> Convert RE Project to Main Project
+    if lead["stage_type"] == "sales" and stage["name"] == "Deal Closed":
+        re_project_id = lead.get("re_project_id")
+        if re_project_id:
+            re_project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+            if re_project and re_project.get("status") == "re_approved":
+                # Create main project from RE
+                project_code = f"USB{str(await db.projects.count_documents({}) + 1).zfill(2)}{datetime.now().strftime('%m%y')}"
+                
+                main_project = {
+                    "project_id": f"proj_{uuid.uuid4().hex[:12]}",
+                    "project_code": project_code,
+                    "name": re_project.get("project_name", f"Project - {lead['name']}"),
+                    "client_name": lead["name"],
+                    "client_email": lead.get("email"),
+                    "client_phone": lead.get("phone"),
+                    "location": re_project.get("location"),
+                    "sqft": re_project.get("sqft"),
+                    "building_type": re_project.get("building_type"),
+                    "status": "active",
+                    "initial_value": re_project.get("estimated_total", 0),
+                    "re_project_id": re_project_id,
+                    "lead_id": lead_id,
+                    "created_by": user.user_id,
+                    "created_at": datetime.now(timezone.utc)
+                }
+                
+                await db.projects.insert_one(main_project)
+                
+                # Update RE Project
+                await db.re_projects.update_one(
+                    {"re_project_id": re_project_id},
+                    {"$set": {
+                        "status": "converted",
+                        "converted_project_id": main_project["project_id"],
+                        "converted_at": datetime.now(timezone.utc),
+                        "converted_by": user.user_id
+                    }}
+                )
+                
+                result["project_created"] = True
+                result["project_id"] = main_project["project_id"]
+                
+                # Notify CRO
+                notification = {
+                    "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                    "user_id": "all_cro",
+                    "title": "New Project Created",
+                    "message": f"Deal closed! Project '{main_project['name']}' created from RE",
+                    "type": "project_created",
+                    "reference_id": main_project["project_id"],
+                    "is_read": False,
+                    "created_at": datetime.now(timezone.utc)
+                }
+                await db.notifications.insert_one(notification)
+    
+    return result
+
+
+# ==================== CRM B (SALES) ENDPOINTS ====================
+
+@api_router.get("/crm/sales/dashboard")
+async def get_sales_dashboard(user: User = Depends(get_current_user)):
+    """Get Sales dashboard with stage counts"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    stages = await get_default_sales_stages()
+    
+    # Get lead counts per stage
+    pipeline = [
+        {"$match": {"stage_type": "sales"}},
+        {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
+    ]
+    stage_counts = await db.leads.aggregate(pipeline).to_list(100)
+    count_map = {s["_id"]: s["count"] for s in stage_counts}
+    
+    # Get recent leads
+    recent_leads = await db.leads.find(
+        {"stage_type": "sales"}, 
+        {"_id": 0}
+    ).sort("created_at", -1).limit(10).to_list(10)
+    
+    total_leads = await db.leads.count_documents({"stage_type": "sales"})
+    
+    # Get RE project stats
+    re_stats = {
+        "requested": await db.re_projects.count_documents({"status": "re_requested"}),
+        "in_progress": await db.re_projects.count_documents({"status": "re_in_progress"}),
+        "approved": await db.re_projects.count_documents({"status": "re_approved"}),
+        "converted": await db.re_projects.count_documents({"status": "converted"})
+    }
+    
+    return {
+        "stages": [
+            {**stage, "lead_count": count_map.get(stage["stage_id"], 0)}
+            for stage in stages
+        ],
+        "total_leads": total_leads,
+        "recent_leads": recent_leads,
+        "re_stats": re_stats
+    }
+
+
+@api_router.get("/crm/sales/leads")
+async def get_sales_leads(
+    stage_id: Optional[str] = None,
+    search: Optional[str] = None,
+    has_re_project: Optional[bool] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get Sales leads with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    query = {"stage_type": "sales"}
+    
+    if stage_id:
+        query["current_stage_id"] = stage_id
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}}
+        ]
+    if has_re_project is not None:
+        if has_re_project:
+            query["re_project_id"] = {"$ne": None}
+        else:
+            query["re_project_id"] = None
+    
+    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return leads
+
+
+# ==================== LEAD STAGES MANAGEMENT ====================
+
+@api_router.get("/crm/stages")
+async def get_all_stages(stage_type: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get all lead stages"""
+    query = {"is_active": True}
+    if stage_type:
+        query["stage_type"] = stage_type
+    
+    stages = await db.lead_stages.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+    
+    # Initialize defaults if empty
+    if not stages or len(stages) == 0:
+        await get_default_pre_sales_stages()
+        await get_default_sales_stages()
+        stages = await db.lead_stages.find(query, {"_id": 0}).sort("order", 1).to_list(100)
+    
+    return stages
+
+
+class StageCreate(BaseModel):
+    name: str
+    stage_type: LeadStageType
+    color: str = "#6366f1"
+    order: Optional[int] = None
+
+
+@api_router.post("/crm/stages")
+async def create_stage(data: StageCreate, user: User = Depends(get_current_user)):
+    """Create a new lead stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales", "sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get max order for this stage type
+    max_order_stage = await db.lead_stages.find_one(
+        {"stage_type": data.stage_type.value},
+        sort=[("order", -1)]
+    )
+    next_order = (max_order_stage.get("order", 0) + 1) if max_order_stage else 1
+    
+    stage = LeadStage(
+        name=data.name,
+        stage_type=data.stage_type,
+        color=data.color,
+        order=data.order or next_order,
+        created_by=user.user_id
+    )
+    
+    stage_dict = stage.model_dump()
+    await db.lead_stages.insert_one(stage_dict)
+    
+    return {"message": "Stage created", "stage_id": stage.stage_id}
+
+
+class StageUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    order: Optional[int] = None
+    is_final: Optional[bool] = None
+
+
+@api_router.patch("/crm/stages/{stage_id}")
+async def update_stage(stage_id: str, data: StageUpdate, user: User = Depends(get_current_user)):
+    """Update a lead stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    update = {"updated_at": datetime.now(timezone.utc)}
+    if data.name is not None:
+        update["name"] = data.name
+    if data.color is not None:
+        update["color"] = data.color
+    if data.order is not None:
+        update["order"] = data.order
+    if data.is_final is not None:
+        update["is_final"] = data.is_final
+    
+    await db.lead_stages.update_one({"stage_id": stage_id}, {"$set": update})
+    return {"message": "Stage updated"}
+
+
+@api_router.delete("/crm/stages/{stage_id}")
+async def delete_stage(stage_id: str, user: User = Depends(get_current_user)):
+    """Delete a lead stage (soft delete)"""
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete stages")
+    
+    # Check if any leads are in this stage
+    leads_in_stage = await db.leads.count_documents({"current_stage_id": stage_id})
+    if leads_in_stage > 0:
+        raise HTTPException(status_code=400, detail=f"Cannot delete stage with {leads_in_stage} leads")
+    
+    await db.lead_stages.update_one({"stage_id": stage_id}, {"$set": {"is_active": False}})
+    return {"message": "Stage deleted"}
+
+
+# ==================== CUSTOM FIELDS MANAGEMENT ====================
+
+@api_router.get("/crm/custom-fields")
+async def get_custom_fields(user: User = Depends(get_current_user)):
+    """Get all custom fields"""
+    fields = await db.custom_fields.find({"is_active": True}, {"_id": 0}).sort("order", 1).to_list(100)
+    
+    if not fields:
+        fields = await get_default_custom_fields()
+    
+    return fields
+
+
+class CustomFieldCreate(BaseModel):
+    name: str
+    label: str
+    field_type: CustomFieldType
+    required: bool = False
+    options: List[str] = []
+    placeholder: Optional[str] = None
+    default_value: Optional[Any] = None
+    order: Optional[int] = None
+    is_conditional: bool = False
+    condition_field: Optional[str] = None
+    condition_value: Optional[Any] = None
+
+
+@api_router.post("/crm/custom-fields")
+async def create_custom_field(data: CustomFieldCreate, user: User = Depends(get_current_user)):
+    """Create a new custom field"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Check for duplicate name
+    existing = await db.custom_fields.find_one({"name": data.name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Field name already exists")
+    
+    # Get max order
+    max_order_field = await db.custom_fields.find_one(sort=[("order", -1)])
+    next_order = (max_order_field.get("order", 0) + 1) if max_order_field else 1
+    
+    field = CustomFieldDefinition(
+        name=data.name,
+        label=data.label,
+        field_type=data.field_type,
+        required=data.required,
+        options=data.options,
+        placeholder=data.placeholder,
+        default_value=data.default_value,
+        order=data.order or next_order,
+        is_conditional=data.is_conditional,
+        condition_field=data.condition_field,
+        condition_value=data.condition_value
+    )
+    
+    field_dict = field.model_dump()
+    field_dict["is_active"] = True
+    field_dict["created_by"] = user.user_id
+    field_dict["created_at"] = datetime.now(timezone.utc)
+    
+    await db.custom_fields.insert_one(field_dict)
+    
+    return {"message": "Custom field created", "field_id": field.field_id}
+
+
+@api_router.patch("/crm/custom-fields/{field_id}")
+async def update_custom_field(field_id: str, data: CustomFieldCreate, user: User = Depends(get_current_user)):
+    """Update a custom field"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    update = {
+        "label": data.label,
+        "field_type": data.field_type.value,
+        "required": data.required,
+        "options": data.options,
+        "placeholder": data.placeholder,
+        "default_value": data.default_value,
+        "is_conditional": data.is_conditional,
+        "condition_field": data.condition_field,
+        "condition_value": data.condition_value,
+        "updated_at": datetime.now(timezone.utc)
+    }
+    if data.order is not None:
+        update["order"] = data.order
+    
+    await db.custom_fields.update_one({"field_id": field_id}, {"$set": update})
+    return {"message": "Custom field updated"}
+
+
+@api_router.delete("/crm/custom-fields/{field_id}")
+async def delete_custom_field(field_id: str, user: User = Depends(get_current_user)):
+    """Delete a custom field (soft delete)"""
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete fields")
+    
+    await db.custom_fields.update_one({"field_id": field_id}, {"$set": {"is_active": False}})
+    return {"message": "Custom field deleted"}
+
+
+# ==================== CSV IMPORT ENDPOINTS ====================
+
+@api_router.get("/crm/import/template")
+async def get_import_template(user: User = Depends(get_current_user)):
+    """Get CSV import template columns"""
+    standard_columns = ["name", "email", "phone", "source", "address", "city", "state", "pincode", "notes"]
+    custom_fields = await db.custom_fields.find({"is_active": True}, {"_id": 0, "name": 1, "label": 1}).to_list(100)
+    
+    return {
+        "standard_columns": standard_columns,
+        "custom_field_columns": [f["name"] for f in custom_fields],
+        "source_options": [s.value for s in LeadSource]
+    }
+
+
+class CSVImportData(BaseModel):
+    leads: List[Dict[str, Any]]
+    column_mapping: Dict[str, str]  # {csv_column: lead_field}
+    source: LeadSource = LeadSource.CSV_IMPORT
+
+
+@api_router.post("/crm/import/csv")
+async def import_csv_leads(data: CSVImportData, user: User = Depends(get_current_user)):
+    """Import leads from CSV data"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get first stage
+    stages = await get_default_pre_sales_stages()
+    first_stage = stages[0] if stages else {"stage_id": "stg_new_lead"}
+    
+    import_batch_id = f"import_{uuid.uuid4().hex[:12]}"
+    imported_count = 0
+    errors = []
+    
+    for idx, row in enumerate(data.leads):
+        try:
+            # Map columns to lead fields
+            lead_data = {"custom_fields": {}}
+            for csv_col, lead_field in data.column_mapping.items():
+                value = row.get(csv_col)
+                if value:
+                    if lead_field.startswith("cf_") or lead_field in ["budget", "project_type", "sqft", "timeline", "requirement"]:
+                        lead_data["custom_fields"][lead_field] = value
+                    else:
+                        lead_data[lead_field] = value
+            
+            # Create lead
+            lead = Lead(
+                name=lead_data.get("name", f"Lead {idx + 1}"),
+                email=lead_data.get("email"),
+                phone=lead_data.get("phone"),
+                source=data.source,
+                source_detail="CSV Import",
+                current_stage_id=first_stage["stage_id"],
+                stage_type=LeadStageType.PRE_SALES,
+                stage_history=[{
+                    "stage_id": first_stage["stage_id"],
+                    "moved_at": datetime.now(timezone.utc).isoformat(),
+                    "moved_by": user.user_id,
+                    "action": "csv_import"
+                }],
+                address=lead_data.get("address"),
+                city=lead_data.get("city"),
+                state=lead_data.get("state"),
+                pincode=lead_data.get("pincode"),
+                custom_fields=lead_data.get("custom_fields", {}),
+                notes=lead_data.get("notes"),
+                import_batch_id=import_batch_id,
+                created_by=user.user_id
+            )
+            
+            await db.leads.insert_one(lead.model_dump())
+            imported_count += 1
+            
+        except Exception as e:
+            errors.append({"row": idx + 1, "error": str(e)})
+    
+    return {
+        "message": f"Imported {imported_count} leads",
+        "import_batch_id": import_batch_id,
+        "imported_count": imported_count,
+        "error_count": len(errors),
+        "errors": errors[:10]  # Return first 10 errors
+    }
+
+
+# ==================== RE PROJECT ENDPOINTS ====================
+
+@api_router.get("/crm/re-projects")
+async def get_re_projects(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all RE projects"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    projects = await db.re_projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return projects
+
+
+@api_router.get("/crm/re-projects/{re_project_id}")
+async def get_re_project(re_project_id: str, user: User = Depends(get_current_user)):
+    """Get RE project details"""
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    # Get linked lead
+    lead = await db.leads.find_one({"lead_id": project["lead_id"]}, {"_id": 0})
+    
+    return {**project, "lead": lead}
+
+
+class REProjectUpdate(BaseModel):
+    project_name: Optional[str] = None
+    location: Optional[str] = None
+    sqft: Optional[float] = None
+    building_type: Optional[str] = None
+    rough_scope_items: Optional[List[Dict[str, Any]]] = None
+    rough_materials: Optional[List[Dict[str, Any]]] = None
+    rough_labour: Optional[List[Dict[str, Any]]] = None
+    estimated_material_cost: Optional[float] = None
+    estimated_labour_cost: Optional[float] = None
+    estimated_overhead: Optional[float] = None
+    planning_notes: Optional[str] = None
+
+
+@api_router.patch("/crm/re-projects/{re_project_id}")
+async def update_re_project(re_project_id: str, data: REProjectUpdate, user: User = Depends(get_current_user)):
+    """Update RE project (Planning Department)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Planning access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    update = {"updated_at": datetime.now(timezone.utc)}
+    
+    if data.project_name is not None:
+        update["project_name"] = data.project_name
+    if data.location is not None:
+        update["location"] = data.location
+    if data.sqft is not None:
+        update["sqft"] = data.sqft
+    if data.building_type is not None:
+        update["building_type"] = data.building_type
+    if data.rough_scope_items is not None:
+        update["rough_scope_items"] = data.rough_scope_items
+    if data.rough_materials is not None:
+        update["rough_materials"] = data.rough_materials
+    if data.rough_labour is not None:
+        update["rough_labour"] = data.rough_labour
+    if data.estimated_material_cost is not None:
+        update["estimated_material_cost"] = data.estimated_material_cost
+    if data.estimated_labour_cost is not None:
+        update["estimated_labour_cost"] = data.estimated_labour_cost
+    if data.estimated_overhead is not None:
+        update["estimated_overhead"] = data.estimated_overhead
+    if data.planning_notes is not None:
+        update["planning_notes"] = data.planning_notes
+    
+    # Calculate total
+    material_cost = data.estimated_material_cost if data.estimated_material_cost is not None else project.get("estimated_material_cost", 0)
+    labour_cost = data.estimated_labour_cost if data.estimated_labour_cost is not None else project.get("estimated_labour_cost", 0)
+    overhead = data.estimated_overhead if data.estimated_overhead is not None else project.get("estimated_overhead", 0)
+    update["estimated_total"] = material_cost + labour_cost + overhead
+    
+    # Set status to in progress if it was requested
+    if project["status"] == "re_requested":
+        update["status"] = "re_in_progress"
+        update["prepared_by"] = user.user_id
+        update["prepared_at"] = datetime.now(timezone.utc)
+    
+    await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
+    
+    return {"message": "RE Project updated"}
+
+
+@api_router.post("/crm/re-projects/{re_project_id}/submit-for-approval")
+async def submit_re_for_approval(re_project_id: str, user: User = Depends(get_current_user)):
+    """Submit RE project for GM approval"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Planning access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    if project["status"] not in ["re_requested", "re_in_progress"]:
+        raise HTTPException(status_code=400, detail="Project not in valid state for submission")
+    
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "status": "re_submitted",
+            "submitted_for_approval": True,
+            "submitted_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Notify GM
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_gm",
+        "title": "RE Approval Required",
+        "message": f"Rough Estimate for '{project.get('project_name', project['client_name'])}' needs approval",
+        "type": "re_approval",
+        "reference_id": re_project_id,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notification)
+    
+    return {"message": "Submitted for GM approval"}
+
+
+class REApproval(BaseModel):
+    approved: bool
+    rejection_reason: Optional[str] = None
+
+
+@api_router.patch("/crm/re-projects/{re_project_id}/approve")
+async def approve_re_project(re_project_id: str, data: REApproval, user: User = Depends(get_current_user)):
+    """Approve or reject RE project (GM/Super Admin)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="GM or Super Admin access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    if project["status"] != "re_submitted":
+        raise HTTPException(status_code=400, detail="Project not in submitted state")
+    
+    if data.approved:
+        update = {
+            "status": "re_approved",
+            "gm_approved_by": user.user_id,
+            "gm_approved_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }
+        
+        # Update linked lead stage to "Rough Estimate Shared"
+        if project.get("lead_id"):
+            re_shared_stage = await db.lead_stages.find_one({"name": "Rough Estimate Shared", "stage_type": "sales"})
+            if re_shared_stage:
+                await db.leads.update_one(
+                    {"lead_id": project["lead_id"]},
+                    {"$set": {"current_stage_id": re_shared_stage["stage_id"], "updated_at": datetime.now(timezone.utc)}}
+                )
+        
+        # Notify Sales
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": "all_sales",
+            "title": "RE Approved",
+            "message": f"Rough Estimate for '{project.get('project_name', project['client_name'])}' has been approved",
+            "type": "re_approved",
+            "reference_id": re_project_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notification)
+    else:
+        update = {
+            "status": "re_rejected",
+            "gm_rejection_reason": data.rejection_reason,
+            "gm_approved_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }
+    
+    await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
+    
+    return {"message": "RE Project " + ("approved" if data.approved else "rejected")}
+
+
+# ==================== PLANNING RE DASHBOARD ====================
+
+@api_router.get("/crm/planning/re-dashboard")
+async def get_planning_re_dashboard(user: User = Depends(get_current_user)):
+    """Get Planning Department RE dashboard"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Planning access required")
+    
+    # Get RE project counts by status
+    pipeline = [
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+    ]
+    status_counts = await db.re_projects.aggregate(pipeline).to_list(20)
+    
+    # Get new RE requests (requested status)
+    new_requests = await db.re_projects.find(
+        {"status": "re_requested"},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    # Get in-progress RE projects
+    in_progress = await db.re_projects.find(
+        {"status": "re_in_progress"},
+        {"_id": 0}
+    ).sort("updated_at", -1).to_list(50)
+    
+    return {
+        "status_counts": {s["_id"]: s["count"] for s in status_counts},
+        "new_requests": new_requests,
+        "in_progress": in_progress,
+        "total_pending": len(new_requests) + len(in_progress)
+    }
+
+
+# ==================== END CRM MODULE ENDPOINTS ====================
+
+
 app.include_router(api_router)
 
 app.add_middleware(
