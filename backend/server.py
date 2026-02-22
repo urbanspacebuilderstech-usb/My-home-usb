@@ -9020,8 +9020,8 @@ async def get_planning_dashboard(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
-    # Count by status
-    new_projects = await db.projects.count_documents({"status": "planning_review"})
+    # Count by status - include 'planning' status (from CRM RE conversion)
+    new_projects = await db.projects.count_documents({"status": {"$in": ["planning_review", "planning"]}})
     awaiting_approval = await db.projects.count_documents({"status": "awaiting_approval"})
     working_projects = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active"]}})
     completed_projects = await db.projects.count_documents({"status": "completed"})
