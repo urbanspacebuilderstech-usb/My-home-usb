@@ -16,7 +16,7 @@ if env_path.exists():
                 key, value = line.strip().split('=', 1)
                 os.environ[key] = value
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://build-crm-os.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://cre-board.preview.emergentagent.com').rstrip('/')
 
 
 class TestSuperAdminAuth:

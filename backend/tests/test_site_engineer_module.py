@@ -13,7 +13,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://build-crm-os.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://cre-board.preview.emergentagent.com')
 
 # Test credentials from review request
 SUPER_ADMIN_EMAIL = "admin@constructionos.com"
