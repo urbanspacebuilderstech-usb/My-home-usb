@@ -1244,6 +1244,113 @@ export default function CRMPreSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ============ MANAGE FIELDS DIALOG ============ */}
+      <Dialog open={manageFieldsDialog} onOpenChange={setManageFieldsDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-indigo-600" />
+              Manage Custom Fields
+            </DialogTitle>
+            <DialogDescription>View and delete custom fields</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+            {customFields.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Settings className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                No custom fields created yet
+              </div>
+            ) : (
+              customFields.map(field => (
+                <div 
+                  key={field.field_id} 
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100"
+                >
+                  <div>
+                    <p className="font-medium text-gray-900">{field.label}</p>
+                    <p className="text-xs text-gray-500">Type: {field.field_type} • ID: {field.name}</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => openDeleteFieldDialog(field)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManageFieldsDialog(false)}>Close</Button>
+            <Button onClick={() => { setManageFieldsDialog(false); setAddFieldDialog(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Add Field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ DELETE FIELD CONFIRMATION DIALOG ============ */}
+      <Dialog open={deleteFieldDialog} onOpenChange={setDeleteFieldDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Delete Custom Field
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. All data in this field will be lost.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {fieldToDelete && (
+            <div className="space-y-4">
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="font-medium text-red-800">{fieldToDelete.label}</p>
+                <p className="text-xs text-red-600">Type: {fieldToDelete.field_type}</p>
+              </div>
+              
+              <div>
+                <Label className="text-gray-700">
+                  Type <span className="font-bold text-red-600">DELETE</span> to confirm
+                </Label>
+                <Input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE"
+                  className="mt-1"
+                  data-testid="delete-confirm-input"
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setDeleteFieldDialog(false);
+                setFieldToDelete(null);
+                setDeleteConfirmText('');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteField}
+              disabled={deleteConfirmText !== 'DELETE'}
+              data-testid="confirm-delete-btn"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Delete Field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
