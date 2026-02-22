@@ -179,9 +179,9 @@ export default function Dashboard() {
       return null;
     }
     
-    // General Manager gets redirected to Approvals
+    // General Manager gets redirected to GM Command Center
     if (user.role === 'general_manager') {
-      window.location.href = '/approvals';
+      window.location.href = '/gm-dashboard';
       return null;
     }
     
