@@ -199,7 +199,7 @@ export default function CRMPreSales() {
       lead.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.phone?.includes(searchQuery);
-    const matchesSource = !selectedSource || lead.source === selectedSource;
+    const matchesSource = !selectedSource || selectedSource === 'all' || lead.source === selectedSource;
     return matchesStage && matchesSearch && matchesSource;
   });
 
