@@ -450,14 +450,28 @@ export default function CREBoard() {
       case 'payment_verified':
         return (
           <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
-            <Send className="h-3 w-3" /> Send to Planning
+            <Send className="h-3 w-3" /> Planning Dept
           </Button>
         );
       case 'in_planning':
       case 'planning':
+      case 'planning_review':
         return (
           <Badge variant="outline" className="text-blue-600 border-blue-300">
-            <Clock className="h-3 w-3 mr-1" /> In Planning
+            <Clock className="h-3 w-3 mr-1" /> In Planning (Scopes & Payments)
+          </Badge>
+        );
+      case 'planning_approved':
+        return (
+          <Button size="sm" className="gap-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleMoveToDrawing(project.project_id)} data-testid={`move-drawing-btn-${project.project_id}`}>
+            <ArrowRight className="h-3 w-3" /> Move to Drawing
+          </Button>
+        );
+      case 'drawing':
+      case 'in_drawing':
+        return (
+          <Badge variant="outline" className="text-purple-600 border-purple-300">
+            <FileText className="h-3 w-3 mr-1" /> In Drawing Stage
           </Badge>
         );
       default:
