@@ -1399,6 +1399,69 @@ export default function CREBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* View Project Dialog */}
+      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-blue-600" />
+              Project Details
+            </DialogTitle>
+            <DialogDescription>
+              {selectedProject?.project_code}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedProject && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-lg mb-2">{selectedProject.name}</h4>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Client:</span>
+                    <p className="font-medium">{selectedProject.client_name}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Location:</span>
+                    <p>{selectedProject.location || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Package:</span>
+                    <p>{selectedProject.package_name || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Area:</span>
+                    <p>{selectedProject.sqft?.toLocaleString()} sqft</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Status:</span>
+                    <p>{getStatusBadge(selectedProject.status)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Value:</span>
+                    <p className="font-bold text-green-600">{formatCurrency(selectedProject.total_value)}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  className="flex-1"
+                  onClick={() => window.location.href = `/projects/${selectedProject.project_id}`}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  View Full Details
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
