@@ -48,11 +48,7 @@ export default function REProjectsPage() {
     sqft: '',
     building_type: '',
     rough_scope_items: [],
-    rough_materials: [],
-    rough_labour: [],
-    estimated_material_cost: '',
-    estimated_labour_cost: '',
-    estimated_overhead: '',
+    handover_months: '',
     planning_notes: ''
   });
   
