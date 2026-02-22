@@ -211,12 +211,17 @@ export default function CREBoard() {
     }
     
     try {
-      const result = await axios.post(`${API}/cre/convert-deal/${selectedDeal.lead_id}`, {
+      // Determine which endpoint to use based on deal type
+      const endpoint = selectedDeal.deal_type === 're_project' 
+        ? `${API}/cre/convert-re-project/${selectedDeal.re_project_id}`
+        : `${API}/cre/convert-deal/${selectedDeal.lead_id}`;
+      
+      const result = await axios.post(endpoint, {
         // Project details from form
-        project_name: form.name || selectedDeal.name,
-        client_name: form.client_name || selectedDeal.name,
-        client_phone: form.client_phone || selectedDeal.phone,
-        client_email: form.client_email || selectedDeal.email,
+        project_name: form.name || selectedDeal.project_name || selectedDeal.name,
+        client_name: form.client_name || selectedDeal.client_name || selectedDeal.name,
+        client_phone: form.client_phone || selectedDeal.client_phone || selectedDeal.phone,
+        client_email: form.client_email || selectedDeal.client_email || selectedDeal.email,
         location: form.location,
         sqft: form.sqft ? parseFloat(form.sqft) : null,
         building_type: form.building_type,
