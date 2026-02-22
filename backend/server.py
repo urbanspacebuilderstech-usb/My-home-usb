@@ -9558,8 +9558,8 @@ async def get_planning_projects(status: Optional[str] = None, user: User = Depen
     
     query = {}
     if status == "new":
-        # Include both planning_review and planning (from CRM RE conversion)
-        query["status"] = {"$in": ["planning_review", "planning"]}
+        # Include projects sent from CRE (in_planning) and from CRM RE conversion (planning_review, planning)
+        query["status"] = {"$in": ["in_planning", "planning_review", "planning"]}
     elif status == "awaiting":
         query["status"] = "awaiting_approval"
     elif status == "working":
