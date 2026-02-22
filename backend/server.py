@@ -14052,18 +14052,21 @@ async def get_all_leads_for_marketing(
     user: User = Depends(get_current_user),
     stage_type: Optional[str] = None,
     assigned_to: Optional[str] = None,
+    source: Optional[str] = None,
     skip: int = 0,
-    limit: int = 100
+    limit: int = 500
 ):
     """Get all leads with assignment info - Super Admin only"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     query = {}
-    if stage_type:
+    if stage_type and stage_type != 'all':
         query["stage_type"] = stage_type
-    if assigned_to:
+    if assigned_to and assigned_to != 'all':
         query["assigned_to"] = assigned_to
+    if source and source != 'all':
+        query["source"] = source
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     total = await db.leads.count_documents(query)
