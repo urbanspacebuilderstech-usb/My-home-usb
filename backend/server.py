@@ -5266,6 +5266,274 @@ async def get_labour_types(user: User = Depends(get_current_user)):
     ]
 
 
+# ==================== PETTY CASH MODULE ====================
+
+class PettyCashRequestCreate(BaseModel):
+    project_id: str
+    amount: float
+    purpose: str
+    remarks: Optional[str] = None
+
+class PettyCashExpenseCreate(BaseModel):
+    petty_cash_id: str
+    amount: float
+    expense_type: str  # transport, food, misc, tools, etc
+    description: str
+    date: str  # YYYY-MM-DD
+
+@api_router.post("/site-engineer/petty-cash/request")
+async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(get_current_user)):
+    """Site Engineer requests petty cash from Accountant"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can request petty cash")
+    
+    # Verify assignment to project
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    })
+    if not assignment:
+        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    
+    petty_cash = {
+        "petty_cash_id": f"pc_{secrets.token_hex(6)}",
+        "project_id": data.project_id,
+        "project_name": project["name"] if project else "Unknown",
+        "requested_by": user.user_id,
+        "requested_by_name": user.name,
+        "amount_requested": data.amount,
+        "amount_issued": 0,
+        "amount_spent": 0,
+        "amount_returned": 0,
+        "purpose": data.purpose,
+        "remarks": data.remarks,
+        "status": "requested",  # requested, issued, partially_spent, settled, rejected
+        "expenses": [],  # List of expense entries
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "week_start": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "week_end": (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    }
+    
+    await db.petty_cash.insert_one(petty_cash)
+    petty_cash.pop("_id", None)
+    
+    # Notify accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash request: ₹{data.amount} for {project['name'] if project else 'project'}")
+    
+    return petty_cash
+
+
+@api_router.get("/site-engineer/petty-cash")
+async def get_my_petty_cash(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get petty cash requests for Site Engineer"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        query["requested_by"] = user.user_id
+    if project_id:
+        query["project_id"] = project_id
+    
+    petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return petty_cash_list
+
+
+@api_router.post("/site-engineer/petty-cash/{petty_cash_id}/expense")
+async def add_petty_cash_expense(petty_cash_id: str, data: PettyCashExpenseCreate, user: User = Depends(get_current_user)):
+    """Site Engineer records petty cash expense"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can record petty cash expenses")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+    
+    if petty_cash["requested_by"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only add expenses to your own petty cash")
+    
+    if petty_cash["status"] not in ["issued", "partially_spent"]:
+        raise HTTPException(status_code=400, detail="Petty cash must be issued before recording expenses")
+    
+    expense = {
+        "expense_id": f"pce_{secrets.token_hex(6)}",
+        "amount": data.amount,
+        "expense_type": data.expense_type,
+        "description": data.description,
+        "date": data.date,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "recorded_by": user.user_id
+    }
+    
+    new_spent = petty_cash["amount_spent"] + data.amount
+    new_status = "partially_spent" if new_spent < petty_cash["amount_issued"] else "partially_spent"
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {
+            "$push": {"expenses": expense},
+            "$set": {"amount_spent": new_spent, "status": new_status}
+        }
+    )
+    
+    return {"message": "Expense recorded", "expense_id": expense["expense_id"], "total_spent": new_spent}
+
+
+@api_router.post("/site-engineer/petty-cash/{petty_cash_id}/submit")
+async def submit_petty_cash_for_settlement(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Site Engineer submits petty cash for accountant settlement"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can submit petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["requested_by"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only submit your own petty cash")
+    
+    amount_returned = petty_cash["amount_issued"] - petty_cash["amount_spent"]
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "pending_settlement",
+            "amount_returned": amount_returned,
+            "submitted_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash settlement: {petty_cash['project_name']} - ₹{petty_cash['amount_spent']} spent")
+    
+    return {"message": "Petty cash submitted for settlement", "amount_spent": petty_cash["amount_spent"], "amount_to_return": amount_returned}
+
+
+@api_router.get("/accountant/petty-cash")
+async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Accountant gets petty cash requests"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return petty_cash_list
+
+
+@api_router.patch("/accountant/petty-cash/{petty_cash_id}/issue")
+async def issue_petty_cash(petty_cash_id: str, amount: float, user: User = Depends(get_current_user)):
+    """Accountant issues petty cash"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can issue petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["status"] != "requested":
+        raise HTTPException(status_code=400, detail="Petty cash is not in requested status")
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "issued",
+            "amount_issued": amount,
+            "issued_by": user.user_id,
+            "issued_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash issued: ₹{amount}")
+    
+    return {"message": "Petty cash issued", "amount": amount}
+
+
+@api_router.patch("/accountant/petty-cash/{petty_cash_id}/settle")
+async def settle_petty_cash(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Accountant settles petty cash and moves to master expense"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can settle petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["status"] != "pending_settlement":
+        raise HTTPException(status_code=400, detail="Petty cash is not pending settlement")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Create master expense entries for each petty cash expense
+    for expense in petty_cash.get("expenses", []):
+        master_expense = {
+            "expense_id": f"exp_{secrets.token_hex(6)}",
+            "project_id": petty_cash["project_id"],
+            "expense_type": "petty_cash",
+            "sub_type": expense["expense_type"],
+            "description": expense["description"],
+            "amount": expense["amount"],
+            "expense_date": expense["date"],
+            "source_type": "petty_cash",
+            "source_id": petty_cash_id,
+            "recorded_by": petty_cash["requested_by"],
+            "verified_by": user.user_id,
+            "status": "approved",
+            "created_at": now.isoformat()
+        }
+        await db.expenses.insert_one(master_expense)
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "settled",
+            "settled_by": user.user_id,
+            "settled_at": now.isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash settled: {petty_cash['project_name']}")
+    
+    return {"message": "Petty cash settled and added to master expenses", "expenses_count": len(petty_cash.get("expenses", []))}
+
+
+@api_router.patch("/accountant/petty-cash/{petty_cash_id}/reject")
+async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects petty cash request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "rejected",
+            "rejected_by": user.user_id,
+            "rejected_reason": reason,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash rejected: {reason or 'No reason provided'}")
+    
+    return {"message": "Petty cash rejected"}
+
+
 # ==================== INCOME MODULE ENDPOINTS ====================
 
 class IncomeCreate(BaseModel):
