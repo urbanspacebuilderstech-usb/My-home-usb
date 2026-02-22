@@ -8676,8 +8676,12 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     # Find leads with stage "Deal Closed" that haven't been converted to projects yet
-    deal_closed_stage = await db.crm_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
+    # Try lead_stages first (new collection), then fall back to crm_stages
+    deal_closed_stage = await db.lead_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
     if not deal_closed_stage:
+        deal_closed_stage = await db.crm_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
+    if not deal_closed_stage:
+        # Return empty if no Deal Closed stage exists
         return []
     
     # Get leads in deal_closed stage that don't have a project yet
