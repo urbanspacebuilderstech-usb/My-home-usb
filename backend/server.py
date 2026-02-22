@@ -8906,7 +8906,7 @@ async def send_project_to_planning(project_id: str, user: User = Depends(get_cur
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    if project.get("status") != "payment_received":
+    if project.get("status") not in ["payment_received", "payment_verified"]:
         raise HTTPException(status_code=400, detail="Project must have payment verified before sending to planning")
     
     now = datetime.now(timezone.utc)
@@ -8920,6 +8920,32 @@ async def send_project_to_planning(project_id: str, user: User = Depends(get_cur
     )
     
     return {"message": "Project sent to Planning", "status": "in_planning"}
+
+
+@api_router.patch("/cre/projects/{project_id}/move-to-drawing")
+async def move_project_to_drawing(project_id: str, user: User = Depends(get_current_user)):
+    """Move project from Planning to Drawing stage after scopes and payments are set"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only CRE, Planning or Admin can move projects to drawing")
+    
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") not in ["planning_approved", "in_planning", "planning_review"]:
+        raise HTTPException(status_code=400, detail="Project must be approved by planning before moving to drawing")
+    
+    now = datetime.now(timezone.utc)
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "drawing",
+            "moved_to_drawing_by": user.user_id,
+            "moved_to_drawing_at": now.isoformat()
+        }}
+    )
+    
+    return {"message": "Project moved to Drawing Stage", "status": "drawing"}
 
 
 @api_router.get("/cre/payment-requests")
