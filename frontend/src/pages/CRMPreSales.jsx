@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -11,9 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import { 
-  Users, LogOut, Plus, Search, Filter, Upload, Download, Phone, Mail,
-  MapPin, Calendar, ArrowRight, RefreshCw, GripVertical, MoreVertical,
-  ChevronRight, Eye, Edit2, Trash2, Tag, Clock, User
+  Users, LogOut, Plus, Search, Upload, Phone, Mail, MapPin, Calendar, 
+  ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
+  FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -30,6 +30,17 @@ const SOURCE_COLORS = {
   google_sheets: 'bg-red-100 text-red-700'
 };
 
+const FIELD_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'dropdown', label: 'Dropdown' },
+  { value: 'textarea', label: 'Long Text' },
+  { value: 'date', label: 'Date' },
+  { value: 'email', label: 'Email' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'checkbox', label: 'Checkbox' },
+];
+
 export default function CRMPreSales() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,12 +54,13 @@ export default function CRMPreSales() {
   
   // Dialogs
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
-  const [viewLeadDialog, setViewLeadDialog] = useState(false);
+  const [leadDetailDialog, setLeadDetailDialog] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [createStageDialog, setCreateStageDialog] = useState(false);
   const [importDialog, setImportDialog] = useState(false);
+  const [addFieldDialog, setAddFieldDialog] = useState(false);
   
-  // Forms
+  // Lead Form
   const [leadForm, setLeadForm] = useState({
     name: '',
     email: '',
@@ -62,10 +74,24 @@ export default function CRMPreSales() {
     custom_fields: {}
   });
   
-  const [stageForm, setStageForm] = useState({
+  // New Field Form (Notion-style inline)
+  const [newFieldForm, setNewFieldForm] = useState({
     name: '',
-    color: '#6366f1'
+    label: '',
+    field_type: 'text',
+    options: []
   });
+  const [newFieldOption, setNewFieldOption] = useState('');
+  
+  // Stage Form
+  const [stageForm, setStageForm] = useState({ name: '', color: '#6366f1' });
+  
+  // Lead Detail State
+  const [newRemark, setNewRemark] = useState('');
+  const [leadSummary, setLeadSummary] = useState('');
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [followUpNote, setFollowUpNote] = useState('');
+  const [detailTab, setDetailTab] = useState('overview');
   
   const [draggedLead, setDraggedLead] = useState(null);
 
@@ -87,9 +113,7 @@ export default function CRMPreSales() {
       setDashboard(dashboardRes.data);
       setStages(stagesRes.data);
       setCustomFields(fieldsRes.data);
-      setLeads(dashboardRes.data.recent_leads || []);
       
-      // Fetch all leads
       const leadsRes = await axios.get(`${API}/crm/pre-sales/leads`);
       setLeads(leadsRes.data);
     } catch (error) {
@@ -110,6 +134,7 @@ export default function CRMPreSales() {
     window.location.href = '/login';
   };
 
+  // ============ CREATE LEAD ============
   const handleCreateLead = async () => {
     if (!leadForm.name) {
       toast.error('Name is required');
@@ -120,24 +145,50 @@ export default function CRMPreSales() {
       await axios.post(`${API}/crm/pre-sales/leads`, leadForm);
       toast.success('Lead created successfully');
       setCreateLeadDialog(false);
-      setLeadForm({
-        name: '',
-        email: '',
-        phone: '',
-        source: 'other',
-        address: '',
-        city: '',
-        state: '',
-        pincode: '',
-        notes: '',
-        custom_fields: {}
-      });
+      resetLeadForm();
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create lead');
     }
   };
 
+  const resetLeadForm = () => {
+    setLeadForm({
+      name: '', email: '', phone: '', source: 'other',
+      address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {}
+    });
+  };
+
+  // ============ INLINE ADD FIELD (NOTION STYLE) ============
+  const handleAddNewField = async () => {
+    if (!newFieldForm.name || !newFieldForm.label) {
+      toast.error('Field name and label are required');
+      return;
+    }
+    
+    const fieldName = newFieldForm.name.toLowerCase().replace(/\s+/g, '_');
+    
+    try {
+      await axios.post(`${API}/crm/custom-fields`, {
+        name: fieldName,
+        label: newFieldForm.label,
+        field_type: newFieldForm.field_type,
+        options: newFieldForm.options,
+        required: false
+      });
+      toast.success('Custom field added');
+      setAddFieldDialog(false);
+      setNewFieldForm({ name: '', label: '', field_type: 'text', options: [] });
+      
+      // Refresh custom fields
+      const fieldsRes = await axios.get(`${API}/crm/custom-fields`);
+      setCustomFields(fieldsRes.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add field');
+    }
+  };
+
+  // ============ LEAD STAGES ============
   const handleCreateStage = async () => {
     if (!stageForm.name) {
       toast.error('Stage name is required');
@@ -175,6 +226,68 @@ export default function CRMPreSales() {
     }
   };
 
+  // ============ LEAD DETAILS & REMARKS ============
+  const openLeadDetail = (lead) => {
+    setSelectedLead(lead);
+    setLeadSummary(lead.summary || '');
+    setDetailTab('overview');
+    setLeadDetailDialog(true);
+  };
+
+  const handleAddRemark = async () => {
+    if (!newRemark.trim()) return;
+    
+    try {
+      await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/remarks`, {
+        remark: newRemark,
+        remark_type: 'general'
+      });
+      toast.success('Remark added');
+      setNewRemark('');
+      
+      // Refresh lead data
+      const leadRes = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setSelectedLead(leadRes.data);
+    } catch (error) {
+      toast.error('Failed to add remark');
+    }
+  };
+
+  const handleSaveSummary = async () => {
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, {
+        summary: leadSummary
+      });
+      toast.success('Summary saved');
+    } catch (error) {
+      toast.error('Failed to save summary');
+    }
+  };
+
+  const handleScheduleFollowUp = async () => {
+    if (!followUpDate) {
+      toast.error('Please select a follow-up date');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/follow-ups`, {
+        scheduled_date: followUpDate,
+        note: followUpNote
+      });
+      toast.success('Follow-up scheduled');
+      setFollowUpDate('');
+      setFollowUpNote('');
+      
+      // Refresh lead data
+      const leadRes = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setSelectedLead(leadRes.data);
+    } catch (error) {
+      toast.error('Failed to schedule follow-up');
+    }
+  };
+
+  // ============ DRAG & DROP ============
   const handleDragStart = (e, lead) => {
     setDraggedLead(lead);
     e.dataTransfer.effectAllowed = 'move';
@@ -193,6 +306,7 @@ export default function CRMPreSales() {
     setDraggedLead(null);
   };
 
+  // ============ FILTERS ============
   const filteredLeads = leads.filter(lead => {
     const matchesStage = activeStage === 'all' || lead.current_stage_id === activeStage;
     const matchesSearch = !searchQuery || 
@@ -203,15 +317,8 @@ export default function CRMPreSales() {
     return matchesStage && matchesSearch && matchesSource;
   });
 
-  const getLeadsByStage = (stageId) => {
-    return filteredLeads.filter(lead => lead.current_stage_id === stageId);
-  };
-
-  const getStageColor = (stageId) => {
-    const stage = stages.find(s => s.stage_id === stageId);
-    return stage?.color || '#6366f1';
-  };
-
+  const getLeadsByStage = (stageId) => filteredLeads.filter(lead => lead.current_stage_id === stageId);
+  
   const getStageName = (stageId) => {
     const stage = stages.find(s => s.stage_id === stageId);
     return stage?.name || stageId;
@@ -358,6 +465,7 @@ export default function CRMPreSales() {
                       className="cursor-grab active:cursor-grabbing hover:shadow-md transition-all"
                       draggable
                       onDragStart={(e) => handleDragStart(e, lead)}
+                      onClick={() => openLeadDetail(lead)}
                       data-testid={`lead-card-${lead.lead_id}`}
                     >
                       <CardContent className="p-3">
@@ -386,6 +494,22 @@ export default function CRMPreSales() {
                           </p>
                         )}
                         
+                        {/* Show if has remarks or follow-ups */}
+                        {(lead.remarks?.length > 0 || lead.follow_ups?.length > 0) && (
+                          <div className="flex gap-1 mt-2">
+                            {lead.remarks?.length > 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                <MessageSquare className="h-3 w-3 mr-1" /> {lead.remarks.length}
+                              </Badge>
+                            )}
+                            {lead.follow_ups?.length > 0 && (
+                              <Badge variant="outline" className="text-xs text-orange-600">
+                                <Calendar className="h-3 w-3 mr-1" /> Follow-up
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
                             {new Date(lead.created_at).toLocaleDateString()}
@@ -393,7 +517,7 @@ export default function CRMPreSales() {
                           <Button 
                             variant="ghost" 
                             size="sm"
-                            onClick={() => { setSelectedLead(lead); setViewLeadDialog(true); }}
+                            onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
                           >
                             <Eye className="h-3 w-3" />
                           </Button>
@@ -414,15 +538,26 @@ export default function CRMPreSales() {
         </div>
       </div>
 
-      {/* Create Lead Dialog */}
+      {/* ============ CREATE LEAD DIALOG ============ */}
       <Dialog open={createLeadDialog} onOpenChange={setCreateLeadDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add New Lead</DialogTitle>
-            <DialogDescription>Enter lead details. All custom fields are available below.</DialogDescription>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Add New Lead</span>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setAddFieldDialog(true)}
+                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+              >
+                <Plus className="h-4 w-4 mr-1" /> Add Field
+              </Button>
+            </DialogTitle>
+            <DialogDescription>Enter lead details. Custom fields appear below.</DialogDescription>
           </DialogHeader>
           
           <div className="grid grid-cols-2 gap-4">
+            {/* Standard Fields */}
             <div className="col-span-2 sm:col-span-1">
               <Label>Name *</Label>
               <Input
@@ -494,6 +629,16 @@ export default function CRMPreSales() {
               />
             </div>
             
+            {/* Divider for Custom Fields */}
+            {customFields.length > 0 && (
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <div className="flex items-center gap-2 mb-3">
+                  <Settings className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                </div>
+              </div>
+            )}
+            
             {/* Custom Fields */}
             {customFields.map(field => (
               <div key={field.field_id} className={field.field_type === 'textarea' ? 'col-span-2' : ''}>
@@ -546,6 +691,16 @@ export default function CRMPreSales() {
                     rows={3}
                   />
                 )}
+                {field.field_type === 'date' && (
+                  <Input
+                    type="date"
+                    value={leadForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setLeadForm({
+                      ...leadForm,
+                      custom_fields: {...leadForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                  />
+                )}
               </div>
             ))}
             
@@ -569,117 +724,405 @@ export default function CRMPreSales() {
         </DialogContent>
       </Dialog>
 
-      {/* View Lead Dialog */}
-      <Dialog open={viewLeadDialog} onOpenChange={setViewLeadDialog}>
-        <DialogContent className="max-w-lg">
+      {/* ============ ADD FIELD DIALOG (NOTION STYLE) ============ */}
+      <Dialog open={addFieldDialog} onOpenChange={setAddFieldDialog}>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-bold">
-                {selectedLead?.name?.charAt(0)?.toUpperCase()}
-              </div>
-              {selectedLead?.name}
+              <Plus className="h-5 w-5 text-indigo-600" />
+              Add Custom Field
             </DialogTitle>
+            <DialogDescription>Create a new field for all leads</DialogDescription>
           </DialogHeader>
           
-          {selectedLead && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Badge className={SOURCE_COLORS[selectedLead.source] || SOURCE_COLORS.other}>
-                  {selectedLead.source}
-                </Badge>
-                <Badge variant="outline">{getStageName(selectedLead.current_stage_id)}</Badge>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                {selectedLead.email && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Email</Label>
-                    <p className="text-sm flex items-center gap-1">
-                      <Mail className="h-4 w-4 text-gray-400" /> {selectedLead.email}
-                    </p>
-                  </div>
-                )}
-                {selectedLead.phone && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Phone</Label>
-                    <p className="text-sm flex items-center gap-1">
-                      <Phone className="h-4 w-4 text-gray-400" /> {selectedLead.phone}
-                    </p>
-                  </div>
-                )}
-                {selectedLead.address && (
-                  <div className="col-span-2">
-                    <Label className="text-xs text-gray-500">Address</Label>
-                    <p className="text-sm flex items-center gap-1">
-                      <MapPin className="h-4 w-4 text-gray-400" />
-                      {[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.pincode].filter(Boolean).join(', ')}
-                    </p>
-                  </div>
-                )}
-              </div>
-              
-              {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
-                <div>
-                  <Label className="text-xs text-gray-500 mb-2 block">Custom Fields</Label>
-                  <div className="grid grid-cols-2 gap-2 bg-gray-50 rounded-lg p-3">
-                    {Object.entries(selectedLead.custom_fields).map(([key, value]) => {
-                      const field = customFields.find(f => f.field_id === key || f.name === key);
-                      return (
-                        <div key={key}>
-                          <span className="text-xs text-gray-500">{field?.label || key}</span>
-                          <p className="text-sm font-medium">{value || '-'}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
+          <div className="space-y-4">
+            <div>
+              <Label>Field Name (ID)</Label>
+              <Input
+                value={newFieldForm.name}
+                onChange={(e) => setNewFieldForm({...newFieldForm, name: e.target.value})}
+                placeholder="e.g., company_size"
+              />
+              <p className="text-xs text-gray-500 mt-1">Lowercase, no spaces</p>
+            </div>
+            
+            <div>
+              <Label>Display Label</Label>
+              <Input
+                value={newFieldForm.label}
+                onChange={(e) => setNewFieldForm({...newFieldForm, label: e.target.value})}
+                placeholder="e.g., Company Size"
+              />
+            </div>
+            
+            <div>
+              <Label>Field Type</Label>
+              <Select value={newFieldForm.field_type} onValueChange={(v) => setNewFieldForm({...newFieldForm, field_type: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {FIELD_TYPES.map(type => (
+                    <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Options for dropdown */}
+            {newFieldForm.field_type === 'dropdown' && (
+              <div>
+                <Label>Options</Label>
+                <div className="flex gap-2 mb-2">
+                  <Input
+                    value={newFieldOption}
+                    onChange={(e) => setNewFieldOption(e.target.value)}
+                    placeholder="Add option..."
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && newFieldOption) {
+                        setNewFieldForm({...newFieldForm, options: [...newFieldForm.options, newFieldOption]});
+                        setNewFieldOption('');
+                      }
+                    }}
+                  />
+                  <Button 
+                    type="button" 
+                    size="sm"
+                    onClick={() => {
+                      if (newFieldOption) {
+                        setNewFieldForm({...newFieldForm, options: [...newFieldForm.options, newFieldOption]});
+                        setNewFieldOption('');
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
-              )}
-              
-              {selectedLead.notes && (
-                <div>
-                  <Label className="text-xs text-gray-500">Notes</Label>
-                  <p className="text-sm bg-gray-50 rounded-lg p-3">{selectedLead.notes}</p>
-                </div>
-              )}
-              
-              <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t">
-                <span>Created: {new Date(selectedLead.created_at).toLocaleString()}</span>
-                {selectedLead.transferred_to_lead_id && (
-                  <Badge className="bg-green-100 text-green-700">Transferred to Sales</Badge>
-                )}
-              </div>
-              
-              {/* Stage Change */}
-              <div className="border-t pt-4">
-                <Label className="text-xs text-gray-500 mb-2 block">Move to Stage</Label>
                 <div className="flex flex-wrap gap-2">
-                  {stages.map(stage => (
-                    <Button
-                      key={stage.stage_id}
-                      variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        handleStageChange(selectedLead.lead_id, stage.stage_id);
-                        setViewLeadDialog(false);
-                      }}
-                      style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}
-                    >
-                      {stage.name}
-                      {stage.is_final && <ArrowRight className="h-3 w-3 ml-1" />}
-                    </Button>
+                  {newFieldForm.options.map((opt, idx) => (
+                    <Badge key={idx} variant="secondary" className="py-1 px-2">
+                      {opt}
+                      <button
+                        type="button"
+                        onClick={() => setNewFieldForm({
+                          ...newFieldForm,
+                          options: newFieldForm.options.filter((_, i) => i !== idx)
+                        })}
+                        className="ml-2 hover:text-red-500"
+                      >
+                        ×
+                      </button>
+                    </Badge>
                   ))}
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setViewLeadDialog(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setAddFieldDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddNewField}>
+              <Plus className="h-4 w-4 mr-1" /> Add Field
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Create Stage Dialog */}
+      {/* ============ LEAD DETAIL DIALOG ============ */}
+      <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
+                {selectedLead?.name?.charAt(0)?.toUpperCase()}
+              </div>
+              <div>
+                <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
+                    {selectedLead?.source}
+                  </Badge>
+                  <Badge variant="outline">{getStageName(selectedLead?.current_stage_id)}</Badge>
+                </div>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedLead && (
+            <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
+              <TabsList className="grid grid-cols-4 w-full">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="remarks">Remarks</TabsTrigger>
+                <TabsTrigger value="followup">Follow-up</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+              
+              {/* Overview Tab */}
+              <TabsContent value="overview" className="space-y-4 mt-4">
+                {/* Contact Info */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-4">
+                    {selectedLead.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-gray-400" />
+                        <span>{selectedLead.email}</span>
+                      </div>
+                    )}
+                    {selectedLead.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-400" />
+                        <span>{selectedLead.phone}</span>
+                      </div>
+                    )}
+                    {selectedLead.address && (
+                      <div className="flex items-center gap-2 col-span-2">
+                        <MapPin className="h-4 w-4 text-gray-400" />
+                        <span>{[selectedLead.address, selectedLead.city, selectedLead.state].filter(Boolean).join(', ')}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                
+                {/* Custom Fields */}
+                {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 gap-3">
+                      {Object.entries(selectedLead.custom_fields).map(([key, value]) => {
+                        const field = customFields.find(f => f.field_id === key || f.name === key);
+                        return (
+                          <div key={key} className="bg-gray-50 rounded-lg p-3">
+                            <span className="text-xs text-gray-500">{field?.label || key}</span>
+                            <p className="font-medium">{value || '-'}</p>
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {/* Lead Summary */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> Lead Summary
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Textarea
+                      value={leadSummary}
+                      onChange={(e) => setLeadSummary(e.target.value)}
+                      placeholder="Write a summary about this lead... (requirements, preferences, key notes)"
+                      rows={4}
+                      className="mb-2"
+                    />
+                    <Button size="sm" onClick={handleSaveSummary}>
+                      Save Summary
+                    </Button>
+                  </CardContent>
+                </Card>
+                
+                {/* Stage Change */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Move to Stage</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {stages.map(stage => (
+                        <Button
+                          key={stage.stage_id}
+                          variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            handleStageChange(selectedLead.lead_id, stage.stage_id);
+                            setLeadDetailDialog(false);
+                          }}
+                          style={selectedLead.current_stage_id === stage.stage_id 
+                            ? { backgroundColor: stage.color } 
+                            : { borderColor: stage.color, color: stage.color }}
+                        >
+                          {stage.name}
+                          {stage.is_final && <ArrowRight className="h-3 w-3 ml-1" />}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              {/* Remarks Tab */}
+              <TabsContent value="remarks" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4" /> Add Remark
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex gap-2">
+                      <Textarea
+                        value={newRemark}
+                        onChange={(e) => setNewRemark(e.target.value)}
+                        placeholder="Add a remark or note about this lead..."
+                        rows={2}
+                        className="flex-1"
+                      />
+                      <Button onClick={handleAddRemark} className="self-end">
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                {/* Remarks List */}
+                <div className="space-y-2">
+                  {(selectedLead.remarks || []).length === 0 ? (
+                    <Card>
+                      <CardContent className="p-6 text-center text-gray-500">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                        No remarks yet. Add the first one!
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    selectedLead.remarks.slice().reverse().map((remark, idx) => (
+                      <Card key={idx} className="bg-gray-50">
+                        <CardContent className="p-3">
+                          <p className="text-sm">{remark.text}</p>
+                          <div className="flex items-center gap-2 mt-2 text-xs text-gray-500">
+                            <User className="h-3 w-3" />
+                            <span>{remark.added_by_name || 'User'}</span>
+                            <span>•</span>
+                            <Clock className="h-3 w-3" />
+                            <span>{new Date(remark.created_at).toLocaleString()}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+              
+              {/* Follow-up Tab */}
+              <TabsContent value="followup" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                      <Calendar className="h-4 w-4" /> Schedule Follow-up
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <Label>Follow-up Date</Label>
+                      <Input
+                        type="datetime-local"
+                        value={followUpDate}
+                        onChange={(e) => setFollowUpDate(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <Label>Note</Label>
+                      <Textarea
+                        value={followUpNote}
+                        onChange={(e) => setFollowUpNote(e.target.value)}
+                        placeholder="What to discuss in the follow-up..."
+                        rows={2}
+                      />
+                    </div>
+                    <Button onClick={handleScheduleFollowUp}>
+                      <Calendar className="h-4 w-4 mr-1" /> Schedule
+                    </Button>
+                  </CardContent>
+                </Card>
+                
+                {/* Follow-ups List */}
+                <div className="space-y-2">
+                  {(selectedLead.follow_ups || []).length === 0 ? (
+                    <Card>
+                      <CardContent className="p-6 text-center text-gray-500">
+                        <Calendar className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                        No follow-ups scheduled
+                      </CardContent>
+                    </Card>
+                  ) : (
+                    selectedLead.follow_ups.map((fu, idx) => (
+                      <Card key={idx} className={fu.completed ? 'bg-green-50' : 'bg-orange-50'}>
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Calendar className={`h-4 w-4 ${fu.completed ? 'text-green-600' : 'text-orange-600'}`} />
+                              <span className="font-medium">
+                                {new Date(fu.scheduled_date).toLocaleString()}
+                              </span>
+                            </div>
+                            <Badge className={fu.completed ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}>
+                              {fu.completed ? 'Completed' : 'Pending'}
+                            </Badge>
+                          </div>
+                          {fu.note && <p className="text-sm mt-2 text-gray-600">{fu.note}</p>}
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+              
+              {/* Activity Tab */}
+              <TabsContent value="activity" className="mt-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                      <History className="h-4 w-4" /> Activity Timeline
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {/* Stage History */}
+                      {(selectedLead.stage_history || []).slice().reverse().map((history, idx) => (
+                        <div key={idx} className="flex items-start gap-3 pb-3 border-b last:border-0">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
+                            <ArrowRight className="h-4 w-4 text-indigo-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm">
+                              Moved to <span className="font-medium">{getStageName(history.stage_id)}</span>
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(history.moved_at).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* Created */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                          <Plus className="h-4 w-4 text-green-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm">Lead created</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(selectedLead.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeadDetailDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ CREATE STAGE DIALOG ============ */}
       <Dialog open={createStageDialog} onOpenChange={setCreateStageDialog}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -718,7 +1161,7 @@ export default function CRMPreSales() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Dialog */}
+      {/* ============ IMPORT DIALOG ============ */}
       <Dialog open={importDialog} onOpenChange={setImportDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -752,10 +1195,6 @@ export default function CRMPreSales() {
                 </div>
               </CardContent>
             </Card>
-            
-            <Button variant="outline" className="w-full" onClick={() => window.open(`${API}/crm/import/template`, '_blank')}>
-              <Download className="h-4 w-4 mr-2" /> Download CSV Template
-            </Button>
           </div>
           
           <DialogFooter>
