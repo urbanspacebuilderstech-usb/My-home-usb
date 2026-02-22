@@ -678,23 +678,33 @@ const GMDashboard = () => {
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           <Button 
                             size="sm" 
                             variant="outline"
-                            className="text-purple-600"
-                            onClick={() => generateREPDF(re)}
+                            className="text-purple-600 hover:bg-purple-50"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              generateREPDF(re);
+                            }}
+                            data-testid={`download-re-${re.re_project_id}`}
                           >
                             <Download className="h-4 w-4" />
                           </Button>
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => openViewDialog(re, 're_project')}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openViewDialog(re, 're_project');
+                            }}
+                            data-testid={`view-re-${re.re_project_id}`}
                           >
                             <Eye className="h-4 w-4 mr-1" /> View
                           </Button>
-                          {re.status === 're_awaiting_approval' && (
+                          {(re.status === 're_awaiting_approval' || re.status === 're_in_progress') && (
                             <>
                               <Button 
                                 size="sm" 
