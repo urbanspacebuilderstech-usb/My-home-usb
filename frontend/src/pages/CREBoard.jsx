@@ -801,40 +801,45 @@ export default function CREBoard() {
                   <div className="p-8 text-center text-gray-500">
                     <Target className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p className="font-medium">No new deals waiting</p>
-                    <p className="text-sm">Closed deals from Sales will appear here</p>
+                    <p className="text-sm">GM-approved RE projects and closed deals from Sales will appear here</p>
                   </div>
                 ) : (
                   <div className="divide-y">
                     {newDeals.map((deal) => (
-                      <div key={deal.lead_id} className="p-4 hover:bg-gray-50" data-testid={`deal-card-${deal.lead_id}`}>
+                      <div key={deal.re_project_id || deal.lead_id} className="p-4 hover:bg-gray-50" data-testid={`deal-card-${deal.re_project_id || deal.lead_id}`}>
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold text-lg">{deal.name}</h4>
-                              <Badge className="bg-yellow-100 text-yellow-700">New Deal</Badge>
-                              {deal.re_project_id && <Badge className="bg-blue-100 text-blue-700">Has RE</Badge>}
+                              <h4 className="font-semibold text-lg">{deal.project_name || deal.name}</h4>
+                              {deal.deal_type === 're_project' ? (
+                                <Badge className="bg-green-100 text-green-700">GM Approved RE</Badge>
+                              ) : (
+                                <Badge className="bg-yellow-100 text-yellow-700">New Deal</Badge>
+                              )}
+                              {deal.re_project_id && deal.deal_type !== 're_project' && <Badge className="bg-blue-100 text-blue-700">Has RE</Badge>}
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600 mb-2">
                               <div className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" /> {deal.phone || '-'}
+                                <Phone className="h-3 w-3" /> {deal.phone || deal.client_phone || '-'}
                               </div>
                               <div className="flex items-center gap-1">
-                                <Mail className="h-3 w-3" /> {deal.email || '-'}
+                                <Mail className="h-3 w-3" /> {deal.email || deal.client_email || '-'}
                               </div>
                               <div className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> {deal.city || deal.re_project?.location || '-'}
+                                <MapPin className="h-3 w-3" /> {deal.location || deal.city || deal.re_project?.location || '-'}
                               </div>
                               <div className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" /> {new Date(deal.updated_at || deal.created_at).toLocaleDateString()}
+                                <Calendar className="h-3 w-3" /> {new Date(deal.gm_approved_at || deal.updated_at || deal.created_at).toLocaleDateString()}
                               </div>
                             </div>
-                            {deal.re_project && (
+                            {/* RE Project details */}
+                            {(deal.deal_type === 're_project' || deal.re_project) && (
                               <div className="bg-blue-50 p-2 rounded-lg mt-2">
-                                <p className="text-sm font-medium text-blue-800">RE: {deal.re_project.project_name}</p>
+                                <p className="text-sm font-medium text-blue-800">RE: {deal.re_project?.project_name || deal.project_name}</p>
                                 <div className="flex gap-4 text-xs text-blue-600">
-                                  <span>{deal.re_project.sqft?.toLocaleString()} sqft</span>
-                                  <span>₹{(deal.re_project.estimated_total || 0).toLocaleString()}</span>
-                                  <span>{deal.re_project.handover_months} months</span>
+                                  <span>{(deal.sqft || deal.re_project?.sqft || deal.re_project?.area_sqft)?.toLocaleString()} sqft</span>
+                                  <span>₹{(deal.estimated_total || deal.re_project?.estimated_total || 0).toLocaleString()}</span>
+                                  <span>{deal.handover_months || deal.re_project?.handover_months} months</span>
                                 </div>
                               </div>
                             )}
@@ -842,7 +847,7 @@ export default function CREBoard() {
                           <Button 
                             className="bg-green-600 hover:bg-green-700"
                             onClick={() => openConvertDealDialog(deal)}
-                            data-testid={`convert-deal-${deal.lead_id}`}
+                            data-testid={`convert-deal-${deal.re_project_id || deal.lead_id}`}
                           >
                             <ArrowRight className="h-4 w-4 mr-1" />
                             Convert to Project
