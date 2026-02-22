@@ -593,13 +593,23 @@ export default function CRMPreSales() {
                           <span className="text-xs text-gray-400">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </span>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
-                          >
-                            <Eye className="h-3 w-3" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); openEditLead(lead); }}
+                              data-testid={`edit-lead-btn-${lead.lead_id}`}
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                            >
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
