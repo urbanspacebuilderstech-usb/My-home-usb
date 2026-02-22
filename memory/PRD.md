@@ -724,6 +724,52 @@ Build a Construction Accounting CRM with:
 
 - [x] **Testing**: 18/19 backend tests passed (95%), 100% frontend success
 
+#### ✅ CRM UI Enhancements (February 22, 2026) - NEW
+- [x] **Inline "Add Field" Button** (Notion-style):
+  - Located in "Add Lead" dialog header
+  - Opens custom field creation dialog
+  - Supports all field types (Text, Number, Dropdown, Textarea, Date, Email, Phone, Checkbox)
+  - Dynamic options for Dropdown type
+  - Fields immediately available after creation
+
+- [x] **Lead Detail Dialog with Tabbed Interface**:
+  - Opens when clicking on any lead card in Kanban board
+  - 4 Tabs: Overview, Remarks, Follow-up, Activity
+  - **Overview Tab**:
+    - Contact Information (email, phone, address)
+    - Custom Fields display
+    - Lead Summary textarea with Save Summary button
+    - Move to Stage buttons for quick stage change
+  - **Remarks Tab**:
+    - Add Remark input with send button
+    - Remarks list with user name, timestamp
+    - Supports general remark type
+  - **Follow-up Tab**:
+    - Schedule Follow-up form (datetime, note)
+    - Follow-ups list with Pending/Completed status
+    - Color-coded cards (orange=pending, green=completed)
+  - **Activity Tab**:
+    - Activity Timeline showing all lead events
+    - Stage changes with timestamps
+    - Lead created entry
+
+- [x] **Lead Card Enhancements**:
+  - Shows badges for remarks count
+  - Shows follow-up indicator
+  - Visual feedback on hover
+
+- [x] **Backend Endpoints for Lead Details**:
+  - `GET /api/crm/leads/{lead_id}` - Get full lead details
+  - `PATCH /api/crm/leads/{lead_id}` - Update lead (summary, name, etc.)
+  - `POST /api/crm/leads/{lead_id}/remarks` - Add remark
+  - `POST /api/crm/leads/{lead_id}/follow-ups` - Schedule follow-up
+  - `PATCH /api/crm/leads/{lead_id}/follow-ups/{follow_up_id}/complete` - Mark follow-up complete
+
+- [x] **Lead Model Enhancements**:
+  - Added `summary` field for lead summary text
+  - Added `remarks` array for notes/comments
+  - Added `follow_ups` array for scheduled follow-ups
+
 ---
 
 ## Pending/Backlog Tasks
