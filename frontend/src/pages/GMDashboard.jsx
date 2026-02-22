@@ -522,7 +522,17 @@ const GMDashboard = () => {
         </div>
 
         {/* Main Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={(value) => {
+            // Only change tab if it's a valid tab value from explicit tab click
+            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accounts'];
+            if (validTabs.includes(value)) {
+              setActiveTab(value);
+            }
+          }} 
+          className="space-y-4"
+        >
           <TabsList className="bg-white border shadow-sm p-1 flex-wrap h-auto">
             <TabsTrigger value="overview" className="flex items-center gap-2">
               <LayoutDashboard className="h-4 w-4" /> Overview
