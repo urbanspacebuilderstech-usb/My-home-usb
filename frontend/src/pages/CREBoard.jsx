@@ -382,9 +382,12 @@ export default function CREBoard() {
   const getStatusBadge = (status) => {
     const config = {
       draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
-      pending_payment: { label: 'Payment Pending', className: 'bg-orange-100 text-orange-700' },
-      payment_verified: { label: 'Payment Received', className: 'bg-emerald-100 text-emerald-700' },
+      pending_payment: { label: 'Awaiting Accountant', className: 'bg-orange-100 text-orange-700' },
+      payment_received: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
+      payment_verified: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
+      in_planning: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
       planning_review: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
+      planning: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
       awaiting_approval: { label: 'Awaiting Approval', className: 'bg-yellow-100 text-yellow-700' },
       gm_approved: { label: 'GM Approved', className: 'bg-purple-100 text-purple-700' },
       planning_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
