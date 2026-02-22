@@ -13,11 +13,24 @@ import { toast } from 'sonner';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
-  ArrowLeft, Target
+  ArrowLeft, Target, Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+// Company Details for PDF
+const COMPANY_INFO = {
+  name: 'URBAN SPACE BUILDERS',
+  tagline: 'Building Dreams Into Reality',
+  address: 'No.123, Construction Lane, Chennai - 600001',
+  phone: '+91 44 2345 6789',
+  email: 'info@urbanspacebuilders.com',
+  website: 'www.urbanspacebuilders.com',
+  gstin: 'GSTIN: 33XXXXX1234X1Z5'
+};
 
 const RE_STATUS_CONFIG = {
   re_requested: { label: 'New Request', color: 'bg-blue-100 text-blue-700 border-blue-300', icon: Clock },
