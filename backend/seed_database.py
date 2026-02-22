@@ -94,6 +94,22 @@ async def seed_database():
             "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
+            "user_id": "user_presales001",
+            "email": "presales@constructionos.com",
+            "name": "Kavitha Nair",
+            "role": "pre_sales",
+            "phone": "+91 9876543230",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
+            "user_id": "user_sales001",
+            "email": "sales@constructionos.com",
+            "name": "Vikram Singh",
+            "role": "sales",
+            "phone": "+91 9876543231",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        },
+        {
             "user_id": "user_client001",
             "email": "raj@client.com",
             "name": "Mr. Raj",
