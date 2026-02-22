@@ -12646,7 +12646,6 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
         "is_filtered": user.role == "pre_sales",
         "user_name": user.name if user.role == "pre_sales" else None
     }
-    }
 
 
 @api_router.get("/crm/pre-sales/leads")
