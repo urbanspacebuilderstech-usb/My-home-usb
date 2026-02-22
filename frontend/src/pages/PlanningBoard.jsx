@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { 
   ClipboardList, LogOut, FileText, Clock, CheckCircle, Briefcase,
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Pencil, Hammer, Home, PaintBucket, Layers, HardHat, KeyRound, Play
+  Pencil, Hammer, Home, PaintBucket, Layers, HardHat, KeyRound, Play, Calculator
 } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
