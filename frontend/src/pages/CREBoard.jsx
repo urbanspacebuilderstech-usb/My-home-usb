@@ -340,6 +340,11 @@ export default function CREBoard() {
     setCollectDialog(true);
   };
 
+  const openViewDialog = (project) => {
+    setSelectedProject(project);
+    setViewDialog(true);
+  };
+
   const handleCollectPayment = async () => {
     if (!selectedPaymentStage || !collectForm.amount) {
       toast.error('Please enter amount');
