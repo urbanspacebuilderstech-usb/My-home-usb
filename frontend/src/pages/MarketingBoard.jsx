@@ -131,14 +131,11 @@ export default function MarketingBoard() {
 
   const fetchAllLeads = async () => {
     try {
-      const token = localStorage.getItem('token');
       const params = new URLSearchParams();
       if (leadsFilter.stage_type && leadsFilter.stage_type !== 'all') params.append('stage_type', leadsFilter.stage_type);
       if (leadsFilter.assigned_to && leadsFilter.assigned_to !== 'all') params.append('assigned_to', leadsFilter.assigned_to);
       
-      const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, { withCredentials: true });
       setAllLeads(res.data.leads);
     } catch (error) {
       toast.error('Failed to load leads');
