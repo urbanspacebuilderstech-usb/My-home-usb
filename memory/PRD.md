@@ -1544,4 +1544,66 @@ Complete end-to-end payment flow for work order stages:
 
 ---
 
+### ✅ Google Sheets Integration (February 22, 2026)
+
+#### Marketing Board - Connect Google Sheets
+- [x] **"Connect Google Sheets" Button**: Added to Marketing Board header
+- [x] **Connection Dialog**:
+  - Shows connection status (Connected/Not Connected)
+  - "Setup Required" notice when credentials not configured
+  - "Connect Google Account" button for OAuth flow
+- [x] **Tabs for Lead Sources**:
+  - **Website Tab**: Standard template with Lead Name, Phone, Email, Location, Sqft fields
+  - **All Sources Tab**: View configured sheet sources, import leads, delete sources
+  - **Add More Tab**: Configure new lead sources from any Google Sheet
+- [x] **Sheet Preview**:
+  - Enter Google Sheet URL and preview data
+  - Auto-detect columns and suggest mappings
+  - Shows sample data (first 3 rows)
+- [x] **Column Mapping**:
+  - Map sheet columns to standard fields (name, phone, email, city, sqft, budget, notes, source)
+  - Auto-detect custom fields when column names don't match standard fields
+  - Yellow alert shows "Custom Fields Detected" for unmapped columns
+- [x] **Lead Import**:
+  - Import leads from configured sheet sources
+  - Round-robin distribution to Pre-Sales team (if enabled)
+  - Skip duplicates (by phone number)
+  - Store custom fields in lead document
+- [x] **OAuth Flow**:
+  - Google OAuth 2.0 with refresh token support
+  - Scopes: spreadsheets.readonly, userinfo.email, userinfo.profile
+
+#### Backend Endpoints Added
+- `GET /api/sheets/config` - Get Google Sheets configuration
+- `GET /api/sheets/oauth/login` - Start OAuth flow
+- `GET /api/oauth/sheets/callback` - OAuth callback handler
+- `POST /api/sheets/disconnect` - Disconnect Google Sheets
+- `POST /api/sheets/preview` - Preview sheet data and columns
+- `GET /api/sheets/sources` - List configured sources
+- `POST /api/sheets/sources` - Add new sheet source
+- `DELETE /api/sheets/sources/{source_id}` - Delete a source
+- `POST /api/sheets/import` - Import leads from a source
+
+#### Environment Variables Required
+```env
+GOOGLE_SHEETS_CLIENT_ID=<your-google-client-id>
+GOOGLE_SHEETS_CLIENT_SECRET=<your-google-client-secret>
+GOOGLE_SHEETS_REDIRECT_URI=https://<your-app>.preview.emergentagent.com/api/oauth/sheets/callback
+```
+
+#### Google Cloud Setup Required
+1. Create a project in Google Cloud Console
+2. Enable Google Sheets API
+3. Configure OAuth consent screen (external, test users)
+4. Create OAuth credentials (web application)
+5. Add redirect URI to authorized redirect URIs
+6. Copy Client ID and Client Secret to backend/.env
+
+#### Testing Status
+- **Backend Tests**: 11/11 passed (100%)
+- **Frontend Tests**: All features verified working
+- **Role Access Control**: Tested (Super Admin only)
+
+---
+
 *Last Updated: February 22, 2026*
