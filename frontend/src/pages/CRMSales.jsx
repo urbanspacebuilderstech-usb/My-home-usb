@@ -800,37 +800,14 @@ export default function CRMSales() {
                 </CardContent>
               </Card>
               
-              {/* Estimated Costs */}
-              <Card className="bg-purple-50 border-purple-200">
-                <CardContent className="p-4">
-                  <h4 className="font-semibold mb-3 text-purple-800">Estimated Costs</h4>
-                  <div className="grid grid-cols-4 gap-3">
-                    <div className="text-center">
-                      <p className="text-xs text-purple-600">Material</p>
-                      <p className="text-lg font-bold text-purple-800">{formatCurrency(selectedREProject.estimated_material_cost)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-purple-600">Labour</p>
-                      <p className="text-lg font-bold text-purple-800">{formatCurrency(selectedREProject.estimated_labour_cost)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-purple-600">Overhead</p>
-                      <p className="text-lg font-bold text-purple-800">{formatCurrency(selectedREProject.estimated_overhead)}</p>
-                    </div>
-                    <div className="text-center bg-white rounded-lg p-2">
-                      <p className="text-xs text-purple-600">Total</p>
-                      <p className="text-xl font-bold text-purple-900">{formatCurrency(selectedREProject.estimated_total)}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              
               {/* Planning Notes */}
               {selectedREProject.planning_notes && (
-                <div>
-                  <Label className="text-xs text-gray-500">Planning Notes</Label>
-                  <p className="bg-gray-50 rounded-lg p-3 text-sm">{selectedREProject.planning_notes}</p>
-                </div>
+                <Card className="bg-gray-50">
+                  <CardContent className="p-4">
+                    <h4 className="font-semibold mb-2 text-gray-700">Planning Notes</h4>
+                    <p className="text-sm text-gray-600">{selectedREProject.planning_notes}</p>
+                  </CardContent>
+                </Card>
               )}
               
               {/* GM Rejection Reason */}
