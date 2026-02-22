@@ -4787,7 +4787,7 @@ async def create_material_request(
     user: User = Depends(get_current_user)
 ):
     """Create a new material request"""
-    if user.role != UserRole.SITE_ENGINEER:
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can create material requests")
     
     # Verify assignment
