@@ -595,7 +595,9 @@ export default function CREBoard() {
               <ArrowRight className="h-4 w-4 text-gray-400" />
               <Badge variant="outline" className="bg-emerald-100 text-emerald-700">Payment Received</Badge>
               <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-blue-100 text-blue-700">Send to Planning</Badge>
+              <Badge variant="outline" className="bg-blue-100 text-blue-700">Planning Dept</Badge>
+              <ArrowRight className="h-4 w-4 text-gray-400" />
+              <Badge variant="outline" className="bg-indigo-100 text-indigo-700">Drawing Stage</Badge>
             </div>
           </CardContent>
         </Card>
