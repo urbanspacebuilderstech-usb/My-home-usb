@@ -840,6 +840,97 @@ export default function PlanningBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* New Projects from CRE Dialog */}
+      <Dialog open={newProjectsDialog} onOpenChange={setNewProjectsDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Briefcase className="h-5 w-5 text-green-600" />
+              New Projects from CRE
+            </DialogTitle>
+            <DialogDescription>
+              These projects have been sent by CRE after payment verification. Review and start planning.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            {newProjectsFromCRE.map((project) => (
+              <Card key={project.project_id} className="border-l-4 border-l-green-500" data-testid={`new-project-card-${project.project_id}`}>
+                <CardContent className="p-4">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h4 className="font-semibold text-lg">{project.name}</h4>
+                        <Badge className="bg-green-600">New from CRE</Badge>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600">
+                        <div>
+                          <p className="text-xs text-gray-500">Client</p>
+                          <p className="font-medium">{project.client_name}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Location</p>
+                          <p className="font-medium">{project.location || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Area</p>
+                          <p className="font-medium">{project.sqft?.toLocaleString() || '-'} sqft</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Project Value</p>
+                          <p className="font-medium text-green-600">₹{(project.total_value || 0).toLocaleString()}</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600 mt-2">
+                        <div>
+                          <p className="text-xs text-gray-500">Advance Received</p>
+                          <p className="font-medium text-blue-600">₹{(project.advance_amount || 0).toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Building Type</p>
+                          <p className="font-medium capitalize">{project.building_type || 'residential'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Phone</p>
+                          <p className="font-medium">{project.client_phone || '-'}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Email</p>
+                          <p className="font-medium">{project.client_email || '-'}</p>
+                        </div>
+                      </div>
+                      {project.re_project_id && (
+                        <div className="mt-3 p-2 bg-blue-50 rounded-lg">
+                          <p className="text-xs text-blue-600 font-medium">Has linked Rough Estimate</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="ml-4 flex flex-col gap-2">
+                      <Button 
+                        size="sm" 
+                        className="bg-blue-600 hover:bg-blue-700"
+                        onClick={() => window.location.href = `/projects/${project.project_id}`}
+                        data-testid={`view-project-btn-${project.project_id}`}
+                      >
+                        <Eye className="h-4 w-4 mr-1" /> View Details
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {newProjectsFromCRE.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p>No new projects waiting</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setNewProjectsDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
