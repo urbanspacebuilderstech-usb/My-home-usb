@@ -371,8 +371,8 @@ export default function Projects() {
                         <td className="px-6 py-4 font-semibold text-gray-900">
                           ₹{(project.total_value / 100000).toFixed(2)}L
                         </td>
-                        <td className="px-6 py-4 text-gray-700">₹0</td>
-                        <td className="px-6 py-4 text-gray-700">₹0</td>
+                        <td className="px-6 py-4 text-green-600 font-medium">₹{((project.total_received || 0) / 100000).toFixed(2)}L</td>
+                        <td className="px-6 py-4 text-gray-700">₹{((project.total_spent || 0) / 100000).toFixed(2)}L</td>
                         <td className="px-6 py-4 font-semibold text-gray-900">
                           ₹{(project.total_value / 100000).toFixed(2)}L
                         </td>
