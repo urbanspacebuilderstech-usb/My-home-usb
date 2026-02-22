@@ -144,14 +144,11 @@ export default function MarketingBoard() {
 
   const fetchPersonLeads = async (userId) => {
     try {
-      const token = localStorage.getItem('token');
       const params = new URLSearchParams();
       params.append('assigned_to', userId);
       if (personFilter.source && personFilter.source !== 'all') params.append('source', personFilter.source);
       
-      const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, { withCredentials: true });
       
       let leads = res.data.leads || [];
       
