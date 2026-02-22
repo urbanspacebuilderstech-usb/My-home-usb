@@ -8607,10 +8607,9 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     base_query = {}
     draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
     pending_payment_count = await db.projects.count_documents({**base_query, "status": "pending_payment"})
-    payment_verified_count = await db.projects.count_documents({**base_query, "status": "payment_verified"})
-    planning_review_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_review", "planning"]}})
-    awaiting_approval_count = await db.projects.count_documents({**base_query, "status": "awaiting_approval"})
-    approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active"]}})
+    payment_received_count = await db.projects.count_documents({**base_query, "status": "payment_received"})
+    in_planning_count = await db.projects.count_documents({**base_query, "status": {"$in": ["in_planning", "planning", "planning_review"]}})
+    approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active", "gm_approved"]}})
     
     # Total ongoing projects
     total_ongoing = await db.projects.count_documents({
