@@ -1437,8 +1437,8 @@ export default function MarketingBoard() {
                               <div key={col} className="p-2 border rounded bg-gray-50">
                                 <p className="text-xs text-gray-500">Column {col}: {info.original}</p>
                                 <Select
-                                  value={columnMapping[col] || ''}
-                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v }))}
+                                  value={columnMapping[col] || '_skip'}
+                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v === '_skip' ? '' : v }))}
                                 >
                                   <SelectTrigger className="h-8 mt-1">
                                     <SelectValue placeholder="Map to..." />
@@ -1634,8 +1634,8 @@ export default function MarketingBoard() {
                               <div key={col} className="p-2 border rounded bg-gray-50">
                                 <p className="text-xs text-gray-500">Column {col}: {info.original}</p>
                                 <Select
-                                  value={columnMapping[col] || ''}
-                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v }))}
+                                  value={columnMapping[col] || '_skip'}
+                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v === '_skip' ? '' : v }))}
                                 >
                                   <SelectTrigger className="h-8 mt-1">
                                     <SelectValue placeholder="Map to..." />
