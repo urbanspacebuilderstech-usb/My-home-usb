@@ -943,6 +943,31 @@ export default function MarketingBoard() {
                     </Select>
                   </div>
                 </div>
+                
+                {/* Source Filter Tabs */}
+                <div className="flex flex-wrap gap-2 mt-4 border-b pb-3">
+                  <Button 
+                    variant={selectedSource === 'all' ? 'default' : 'outline'} 
+                    size="sm"
+                    onClick={() => setSelectedSource('all')}
+                    className={selectedSource === 'all' ? 'bg-indigo-600' : ''}
+                  >
+                    All Sources
+                    <Badge className="ml-2 bg-white/20 text-inherit">{allLeads.length}</Badge>
+                  </Button>
+                  {leadSources.map(source => (
+                    <Button 
+                      key={source.id} 
+                      variant={selectedSource === source.id ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedSource(source.id)}
+                      className={selectedSource === source.id ? 'bg-indigo-600' : ''}
+                    >
+                      {source.display || source.id}
+                      <Badge className="ml-2 bg-white/20 text-inherit">{source.count}</Badge>
+                    </Button>
+                  ))}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -983,7 +1008,7 @@ export default function MarketingBoard() {
                           </td>
                           <td className="px-4 py-3">
                             <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
-                              {lead.source?.replace('_', ' ')}
+                              {lead.source_display || lead.source?.replace('_', ' ')}
                             </Badge>
                           </td>
                           <td className="px-4 py-3">
