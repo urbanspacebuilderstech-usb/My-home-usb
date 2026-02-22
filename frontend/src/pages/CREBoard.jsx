@@ -41,9 +41,21 @@ export default function CREBoard() {
   const [dashboard, setDashboard] = useState({});
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [activeTab, setActiveTab] = useState('draft');
+  const [activeTab, setActiveTab] = useState('new_deals');
   const [projectStages, setProjectStages] = useState([]);
   const [stageCounts, setStageCounts] = useState({});
+  
+  // New Deals from Sales (closed deals waiting for project creation)
+  const [newDeals, setNewDeals] = useState([]);
+  const [convertDealDialog, setConvertDealDialog] = useState(false);
+  const [selectedDeal, setSelectedDeal] = useState(null);
+  const [selectedDealRE, setSelectedDealRE] = useState(null);
+  
+  // Advance Collection for Deal Conversion
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [advanceMode, setAdvanceMode] = useState('');
+  const [advanceRef, setAdvanceRef] = useState('');
+  const [accountantConfirmed, setAccountantConfirmed] = useState(false);
   
   // Filters
   const [filters, setFilters] = useState({
@@ -62,6 +74,7 @@ export default function CREBoard() {
   const [collectDialog, setCollectDialog] = useState(false);
   const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
   const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '' });
+  
   
   const [form, setForm] = useState({
     name: '',
