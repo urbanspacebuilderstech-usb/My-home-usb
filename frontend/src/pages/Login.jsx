@@ -161,12 +161,14 @@ export default function Login() {
                 {[
                   { label: 'Super Admin', email: 'admin@constructionos.com' },
                   { label: 'Accountant', email: 'accountant@constructionos.com' },
+                  { label: 'Pre-Sales', email: 'presales@constructionos.com' },
+                  { label: 'Sales', email: 'sales@constructionos.com' },
                   { label: 'PM', email: 'pm@constructionos.com' },
                   { label: 'Client (Mohan)', email: 'mohan@client.com' },
                 ].map((quick) => (
                   <Button
                     key={quick.email}
-                    data-testid={`quick-${quick.label.toLowerCase().replace(' ', '-')}`}
+                    data-testid={`quick-${quick.label.toLowerCase().replace(' ', '-').replace('(', '').replace(')', '')}`}
                     variant="outline"
                     size="sm"
                     className="text-xs"
