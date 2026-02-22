@@ -55,6 +55,14 @@ export default function CRMSales() {
   const [reProjectDialog, setReProjectDialog] = useState(false);
   const [selectedREProject, setSelectedREProject] = useState(null);
   
+  // Deal Close Dialog
+  const [dealCloseDialog, setDealCloseDialog] = useState(false);
+  const [dealCloseLead, setDealCloseLead] = useState(null);
+  const [dealCloseREProject, setDealCloseREProject] = useState(null);
+  const [advanceAmount, setAdvanceAmount] = useState('');
+  const [paymentMode, setPaymentMode] = useState('');
+  const [paymentRef, setPaymentRef] = useState('');
+  
   const [draggedLead, setDraggedLead] = useState(null);
 
   useEffect(() => {
