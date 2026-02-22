@@ -193,7 +193,7 @@ export default function CREBoard() {
     setConvertDealDialog(true);
   };
   
-  // Convert deal to project
+  // Convert deal to project with full project details
   const handleConvertDeal = async () => {
     if (!selectedDeal) return;
     
@@ -212,17 +212,28 @@ export default function CREBoard() {
     
     try {
       const result = await axios.post(`${API}/cre/convert-deal/${selectedDeal.lead_id}`, {
+        // Project details from form
+        project_name: form.name || selectedDeal.name,
+        client_name: form.client_name || selectedDeal.name,
+        client_phone: form.client_phone || selectedDeal.phone,
+        client_email: form.client_email || selectedDeal.email,
+        location: form.location,
+        sqft: form.sqft ? parseFloat(form.sqft) : null,
+        building_type: form.building_type,
+        expected_start_date: form.expected_start_date,
+        package_id: form.package_id,
+        // Advance payment details
         advance_amount: parseFloat(advanceAmount),
         payment_mode: advanceMode,
         payment_reference: advanceRef,
         accountant_confirmed: accountantConfirmed
       });
       
-      toast.success('Deal converted to project successfully!');
+      toast.success('Project created successfully!');
       setConvertDealDialog(false);
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to convert deal');
+      toast.error(error.response?.data?.detail || 'Failed to create project');
     }
   };
 
