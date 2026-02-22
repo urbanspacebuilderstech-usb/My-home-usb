@@ -109,6 +109,7 @@ function AppRouter() {
       <Route path="/crm/re-projects" element={<ProtectedRoute><REProjectsPage /></ProtectedRoute>} />
       <Route path="/crm/custom-fields" element={<ProtectedRoute><CustomFieldsBuilder /></ProtectedRoute>} />
       <Route path="/crm/import-csv" element={<ProtectedRoute><CSVImportPage /></ProtectedRoute>} />
+      <Route path="/gm-dashboard" element={<ProtectedRoute><GMDashboard /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
   );
