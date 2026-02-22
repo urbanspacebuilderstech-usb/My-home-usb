@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 from enum import Enum
 import uuid
+import secrets
 from datetime import datetime, timezone, timedelta
 
 ROOT_DIR = Path(__file__).parent
