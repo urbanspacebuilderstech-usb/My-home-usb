@@ -316,6 +316,67 @@ export default function MarketingBoard() {
     }
   };
 
+  // Import all sheets/tabs from the spreadsheet - each tab becomes a source
+  const importAllSheets = async () => {
+    if (!sheetPreview) {
+      toast.error('Please preview the sheet first');
+      return;
+    }
+    
+    // Filter out "_skip" values from column mapping
+    const filteredMapping = Object.fromEntries(
+      Object.entries(columnMapping).filter(([_, v]) => v && v !== '_skip')
+    );
+    
+    if (Object.keys(filteredMapping).length === 0) {
+      toast.error('Please map at least one column');
+      return;
+    }
+    
+    setIsImporting(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/import-all`, {
+        spreadsheet_url: sheetUrl,
+        column_mapping: filteredMapping
+      }, { withCredentials: true });
+      
+      const sourcesMsg = res.data.sources?.map(s => `${s.name}: ${s.imported}`).join(', ') || '';
+      toast.success(`Imported ${res.data.imported} leads from ${res.data.sources?.length || 0} tabs! ${sourcesMsg}`);
+      
+      fetchDashboard();
+      fetchLeadSources();
+      setShowSheetsDialog(false);
+      
+      // Reset form
+      setSheetUrl('');
+      setSheetPreview(null);
+      setColumnMapping({});
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to import leads');
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Fetch unique lead sources for tabs
+  const [leadSources, setLeadSources] = useState([]);
+  const [selectedSource, setSelectedSource] = useState('all');
+  
+  const fetchLeadSources = async () => {
+    try {
+      const res = await axios.get(`${API}/api/leads/sources`, { withCredentials: true });
+      setLeadSources(res.data.sources || []);
+    } catch (error) {
+      console.error('Failed to fetch lead sources:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (user && activeTab === 'leads') {
+      fetchLeadSources();
+    }
+  }, [user, activeTab]);
+
   const importLeads = async (sourceId) => {
     setIsImporting(true);
     try {
