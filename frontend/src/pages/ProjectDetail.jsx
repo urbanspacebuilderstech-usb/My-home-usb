@@ -2299,30 +2299,41 @@ export default function ProjectDetail() {
               </div>
 
               {/* Summary Cards */}
-              {paymentSummary?.summary && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              {paymentSummary && (
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+                  <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
+                    <CardContent className="p-3">
+                      <p className="text-xs text-indigo-600 font-medium">Project Value</p>
+                      <p className="text-lg font-bold text-indigo-700">{formatCurrency(paymentSummary.project_value || 0)}</p>
+                      {paymentSummary.additional_cost > 0 && (
+                        <p className="text-[10px] text-indigo-500">+{formatCurrency(paymentSummary.additional_cost)} add.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+                    <CardContent className="p-3">
+                      <p className="text-xs text-emerald-600 font-medium">Advance Paid</p>
+                      <p className="text-lg font-bold text-emerald-700">{formatCurrency(paymentSummary.advance_payment?.amount || 0)}</p>
+                    </CardContent>
+                  </Card>
                   <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                     <CardContent className="p-3">
-                      <p className="text-xs text-blue-600 font-medium">Total Scheduled</p>
-                      <p className="text-lg font-bold text-blue-700">{formatCurrency(paymentSummary.summary.total_scheduled)}</p>
+                      <p className="text-xs text-blue-600 font-medium">Stages Scheduled</p>
+                      <p className="text-lg font-bold text-blue-700">{formatCurrency(paymentSummary.summary?.total_scheduled || 0)}</p>
                     </CardContent>
                   </Card>
                   <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
                     <CardContent className="p-3">
                       <p className="text-xs text-green-600 font-medium">Total Received</p>
-                      <p className="text-lg font-bold text-green-700">{formatCurrency(paymentSummary.summary.total_received)}</p>
+                      <p className="text-lg font-bold text-green-700">{formatCurrency(paymentSummary.summary?.total_received || 0)}</p>
+                      <p className="text-[10px] text-green-500">incl. advance</p>
                     </CardContent>
                   </Card>
                   <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
                     <CardContent className="p-3">
                       <p className="text-xs text-orange-600 font-medium">Balance Due</p>
-                      <p className="text-lg font-bold text-orange-700">{formatCurrency(paymentSummary.summary.total_balance)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-purple-600 font-medium">Collection %</p>
-                      <p className="text-lg font-bold text-purple-700">{paymentSummary.summary.collection_percentage?.toFixed(1)}%</p>
+                      <p className="text-lg font-bold text-orange-700">{formatCurrency(paymentSummary.summary?.total_balance || 0)}</p>
+                      <p className="text-[10px] text-orange-500">{paymentSummary.summary?.collection_percentage?.toFixed(1) || 0}% collected</p>
                     </CardContent>
                   </Card>
                 </div>
