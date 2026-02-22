@@ -8685,7 +8685,8 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
         return []
     
     # Get leads in deal_closed stage that don't have a project yet
-    cursor = db.crm_leads.find({
+    # Use 'leads' collection (not 'crm_leads')
+    cursor = db.leads.find({
         "current_stage_id": deal_closed_stage["stage_id"],
         "stage_type": "sales",
         "$or": [
