@@ -698,6 +698,12 @@ export default function CREBoard() {
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b p-3 sm:p-4">
               <TabsList className="bg-transparent p-0 flex-wrap">
+                <TabsTrigger value="new_deals" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none text-xs sm:text-sm" data-testid="tab-new-deals">
+                  New Deals {newDeals.length > 0 && <span className="ml-1 bg-yellow-500 text-white text-xs px-1.5 rounded-full">{newDeals.length}</span>}
+                </TabsTrigger>
+                <TabsTrigger value="all_projects" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none text-xs sm:text-sm" data-testid="tab-all-projects">
+                  All Projects
+                </TabsTrigger>
                 <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm" data-testid="tab-draft">
                   Draft
                 </TabsTrigger>
@@ -717,6 +723,144 @@ export default function CREBoard() {
             </CardHeader>
 
             <CardContent className="p-0">
+              {/* New Deals Tab Content */}
+              <TabsContent value="new_deals" className="m-0">
+                {newDeals.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <Target className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p className="font-medium">No new deals waiting</p>
+                    <p className="text-sm">Closed deals from Sales will appear here</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {newDeals.map((deal) => (
+                      <div key={deal.lead_id} className="p-4 hover:bg-gray-50" data-testid={`deal-card-${deal.lead_id}`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-lg">{deal.name}</h4>
+                              <Badge className="bg-yellow-100 text-yellow-700">New Deal</Badge>
+                              {deal.re_project_id && <Badge className="bg-blue-100 text-blue-700">Has RE</Badge>}
+                            </div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600 mb-2">
+                              <div className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" /> {deal.phone || '-'}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Mail className="h-3 w-3" /> {deal.email || '-'}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" /> {deal.city || deal.re_project?.location || '-'}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" /> {new Date(deal.updated_at || deal.created_at).toLocaleDateString()}
+                              </div>
+                            </div>
+                            {deal.re_project && (
+                              <div className="bg-blue-50 p-2 rounded-lg mt-2">
+                                <p className="text-sm font-medium text-blue-800">RE: {deal.re_project.project_name}</p>
+                                <div className="flex gap-4 text-xs text-blue-600">
+                                  <span>{deal.re_project.sqft?.toLocaleString()} sqft</span>
+                                  <span>₹{(deal.re_project.estimated_total || 0).toLocaleString()}</span>
+                                  <span>{deal.re_project.handover_months} months</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <Button 
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => openConvertDealDialog(deal)}
+                            data-testid={`convert-deal-${deal.lead_id}`}
+                          >
+                            <ArrowRight className="h-4 w-4 mr-1" />
+                            Convert to Project
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* All Projects Tab */}
+              <TabsContent value="all_projects" className="m-0">
+                {/* Mobile Card View */}
+                <div className="block sm:hidden divide-y">
+                  {projects.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">No projects found</div>
+                  ) : (
+                    projects.map((project) => (
+                      <div key={project.project_id} className="p-4" data-testid={`project-card-${project.project_id}`}>
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="font-semibold">{project.name}</p>
+                            <p className="text-xs text-gray-400">{project.project_code}</p>
+                            <p className="text-sm text-gray-500">{project.client_name}</p>
+                          </div>
+                          {getStatusBadge(project.status)}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                          <div className="flex items-center gap-1 text-gray-500">
+                            <MapPin className="h-3 w-3" /> {project.location || 'N/A'}
+                          </div>
+                          <div className="flex items-center gap-1 text-gray-500">
+                            <Package className="h-3 w-3" /> {project.package_name || 'N/A'}
+                          </div>
+                          <div>{project.sqft?.toLocaleString()} sqft</div>
+                          <div className="font-semibold text-green-600">
+                            {formatCurrency(project.total_value)}
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          {getActionButton(project)}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Project</th>
+                        <th className="px-4 py-3 text-left">Client</th>
+                        <th className="px-4 py-3 text-left">Location</th>
+                        <th className="px-4 py-3 text-center">Stage</th>
+                        <th className="px-4 py-3 text-right">Value</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="px-4 py-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {projects.map((project) => (
+                        <tr key={project.project_id} className="hover:bg-gray-50" data-testid={`project-row-${project.project_id}`}>
+                          <td className="px-4 py-3">
+                            <p className="font-medium">{project.name}</p>
+                            <p className="text-xs text-gray-400">{project.project_id}</p>
+                          </td>
+                          <td className="px-4 py-3">{project.client_name}</td>
+                          <td className="px-4 py-3">{project.location || '-'}</td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge variant="outline">{project.current_stage?.replace(/_/g, ' ') || '-'}</Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right font-medium">{formatCurrency(project.total_value)}</td>
+                          <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
+                          <td className="px-4 py-3 text-center">
+                            <Button size="sm" variant="outline" onClick={() => openViewDialog(project)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </TabsContent>
+
+              {/* Original Tab Contents */}
+              <TabsContent value="draft" className="m-0">
               {/* Mobile Card View */}
               <div className="block sm:hidden divide-y">
                 {projects.length === 0 ? (
