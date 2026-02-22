@@ -569,48 +569,35 @@ export default function REProjectsPage() {
                 </div>
               </div>
               
-              {/* Cost Estimates */}
-              <div className="grid grid-cols-3 gap-4">
+              {/* Project Handover Time */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Estimated Material Cost</Label>
+                  <Label>Project Handover Time (Months)</Label>
                   <Input
                     type="number"
-                    value={editForm.estimated_material_cost}
-                    onChange={(e) => setEditForm({...editForm, estimated_material_cost: e.target.value})}
-                    disabled={!canEdit}
-                  />
-                </div>
-                <div>
-                  <Label>Estimated Labour Cost</Label>
-                  <Input
-                    type="number"
-                    value={editForm.estimated_labour_cost}
-                    onChange={(e) => setEditForm({...editForm, estimated_labour_cost: e.target.value})}
-                    disabled={!canEdit}
-                  />
-                </div>
-                <div>
-                  <Label>Estimated Overhead</Label>
-                  <Input
-                    type="number"
-                    value={editForm.estimated_overhead}
-                    onChange={(e) => setEditForm({...editForm, estimated_overhead: e.target.value})}
+                    value={editForm.handover_months}
+                    onChange={(e) => setEditForm({...editForm, handover_months: e.target.value})}
+                    placeholder="Enter number of months"
+                    min="1"
                     disabled={!canEdit}
                   />
                 </div>
               </div>
               
-              {/* Total */}
+              {/* Total (calculated from scope items) */}
               <Card className="bg-purple-50 border-purple-200">
                 <CardContent className="p-4 text-center">
-                  <p className="text-sm text-purple-600">Estimated Total</p>
+                  <p className="text-sm text-purple-600">Estimated Total (from Scope Items)</p>
                   <p className="text-3xl font-bold text-purple-800">
                     {formatCurrency(
-                      (parseFloat(editForm.estimated_material_cost) || 0) +
-                      (parseFloat(editForm.estimated_labour_cost) || 0) +
-                      (parseFloat(editForm.estimated_overhead) || 0)
+                      editForm.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0)
                     )}
                   </p>
+                  {editForm.handover_months && (
+                    <p className="text-sm text-purple-600 mt-2">
+                      Handover in {editForm.handover_months} month(s)
+                    </p>
+                  )}
                 </CardContent>
               </Card>
               
