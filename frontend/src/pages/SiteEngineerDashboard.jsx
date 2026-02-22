@@ -324,9 +324,9 @@ export default function SiteEngineerDashboard() {
           </Card>
         </div>
 
-        {/* Tabs for Projects and Work Orders */}
+        {/* Tabs for Projects, Work Orders, and Petty Cash */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="projects" className="gap-2">
               <Building2 className="h-4 w-4" /> Projects
             </TabsTrigger>
@@ -335,6 +335,14 @@ export default function SiteEngineerDashboard() {
               {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length > 0 && (
                 <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
                   {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="pettycash" className="gap-2">
+              <Wallet className="h-4 w-4" /> Petty Cash
+              {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length > 0 && (
+                <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-green-500">
+                  {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
                 </Badge>
               )}
             </TabsTrigger>
