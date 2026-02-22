@@ -59,6 +59,10 @@ export default function CRMPreSales() {
   const [createStageDialog, setCreateStageDialog] = useState(false);
   const [importDialog, setImportDialog] = useState(false);
   const [addFieldDialog, setAddFieldDialog] = useState(false);
+  const [manageFieldsDialog, setManageFieldsDialog] = useState(false);
+  const [deleteFieldDialog, setDeleteFieldDialog] = useState(false);
+  const [fieldToDelete, setFieldToDelete] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
   // Lead Form
   const [leadForm, setLeadForm] = useState({
