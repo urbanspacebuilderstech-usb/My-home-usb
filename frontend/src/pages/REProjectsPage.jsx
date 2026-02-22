@@ -257,7 +257,7 @@ export default function REProjectsPage() {
         formatCurrency(item.total || 0)
       ]);
       
-      doc.autoTable({
+      autoTable(doc, {
         startY: yPos,
         head: [['S.No', 'Description', 'Qty', 'Unit', 'Rate', 'Amount']],
         body: tableData,
