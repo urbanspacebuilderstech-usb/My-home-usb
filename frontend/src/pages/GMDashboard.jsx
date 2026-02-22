@@ -1294,8 +1294,15 @@ const GMDashboard = () => {
             </div>
           )}
           
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialog(false)}>Close</Button>
+          <DialogFooter className="border-t pt-4 mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setViewDialog(false)}
+              data-testid="close-view-dialog"
+              className="min-w-[100px]"
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
