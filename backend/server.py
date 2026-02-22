@@ -8655,9 +8655,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     return {
         "draft_count": draft_count,
         "pending_payment_count": pending_payment_count,
-        "payment_verified_count": payment_verified_count,
-        "planning_review_count": planning_review_count,
-        "awaiting_approval_count": awaiting_approval_count,
+        "payment_received_count": payment_received_count,
+        "in_planning_count": in_planning_count,
         "approved_count": approved_count,
         "total_ongoing": total_ongoing,
         "total_project_value": total_project_value,
