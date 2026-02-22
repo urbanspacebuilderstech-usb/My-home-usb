@@ -14630,6 +14630,205 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
 # ==================== END GOOGLE SHEETS INTEGRATION ====================
 
 
+class ImportAllSheetsRequest(BaseModel):
+    spreadsheet_url: str
+    column_mapping: Dict[str, str]  # Standard mapping to apply to all sheets
+
+
+@api_router.post("/sheets/import-all")
+async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(get_current_user)):
+    """Import leads from ALL sheets/tabs in a spreadsheet - tab name becomes source"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    try:
+        spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get spreadsheet metadata - all sheets/tabs
+        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheet_names = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
+        
+        if not sheet_names:
+            return {"message": "No sheets found", "imported": 0, "skipped": 0, "sources": []}
+        
+        # Get distribution settings for round-robin
+        settings = await get_distribution_settings()
+        pre_sales_team = settings.get("pre_sales_team", [])
+        current_index = settings.get("pre_sales_current_index", 0)
+        
+        total_imported = 0
+        total_skipped = 0
+        sources_imported = []
+        
+        for sheet_name in sheet_names:
+            # Get all data from this sheet
+            try:
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{sheet_name}'"
+                ).execute()
+            except Exception as e:
+                logger.error(f"Failed to read sheet {sheet_name}: {e}")
+                continue
+            
+            values = result.get('values', [])
+            if len(values) < 2:
+                continue  # Skip empty sheets
+            
+            headers = values[0]
+            data_rows = values[1:]
+            
+            # Use sheet name as source (lowercase, underscore)
+            source_name = sheet_name.lower().replace(" ", "_").replace("-", "_")
+            sheet_imported = 0
+            sheet_skipped = 0
+            
+            for row in data_rows:
+                # Map columns to lead fields
+                lead_data = {
+                    "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                    "source": source_name,
+                    "source_display": sheet_name,  # Original tab name for display
+                    "stage_type": "pre_sales",
+                    "current_stage_id": "stg_new_lead",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "imported_from_sheet": spreadsheet_id,
+                    "custom_fields": {}
+                }
+                
+                for col_letter, field_name in data.column_mapping.items():
+                    if not field_name or field_name == '_skip':
+                        continue
+                    col_idx = ord(col_letter[0]) - 65
+                    if len(col_letter) > 1:
+                        col_idx = 26 + ord(col_letter[1]) - 65
+                    
+                    if col_idx < len(row):
+                        value = str(row[col_idx]).strip() if col_idx < len(row) and row[col_idx] else ""
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes"]:
+                            lead_data[field_name] = value
+                        elif field_name == "sqft":
+                            try:
+                                lead_data["sqft"] = int(value.replace(",", "").replace(" ", ""))
+                            except:
+                                lead_data["sqft"] = value
+                        else:
+                            lead_data["custom_fields"][field_name] = value
+                
+                # Skip if no name or phone
+                if not lead_data.get("name") and not lead_data.get("phone"):
+                    sheet_skipped += 1
+                    continue
+                
+                # Check for duplicate (same phone)
+                if lead_data.get("phone"):
+                    existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                    if existing:
+                        sheet_skipped += 1
+                        continue
+                
+                # Assign using round-robin if distribution is enabled
+                if settings.get("enabled") and pre_sales_team:
+                    assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
+                    assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+                    lead_data["assigned_to"] = assigned_user_id
+                    lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
+                    current_index = (current_index + 1) % len(pre_sales_team)
+                
+                await db.leads.insert_one(lead_data)
+                sheet_imported += 1
+            
+            if sheet_imported > 0:
+                sources_imported.append({
+                    "name": sheet_name,
+                    "imported": sheet_imported,
+                    "skipped": sheet_skipped
+                })
+            
+            total_imported += sheet_imported
+            total_skipped += sheet_skipped
+        
+        # Update distribution index
+        if settings.get("enabled") and pre_sales_team:
+            await db.lead_distribution_settings.update_one(
+                {},
+                {"$set": {"pre_sales_current_index": current_index}}
+            )
+        
+        return {
+            "message": f"Import complete from {len(sources_imported)} sheets",
+            "imported": total_imported,
+            "skipped": total_skipped,
+            "sources": sources_imported
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to import all sheets: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to import: {str(e)}")
+
+
+@api_router.get("/sheets/sync/{spreadsheet_id}")
+async def sync_sheet(spreadsheet_id: str, user: User = Depends(get_current_user)):
+    """Sync/refresh leads from a spreadsheet - imports new leads only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    # Get existing column mapping from config
+    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    sources = config.get("sources", []) if config else []
+    
+    # Find source matching this spreadsheet
+    source = next((s for s in sources if s.get("spreadsheet_id") == spreadsheet_id), None)
+    column_mapping = source.get("column_mapping", {}) if source else {}
+    
+    if not column_mapping:
+        raise HTTPException(status_code=400, detail="No column mapping found. Please configure the sheet first.")
+    
+    # Use import-all logic
+    return await import_all_sheets(
+        ImportAllSheetsRequest(spreadsheet_url=spreadsheet_id, column_mapping=column_mapping),
+        user
+    )
+
+
+@api_router.get("/leads/sources")
+async def get_lead_sources(user: User = Depends(get_current_user)):
+    """Get all unique lead sources for filtering"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Get unique sources from leads collection
+    pipeline = [
+        {"$group": {"_id": "$source", "display": {"$first": "$source_display"}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    sources = await db.leads.aggregate(pipeline).to_list(100)
+    
+    return {
+        "sources": [
+            {
+                "id": s["_id"] or "unknown",
+                "display": s.get("display") or s["_id"] or "Unknown",
+                "count": s["count"]
+            }
+            for s in sources if s["_id"]
+        ]
+    }
+
+
 # ==================== END CRM MODULE ENDPOINTS ====================
 
 
