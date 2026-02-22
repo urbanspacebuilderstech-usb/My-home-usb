@@ -17,7 +17,7 @@ const API = `${BACKEND_URL}/api`;
 const ROLES = [
   { value: 'super_admin', label: 'Super Admin', color: 'bg-red-100 text-red-800', description: 'Full system access' },
   { value: 'general_manager', label: 'General Manager', color: 'bg-indigo-100 text-indigo-800', description: 'Overall management' },
-  { value: 'cro', label: 'CRO', color: 'bg-pink-100 text-pink-800', description: 'Client relations & payments' },
+  { value: 'cre', label: 'CRE', color: 'bg-pink-100 text-pink-800', description: 'Client relations & payments' },
   { value: 'accountant', label: 'Accountant', color: 'bg-blue-100 text-blue-800', description: 'Approvals & expenses' },
   { value: 'project_manager', label: 'Project Manager', color: 'bg-green-100 text-green-800', description: 'Projects & work orders' },
   { value: 'planning', label: 'Planning', color: 'bg-yellow-100 text-yellow-800', description: 'BOQ & planning' },

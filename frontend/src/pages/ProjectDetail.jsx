@@ -317,7 +317,7 @@ export default function ProjectDetail() {
   const handleRequestPayment = async (stageId) => {
     try {
       await axios.patch(`${API}/payment-stages/${stageId}/request`);
-      toast.success('Payment requested - sent to CRO');
+      toast.success('Payment requested - sent to CRE');
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request payment');
@@ -1167,7 +1167,7 @@ export default function ProjectDetail() {
                           <DialogTitle>Submit Payment Schedule</DialogTitle>
                           <DialogDescription>
                             This will submit all {draftPaymentItems.length} draft payment stages for collection.
-                            Once submitted, these stages will be visible to CRO for payment collection.
+                            Once submitted, these stages will be visible to CRE for payment collection.
                           </DialogDescription>
                         </DialogHeader>
                         <div className="py-4">
@@ -2000,7 +2000,7 @@ export default function ProjectDetail() {
                       <th className="px-3 py-3 text-center font-semibold">Date</th>
                       <th className="px-3 py-3 text-center font-semibold">Status</th>
                       <th className="px-3 py-3 text-left font-semibold">Remarks</th>
-                      {(user?.role === 'cro' || user?.role === 'super_admin') && (
+                      {(user?.role === 'cre' || user?.role === 'super_admin') && (
                         <th className="px-3 py-3 text-center font-semibold">Action</th>
                       )}
                     </tr>
@@ -2042,7 +2042,7 @@ export default function ProjectDetail() {
                             <td className="px-3 py-3 text-xs text-gray-500 max-w-xs truncate">
                               {stage.remarks || '-'}
                             </td>
-                            {(user?.role === 'cro' || user?.role === 'super_admin') && (
+                            {(user?.role === 'cre' || user?.role === 'super_admin') && (
                               <td className="px-3 py-3 text-center">
                                 {!isPaid && (
                                   <Button 

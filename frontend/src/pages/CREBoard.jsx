@@ -35,7 +35,7 @@ const PAYMENT_MODES = [
   { value: 'credit_card', label: 'Credit Card' }
 ];
 
-export default function CROBoard() {
+export default function CREBoard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState({});
@@ -93,8 +93,8 @@ export default function CROBoard() {
         axios.get(`${API}/cro/dashboard`)
       ]);
       
-      if (!['cro', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied. Only CRO can access this page.');
+      if (!['cre', 'super_admin'].includes(userRes.data.role)) {
+        toast.error('Access denied. Only CRE can access this page.');
         window.location.href = '/dashboard';
         return;
       }
@@ -106,7 +106,7 @@ export default function CROBoard() {
       setProjectStages(dashboardRes.data.project_stages || []);
       setStageCounts(dashboardRes.data.stage_counts || {});
       
-      // Fetch payment requests for CRO
+      // Fetch payment requests for CRE
       try {
         const paymentReqRes = await axios.get(`${API}/cro/payment-requests`);
         setPaymentRequests(paymentReqRes.data);
@@ -353,7 +353,7 @@ export default function CROBoard() {
               <Users className="h-5 w-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-bold">CRO Board</h1>
+              <h1 className="text-lg sm:text-xl font-bold">CRE Board</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Client Relationship & Project Onboarding</p>
             </div>
           </div>
@@ -365,7 +365,7 @@ export default function CROBoard() {
             <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold">{user?.name}</p>
-                <p className="text-xs text-gray-500">CRO</p>
+                <p className="text-xs text-gray-500">CRE</p>
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout}>
                 <LogOut className="h-4 w-4" />
