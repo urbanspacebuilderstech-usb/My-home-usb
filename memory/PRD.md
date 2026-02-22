@@ -46,7 +46,45 @@ Build a Construction Accounting CRM with:
 
 ### ✅ COMPLETED (December 2025 - February 2026)
 
-#### GM RE Approval → CRE New Deals Workflow (February 22, 2026) - LATEST
+#### Site Engineer & PM Workflow System (February 22, 2026) - LATEST
+- [x] **3 New Roles Added**:
+  - Associate Project Manager (`associate_pm`)
+  - Senior Site Engineer (`sr_site_engineer`)
+  - Site Engineer enhancements
+
+- [x] **Project Manager Dashboard** (`/pm-dashboard`):
+  - Overview with pending requests count
+  - Material request approval (PM → Planning → Procurement flow)
+  - Labour request verification (PM → GM approval)
+  - Team assignment to projects
+  - Team member management view
+
+- [x] **Material Request Flow Enhanced**:
+  - Site Engineer creates request
+  - Project Manager approves first
+  - Planning Department approves
+  - Procurement assigns vendor with payment type (Advance/Full/Credit)
+  - Accountant approves payment (for advance)
+  - Order placed → In Transit → Received
+
+- [x] **Petty Cash System** (Complete):
+  - Site Engineer requests petty cash
+  - Accountant issues funds
+  - Site Engineer records expenses
+  - Submit for settlement
+  - Accountant verifies and moves to master expenses
+
+- [x] **Site Engineer Limited View**:
+  - Cannot see project value, client payments, financial info
+  - Only sees Materials, Labour, Petty Cash
+
+- [x] **API Endpoints**:
+  - `GET/POST /api/pm/*` - PM Dashboard endpoints
+  - `GET/POST /api/site-engineer/petty-cash/*` - Petty cash CRUD
+  - `GET/PATCH /api/accountant/petty-cash/*` - Accountant petty cash management
+  - Enhanced material request approval flow
+
+#### GM RE Approval → CRE New Deals Workflow (February 22, 2026)
 - [x] **RE Approval Workflow**:
   - Planning submits RE for GM approval (status: `re_submitted`)
   - GM Dashboard Planning tab shows pending RE approvals
