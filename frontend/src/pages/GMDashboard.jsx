@@ -1055,89 +1055,156 @@ const GMDashboard = () => {
 
       {/* View Details Dialog */}
       <Dialog open={viewDialog} onOpenChange={setViewDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5 text-blue-600" />
-              {viewType === 're_project' && 'RE Project Details'}
-              {viewType === 'project' && 'Project Details'}
-              {viewType === 'site_request' && 'Site Request Details'}
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye className="h-5 w-5 text-blue-600" />
+                {viewType === 're_project' && 'RE Project Details'}
+                {viewType === 'project' && 'Project Details'}
+                {viewType === 'site_request' && 'Site Request Details'}
+              </div>
+              {viewType === 're_project' && viewItem && (
+                <Button 
+                  size="sm"
+                  onClick={() => generateREPDF(viewItem)}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <Download className="h-4 w-4 mr-1" /> Download PDF
+                </Button>
+              )}
             </DialogTitle>
+            {viewType === 're_project' && (
+              <DialogDescription>
+                URBAN SPACE BUILDERS - Ref: {viewItem?.re_project_id}
+              </DialogDescription>
+            )}
           </DialogHeader>
           
           {viewItem && (
             <div className="space-y-4">
               {viewType === 're_project' && (
                 <>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-500">Project Name</p>
-                      <p className="font-medium">{viewItem.project_name || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Client</p>
-                      <p className="font-medium">{viewItem.client_name}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Location</p>
-                      <p className="font-medium">{viewItem.location || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Square Feet</p>
-                      <p className="font-medium">{viewItem.sqft || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Building Type</p>
-                      <p className="font-medium">{viewItem.building_type || '-'}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-500">Handover Time</p>
-                      <p className="font-medium">{viewItem.handover_months ? `${viewItem.handover_months} months` : '-'}</p>
-                    </div>
-                  </div>
+                  {/* Client Info Card */}
+                  <Card className="bg-gray-50">
+                    <CardContent className="p-4">
+                      <h4 className="font-semibold mb-2 text-gray-700">Client Information</h4>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                          <span className="text-gray-500">Name:</span>
+                          <p className="font-medium">{viewItem.client_name}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Phone:</span>
+                          <p>{viewItem.client_phone || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Email:</span>
+                          <p>{viewItem.client_email || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Location:</span>
+                          <p>{viewItem.location || '-'}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                   
-                  {viewItem.rough_scope_items?.length > 0 && (
-                    <div>
-                      <p className="font-semibold mb-2">Scope Items</p>
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left pb-2">Description</th>
-                            <th className="text-right pb-2">Qty</th>
-                            <th className="text-left pb-2">Unit</th>
-                            <th className="text-right pb-2">Rate</th>
-                            <th className="text-right pb-2">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {viewItem.rough_scope_items.map((item, idx) => (
-                            <tr key={idx} className="border-b">
-                              <td className="py-2">{item.description}</td>
-                              <td className="text-right py-2">{item.quantity}</td>
-                              <td className="py-2">{item.unit}</td>
-                              <td className="text-right py-2">{formatCurrency(item.rate)}</td>
-                              <td className="text-right py-2 font-medium">{formatCurrency(item.total)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  {/* Project Details */}
+                  <Card>
+                    <CardContent className="p-4">
+                      <h4 className="font-semibold mb-2 text-gray-700">Project Details</h4>
+                      <div className="grid grid-cols-4 gap-3 text-sm">
+                        <div>
+                          <span className="text-gray-500">Project Name:</span>
+                          <p className="font-medium">{viewItem.project_name || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Square Feet:</span>
+                          <p>{viewItem.sqft ? `${viewItem.sqft} sqft` : '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Building Type:</span>
+                          <p className="capitalize">{viewItem.building_type || '-'}</p>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Handover:</span>
+                          <p>{viewItem.handover_months ? `${viewItem.handover_months} months` : '-'}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
                   
-                  <Card className="bg-purple-50 border-purple-200">
+                  {/* Full Scope of Works */}
+                  <Card className="border-purple-200">
+                    <CardContent className="p-4">
+                      <h4 className="font-semibold mb-3 text-purple-800">Scope of Works</h4>
+                      {viewItem.rough_scope_items?.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="bg-gray-100 border-b">
+                                <th className="text-left p-2 font-semibold">S.No</th>
+                                <th className="text-left p-2 font-semibold">Description</th>
+                                <th className="text-center p-2 font-semibold">Qty</th>
+                                <th className="text-center p-2 font-semibold">Unit</th>
+                                <th className="text-right p-2 font-semibold">Rate</th>
+                                <th className="text-right p-2 font-semibold">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {viewItem.rough_scope_items.map((item, idx) => (
+                                <tr key={idx} className="border-b hover:bg-gray-50">
+                                  <td className="p-2 text-center">{idx + 1}</td>
+                                  <td className="p-2">{item.description || item.name || '-'}</td>
+                                  <td className="p-2 text-center">{item.quantity || '-'}</td>
+                                  <td className="p-2 text-center">{item.unit || '-'}</td>
+                                  <td className="p-2 text-right">{formatCurrency(item.rate || 0)}</td>
+                                  <td className="p-2 text-right font-medium">{formatCurrency(item.total || 0)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-purple-50">
+                                <td colSpan={5} className="p-2 text-right font-bold text-purple-800">Total:</td>
+                                <td className="p-2 text-right font-bold text-purple-900 text-lg">
+                                  {formatCurrency(viewItem.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0))}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="text-center py-6 text-gray-500">
+                          <FileText className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                          No scope items added yet
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                  
+                  {/* Estimated Total */}
+                  <Card className="bg-gradient-to-r from-purple-600 to-purple-700">
                     <CardContent className="p-4 text-center">
-                      <p className="text-sm text-purple-600">Estimated Total</p>
-                      <p className="text-3xl font-bold text-purple-800">
-                        {formatCurrency(viewItem.estimated_total)}
+                      <p className="text-sm text-purple-100">Estimated Total</p>
+                      <p className="text-3xl font-bold text-white">
+                        {formatCurrency(viewItem.estimated_total || viewItem.rough_scope_items?.reduce((sum, item) => sum + (item.total || 0), 0) || 0)}
                       </p>
+                      {viewItem.handover_months && (
+                        <p className="text-sm text-purple-200 mt-1">
+                          Project Duration: {viewItem.handover_months} months
+                        </p>
+                      )}
                     </CardContent>
                   </Card>
                   
                   {viewItem.planning_notes && (
-                    <div>
-                      <p className="text-sm text-gray-500">Planning Notes</p>
-                      <p className="bg-gray-50 p-3 rounded">{viewItem.planning_notes}</p>
-                    </div>
+                    <Card className="bg-gray-50">
+                      <CardContent className="p-4">
+                        <h4 className="font-semibold mb-2 text-gray-700">Planning Notes</h4>
+                        <p className="text-sm text-gray-600">{viewItem.planning_notes}</p>
+                      </CardContent>
+                    </Card>
                   )}
                 </>
               )}
