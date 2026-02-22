@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -24,22 +25,72 @@ import {
 import { 
   Users, Target, TrendingUp, UserPlus, Settings, RefreshCw,
   Zap, BarChart3, ArrowRight, Phone, Mail, Clock, CheckCircle,
-  User, ChevronRight, Filter, Search, Layers
+  User, ChevronRight, Filter, Search, Layers, Edit2, Eye, X,
+  Calendar, FileText, Building2, MapPin, ChevronDown, ArrowUpRight
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = process.env.REACT_APP_BACKEND_URL;
+
+// Source colors for badges
+const SOURCE_COLORS = {
+  meta: 'bg-blue-100 text-blue-700',
+  seo: 'bg-green-100 text-green-700',
+  referral: 'bg-purple-100 text-purple-700',
+  walk_in: 'bg-yellow-100 text-yellow-700',
+  website: 'bg-pink-100 text-pink-700',
+  csv_import: 'bg-orange-100 text-orange-700',
+  other: 'bg-gray-100 text-gray-700'
+};
+
+// Stage colors
+const STAGE_COLORS = {
+  stg_new_lead: 'bg-blue-500',
+  stg_contacted: 'bg-yellow-500',
+  stg_proposal: 'bg-purple-500',
+  stg_followup: 'bg-orange-500',
+  stg_appt_booked: 'bg-green-500',
+  stg_new_appointment: 'bg-blue-500',
+  stg_discussion: 'bg-yellow-500',
+  stg_site_visit: 'bg-purple-500',
+  stg_re_requested: 'bg-orange-500',
+  stg_re_shared: 'bg-pink-500',
+  stg_negotiation: 'bg-indigo-500',
+  stg_deal_closed: 'bg-green-600',
+  stg_lost: 'bg-red-500'
+};
 
 export default function MarketingBoard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState(null);
   const [settings, setSettings] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  
+  // Team Management
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showEditMember, setShowEditMember] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
   const [newMember, setNewMember] = useState({ name: '', email: '', role: 'pre_sales', phone: '' });
+  
+  // Individual Salesperson View
+  const [selectedPerson, setSelectedPerson] = useState(null);
+  const [personLeads, setPersonLeads] = useState([]);
+  const [personFilter, setPersonFilter] = useState({ 
+    date_from: '', 
+    date_to: '', 
+    source: '', 
+    stage: '' 
+  });
+  
+  // All Leads
   const [allLeads, setAllLeads] = useState([]);
-  const [leadsFilter, setLeadsFilter] = useState({ stage_type: '', assigned_to: '' });
+  const [leadsFilter, setLeadsFilter] = useState({ stage_type: '', assigned_to: '', source: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Edit Lead
+  const [showEditLead, setShowEditLead] = useState(false);
+  const [editingLead, setEditingLead] = useState(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -83,8 +134,8 @@ export default function MarketingBoard() {
     try {
       const token = localStorage.getItem('token');
       const params = new URLSearchParams();
-      if (leadsFilter.stage_type) params.append('stage_type', leadsFilter.stage_type);
-      if (leadsFilter.assigned_to) params.append('assigned_to', leadsFilter.assigned_to);
+      if (leadsFilter.stage_type && leadsFilter.stage_type !== 'all') params.append('stage_type', leadsFilter.stage_type);
+      if (leadsFilter.assigned_to && leadsFilter.assigned_to !== 'all') params.append('assigned_to', leadsFilter.assigned_to);
       
       const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -95,11 +146,50 @@ export default function MarketingBoard() {
     }
   };
 
+  const fetchPersonLeads = async (userId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const params = new URLSearchParams();
+      params.append('assigned_to', userId);
+      if (personFilter.source && personFilter.source !== 'all') params.append('source', personFilter.source);
+      
+      const res = await axios.get(`${API}/api/marketing/all-leads?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      let leads = res.data.leads || [];
+      
+      // Apply date filters on frontend
+      if (personFilter.date_from) {
+        const fromDate = new Date(personFilter.date_from);
+        leads = leads.filter(l => new Date(l.created_at) >= fromDate);
+      }
+      if (personFilter.date_to) {
+        const toDate = new Date(personFilter.date_to);
+        toDate.setHours(23, 59, 59);
+        leads = leads.filter(l => new Date(l.created_at) <= toDate);
+      }
+      if (personFilter.stage && personFilter.stage !== 'all') {
+        leads = leads.filter(l => l.current_stage_id === personFilter.stage);
+      }
+      
+      setPersonLeads(leads);
+    } catch (error) {
+      toast.error('Failed to load person leads');
+    }
+  };
+
   useEffect(() => {
-    if (user) {
+    if (user && activeTab === 'leads') {
       fetchAllLeads();
     }
-  }, [user, leadsFilter]);
+  }, [user, activeTab, leadsFilter]);
+
+  useEffect(() => {
+    if (selectedPerson) {
+      fetchPersonLeads(selectedPerson.user_id);
+    }
+  }, [selectedPerson, personFilter]);
 
   const toggleDistribution = async () => {
     try {
@@ -143,8 +233,35 @@ export default function MarketingBoard() {
       toast.success('Lead reassigned successfully');
       fetchAllLeads();
       fetchDashboard();
+      if (selectedPerson) {
+        fetchPersonLeads(selectedPerson.user_id);
+      }
     } catch (error) {
       toast.error('Failed to assign lead');
+    }
+  };
+
+  const handleUpdateLead = async () => {
+    if (!editingLead) return;
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(`${API}/api/crm/leads/${editingLead.lead_id}`, {
+        name: editingLead.name,
+        email: editingLead.email,
+        phone: editingLead.phone,
+        city: editingLead.city
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success('Lead updated successfully');
+      setShowEditLead(false);
+      setEditingLead(null);
+      fetchAllLeads();
+      if (selectedPerson) {
+        fetchPersonLeads(selectedPerson.user_id);
+      }
+    } catch (error) {
+      toast.error('Failed to update lead');
     }
   };
 
@@ -156,6 +273,28 @@ export default function MarketingBoard() {
       lead.phone?.includes(searchQuery)
     );
   });
+
+  const openPersonView = (person, type) => {
+    setSelectedPerson({ ...person, type });
+    setPersonFilter({ date_from: '', date_to: '', source: '', stage: '' });
+  };
+
+  const getStageStats = (leads) => {
+    const stats = {};
+    leads.forEach(lead => {
+      const stage = lead.current_stage_id || 'unknown';
+      stats[stage] = (stats[stage] || 0) + 1;
+    });
+    return stats;
+  };
+
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', { 
+      style: 'currency', 
+      currency: 'INR',
+      maximumFractionDigits: 0 
+    }).format(amount || 0);
+  };
 
   if (loading) {
     return (
@@ -177,7 +316,7 @@ export default function MarketingBoard() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">Marketing Board</h1>
-                <p className="text-sm text-gray-500">Lead Distribution Engine</p>
+                <p className="text-sm text-gray-500">Lead Distribution & Team Management</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -216,26 +355,6 @@ export default function MarketingBoard() {
               </div>
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 mt-2">
-              <div className="bg-white rounded-lg p-4 border">
-                <div className="flex items-center gap-2 mb-2">
-                  <Users className="h-5 w-5 text-blue-600" />
-                  <span className="font-semibold">Pre-Sales Team</span>
-                </div>
-                <p className="text-2xl font-bold text-blue-700">{settings?.pre_sales_team?.length || 0} members</p>
-                <p className="text-xs text-gray-500 mt-1">Next assignment index: {settings?.pre_sales_current_index || 0}</p>
-              </div>
-              <div className="bg-white rounded-lg p-4 border">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="h-5 w-5 text-green-600" />
-                  <span className="font-semibold">Sales Team</span>
-                </div>
-                <p className="text-2xl font-bold text-green-700">{settings?.sales_team?.length || 0} members</p>
-                <p className="text-xs text-gray-500 mt-1">Next assignment index: {settings?.sales_current_index || 0}</p>
-              </div>
-            </div>
-          </CardContent>
         </Card>
 
         {/* Stats Overview */}
@@ -266,33 +385,41 @@ export default function MarketingBoard() {
           </Card>
         </div>
 
-        <Tabs defaultValue="team" className="space-y-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="bg-white border">
+            <TabsTrigger value="overview" className="data-[state=active]:bg-indigo-100">
+              <BarChart3 className="h-4 w-4 mr-2" /> Overview
+            </TabsTrigger>
             <TabsTrigger value="team" className="data-[state=active]:bg-indigo-100">
-              <Users className="h-4 w-4 mr-2" /> Team Performance
+              <Users className="h-4 w-4 mr-2" /> Sales Team
             </TabsTrigger>
             <TabsTrigger value="leads" className="data-[state=active]:bg-indigo-100">
               <Layers className="h-4 w-4 mr-2" /> All Leads
             </TabsTrigger>
             <TabsTrigger value="sources" className="data-[state=active]:bg-indigo-100">
-              <BarChart3 className="h-4 w-4 mr-2" /> Lead Sources
+              <TrendingUp className="h-4 w-4 mr-2" /> Lead Sources
             </TabsTrigger>
           </TabsList>
 
-          {/* Team Performance Tab */}
-          <TabsContent value="team">
+          {/* Overview Tab */}
+          <TabsContent value="overview">
             <div className="grid md:grid-cols-2 gap-6">
-              {/* Pre-Sales Team */}
+              {/* Pre-Sales Team Summary */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-blue-700">
-                    <Users className="h-5 w-5" /> Pre-Sales Team Performance
+                    <Users className="h-5 w-5" /> Pre-Sales Team
                   </CardTitle>
+                  <CardDescription>Lead qualification and appointment booking</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
                     {dashboard?.pre_sales_team?.map((member, idx) => (
-                      <div key={member.user_id} className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow">
+                      <div 
+                        key={member.user_id} 
+                        className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => openPersonView(member, 'pre_sales')}
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold">
@@ -303,20 +430,20 @@ export default function MarketingBoard() {
                               <p className="text-xs text-gray-500">{member.email}</p>
                             </div>
                           </div>
-                          <Badge className="bg-blue-100 text-blue-700">{idx + 1}</Badge>
+                          <ChevronRight className="h-5 w-5 text-gray-400" />
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-3">
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-blue-600">{member.total_leads}</p>
-                            <p className="text-xs text-gray-500">Total Leads</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-blue-600">{member.total_leads}</p>
+                            <p className="text-xs text-gray-500">Leads</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-green-600">{member.converted}</p>
-                            <p className="text-xs text-gray-500">Converted</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-green-600">{member.converted}</p>
+                            <p className="text-xs text-gray-500">Appt Booked</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-purple-600">{member.conversion_rate}%</p>
-                            <p className="text-xs text-gray-500">Conversion</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-purple-600">{member.conversion_rate}%</p>
+                            <p className="text-xs text-gray-500">Rate</p>
                           </div>
                         </div>
                       </div>
@@ -328,17 +455,22 @@ export default function MarketingBoard() {
                 </CardContent>
               </Card>
 
-              {/* Sales Team */}
+              {/* Sales Team Summary */}
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-green-700">
-                    <Target className="h-5 w-5" /> Sales Team Performance
+                    <Target className="h-5 w-5" /> Sales Team (Post-Sales)
                   </CardTitle>
+                  <CardDescription>Deal closure and conversion</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
                     {dashboard?.sales_team?.map((member, idx) => (
-                      <div key={member.user_id} className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow">
+                      <div 
+                        key={member.user_id} 
+                        className="bg-gray-50 rounded-lg p-4 border hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => openPersonView(member, 'sales')}
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold">
@@ -349,19 +481,19 @@ export default function MarketingBoard() {
                               <p className="text-xs text-gray-500">{member.email}</p>
                             </div>
                           </div>
-                          <Badge className="bg-green-100 text-green-700">{idx + 1}</Badge>
+                          <ChevronRight className="h-5 w-5 text-gray-400" />
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-3">
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-green-600">{member.total_appointments}</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-green-600">{member.total_appointments}</p>
                             <p className="text-xs text-gray-500">Appointments</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-blue-600">{member.deals_closed}</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-blue-600">{member.deals_closed}</p>
                             <p className="text-xs text-gray-500">Deals Closed</p>
                           </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-purple-600">{member.close_rate}%</p>
+                          <div className="text-center bg-white rounded p-2">
+                            <p className="text-xl font-bold text-purple-600">{member.close_rate}%</p>
                             <p className="text-xs text-gray-500">Close Rate</p>
                           </div>
                         </div>
@@ -370,6 +502,171 @@ export default function MarketingBoard() {
                     {(!dashboard?.sales_team || dashboard.sales_team.length === 0) && (
                       <p className="text-center text-gray-500 py-8">No Sales team members yet</p>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Recent Activity */}
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-gray-500" /> Recent Lead Activity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {dashboard?.recent_leads?.slice(0, 10).map(lead => (
+                    <div key={lead.lead_id} className="flex items-center justify-between py-2 border-b last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${lead.stage_type === 'pre_sales' ? 'bg-blue-500' : 'bg-green-500'}`}></div>
+                        <span className="font-medium">{lead.name}</span>
+                        <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
+                          {lead.source?.replace('_', ' ')}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm text-gray-500">{lead.assigned_to_name || 'Unassigned'}</span>
+                        <span className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Team Management Tab */}
+          <TabsContent value="team">
+            <div className="space-y-6">
+              {/* Pre-Sales Team List */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-blue-700">
+                        <Users className="h-5 w-5" /> Pre-Sales Team
+                      </CardTitle>
+                      <CardDescription>Lead qualification and appointment booking team</CardDescription>
+                    </div>
+                    <Button size="sm" onClick={() => { setNewMember({...newMember, role: 'pre_sales'}); setShowAddMember(true); }}>
+                      <UserPlus className="h-4 w-4 mr-2" /> Add Pre-Sales
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold">Name</th>
+                          <th className="px-4 py-3 text-left font-semibold">Contact</th>
+                          <th className="px-4 py-3 text-center font-semibold">Total Leads</th>
+                          <th className="px-4 py-3 text-center font-semibold">Appt Booked</th>
+                          <th className="px-4 py-3 text-center font-semibold">Conversion</th>
+                          <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {dashboard?.pre_sales_team?.map(member => (
+                          <tr key={member.user_id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-sm">
+                                  {member.name?.charAt(0)}
+                                </div>
+                                <span className="font-medium">{member.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs text-gray-600">{member.email}</p>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="text-lg font-bold text-blue-600">{member.total_leads}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="text-lg font-bold text-green-600">{member.converted}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge className={member.conversion_rate >= 20 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
+                                {member.conversion_rate}%
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'pre_sales')}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Sales Team List */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2 text-green-700">
+                        <Target className="h-5 w-5" /> Sales Team (Post-Sales)
+                      </CardTitle>
+                      <CardDescription>Deal closure and conversion team</CardDescription>
+                    </div>
+                    <Button size="sm" onClick={() => { setNewMember({...newMember, role: 'sales'}); setShowAddMember(true); }}>
+                      <UserPlus className="h-4 w-4 mr-2" /> Add Sales
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold">Name</th>
+                          <th className="px-4 py-3 text-left font-semibold">Contact</th>
+                          <th className="px-4 py-3 text-center font-semibold">Appointments</th>
+                          <th className="px-4 py-3 text-center font-semibold">Deals Closed</th>
+                          <th className="px-4 py-3 text-center font-semibold">Close Rate</th>
+                          <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {dashboard?.sales_team?.map(member => (
+                          <tr key={member.user_id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center text-white font-bold text-sm">
+                                  {member.name?.charAt(0)}
+                                </div>
+                                <span className="font-medium">{member.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="text-xs text-gray-600">{member.email}</p>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="text-lg font-bold text-green-600">{member.total_appointments}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className="text-lg font-bold text-blue-600">{member.deals_closed}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge className={member.close_rate >= 15 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
+                                {member.close_rate}%
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'sales')}>
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </CardContent>
               </Card>
@@ -393,13 +690,27 @@ export default function MarketingBoard() {
                       />
                     </div>
                     <Select value={leadsFilter.stage_type} onValueChange={(v) => setLeadsFilter(p => ({ ...p, stage_type: v }))}>
-                      <SelectTrigger className="w-[150px]">
+                      <SelectTrigger className="w-[140px]">
                         <SelectValue placeholder="All Types" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Types</SelectItem>
                         <SelectItem value="pre_sales">Pre-Sales</SelectItem>
                         <SelectItem value="sales">Sales</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={leadsFilter.assigned_to} onValueChange={(v) => setLeadsFilter(p => ({ ...p, assigned_to: v }))}>
+                      <SelectTrigger className="w-[160px]">
+                        <SelectValue placeholder="All Assignees" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Assignees</SelectItem>
+                        {dashboard?.pre_sales_team?.map(m => (
+                          <SelectItem key={m.user_id} value={m.user_id}>{m.name} (PS)</SelectItem>
+                        ))}
+                        {dashboard?.sales_team?.map(m => (
+                          <SelectItem key={m.user_id} value={m.user_id}>{m.name} (S)</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -415,7 +726,9 @@ export default function MarketingBoard() {
                         <th className="px-4 py-3 text-left font-semibold">Type</th>
                         <th className="px-4 py-3 text-left font-semibold">Source</th>
                         <th className="px-4 py-3 text-left font-semibold">Assigned To</th>
+                        <th className="px-4 py-3 text-left font-semibold">Stage</th>
                         <th className="px-4 py-3 text-left font-semibold">Created</th>
+                        <th className="px-4 py-3 text-center font-semibold">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -441,14 +754,16 @@ export default function MarketingBoard() {
                             </Badge>
                           </td>
                           <td className="px-4 py-3">
-                            <Badge variant="outline">{lead.source?.replace('_', ' ')}</Badge>
+                            <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
+                              {lead.source?.replace('_', ' ')}
+                            </Badge>
                           </td>
                           <td className="px-4 py-3">
                             <Select 
                               value={lead.assigned_to || 'unassigned'} 
                               onValueChange={(v) => v !== 'unassigned' && handleAssignLead(lead.lead_id, v)}
                             >
-                              <SelectTrigger className="w-[150px] h-8 text-xs">
+                              <SelectTrigger className="w-[140px] h-8 text-xs">
                                 <SelectValue>
                                   {lead.assigned_to_name || 'Unassigned'}
                                 </SelectValue>
@@ -466,14 +781,24 @@ export default function MarketingBoard() {
                               </SelectContent>
                             </Select>
                           </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className="text-xs">
+                              {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
+                            </Badge>
+                          </td>
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {new Date(lead.created_at).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditingLead(lead); setShowEditLead(true); }}>
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
                           </td>
                         </tr>
                       ))}
                       {filteredLeads.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                          <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
                             No leads found
                           </td>
                         </tr>
@@ -490,13 +815,17 @@ export default function MarketingBoard() {
             <Card>
               <CardHeader>
                 <CardTitle>Lead Sources Breakdown</CardTitle>
+                <CardDescription>Where your leads are coming from</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                   {dashboard?.leads_by_source?.map(source => (
-                    <div key={source._id} className="bg-gray-50 rounded-lg p-4 border text-center">
+                    <div key={source._id} className="bg-gray-50 rounded-lg p-4 border text-center hover:shadow-md transition-shadow">
                       <p className="text-3xl font-bold text-indigo-600">{source.count}</p>
-                      <p className="text-sm text-gray-600 capitalize">{source._id?.replace('_', ' ') || 'Unknown'}</p>
+                      <p className="text-sm text-gray-600 capitalize mt-1">{source._id?.replace('_', ' ') || 'Unknown'}</p>
+                      <Badge className={`mt-2 ${SOURCE_COLORS[source._id] || SOURCE_COLORS.other}`}>
+                        {((source.count / dashboard.total_pre_sales_leads) * 100).toFixed(1)}%
+                      </Badge>
                     </div>
                   ))}
                 </div>
@@ -504,34 +833,216 @@ export default function MarketingBoard() {
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Recent Leads */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-500" /> Recent Lead Activity
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {dashboard?.recent_leads?.slice(0, 10).map(lead => (
-                <div key={lead.lead_id} className="flex items-center justify-between py-2 border-b last:border-0">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${lead.stage_type === 'pre_sales' ? 'bg-blue-500' : 'bg-green-500'}`}></div>
-                    <span className="font-medium">{lead.name}</span>
-                    <Badge variant="outline" className="text-xs">{lead.source}</Badge>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-500">{lead.assigned_to_name || 'Unassigned'}</span>
-                    <ArrowRight className="h-4 w-4 text-gray-400" />
-                    <span className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </main>
+
+      {/* Individual Person View Dialog */}
+      <Dialog open={!!selectedPerson} onOpenChange={(open) => !open && setSelectedPerson(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${selectedPerson?.type === 'pre_sales' ? 'bg-gradient-to-br from-blue-400 to-blue-600' : 'bg-gradient-to-br from-green-400 to-green-600'}`}>
+                {selectedPerson?.name?.charAt(0)}
+              </div>
+              <div>
+                <p className="text-xl">{selectedPerson?.name}</p>
+                <p className="text-sm text-gray-500 font-normal">{selectedPerson?.email}</p>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedPerson && (
+            <div className="space-y-6 mt-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-4 gap-4">
+                <Card className="bg-blue-50 border-blue-200">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-blue-700">
+                      {selectedPerson.type === 'pre_sales' ? selectedPerson.total_leads : selectedPerson.total_appointments}
+                    </p>
+                    <p className="text-xs text-blue-600">Total {selectedPerson.type === 'pre_sales' ? 'Leads' : 'Appointments'}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-green-50 border-green-200">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-green-700">
+                      {selectedPerson.type === 'pre_sales' ? selectedPerson.converted : selectedPerson.deals_closed}
+                    </p>
+                    <p className="text-xs text-green-600">{selectedPerson.type === 'pre_sales' ? 'Appt Booked' : 'Deals Closed'}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-purple-50 border-purple-200">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-purple-700">
+                      {selectedPerson.type === 'pre_sales' ? selectedPerson.conversion_rate : selectedPerson.close_rate}%
+                    </p>
+                    <p className="text-xs text-purple-600">{selectedPerson.type === 'pre_sales' ? 'Conversion Rate' : 'Close Rate'}</p>
+                  </CardContent>
+                </Card>
+                <Card className="bg-orange-50 border-orange-200">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-orange-700">{personLeads.length}</p>
+                    <p className="text-xs text-orange-600">Filtered Results</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Stage Breakdown */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Lead Stage Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(getStageStats(personLeads)).map(([stage, count]) => (
+                      <Badge key={stage} variant="outline" className="text-xs">
+                        <span className={`w-2 h-2 rounded-full mr-1.5 ${STAGE_COLORS[stage] || 'bg-gray-500'}`}></span>
+                        {stage.replace('stg_', '').replace(/_/g, ' ')}: {count}
+                      </Badge>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Filters */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Filter className="h-4 w-4" /> Filters
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-xs">From Date</Label>
+                      <Input 
+                        type="date" 
+                        value={personFilter.date_from}
+                        onChange={(e) => setPersonFilter(p => ({ ...p, date_from: e.target.value }))}
+                        className="h-9"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">To Date</Label>
+                      <Input 
+                        type="date" 
+                        value={personFilter.date_to}
+                        onChange={(e) => setPersonFilter(p => ({ ...p, date_to: e.target.value }))}
+                        className="h-9"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Source</Label>
+                      <Select value={personFilter.source} onValueChange={(v) => setPersonFilter(p => ({ ...p, source: v }))}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="All Sources" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sources</SelectItem>
+                          <SelectItem value="meta">Meta</SelectItem>
+                          <SelectItem value="seo">SEO</SelectItem>
+                          <SelectItem value="referral">Referral</SelectItem>
+                          <SelectItem value="walk_in">Walk-in</SelectItem>
+                          <SelectItem value="website">Website</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Stage</Label>
+                      <Select value={personFilter.stage} onValueChange={(v) => setPersonFilter(p => ({ ...p, stage: v }))}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="All Stages" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Stages</SelectItem>
+                          {selectedPerson.type === 'pre_sales' ? (
+                            <>
+                              <SelectItem value="stg_new_lead">New Lead</SelectItem>
+                              <SelectItem value="stg_contacted">Contacted</SelectItem>
+                              <SelectItem value="stg_proposal">Proposal</SelectItem>
+                              <SelectItem value="stg_followup">Follow-up</SelectItem>
+                              <SelectItem value="stg_appt_booked">Appt Booked</SelectItem>
+                            </>
+                          ) : (
+                            <>
+                              <SelectItem value="stg_new_appointment">New Appointment</SelectItem>
+                              <SelectItem value="stg_discussion">Discussion</SelectItem>
+                              <SelectItem value="stg_site_visit">Site Visit</SelectItem>
+                              <SelectItem value="stg_re_requested">RE Requested</SelectItem>
+                              <SelectItem value="stg_re_shared">RE Shared</SelectItem>
+                              <SelectItem value="stg_negotiation">Negotiation</SelectItem>
+                              <SelectItem value="stg_deal_closed">Deal Closed</SelectItem>
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Leads Table */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Leads ({personLeads.length})</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto max-h-[300px]">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold">Lead</th>
+                          <th className="px-3 py-2 text-left font-semibold">Contact</th>
+                          <th className="px-3 py-2 text-left font-semibold">Source</th>
+                          <th className="px-3 py-2 text-left font-semibold">Stage</th>
+                          <th className="px-3 py-2 text-left font-semibold">Date</th>
+                          <th className="px-3 py-2 text-center font-semibold">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {personLeads.map(lead => (
+                          <tr key={lead.lead_id} className="hover:bg-gray-50">
+                            <td className="px-3 py-2">
+                              <span className="font-medium">{lead.name}</span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-600">
+                              {lead.phone || lead.email || '-'}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge className={`text-xs ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                                {lead.source?.replace('_', ' ')}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge variant="outline" className="text-xs">
+                                {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-500">
+                              {new Date(lead.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <Button variant="ghost" size="sm" onClick={() => { setEditingLead(lead); setShowEditLead(true); }}>
+                                <Edit2 className="h-3 w-3" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                        {personLeads.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                              No leads found with current filters
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Add Team Member Dialog */}
       <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
@@ -574,7 +1085,7 @@ export default function MarketingBoard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pre_sales">Pre-Sales</SelectItem>
-                  <SelectItem value="sales">Sales</SelectItem>
+                  <SelectItem value="sales">Sales (Post-Sales)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -585,6 +1096,55 @@ export default function MarketingBoard() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Lead Dialog */}
+      <Dialog open={showEditLead} onOpenChange={setShowEditLead}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Lead</DialogTitle>
+            <DialogDescription>Update lead information</DialogDescription>
+          </DialogHeader>
+          {editingLead && (
+            <div className="space-y-4 mt-4">
+              <div>
+                <Label>Name *</Label>
+                <Input
+                  value={editingLead.name || ''}
+                  onChange={(e) => setEditingLead(p => ({ ...p, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={editingLead.email || ''}
+                  onChange={(e) => setEditingLead(p => ({ ...p, email: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input
+                  value={editingLead.phone || ''}
+                  onChange={(e) => setEditingLead(p => ({ ...p, phone: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label>City</Label>
+                <Input
+                  value={editingLead.city || ''}
+                  onChange={(e) => setEditingLead(p => ({ ...p, city: e.target.value }))}
+                />
+              </div>
+              <div className="flex gap-3 justify-end mt-6">
+                <Button variant="outline" onClick={() => { setShowEditLead(false); setEditingLead(null); }}>Cancel</Button>
+                <Button onClick={handleUpdateLead} className="bg-indigo-600 hover:bg-indigo-700">
+                  Save Changes
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
