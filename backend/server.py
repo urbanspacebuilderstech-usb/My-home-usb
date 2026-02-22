@@ -12658,11 +12658,15 @@ async def get_pre_sales_leads(
     date_to: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    """Get Pre-Sales leads with filters"""
+    """Get Pre-Sales leads with filters - filtered by assigned user for non-admins"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
     query = {"stage_type": "pre_sales"}
+    
+    # Filter by assigned_to for Pre-Sales users (not for Super Admin/CRE)
+    if user.role == "pre_sales":
+        query["assigned_to"] = user.user_id
     
     if stage_id:
         query["current_stage_id"] = stage_id
