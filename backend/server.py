@@ -12485,6 +12485,9 @@ async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_curre
 
 class LeadStageUpdate(BaseModel):
     stage_id: str
+    advance_amount: Optional[float] = None
+    payment_mode: Optional[str] = None
+    payment_reference: Optional[str] = None
 
 
 @api_router.patch("/crm/leads/{lead_id}/stage")
