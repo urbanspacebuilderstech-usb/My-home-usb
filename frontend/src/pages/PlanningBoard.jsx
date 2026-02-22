@@ -444,6 +444,32 @@ export default function PlanningBoard() {
           </Card>
         )}
 
+        {/* New Projects from CRE Alert */}
+        {newProjectsFromCRE.length > 0 && (
+          <Card className="bg-green-50 border-green-200 mb-6" data-testid="new-projects-alert">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-green-500 p-2 rounded-full">
+                  <Briefcase className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-800">New Projects from CRE</p>
+                  <p className="text-sm text-green-600">
+                    {newProjectsFromCRE.length} project(s) sent by CRE for planning
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => setNewProjectsDialog(true)} 
+                className="bg-green-600 hover:bg-green-700"
+                data-testid="view-new-projects-btn"
+              >
+                View New Projects
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Construction Stages Cards */}
         <Card className="mb-6">
           <CardHeader className="pb-2">
