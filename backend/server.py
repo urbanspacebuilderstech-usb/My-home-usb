@@ -14084,6 +14084,552 @@ async def get_all_leads_for_marketing(
 # ==================== END LEAD DISTRIBUTION ENGINE ====================
 
 
+# ==================== GOOGLE SHEETS INTEGRATION ====================
+
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2.credentials import Credentials
+from fastapi.responses import RedirectResponse
+import warnings
+import re
+
+# Google Sheets OAuth Config - loaded from environment
+GOOGLE_SHEETS_CLIENT_ID = os.environ.get('GOOGLE_SHEETS_CLIENT_ID', '')
+GOOGLE_SHEETS_CLIENT_SECRET = os.environ.get('GOOGLE_SHEETS_CLIENT_SECRET', '')
+GOOGLE_SHEETS_REDIRECT_URI = os.environ.get('GOOGLE_SHEETS_REDIRECT_URI', '')
+GOOGLE_SHEETS_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile"
+]
+
+
+class GoogleSheetSource(BaseModel):
+    source_id: str = Field(default_factory=lambda: f"gs_{uuid.uuid4().hex[:12]}")
+    name: str  # e.g., "Website", "Meta Ads"
+    spreadsheet_id: str
+    sheet_name: Optional[str] = "Sheet1"
+    column_mapping: Dict[str, str] = {}  # {"A": "lead_name", "B": "phone", etc.}
+    custom_fields: List[str] = []  # List of custom field names detected
+    last_synced: Optional[str] = None
+    row_count: int = 0
+    is_active: bool = True
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class GoogleSheetsConfig(BaseModel):
+    config_id: str = Field(default_factory=lambda: f"gsc_{uuid.uuid4().hex[:12]}")
+    user_id: str
+    is_connected: bool = False
+    sources: List[GoogleSheetSource] = []
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+# Standard lead field mappings
+STANDARD_LEAD_FIELDS = {
+    "name": ["name", "lead name", "lead_name", "full name", "fullname", "client name", "customer name"],
+    "phone": ["phone", "phone number", "phone_number", "mobile", "mobile number", "contact", "contact number"],
+    "email": ["email", "email address", "email_address", "e-mail", "mail"],
+    "city": ["city", "location", "address", "area", "locality"],
+    "sqft": ["sqft", "sq ft", "square feet", "area sqft", "plot size", "area", "size"],
+    "source": ["source", "lead source", "lead_source", "campaign", "utm_source"],
+    "budget": ["budget", "expected budget", "price range"],
+    "notes": ["notes", "remarks", "comments", "description"]
+}
+
+
+def normalize_column_name(col: str) -> str:
+    """Normalize column name for matching"""
+    return col.lower().strip().replace("_", " ").replace("-", " ")
+
+
+def auto_map_column(col_name: str) -> Optional[str]:
+    """Auto-map a column name to a standard field"""
+    normalized = normalize_column_name(col_name)
+    for field, aliases in STANDARD_LEAD_FIELDS.items():
+        if normalized in aliases:
+            return field
+    return None
+
+
+@api_router.get("/sheets/config")
+async def get_sheets_config(user: User = Depends(get_current_user)):
+    """Get Google Sheets configuration for current user"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not config:
+        # Create default config
+        config = GoogleSheetsConfig(user_id=user.user_id).model_dump()
+        await db.google_sheets_config.insert_one(config)
+    
+    # Check if OAuth tokens exist
+    tokens = await db.google_sheets_tokens.find_one({"user_id": user.user_id}, {"_id": 0})
+    config["is_connected"] = bool(tokens and tokens.get("access_token"))
+    config["has_credentials"] = bool(GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET)
+    
+    return config
+
+
+@api_router.get("/sheets/oauth/login")
+async def sheets_oauth_login(user: User = Depends(get_current_user)):
+    """Start Google Sheets OAuth flow"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
+        raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Please add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env")
+    
+    flow = Flow.from_client_config({
+        "web": {
+            "client_id": GOOGLE_SHEETS_CLIENT_ID,
+            "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }
+    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=GOOGLE_SHEETS_REDIRECT_URI)
+    
+    url, state = flow.authorization_url(
+        access_type='offline',
+        prompt='consent'
+    )
+    
+    # Save state with user_id for callback
+    await db.oauth_states.insert_one({
+        "state": state,
+        "user_id": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    })
+    
+    return {"auth_url": url}
+
+
+@api_router.get("/oauth/sheets/callback")
+async def sheets_oauth_callback(code: str, state: str, request: Request, response: Response):
+    """Handle Google Sheets OAuth callback"""
+    # Verify state
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if not state_doc:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    
+    user_id = state_doc["user_id"]
+    await db.oauth_states.delete_one({"state": state})
+    
+    if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
+        raise HTTPException(status_code=400, detail="Google Sheets credentials not configured")
+    
+    flow = Flow.from_client_config({
+        "web": {
+            "client_id": GOOGLE_SHEETS_CLIENT_ID,
+            "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }
+    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=GOOGLE_SHEETS_REDIRECT_URI)
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        flow.fetch_token(code=code)
+    
+    creds = flow.credentials
+    
+    # Verify required scopes
+    required_scopes = {"https://www.googleapis.com/auth/spreadsheets.readonly"}
+    granted_scopes = set(creds.scopes or [])
+    if not required_scopes.issubset(granted_scopes):
+        missing = required_scopes - granted_scopes
+        raise HTTPException(status_code=400, detail=f"Missing required sheets scopes: {', '.join(missing)}")
+    
+    # Save tokens
+    token_doc = {
+        "user_id": user_id,
+        "access_token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "expires_at": creds.expiry.isoformat() if creds.expiry else None,
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "client_id": GOOGLE_SHEETS_CLIENT_ID,
+        "client_secret": GOOGLE_SHEETS_CLIENT_SECRET,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.google_sheets_tokens.update_one(
+        {"user_id": user_id},
+        {"$set": token_doc},
+        upsert=True
+    )
+    
+    # Update config
+    await db.google_sheets_config.update_one(
+        {"user_id": user_id},
+        {"$set": {"is_connected": True, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    
+    # Redirect back to marketing board
+    frontend_url = os.environ.get('FRONTEND_URL', request.base_url.scheme + '://' + request.base_url.netloc.replace(':8001', ':3000'))
+    return RedirectResponse(f"{frontend_url}/marketing-board?sheets_connected=true")
+
+
+async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
+    """Get valid Google Sheets credentials for a user"""
+    token_doc = await db.google_sheets_tokens.find_one({"user_id": user_id})
+    if not token_doc or not token_doc.get("access_token"):
+        return None
+    
+    creds = Credentials(
+        token=token_doc["access_token"],
+        refresh_token=token_doc.get("refresh_token"),
+        token_uri=token_doc["token_uri"],
+        client_id=token_doc["client_id"],
+        client_secret=token_doc["client_secret"]
+    )
+    
+    # Check if expired and refresh
+    if token_doc.get("expires_at"):
+        expires = datetime.fromisoformat(token_doc["expires_at"].replace("Z", "+00:00"))
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        
+        if datetime.now(timezone.utc) >= expires:
+            try:
+                creds.refresh(GoogleRequest())
+                # Update stored token
+                await db.google_sheets_tokens.update_one(
+                    {"user_id": user_id},
+                    {"$set": {
+                        "access_token": creds.token,
+                        "expires_at": creds.expiry.isoformat() if creds.expiry else None,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+            except Exception as e:
+                logger.error(f"Failed to refresh sheets token: {e}")
+                return None
+    
+    return creds
+
+
+@api_router.post("/sheets/disconnect")
+async def disconnect_sheets(user: User = Depends(get_current_user)):
+    """Disconnect Google Sheets integration"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    await db.google_sheets_tokens.delete_one({"user_id": user.user_id})
+    await db.google_sheets_config.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"is_connected": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Google Sheets disconnected"}
+
+
+class PreviewSheetRequest(BaseModel):
+    spreadsheet_url: str
+    sheet_name: Optional[str] = None
+
+
+def extract_spreadsheet_id(url: str) -> str:
+    """Extract spreadsheet ID from Google Sheets URL"""
+    # Handle full URLs like https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
+    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', url)
+    if match:
+        return match.group(1)
+    # If it's already just an ID
+    if re.match(r'^[a-zA-Z0-9-_]+$', url):
+        return url
+    raise ValueError("Invalid Google Sheets URL or ID")
+
+
+@api_router.post("/sheets/preview")
+async def preview_sheet(data: PreviewSheetRequest, user: User = Depends(get_current_user)):
+    """Preview a Google Sheet - get headers and sample data"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected. Please connect first.")
+    
+    try:
+        spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get spreadsheet metadata
+        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheets = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
+        
+        # Use specified sheet or first sheet
+        sheet_name = data.sheet_name or sheets[0] if sheets else "Sheet1"
+        
+        # Get data from the sheet (first 100 rows for preview)
+        result = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{sheet_name}'!A1:Z100"
+        ).execute()
+        
+        values = result.get('values', [])
+        if not values:
+            return {
+                "spreadsheet_id": spreadsheet_id,
+                "sheets": sheets,
+                "selected_sheet": sheet_name,
+                "headers": [],
+                "sample_data": [],
+                "total_rows": 0,
+                "column_suggestions": {}
+            }
+        
+        headers = values[0] if values else []
+        sample_data = values[1:11] if len(values) > 1 else []  # First 10 data rows
+        
+        # Auto-suggest column mappings
+        column_suggestions = {}
+        custom_fields = []
+        
+        for idx, header in enumerate(headers):
+            col_letter = chr(65 + idx) if idx < 26 else f"A{chr(65 + idx - 26)}"
+            mapped_field = auto_map_column(header)
+            if mapped_field:
+                column_suggestions[col_letter] = {
+                    "original": header,
+                    "suggested": mapped_field,
+                    "is_standard": True
+                }
+            else:
+                column_suggestions[col_letter] = {
+                    "original": header,
+                    "suggested": None,
+                    "is_standard": False
+                }
+                custom_fields.append(header)
+        
+        return {
+            "spreadsheet_id": spreadsheet_id,
+            "sheets": sheets,
+            "selected_sheet": sheet_name,
+            "headers": headers,
+            "sample_data": sample_data,
+            "total_rows": len(values) - 1,  # Exclude header row
+            "column_suggestions": column_suggestions,
+            "custom_fields_detected": custom_fields
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to preview sheet: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to read spreadsheet: {str(e)}")
+
+
+class AddSheetSourceRequest(BaseModel):
+    name: str  # e.g., "Website", "Meta Ads"
+    spreadsheet_url: str
+    sheet_name: str
+    column_mapping: Dict[str, str]  # {"A": "name", "B": "phone", etc.}
+    custom_fields: List[str] = []
+
+
+@api_router.post("/sheets/sources")
+async def add_sheet_source(data: AddSheetSourceRequest, user: User = Depends(get_current_user)):
+    """Add a new Google Sheet source"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    try:
+        spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    source = GoogleSheetSource(
+        name=data.name,
+        spreadsheet_id=spreadsheet_id,
+        sheet_name=data.sheet_name,
+        column_mapping=data.column_mapping,
+        custom_fields=data.custom_fields
+    ).model_dump()
+    
+    # Add to config
+    await db.google_sheets_config.update_one(
+        {"user_id": user.user_id},
+        {
+            "$push": {"sources": source},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        },
+        upsert=True
+    )
+    
+    return {"message": "Sheet source added", "source": source}
+
+
+@api_router.get("/sheets/sources")
+async def get_sheet_sources(user: User = Depends(get_current_user)):
+    """Get all configured sheet sources"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    return {"sources": config.get("sources", []) if config else []}
+
+
+@api_router.delete("/sheets/sources/{source_id}")
+async def delete_sheet_source(source_id: str, user: User = Depends(get_current_user)):
+    """Delete a sheet source"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    await db.google_sheets_config.update_one(
+        {"user_id": user.user_id},
+        {"$pull": {"sources": {"source_id": source_id}}}
+    )
+    
+    return {"message": "Source deleted"}
+
+
+class ImportLeadsRequest(BaseModel):
+    source_id: str
+
+
+@api_router.post("/sheets/import")
+async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends(get_current_user)):
+    """Import leads from a configured Google Sheet source"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Get the source config
+    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not config:
+        raise HTTPException(status_code=404, detail="No sheets configuration found")
+    
+    source = next((s for s in config.get("sources", []) if s["source_id"] == data.source_id), None)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Get all data from the sheet
+        result = service.spreadsheets().values().get(
+            spreadsheetId=source["spreadsheet_id"],
+            range=f"'{source['sheet_name']}'"
+        ).execute()
+        
+        values = result.get('values', [])
+        if len(values) < 2:
+            return {"message": "No data to import", "imported": 0, "skipped": 0}
+        
+        headers = values[0]
+        data_rows = values[1:]
+        
+        # Get distribution settings for round-robin
+        settings = await get_distribution_settings()
+        pre_sales_team = settings.get("pre_sales_team", [])
+        current_index = settings.get("pre_sales_current_index", 0)
+        
+        imported_count = 0
+        skipped_count = 0
+        
+        for row in data_rows:
+            # Map columns to lead fields
+            lead_data = {
+                "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                "source": source["name"].lower().replace(" ", "_"),
+                "stage_type": "pre_sales",
+                "current_stage_id": "stg_new_lead",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "custom_fields": {}
+            }
+            
+            for col_letter, field_name in source.get("column_mapping", {}).items():
+                col_idx = ord(col_letter[0]) - 65
+                if len(col_letter) > 1:
+                    col_idx = 26 + ord(col_letter[1]) - 65
+                
+                if col_idx < len(row):
+                    value = row[col_idx].strip() if row[col_idx] else ""
+                    if field_name in ["name", "phone", "email", "city", "source", "budget", "notes"]:
+                        lead_data[field_name] = value
+                    elif field_name == "sqft":
+                        # Try to parse as number
+                        try:
+                            lead_data["sqft"] = int(value.replace(",", ""))
+                        except:
+                            lead_data["sqft"] = value
+                    else:
+                        # Custom field
+                        lead_data["custom_fields"][field_name] = value
+            
+            # Store any detected custom fields
+            for cf in source.get("custom_fields", []):
+                for col_idx, header in enumerate(headers):
+                    if header.lower().strip() == cf.lower().strip() and col_idx < len(row):
+                        lead_data["custom_fields"][cf] = row[col_idx]
+            
+            # Skip if no name or phone
+            if not lead_data.get("name") and not lead_data.get("phone"):
+                skipped_count += 1
+                continue
+            
+            # Check for duplicate (same phone or email)
+            if lead_data.get("phone"):
+                existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                if existing:
+                    skipped_count += 1
+                    continue
+            
+            # Assign using round-robin if distribution is enabled
+            if settings.get("enabled") and pre_sales_team:
+                assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
+                assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+                lead_data["assigned_to"] = assigned_user_id
+                lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
+                current_index = (current_index + 1) % len(pre_sales_team)
+            
+            await db.leads.insert_one(lead_data)
+            imported_count += 1
+        
+        # Update distribution index
+        if settings.get("enabled") and pre_sales_team:
+            await db.lead_distribution_settings.update_one(
+                {},
+                {"$set": {"pre_sales_current_index": current_index}}
+            )
+        
+        # Update last synced timestamp
+        await db.google_sheets_config.update_one(
+            {"user_id": user.user_id, "sources.source_id": source["source_id"]},
+            {"$set": {
+                "sources.$.last_synced": datetime.now(timezone.utc).isoformat(),
+                "sources.$.row_count": len(data_rows)
+            }}
+        )
+        
+        return {
+            "message": f"Import complete",
+            "imported": imported_count,
+            "skipped": skipped_count,
+            "total_rows": len(data_rows)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to import leads: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to import: {str(e)}")
+
+
+# ==================== END GOOGLE SHEETS INTEGRATION ====================
+
+
 # ==================== END CRM MODULE ENDPOINTS ====================
 
 
