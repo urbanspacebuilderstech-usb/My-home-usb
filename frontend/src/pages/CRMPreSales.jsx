@@ -278,6 +278,41 @@ export default function CRMPreSales() {
     setLeadDetailDialog(true);
   };
 
+  const openEditLead = (lead) => {
+    setSelectedLead(lead);
+    setEditLeadForm({
+      name: lead.name || '',
+      email: lead.email || '',
+      phone: lead.phone || '',
+      address: lead.address || '',
+      city: lead.city || '',
+      state: lead.state || '',
+      notes: lead.notes || ''
+    });
+    setEditLeadDialog(true);
+  };
+
+  const handleUpdateLead = async () => {
+    if (!editLeadForm.name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, editLeadForm);
+      toast.success('Lead updated successfully');
+      setEditLeadDialog(false);
+      fetchData();
+      // Also refresh the detail dialog if open
+      if (leadDetailDialog) {
+        const updatedLead = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+        setSelectedLead(updatedLead.data);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update lead');
+    }
+  };
+
   const handleAddRemark = async () => {
     if (!newRemark.trim()) return;
     
