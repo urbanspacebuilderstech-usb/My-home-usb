@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download
+  Building2, Calculator, Download, LayoutGrid, List
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
