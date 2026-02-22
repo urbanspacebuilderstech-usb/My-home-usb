@@ -17,6 +17,8 @@ Just click the role you want to test:
 | CRO | cro@constructionos.com | Project onboarding, payment collection |
 | Procurement | procurement@constructionos.com | Create purchase orders, assign vendors |
 | Site Engineer | engineer@constructionos.com | Submit site receipts with GPS + photos |
+| **Pre-Sales** | presales@constructionos.com | CRM A - Lead qualification, Kanban management |
+| **Sales** | sales@constructionos.com | CRM B - Deal management, RE requests |
 | Client (Raj) | raj@client.com | View-only project portal |
 | **Client (Mohan)** | mohan@client.com | View Mohan Home project portal |
 
