@@ -112,17 +112,6 @@ export default function CRMSales() {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     }
   };
-          payment_reference: paymentRef
-        }
-      );
-      setDealCloseDialog(false);
-      setDealCloseLead(null);
-      setDealCloseREProject(null);
-    } catch (error) {
-      toast.error('Failed to close deal');
-    }
-  };
-
   const handleViewREProject = async (reProjectId) => {
     try {
       const res = await axios.get(`${API}/crm/re-projects/${reProjectId}`);
