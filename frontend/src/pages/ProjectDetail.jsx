@@ -788,17 +788,21 @@ export default function ProjectDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b p-3 sm:p-6">
               <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-1 sm:gap-2 w-full overflow-x-auto">
+                <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  <FileText className="h-3 w-3 mr-1" />
+                  Rough Estimate
+                </TabsTrigger>
                 <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftScopeItems.length}</Badge>}
                 </TabsTrigger>
                 <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Payments {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftPaymentItems.length}</Badge>}
+                  Payment Schedule {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftPaymentItems.length}</Badge>}
                 </TabsTrigger>
                 <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Additions {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftAdditions.length}</Badge>}
+                  Additional {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftAdditions.length}</Badge>}
                 </TabsTrigger>
                 <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Deductions {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
+                  Deduction {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
                 </TabsTrigger>
                 <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
                   <DollarSign className="h-3 w-3 mr-1" />
@@ -806,6 +810,135 @@ export default function ProjectDetail() {
                 </TabsTrigger>
               </TabsList>
             </CardHeader>
+
+            {/* ==================== ROUGH ESTIMATE TAB ==================== */}
+            <TabsContent value="rough-estimate" className="p-3 sm:p-6">
+              <div className="mb-4">
+                <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-purple-600" />
+                  Rough Estimate Reference
+                </h3>
+                <p className="text-xs sm:text-sm text-gray-500">Original rough estimate from Planning department</p>
+              </div>
+              
+              {reProject ? (
+                <div className="space-y-4">
+                  {/* RE Project Overview */}
+                  <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <p className="text-xs text-gray-500">RE Project Name</p>
+                        <p className="font-semibold">{reProject.project_name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Location</p>
+                        <p className="font-medium">{reProject.location || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Area</p>
+                        <p className="font-medium">{reProject.sqft?.toLocaleString()} sqft</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Building Type</p>
+                        <p className="font-medium capitalize">{reProject.building_type}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                      <div>
+                        <p className="text-xs text-gray-500">Package</p>
+                        <p className="font-medium">{reProject.package_name || '-'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Estimated Total</p>
+                        <p className="font-bold text-purple-700">₹{(reProject.estimated_total || 0).toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Handover Timeline</p>
+                        <p className="font-medium">{reProject.handover_months || '-'} months</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Status</p>
+                        <Badge className={reProject.status === 'converted' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}>
+                          {reProject.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* RE Scope Items */}
+                  {reProject.scope_items && reProject.scope_items.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 text-sm">Rough Estimate Scope Items</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border rounded-lg">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium text-gray-600">Item</th>
+                              <th className="px-3 py-2 text-right font-medium text-gray-600">Qty</th>
+                              <th className="px-3 py-2 text-left font-medium text-gray-600">Unit</th>
+                              <th className="px-3 py-2 text-right font-medium text-gray-600">Rate</th>
+                              <th className="px-3 py-2 text-right font-medium text-gray-600">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {reProject.scope_items.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                <td className="px-3 py-2">{item.item_name}</td>
+                                <td className="px-3 py-2 text-right">{item.quantity}</td>
+                                <td className="px-3 py-2">{item.unit}</td>
+                                <td className="px-3 py-2 text-right">₹{(item.unit_rate || 0).toLocaleString()}</td>
+                                <td className="px-3 py-2 text-right font-medium">₹{(item.total || 0).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-purple-50">
+                            <tr>
+                              <td colSpan="4" className="px-3 py-2 text-right font-semibold">Estimated Total:</td>
+                              <td className="px-3 py-2 text-right font-bold text-purple-700">
+                                ₹{reProject.scope_items.reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* RE Payment Schedule */}
+                  {reProject.payment_schedule && reProject.payment_schedule.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-2 text-sm">Estimated Payment Schedule</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm border rounded-lg">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium text-gray-600">Stage</th>
+                              <th className="px-3 py-2 text-right font-medium text-gray-600">%</th>
+                              <th className="px-3 py-2 text-right font-medium text-gray-600">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {reProject.payment_schedule.map((stage, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                <td className="px-3 py-2">{stage.stage_name}</td>
+                                <td className="px-3 py-2 text-right">{stage.percentage}%</td>
+                                <td className="px-3 py-2 text-right font-medium">₹{(stage.amount || 0).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p className="font-medium">No Rough Estimate Available</p>
+                  <p className="text-sm">This project was not created from a Rough Estimate</p>
+                </div>
+              )}
+            </TabsContent>
 
             {/* ==================== SCOPE TAB ==================== */}
             <TabsContent value="scope" className="p-3 sm:p-6">
