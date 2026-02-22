@@ -56,7 +56,7 @@ export default function ProjectDetail() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectData, setProjectData] = useState(null);
-  const [activeTab, setActiveTab] = useState('scope');
+  const [activeTab, setActiveTab] = useState('rough-estimate');
   
   // Bulk dialog states
   const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
