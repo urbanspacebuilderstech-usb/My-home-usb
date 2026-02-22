@@ -12198,6 +12198,11 @@ class Lead(BaseModel):
     last_contacted: Optional[datetime] = None
     notes: Optional[str] = None
     tags: List[str] = []
+    
+    # Remarks & Follow-ups (for CRM enhancements)
+    summary: Optional[str] = None  # Lead summary written by sales/pre-sales
+    remarks: List[Dict[str, Any]] = []  # [{text, remark_type, added_by, added_by_name, created_at}]
+    follow_ups: List[Dict[str, Any]] = []  # [{scheduled_date, note, completed, completed_at, created_by}]
 
 
 # Rough Estimate Project Model
