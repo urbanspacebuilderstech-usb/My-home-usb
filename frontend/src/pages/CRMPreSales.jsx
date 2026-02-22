@@ -192,6 +192,34 @@ export default function CRMPreSales() {
     }
   };
 
+  // ============ DELETE CUSTOM FIELD ============
+  const openDeleteFieldDialog = (field) => {
+    setFieldToDelete(field);
+    setDeleteConfirmText('');
+    setDeleteFieldDialog(true);
+  };
+
+  const handleDeleteField = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    
+    try {
+      await axios.delete(`${API}/crm/custom-fields/${fieldToDelete.field_id}`);
+      toast.success('Custom field deleted');
+      setDeleteFieldDialog(false);
+      setFieldToDelete(null);
+      setDeleteConfirmText('');
+      
+      // Refresh custom fields
+      const fieldsRes = await axios.get(`${API}/crm/custom-fields`);
+      setCustomFields(fieldsRes.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete field');
+    }
+  };
+
   // ============ LEAD STAGES ============
   const handleCreateStage = async () => {
     if (!stageForm.name) {
