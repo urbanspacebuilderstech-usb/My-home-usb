@@ -1,4 +1,4 @@
-import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText } from 'lucide-react';
+import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText, Target, UserCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -17,8 +17,11 @@ export default function Sidebar({ open, onClose, user }) {
   };
 
   const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['all'] },
-    { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning'] },
+    { name: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['super_admin', 'project_manager', 'planning', 'accountant', 'cro', 'general_manager', 'procurement'] },
+    { name: 'CRM Pre-Sales', icon: UserCheck, path: '/crm-pre-sales', roles: ['super_admin', 'pre_sales', 'cro'] },
+    { name: 'CRM Sales', icon: Target, path: '/crm-sales', roles: ['super_admin', 'sales', 'cro'] },
+    { name: 'RE Projects', icon: Calculator, path: '/crm/re-projects', roles: ['super_admin', 'planning', 'general_manager', 'sales'] },
+    { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cro'] },
     { name: 'Work Orders', icon: ClipboardList, path: '/work-orders', roles: ['super_admin', 'project_manager', 'procurement'] },
     { name: 'Approvals', icon: CheckSquare, path: '/approvals', roles: ['accountant'] },
     { name: 'Procurement', icon: ShoppingCart, path: '/procurement', roles: ['super_admin', 'procurement'] },
