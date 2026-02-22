@@ -119,6 +119,21 @@ export default function CREBoard() {
       setProjectStages(dashboardRes.data.project_stages || []);
       setStageCounts(dashboardRes.data.stage_counts || {});
       
+      // Fetch new deals (closed deals from Sales)
+      try {
+        const dealsRes = await axios.get(`${API}/cre/new-deals`);
+        setNewDeals(dealsRes.data || []);
+      } catch (e) {
+        console.log('New deals endpoint not available, trying alternative');
+        // Try to get from sales leads with deal_closed status
+        try {
+          const salesRes = await axios.get(`${API}/crm/sales/leads?stage=deal_closed`);
+          setNewDeals(salesRes.data?.filter(l => !l.project_created) || []);
+        } catch (e2) {
+          setNewDeals([]);
+        }
+      }
+      
       // Fetch payment requests for CRE
       try {
         const paymentReqRes = await axios.get(`${API}/cre/payment-requests`);
@@ -133,6 +148,62 @@ export default function CREBoard() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // Open deal conversion dialog
+  const openConvertDealDialog = async (deal) => {
+    setSelectedDeal(deal);
+    setAdvanceAmount('');
+    setAdvanceMode('');
+    setAdvanceRef('');
+    setAccountantConfirmed(false);
+    
+    // Fetch RE Project if available
+    if (deal.re_project_id) {
+      try {
+        const reRes = await axios.get(`${API}/crm/re-projects/${deal.re_project_id}`);
+        setSelectedDealRE(reRes.data);
+      } catch (e) {
+        setSelectedDealRE(null);
+      }
+    } else {
+      setSelectedDealRE(null);
+    }
+    
+    setConvertDealDialog(true);
+  };
+  
+  // Convert deal to project
+  const handleConvertDeal = async () => {
+    if (!selectedDeal) return;
+    
+    if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
+      toast.error('Please enter advance amount');
+      return;
+    }
+    if (!advanceMode) {
+      toast.error('Please select payment mode');
+      return;
+    }
+    if (!accountantConfirmed) {
+      toast.error('Please confirm accountant verification');
+      return;
+    }
+    
+    try {
+      const result = await axios.post(`${API}/cre/convert-deal/${selectedDeal.lead_id}`, {
+        advance_amount: parseFloat(advanceAmount),
+        payment_mode: advanceMode,
+        payment_reference: advanceRef,
+        accountant_confirmed: accountantConfirmed
+      });
+      
+      toast.success('Deal converted to project successfully!');
+      setConvertDealDialog(false);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to convert deal');
     }
   };
 
