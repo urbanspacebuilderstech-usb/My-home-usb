@@ -1304,6 +1304,406 @@ export default function MarketingBoard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Google Sheets Connection Dialog */}
+      <Dialog open={showSheetsDialog} onOpenChange={setShowSheetsDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
+              Connect Google Sheets
+            </DialogTitle>
+            <DialogDescription>Import leads from Google Sheets automatically</DialogDescription>
+          </DialogHeader>
+          
+          <div className="mt-4">
+            {/* Connection Status */}
+            <div className="mb-6 p-4 rounded-lg border bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {sheetsConfig?.is_connected ? (
+                    <>
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <Check className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-emerald-700">Google Sheets Connected</p>
+                        <p className="text-sm text-gray-500">You can now import leads from your spreadsheets</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        <Unlink className="h-5 w-5 text-gray-500" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Not Connected</p>
+                        <p className="text-sm text-gray-500">Connect your Google account to import leads</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+                {sheetsConfig?.is_connected ? (
+                  <Button variant="outline" size="sm" onClick={disconnectGoogleSheets} className="text-red-600 border-red-300">
+                    <Unlink className="h-4 w-4 mr-2" /> Disconnect
+                  </Button>
+                ) : (
+                  <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700" data-testid="connect-google-btn">
+                    <Link className="h-4 w-4 mr-2" /> Connect Google Account
+                  </Button>
+                )}
+              </div>
+              {!sheetsConfig?.has_credentials && (
+                <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div className="text-sm">
+                      <p className="font-medium text-yellow-800">Setup Required</p>
+                      <p className="text-yellow-700">Google Sheets credentials need to be configured in the backend. Add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Tabs for Sources */}
+            {sheetsConfig?.is_connected && (
+              <Tabs value={sheetsTab} onValueChange={setSheetsTab} className="mt-4">
+                <TabsList className="bg-gray-100">
+                  <TabsTrigger value="website" className="data-[state=active]:bg-white">
+                    <Building2 className="h-4 w-4 mr-2" /> Website
+                  </TabsTrigger>
+                  <TabsTrigger value="sources" className="data-[state=active]:bg-white">
+                    <Table className="h-4 w-4 mr-2" /> All Sources
+                  </TabsTrigger>
+                  <TabsTrigger value="add" className="data-[state=active]:bg-white">
+                    <Plus className="h-4 w-4 mr-2" /> Add More
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Website Tab - Default Source */}
+                <TabsContent value="website" className="space-y-4 mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Website Lead Template</CardTitle>
+                      <CardDescription>Standard fields for website lead forms</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {STANDARD_FIELDS.slice(0, 6).map(field => (
+                          <div key={field.value} className="flex items-center gap-2 p-2 bg-gray-50 rounded border">
+                            <Check className="h-4 w-4 text-emerald-600" />
+                            <span className="text-sm">{field.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4">
+                        <Label>Google Sheet URL</Label>
+                        <div className="flex gap-2 mt-1">
+                          <Input
+                            placeholder="https://docs.google.com/spreadsheets/d/..."
+                            value={sheetUrl}
+                            onChange={(e) => setSheetUrl(e.target.value)}
+                          />
+                          <Button onClick={previewSheet} disabled={isPreviewLoading} className="bg-emerald-600 hover:bg-emerald-700">
+                            {isPreviewLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : 'Preview'}
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Sheet Preview */}
+                  {sheetPreview && (
+                    <Card className="border-emerald-200">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Table className="h-5 w-5 text-emerald-600" />
+                          Preview: {sheetPreview.selected_sheet}
+                          <Badge className="ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {/* Column Mapping */}
+                        <div className="mb-4">
+                          <Label className="text-sm font-medium">Column Mapping</Label>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                            {Object.entries(sheetPreview.column_suggestions || {}).map(([col, info]) => (
+                              <div key={col} className="p-2 border rounded bg-gray-50">
+                                <p className="text-xs text-gray-500">Column {col}: {info.original}</p>
+                                <Select
+                                  value={columnMapping[col] || ''}
+                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v }))}
+                                >
+                                  <SelectTrigger className="h-8 mt-1">
+                                    <SelectValue placeholder="Map to..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="">Skip</SelectItem>
+                                    {STANDARD_FIELDS.map(f => (
+                                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Custom Fields Detected */}
+                        {customFieldsToCreate.length > 0 && (
+                          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-yellow-800">Custom Fields Detected</p>
+                                <p className="text-sm text-yellow-700 mb-2">These columns don't match standard fields. They will be stored as custom fields:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {customFieldsToCreate.map(cf => (
+                                    <Badge key={cf} variant="outline" className="bg-white">{cf}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Sample Data Preview */}
+                        {sheetPreview.sample_data?.length > 0 && (
+                          <div className="mb-4">
+                            <Label className="text-sm font-medium">Sample Data (First 3 rows)</Label>
+                            <div className="overflow-x-auto mt-2 border rounded">
+                              <table className="w-full text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    {sheetPreview.headers?.map((h, i) => (
+                                      <th key={i} className="px-2 py-1 text-left">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sheetPreview.sample_data.slice(0, 3).map((row, i) => (
+                                    <tr key={i} className="border-t">
+                                      {row.map((cell, j) => (
+                                        <td key={j} className="px-2 py-1">{cell}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Source Name & Save */}
+                        <div className="flex items-end gap-3">
+                          <div className="flex-1">
+                            <Label>Source Name</Label>
+                            <Input
+                              value={sourceName}
+                              onChange={(e) => setSourceName(e.target.value)}
+                              placeholder="e.g., Website, Meta Ads"
+                            />
+                          </div>
+                          <Button onClick={addSheetSource} className="bg-emerald-600 hover:bg-emerald-700">
+                            <Plus className="h-4 w-4 mr-2" /> Add Source
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
+
+                {/* All Sources Tab */}
+                <TabsContent value="sources" className="space-y-4 mt-4">
+                  {sheetSources.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <FileSpreadsheet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p>No sheet sources configured yet</p>
+                      <p className="text-sm">Add a source from the "Website" or "Add More" tab</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {sheetSources.map(source => (
+                        <Card key={source.source_id} className="border-l-4 border-l-emerald-500">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="font-medium">{source.name}</p>
+                                <p className="text-sm text-gray-500">
+                                  {source.row_count} rows • Last synced: {source.last_synced ? new Date(source.last_synced).toLocaleString() : 'Never'}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  onClick={() => importLeads(source.source_id)}
+                                  disabled={isImporting}
+                                  className="bg-emerald-600 hover:bg-emerald-700"
+                                >
+                                  {isImporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                                  <span className="ml-1">Import</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => deleteSheetSource(source.source_id)}
+                                  className="text-red-600 hover:bg-red-50"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Add More Tab */}
+                <TabsContent value="add" className="space-y-4 mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Add New Lead Source</CardTitle>
+                      <CardDescription>Connect any Google Sheet as a lead source</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <Label>Source Name *</Label>
+                        <Input
+                          value={sourceName}
+                          onChange={(e) => setSourceName(e.target.value)}
+                          placeholder="e.g., Meta Ads, Housing.com, 99acres"
+                        />
+                      </div>
+                      <div>
+                        <Label>Google Sheet URL *</Label>
+                        <div className="flex gap-2 mt-1">
+                          <Input
+                            placeholder="https://docs.google.com/spreadsheets/d/..."
+                            value={sheetUrl}
+                            onChange={(e) => setSheetUrl(e.target.value)}
+                          />
+                          <Button onClick={previewSheet} disabled={isPreviewLoading} className="bg-emerald-600 hover:bg-emerald-700">
+                            {isPreviewLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : 'Preview'}
+                          </Button>
+                        </div>
+                      </div>
+                      
+                      {/* Sheet Selection if preview loaded */}
+                      {sheetPreview?.sheets?.length > 1 && (
+                        <div>
+                          <Label>Select Sheet</Label>
+                          <Select value={selectedSheetName} onValueChange={setSelectedSheetName}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select sheet" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sheetPreview.sheets.map(s => (
+                                <SelectItem key={s} value={s}>{s}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Preview for Add More tab */}
+                  {sheetPreview && sheetsTab === 'add' && (
+                    <Card className="border-emerald-200">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Table className="h-5 w-5 text-emerald-600" />
+                          Preview: {sheetPreview.selected_sheet}
+                          <Badge className="ml-2 bg-emerald-100 text-emerald-700">{sheetPreview.total_rows} rows</Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        {/* Column Mapping */}
+                        <div className="mb-4">
+                          <Label className="text-sm font-medium">Map Columns to Lead Fields</Label>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                            {Object.entries(sheetPreview.column_suggestions || {}).map(([col, info]) => (
+                              <div key={col} className="p-2 border rounded bg-gray-50">
+                                <p className="text-xs text-gray-500">Column {col}: {info.original}</p>
+                                <Select
+                                  value={columnMapping[col] || ''}
+                                  onValueChange={(v) => setColumnMapping(prev => ({ ...prev, [col]: v }))}
+                                >
+                                  <SelectTrigger className="h-8 mt-1">
+                                    <SelectValue placeholder="Map to..." />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="">Skip</SelectItem>
+                                    {STANDARD_FIELDS.map(f => (
+                                      <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Custom Fields */}
+                        {customFieldsToCreate.length > 0 && (
+                          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-yellow-800">New Custom Fields Will Be Created</p>
+                                <p className="text-sm text-yellow-700 mb-2">These columns will be stored as custom lead fields:</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {customFieldsToCreate.map(cf => (
+                                    <Badge key={cf} variant="outline" className="bg-white">{cf}</Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Sample Data */}
+                        {sheetPreview.sample_data?.length > 0 && (
+                          <div className="mb-4">
+                            <Label className="text-sm font-medium">Sample Data</Label>
+                            <div className="overflow-x-auto mt-2 border rounded">
+                              <table className="w-full text-xs">
+                                <thead className="bg-gray-100">
+                                  <tr>
+                                    {sheetPreview.headers?.map((h, i) => (
+                                      <th key={i} className="px-2 py-1 text-left">{h}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sheetPreview.sample_data.slice(0, 3).map((row, i) => (
+                                    <tr key={i} className="border-t">
+                                      {row.map((cell, j) => (
+                                        <td key={j} className="px-2 py-1">{cell}</td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+
+                        <Button onClick={addSheetSource} className="w-full bg-emerald-600 hover:bg-emerald-700">
+                          <Plus className="h-4 w-4 mr-2" /> Add This Source
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+                </TabsContent>
+              </Tabs>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
