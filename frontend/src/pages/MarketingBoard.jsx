@@ -1459,6 +1459,285 @@ export default function MarketingBoard() {
         </DialogContent>
       </Dialog>
 
+      {/* Lead Detail Dialog */}
+      <Dialog open={showLeadDetail} onOpenChange={setShowLeadDetail}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
+                  {selectedLead?.name?.charAt(0)?.toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
+                      {selectedLead?.source_display || selectedLead?.source}
+                    </Badge>
+                    <Badge variant="outline">{selectedLead?.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}</Badge>
+                    <Badge className={selectedLead?.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
+                      {selectedLead?.stage_type === 'pre_sales' ? 'Pre-Sales' : 'Sales'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => { setShowLeadDetail(false); openEditLead(selectedLead); }}
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                >
+                  <Edit2 className="h-4 w-4 mr-1" /> Edit
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => { setShowLeadDetail(false); openDeleteLead(selectedLead); }}
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4 mr-1" /> Delete
+                </Button>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {selectedLead && (
+            <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
+              <TabsList className="grid grid-cols-2 w-full">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="assignment">Assignment</TabsTrigger>
+              </TabsList>
+              
+              {/* Overview Tab */}
+              <TabsContent value="overview" className="space-y-4 mt-4">
+                {/* Contact Info */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-4">
+                    {selectedLead.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-400" />
+                        <span className="font-medium">{selectedLead.phone}</span>
+                      </div>
+                    )}
+                    {selectedLead.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4 text-gray-400" />
+                        <span>{selectedLead.email}</span>
+                      </div>
+                    )}
+                    {selectedLead.city && (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-gray-400" />
+                        <span>{selectedLead.city}</span>
+                      </div>
+                    )}
+                    {selectedLead.sqft && (
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-gray-400" />
+                        <span>{selectedLead.sqft} sqft</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+                
+                {/* Custom Fields */}
+                {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 gap-3">
+                      {Object.entries(selectedLead.custom_fields).map(([key, value]) => (
+                        <div key={key} className="bg-gray-50 rounded-lg p-3">
+                          <span className="text-xs text-gray-500">{key}</span>
+                          <p className="font-medium">{value || '-'}</p>
+                        </div>
+                      ))}
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {/* Lead Info */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Lead Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <span className="text-xs text-gray-500">Lead ID</span>
+                      <p className="font-mono text-sm">{selectedLead.lead_id}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <span className="text-xs text-gray-500">Created</span>
+                      <p className="font-medium">{new Date(selectedLead.created_at).toLocaleString()}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <span className="text-xs text-gray-500">Source</span>
+                      <p className="font-medium">{selectedLead.source_display || selectedLead.source}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <span className="text-xs text-gray-500">Current Stage</span>
+                      <p className="font-medium">{selectedLead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              {/* Assignment Tab */}
+              <TabsContent value="assignment" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Current Assignment</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {selectedLead.assigned_to ? (
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center text-white font-bold">
+                          {selectedLead.assigned_to_name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium">{selectedLead.assigned_to_name}</p>
+                          <p className="text-sm text-gray-500">{selectedLead.stage_type === 'pre_sales' ? 'Pre-Sales Team' : 'Sales Team'}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500">Not assigned</p>
+                    )}
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Reassign Lead</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <Label>Select Team Member</Label>
+                      <Select 
+                        value={selectedLead.assigned_to || 'unassigned'} 
+                        onValueChange={(v) => {
+                          if (v !== 'unassigned') {
+                            handleAssignLead(selectedLead.lead_id, v);
+                            // Update local state
+                            const assignee = selectedLead.stage_type === 'pre_sales' 
+                              ? dashboard?.pre_sales_team?.find(m => m.user_id === v)
+                              : dashboard?.sales_team?.find(m => m.user_id === v);
+                            setSelectedLead(prev => ({
+                              ...prev,
+                              assigned_to: v,
+                              assigned_to_name: assignee?.name || 'Unknown'
+                            }));
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select team member" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned" disabled>Select team member</SelectItem>
+                          {selectedLead.stage_type === 'pre_sales' ? (
+                            <>
+                              <div className="px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-100">Pre-Sales Team</div>
+                              {dashboard?.pre_sales_team?.map(m => (
+                                <SelectItem key={m.user_id} value={m.user_id}>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                                      {m.name?.charAt(0)}
+                                    </div>
+                                    {m.name} - {m.stats?.leads_count || 0} leads
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          ) : (
+                            <>
+                              <div className="px-2 py-1 text-xs font-semibold text-gray-500 bg-gray-100">Sales Team</div>
+                              {dashboard?.sales_team?.map(m => (
+                                <SelectItem key={m.user_id} value={m.user_id}>
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-600 text-xs font-bold">
+                                      {m.name?.charAt(0)}
+                                    </div>
+                                    {m.name} - {m.stats?.appointments_count || 0} appointments
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          )}
+          
+          <div className="flex justify-end mt-4">
+            <Button variant="outline" onClick={() => setShowLeadDetail(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Lead Confirmation Dialog */}
+      <Dialog open={showDeleteLead} onOpenChange={setShowDeleteLead}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Delete Lead
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete the lead and all associated data.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {deletingLead && (
+            <div className="space-y-4 mt-4">
+              {/* Lead Preview */}
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold">
+                    {deletingLead.name?.charAt(0)?.toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-medium text-red-800">{deletingLead.name}</p>
+                    <p className="text-sm text-red-600">{deletingLead.phone} • {deletingLead.email}</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Confirmation Input */}
+              <div>
+                <Label className="text-red-600">Type DELETE to confirm</Label>
+                <Input
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE"
+                  className="mt-2 border-red-300 focus:border-red-500"
+                />
+              </div>
+              
+              <div className="flex gap-3 justify-end mt-6">
+                <Button variant="outline" onClick={() => { setShowDeleteLead(false); setDeletingLead(null); setDeleteConfirmText(''); }}>
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleDeleteLead} 
+                  disabled={deleteConfirmText !== 'DELETE'}
+                  className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" /> Delete Lead
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Google Sheets Connection Dialog */}
       <Dialog open={showSheetsDialog} onOpenChange={setShowSheetsDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
