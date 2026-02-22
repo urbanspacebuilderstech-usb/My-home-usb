@@ -21,6 +21,8 @@ const DEMO_USERS = [
   { email: 'planning@constructionos.com', name: 'Planning (Amit)', role: 'planning' },
   { email: 'procurement@constructionos.com', name: 'Procurement (Sneha)', role: 'procurement' },
   { email: 'engineer@constructionos.com', name: 'Site Engineer (Vikram)', role: 'site_engineer' },
+  { email: 'presales@constructionos.com', name: 'Pre-Sales (Priya)', role: 'pre_sales' },
+  { email: 'sales@constructionos.com', name: 'Sales (Sameer)', role: 'sales' },
   { email: 'raj@client.com', name: 'Client (Mr. Raj)', role: 'client' },
   { email: 'mohan@client.com', name: 'Client (Mr. Mohan)', role: 'client' },
 ];
