@@ -289,12 +289,17 @@ export default function MarketingBoard() {
       return;
     }
     
+    // Filter out "_skip" values from column mapping
+    const filteredMapping = Object.fromEntries(
+      Object.entries(columnMapping).filter(([_, v]) => v && v !== '_skip')
+    );
+    
     try {
       await axios.post(`${API}/api/sheets/sources`, {
         name: sourceName,
         spreadsheet_url: sheetUrl,
         sheet_name: sheetPreview.selected_sheet,
-        column_mapping: columnMapping,
+        column_mapping: filteredMapping,
         custom_fields: customFieldsToCreate
       }, { withCredentials: true });
       
