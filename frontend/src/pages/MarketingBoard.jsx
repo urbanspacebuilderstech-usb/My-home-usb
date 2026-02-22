@@ -1092,10 +1092,18 @@ export default function MarketingBoard() {
                           <td className="px-4 py-3 text-xs text-gray-500">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-4 py-3 text-center">
-                            <Button variant="ghost" size="sm" onClick={() => { setEditingLead(lead); setShowEditLead(true); }}>
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" onClick={() => openLeadDetail(lead)} title="View Details">
+                                <Eye className="h-4 w-4 text-blue-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => openEditLead(lead)} title="Edit Lead">
+                                <Edit2 className="h-4 w-4 text-amber-600" />
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={() => openDeleteLead(lead)} title="Delete Lead">
+                                <Trash2 className="h-4 w-4 text-red-600" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
