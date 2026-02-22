@@ -265,6 +265,7 @@ export default function PlanningBoard() {
   const getStatusBadge = (status) => {
     const config = {
       draft: { label: 'Draft', variant: 'secondary' },
+      in_planning: { label: 'New from CRE', variant: 'default', className: 'bg-green-600' },
       planning_review: { label: 'New', variant: 'default' },
       awaiting_approval: { label: 'Awaiting Approval', variant: 'outline' },
       gm_approved: { label: 'GM Approved', variant: 'default' },
@@ -273,7 +274,7 @@ export default function PlanningBoard() {
       completed: { label: 'Completed', variant: 'secondary' }
     };
     const c = config[status] || { label: status, variant: 'secondary' };
-    return <Badge variant={c.variant}>{c.label}</Badge>;
+    return <Badge variant={c.variant} className={c.className}>{c.label}</Badge>;
   };
 
   const getStageBadge = (stageId) => {
