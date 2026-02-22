@@ -779,6 +779,16 @@ Build a Construction Accounting CRM with:
 
 ---
 
+## Recently Completed (February 22, 2026)
+
+### GM Dashboard Redirect Bug Fix
+- [x] **Fixed GM redirect issue**: GM users were being redirected to `/approvals` instead of `/gm-dashboard`
+- [x] **Location**: `Dashboard.jsx` - Lines 183-186
+- [x] **Result**: GM users now correctly redirect to GM Command Center upon login
+- [x] **Testing**: 100% frontend success rate verified via testing agent (iteration_17.json)
+
+---
+
 ## Pending/Backlog Tasks
 
 ### P1 - Code Refactoring (HIGH PRIORITY)
