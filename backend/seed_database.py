@@ -46,10 +46,10 @@ async def seed_database():
             "created_at": datetime.now(timezone.utc).isoformat()
         },
         {
-            "user_id": "user_cro001",
-            "email": "cro@constructionos.com",
+            "user_id": "user_cre001",
+            "email": "cre@constructionos.com",
             "name": "Anita Desai",
-            "role": "cro",
+            "role": "cre",
             "phone": "+91 9876543221",
             "created_at": datetime.now(timezone.utc).isoformat()
         },
