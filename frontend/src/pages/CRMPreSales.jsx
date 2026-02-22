@@ -929,19 +929,29 @@ export default function CRMPreSales() {
       <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
-                {selectedLead?.name?.charAt(0)?.toUpperCase()}
-              </div>
-              <div>
-                <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
-                    {selectedLead?.source}
-                  </Badge>
-                  <Badge variant="outline">{getStageName(selectedLead?.current_stage_id)}</Badge>
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xl font-bold">
+                  {selectedLead?.name?.charAt(0)?.toUpperCase()}
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold">{selectedLead?.name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={SOURCE_COLORS[selectedLead?.source] || SOURCE_COLORS.other}>
+                      {selectedLead?.source}
+                    </Badge>
+                    <Badge variant="outline">{getStageName(selectedLead?.current_stage_id)}</Badge>
+                  </div>
                 </div>
               </div>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
+                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+              >
+                <Edit2 className="h-4 w-4 mr-1" /> Edit
+              </Button>
             </DialogTitle>
           </DialogHeader>
           
