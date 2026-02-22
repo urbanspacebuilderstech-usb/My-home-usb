@@ -162,7 +162,7 @@ export default function Dashboard() {
     }
     
     // CRO gets redirected to CRO Board
-    if (user.role === 'cro') {
+    if (user.role === 'cre') {
       window.location.href = '/cro-board';
       return null;
     }

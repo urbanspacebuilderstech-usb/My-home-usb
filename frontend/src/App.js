@@ -32,7 +32,7 @@ import MaterialReceipt from '@/pages/MaterialReceipt';
 import ProcurementDashboard from '@/pages/ProcurementDashboard';
 import ProcurementBoardV2 from '@/pages/ProcurementBoardV2';
 import PackageManagement from '@/pages/PackageManagement';
-import CROBoard from '@/pages/CROBoard';
+import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
 import AccountantDashboard from '@/pages/AccountantDashboard';
@@ -93,7 +93,7 @@ function AppRouter() {
       <Route path="/site-engineer/project/:projectId" element={<ProtectedRoute><SiteEngineerProject /></ProtectedRoute>} />
       <Route path="/site-engineer/material-receipt" element={<ProtectedRoute><MaterialReceipt /></ProtectedRoute>} />
       <Route path="/packages" element={<ProtectedRoute><PackageManagement /></ProtectedRoute>} />
-      <Route path="/cro-board" element={<ProtectedRoute><CROBoard /></ProtectedRoute>} />
+      <Route path="/cro-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><AccountantDashboard /></ProtectedRoute>} />
