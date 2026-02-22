@@ -12798,6 +12798,13 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         sales_stages = await get_default_sales_stages()
         first_sales_stage = sales_stages[0] if sales_stages else {"stage_id": "stg_new_appt"}
         
+        # Auto-assign to Sales team member using round-robin
+        assigned_sales_user_id = await assign_lead_to_next_user("sales")
+        assigned_sales_user_name = None
+        if assigned_sales_user_id:
+            assigned_sales_user = await db.users.find_one({"user_id": assigned_sales_user_id}, {"_id": 0})
+            assigned_sales_user_name = assigned_sales_user.get("name") if assigned_sales_user else None
+        
         new_lead = Lead(
             name=lead["name"],
             email=lead.get("email"),
@@ -12823,10 +12830,14 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             transferred_at=datetime.now(timezone.utc),
             notes=lead.get("notes"),
             tags=lead.get("tags", []),
-            created_by=user.user_id
+            created_by=user.user_id,
+            assigned_to=assigned_sales_user_id
         )
         
         new_lead_dict = new_lead.model_dump()
+        new_lead_dict["assigned_to_name"] = assigned_sales_user_name
+        new_lead_dict["pre_sales_person_id"] = lead.get("assigned_to")
+        new_lead_dict["pre_sales_person_name"] = lead.get("assigned_to_name")
         await db.leads.insert_one(new_lead_dict)
         
         # Update original lead with transfer info
@@ -12837,19 +12848,21 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         
         result["transferred_to_sales"] = True
         result["new_lead_id"] = new_lead.lead_id
+        result["assigned_to"] = assigned_sales_user_name
         
-        # Notify Sales team
-        notification = {
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": "all_sales",
-            "title": "New Sales Lead",
-            "message": f"Lead '{lead['name']}' transferred from Pre-Sales (Appointment Booked)",
-            "type": "lead_transfer",
-            "reference_id": new_lead.lead_id,
-            "is_read": False,
-            "created_at": datetime.now(timezone.utc)
-        }
-        await db.notifications.insert_one(notification)
+        # Notify assigned Sales person
+        if assigned_sales_user_id:
+            notification = {
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": assigned_sales_user_id,
+                "title": "New Sales Lead Assigned",
+                "message": f"Lead '{lead['name']}' transferred from Pre-Sales (Appointment Booked)",
+                "type": "lead_transfer",
+                "reference_id": new_lead.lead_id,
+                "is_read": False,
+                "created_at": datetime.now(timezone.utc)
+            }
+            await db.notifications.insert_one(notification)
     
     # TRIGGER: Sales "Rough Estimate Requested" -> Create RE Project
     if lead["stage_type"] == "sales" and stage["name"] == "Rough Estimate Requested":
