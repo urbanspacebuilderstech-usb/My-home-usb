@@ -1112,11 +1112,11 @@ const GMDashboard = () => {
         open={viewDialog} 
         onOpenChange={(open) => {
           if (!open) {
-            // Preserve the current tab when closing dialog
-            const currentTab = activeTab;
+            // Restore the last active tab when dialog closes
             setViewDialog(false);
-            // Restore tab after dialog closes
-            requestAnimationFrame(() => setActiveTab(currentTab));
+            setTimeout(() => {
+              setActiveTab(lastActiveTabRef.current);
+            }, 50);
           } else {
             setViewDialog(true);
           }
