@@ -55,6 +55,7 @@ export default function CRMPreSales() {
   // Dialogs
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);
+  const [editLeadDialog, setEditLeadDialog] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
   const [createStageDialog, setCreateStageDialog] = useState(false);
   const [importDialog, setImportDialog] = useState(false);
@@ -76,6 +77,17 @@ export default function CRMPreSales() {
     pincode: '',
     notes: '',
     custom_fields: {}
+  });
+
+  // Edit Lead Form
+  const [editLeadForm, setEditLeadForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    city: '',
+    state: '',
+    notes: ''
   });
   
   // New Field Form (Notion-style inline)
