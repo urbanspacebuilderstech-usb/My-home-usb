@@ -8669,6 +8669,163 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     }
 
 
+@api_router.get("/cre/new-deals")
+async def get_cre_new_deals(user: User = Depends(get_current_user)):
+    """Get closed deals from Sales that need to be converted to projects"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
+    
+    # Find leads with stage "Deal Closed" that haven't been converted to projects yet
+    deal_closed_stage = await db.crm_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
+    if not deal_closed_stage:
+        return []
+    
+    # Get leads in deal_closed stage that don't have a project yet
+    cursor = db.crm_leads.find({
+        "current_stage_id": deal_closed_stage["stage_id"],
+        "stage_type": "sales",
+        "$or": [
+            {"project_created": {"$ne": True}},
+            {"project_created": {"$exists": False}}
+        ]
+    }).sort("updated_at", -1)
+    
+    deals = []
+    async for lead in cursor:
+        lead["_id"] = str(lead["_id"]) if "_id" in lead else None
+        
+        # Get RE project details if available
+        if lead.get("re_project_id"):
+            re_project = await db.re_projects.find_one(
+                {"re_project_id": lead["re_project_id"]},
+                {"_id": 0}
+            )
+            lead["re_project"] = re_project
+        
+        deals.append(lead)
+    
+    return deals
+
+
+class ConvertDealInput(BaseModel):
+    advance_amount: float
+    payment_mode: str
+    payment_reference: Optional[str] = ""
+    accountant_confirmed: bool = False
+
+
+@api_router.post("/cre/convert-deal/{lead_id}")
+async def convert_deal_to_project(
+    lead_id: str,
+    data: ConvertDealInput,
+    user: User = Depends(get_current_user)
+):
+    """Convert a closed deal to a project with advance collection"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can convert deals")
+    
+    if not data.accountant_confirmed:
+        raise HTTPException(status_code=400, detail="Accountant confirmation required")
+    
+    # Get the lead
+    lead = await db.crm_leads.find_one({"lead_id": lead_id})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Check if already converted
+    if lead.get("project_created"):
+        raise HTTPException(status_code=400, detail="Deal already converted to project")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Get RE project details if available
+    re_project = None
+    if lead.get("re_project_id"):
+        re_project = await db.re_projects.find_one({"re_project_id": lead["re_project_id"]})
+    
+    # Calculate expected completion (default 12 months)
+    handover_months = re_project.get("handover_months", 12) if re_project else 12
+    expected_completion = now + timedelta(days=handover_months * 30)
+    
+    # Generate project ID
+    project_count = await db.projects.count_documents({})
+    project_id = f"proj_{secrets.token_hex(6)}"
+    
+    # Create the main project
+    main_project = {
+        "project_id": project_id,
+        "name": re_project.get("project_name", lead.get("name", "New Project")) if re_project else lead.get("name", "New Project"),
+        # Client details
+        "client_name": lead.get("name"),
+        "client_email": lead.get("email"),
+        "client_phone": lead.get("phone"),
+        "location": re_project.get("location", "") if re_project else lead.get("city", ""),
+        "sqft": re_project.get("sqft", 0) if re_project else 0,
+        "building_type": re_project.get("building_type", "residential") if re_project else "residential",
+        # Financial
+        "total_value": re_project.get("estimated_total", 0) if re_project else 0,
+        "advance_amount": data.advance_amount,
+        "advance_payment_mode": data.payment_mode,
+        "advance_payment_reference": data.payment_reference,
+        "advance_received_at": now,
+        "advance_verified_by": user.user_id,
+        "additional_cost": 0,
+        "income_project": data.advance_amount,
+        "income_additional": 0,
+        "total_expense": 0,
+        # Stage
+        "current_stage": "yet_to_start",
+        "stage_history": [],
+        "materials_locked": False,
+        # Dates
+        "start_date": now,
+        "expected_completion": expected_completion,
+        # Status - Set to 'planning' so Planning can add BOQ
+        "status": "planning",
+        # Links
+        "re_project_id": lead.get("re_project_id"),
+        "lead_id": lead_id,
+        # Workflow
+        "created_by": user.user_id,
+        "created_at": now,
+        "converted_by_cre": user.user_id,
+        "converted_at": now
+    }
+    
+    await db.projects.insert_one(main_project)
+    
+    # Update lead
+    await db.crm_leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "project_created": True,
+            "project_id": project_id,
+            "converted_at": now,
+            "converted_by": user.user_id
+        }}
+    )
+    
+    # Update RE Project if exists
+    if lead.get("re_project_id"):
+        await db.re_projects.update_one(
+            {"re_project_id": lead["re_project_id"]},
+            {"$set": {
+                "status": "converted",
+                "converted_project_id": project_id,
+                "converted_at": now,
+                "converted_by": user.user_id,
+                "advance_collected": data.advance_amount
+            }}
+        )
+    
+    return {
+        "success": True,
+        "project_id": project_id,
+        "message": "Deal converted to project successfully",
+        "advance_collected": data.advance_amount
+    }
+
+
 @api_router.get("/cre/payment-requests")
 async def get_cro_payment_requests(user: User = Depends(get_current_user)):
     """Get all payment stages that are requested for collection by CRO"""
