@@ -47,7 +47,8 @@ export default function MarketingBoard() {
       const parsedUser = JSON.parse(storedUser);
       setUser(parsedUser);
       if (parsedUser.role !== 'super_admin') {
-        window.location.href = '/';
+        toast.error('Super Admin access required');
+        window.location.href = '/dashboard';
         return;
       }
       fetchDashboard();
