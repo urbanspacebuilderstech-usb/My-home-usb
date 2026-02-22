@@ -1483,6 +1483,47 @@ Complete end-to-end payment flow for work order stages:
   - Total Collected footer with sum
 - [x] **Files Updated**: `/app/frontend/src/pages/ProjectDetail.jsx`
 
+### ✅ Lead Distribution Engine (February 22, 2026)
+
+#### Marketing Board (Super Admin Only)
+- [x] **New Page**: `/marketing-board` - Lead Distribution Engine dashboard
+- [x] **Distribution Settings**:
+  - Enable/Disable toggle for auto-distribution
+  - Round-robin algorithm for fair lead distribution
+  - Separate queues for Pre-Sales and Sales teams
+- [x] **Team Performance Dashboard**:
+  - Pre-Sales team stats: Total leads, Converted, Conversion rate
+  - Sales team stats: Total appointments, Deals closed, Close rate
+- [x] **All Leads View**: Filter and reassign leads manually
+- [x] **Lead Sources Breakdown**: Visual stats by source
+
+#### Multi-User Support
+- [x] **Pre-Sales Team**: Pre-Sales A (Kavitha), Pre-Sales B (Priya)
+- [x] **Sales Team**: Sales A (Vikram), Sales B (Rahul)
+- [x] **Round-Robin Assignment**:
+  - Lead 1 → Pre-Sales A
+  - Lead 2 → Pre-Sales B
+  - Lead 3 → Pre-Sales A (cycles back)
+- [x] **Role-Based Filtering**:
+  - Pre-Sales/Sales users see only their assigned leads
+  - Super Admin sees all leads across all users
+
+#### Backend Endpoints Added
+- `GET /api/marketing/dashboard` - Marketing Board stats
+- `GET /api/marketing/distribution-settings` - Get distribution config
+- `PATCH /api/marketing/distribution-settings` - Update distribution config
+- `GET /api/marketing/team-members` - List team members
+- `POST /api/marketing/team-members` - Add new team member
+- `POST /api/marketing/assign-lead/{lead_id}` - Manual lead assignment
+- `GET /api/marketing/all-leads` - All leads for Super Admin
+
+#### Files Created/Updated
+- **Created**: `/app/frontend/src/pages/MarketingBoard.jsx`
+- **Updated**: `/app/frontend/src/App.js` - Added route
+- **Updated**: `/app/frontend/src/pages/Dashboard.jsx` - Added Quick Actions
+- **Updated**: `/app/frontend/src/pages/Login.jsx` - Added Pre-Sales B, Sales B buttons
+- **Updated**: `/app/backend/server.py` - Lead distribution engine, filtered CRM endpoints
+
 ---
 
 *Last Updated: February 22, 2026*
