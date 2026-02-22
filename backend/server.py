@@ -8747,43 +8747,72 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
 
 @api_router.get("/cre/new-deals")
 async def get_cre_new_deals(user: User = Depends(get_current_user)):
-    """Get closed deals from Sales that need to be converted to projects"""
+    """Get closed deals from Sales AND approved RE projects that need to be converted to projects"""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
-    # Find leads with stage "Deal Closed" that haven't been converted to projects yet
-    # Try lead_stages first (new collection), then fall back to crm_stages
+    deals = []
+    
+    # 1. Get RE projects that are approved by GM but not yet converted
+    re_projects = await db.re_projects.find({
+        "status": "re_approved",
+        "$or": [
+            {"converted_to_project": {"$ne": True}},
+            {"converted_to_project": {"$exists": False}}
+        ]
+    }, {"_id": 0}).sort("gm_approved_at", -1).to_list(100)
+    
+    for re in re_projects:
+        # Format RE project as a deal for CRE
+        deals.append({
+            "deal_type": "re_project",
+            "re_project_id": re.get("re_project_id"),
+            "lead_id": re.get("lead_id"),
+            "name": re.get("client_name"),
+            "project_name": re.get("project_name", f"RE - {re.get('client_name')}"),
+            "client_name": re.get("client_name"),
+            "phone": re.get("client_phone"),
+            "email": re.get("client_email"),
+            "location": re.get("location"),
+            "sqft": re.get("area_sqft"),
+            "building_type": re.get("building_type", "residential"),
+            "estimated_total": re.get("estimated_total", 0),
+            "handover_months": re.get("handover_months"),
+            "gm_approved_at": re.get("gm_approved_at"),
+            "created_at": re.get("created_at"),
+            "re_project": re  # Include full RE data for reference
+        })
+    
+    # 2. Get leads with stage "Deal Closed" that haven't been converted to projects yet
     deal_closed_stage = await db.lead_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
     if not deal_closed_stage:
         deal_closed_stage = await db.crm_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
-    if not deal_closed_stage:
-        # Return empty if no Deal Closed stage exists
-        return []
     
-    # Get leads in deal_closed stage that don't have a project yet
-    # Use 'leads' collection (not 'crm_leads')
-    cursor = db.leads.find({
-        "current_stage_id": deal_closed_stage["stage_id"],
-        "stage_type": "sales",
-        "$or": [
-            {"project_created": {"$ne": True}},
-            {"project_created": {"$exists": False}}
-        ]
-    }).sort("updated_at", -1)
-    
-    deals = []
-    async for lead in cursor:
-        lead["_id"] = str(lead["_id"]) if "_id" in lead else None
+    if deal_closed_stage:
+        cursor = db.leads.find({
+            "current_stage_id": deal_closed_stage["stage_id"],
+            "stage_type": "sales",
+            "$or": [
+                {"project_created": {"$ne": True}},
+                {"project_created": {"$exists": False}}
+            ]
+        }).sort("updated_at", -1)
         
-        # Get RE project details if available
-        if lead.get("re_project_id"):
-            re_project = await db.re_projects.find_one(
-                {"re_project_id": lead["re_project_id"]},
-                {"_id": 0}
-            )
-            lead["re_project"] = re_project
-        
-        deals.append(lead)
+        async for lead in cursor:
+            lead["_id"] = str(lead["_id"]) if "_id" in lead else None
+            lead["deal_type"] = "sales_lead"
+            
+            # Skip if this lead's RE project is already in the list
+            if lead.get("re_project_id"):
+                if any(d.get("re_project_id") == lead["re_project_id"] for d in deals):
+                    continue
+                re_project = await db.re_projects.find_one(
+                    {"re_project_id": lead["re_project_id"]},
+                    {"_id": 0}
+                )
+                lead["re_project"] = re_project
+            
+            deals.append(lead)
     
     return deals
 
