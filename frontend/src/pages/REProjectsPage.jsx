@@ -617,10 +617,22 @@ export default function REProjectsPage() {
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calculator className="h-5 w-5 text-purple-600" />
-              {canEdit ? 'Edit' : 'View'} Rough Estimate
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="h-5 w-5 text-purple-600" />
+                {canEdit ? 'Edit' : 'View'} Rough Estimate
+              </div>
+              <Button 
+                size="sm"
+                onClick={() => generateREPDF(selectedProject)}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <Download className="h-4 w-4 mr-1" /> Download PDF
+              </Button>
             </DialogTitle>
+            <DialogDescription>
+              URBAN SPACE BUILDERS - Ref: {selectedProject?.re_project_id}
+            </DialogDescription>
           </DialogHeader>
           
           {selectedProject && (
