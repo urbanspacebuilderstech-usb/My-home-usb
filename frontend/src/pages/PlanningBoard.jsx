@@ -412,6 +412,31 @@ export default function PlanningBoard() {
           </Card>
         )}
 
+        {/* Rough Estimate Projects Alert */}
+        {reProjectsCount > 0 && (
+          <Card className="bg-indigo-50 border-indigo-200 mb-6">
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-500 p-2 rounded-full">
+                  <Calculator className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-indigo-800">Rough Estimate Requests</p>
+                  <p className="text-sm text-indigo-600">
+                    {reProjectsCount} new RE project(s) waiting for rough estimate
+                  </p>
+                </div>
+              </div>
+              <Button 
+                onClick={() => window.location.href = '/crm/re-projects'} 
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                Review RE Projects
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Construction Stages Cards */}
         <Card className="mb-6">
           <CardHeader className="pb-2">
