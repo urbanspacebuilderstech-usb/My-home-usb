@@ -92,8 +92,8 @@ const GMDashboard = () => {
       setPaymentRequests(paymentReqRes.data || []);
       setSuspenseRequests(suspenseRes.data || []);
       
-      // Calculate stats
-      const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_awaiting_approval').length;
+      // Calculate stats - RE projects pending approval have status 're_submitted'
+      const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_submitted').length;
       const pendingProjectApprovals = (projectsRes.data || []).filter(p => p.status === 'awaiting_approval' && !p.gm_approved_by).length;
       const pendingSiteRequests = (siteReqRes.data || []).filter(r => r.status === 'pending').length;
       const pendingPayments = (paymentReqRes.data || []).filter(p => p.status === 'pending').length;
