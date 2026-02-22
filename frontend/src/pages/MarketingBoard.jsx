@@ -1439,7 +1439,7 @@ export default function MarketingBoard() {
                                     <SelectValue placeholder="Map to..." />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="">Skip</SelectItem>
+                                    <SelectItem value="_skip">Skip</SelectItem>
                                     {STANDARD_FIELDS.map(f => (
                                       <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                                     ))}
@@ -1636,7 +1636,7 @@ export default function MarketingBoard() {
                                     <SelectValue placeholder="Map to..." />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="">Skip</SelectItem>
+                                    <SelectItem value="_skip">Skip</SelectItem>
                                     {STANDARD_FIELDS.map(f => (
                                       <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
                                     ))}
