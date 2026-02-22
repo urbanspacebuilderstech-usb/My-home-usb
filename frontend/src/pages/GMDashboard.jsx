@@ -1076,8 +1076,8 @@ const GMDashboard = () => {
       </Dialog>
 
       {/* View Details Dialog */}
-      <Dialog open={viewDialog} onOpenChange={(open) => setViewDialog(open)}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+      <Dialog open={viewDialog} onOpenChange={(open) => setViewDialog(open)} modal={true}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between pr-8">
               <div className="flex items-center gap-2">
