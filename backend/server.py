@@ -4283,17 +4283,26 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
 # ==================== SITE ENGINEER MODULE ====================
 
 class MaterialRequestStatus(str, Enum):
-    REQUESTED = "requested"
-    PLANNING_APPROVED = "planning_approved"
+    REQUESTED = "requested"  # Site Engineer created request
+    PM_APPROVED = "pm_approved"  # Project Manager approved
+    PLANNING_APPROVED = "planning_approved"  # Planning approved
+    PROCUREMENT_ASSIGNED = "procurement_assigned"  # Procurement assigned vendor
     VENDOR_SELECTED = "vendor_selected"  # Procurement selected vendor & pricing
     WAITING_PAYMENT = "waiting_payment"  # Waiting for accounts approval
     PAYMENT_APPROVED = "payment_approved"  # Accounts approved payment
     PO_GENERATED = "po_generated"  # Purchase order generated
+    ORDER_PLACED = "order_placed"  # Order placed with vendor
     IN_TRANSIT = "in_transit"  # Material dispatched
     RECEIVED_PARTIAL = "received_partial"
     RECEIVED_COMPLETED = "received_completed"
     REJECTED = "rejected"
     CLOSED = "closed"
+
+
+class VendorPaymentType(str, Enum):
+    ADVANCE = "advance"  # Full payment upfront before delivery
+    FULL_PAYMENT = "full_payment"  # Full payment on delivery
+    CREDIT = "credit"  # Payment after delivery (credit period)
 
 
 class PaymentType(str, Enum):
