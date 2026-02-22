@@ -115,14 +115,9 @@ export default function MarketingBoard() {
   const fetchDashboard = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
       const [dashRes, settingsRes] = await Promise.all([
-        axios.get(`${API}/api/marketing/dashboard`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        axios.get(`${API}/api/marketing/distribution-settings`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        axios.get(`${API}/api/marketing/dashboard`, { withCredentials: true }),
+        axios.get(`${API}/api/marketing/distribution-settings`, { withCredentials: true })
       ]);
       setDashboard(dashRes.data);
       setSettings(settingsRes.data);
