@@ -518,6 +518,65 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Quick Actions for Super Admin */}
+        <Card className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
+          <CardHeader className="pb-2 p-3 sm:p-6">
+            <CardTitle className="text-sm sm:text-lg">Quick Actions</CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
+                onClick={() => window.location.href = '/marketing-board'}
+              >
+                <CardContent className="p-3 sm:p-4 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-2">
+                    <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold">Marketing Board</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">Lead Distribution</p>
+                </CardContent>
+              </Card>
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
+                onClick={() => window.location.href = '/crm-pre-sales'}
+              >
+                <CardContent className="p-3 sm:p-4 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-2">
+                    <Users className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold">Pre-Sales CRM</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">Lead Management</p>
+                </CardContent>
+              </Card>
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
+                onClick={() => window.location.href = '/crm-sales'}
+              >
+                <CardContent className="p-3 sm:p-4 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-2">
+                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold">Sales CRM</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">Deal Conversion</p>
+                </CardContent>
+              </Card>
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
+                onClick={() => window.location.href = '/gm-dashboard'}
+              >
+                <CardContent className="p-3 sm:p-4 text-center">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-yellow-100 flex items-center justify-center mx-auto mb-2">
+                    <Eye className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-600" />
+                  </div>
+                  <p className="text-xs sm:text-sm font-semibold">GM Dashboard</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">Command Center</p>
+                </CardContent>
+              </Card>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Projects List */}
         <Card>
           <CardHeader className="border-b flex flex-row items-center justify-between p-3 sm:p-6">
