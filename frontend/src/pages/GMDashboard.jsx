@@ -1001,7 +1001,19 @@ const GMDashboard = () => {
       </main>
 
       {/* Approval Dialog with APPROVE confirmation */}
-      <Dialog open={approvalDialog} onOpenChange={setApprovalDialog} modal={true}>
+      <Dialog 
+        open={approvalDialog} 
+        onOpenChange={(open) => {
+          if (!open) {
+            const currentTab = activeTab;
+            setApprovalDialog(false);
+            requestAnimationFrame(() => setActiveTab(currentTab));
+          } else {
+            setApprovalDialog(true);
+          }
+        }} 
+        modal={true}
+      >
         <DialogContent className="max-w-md" onPointerDownOutside={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle className={`flex items-center gap-2 ${approvalAction === 'reject' ? 'text-red-600' : 'text-green-600'}`}>
