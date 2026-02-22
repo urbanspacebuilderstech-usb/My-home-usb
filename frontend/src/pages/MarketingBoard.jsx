@@ -1051,22 +1051,22 @@ export default function MarketingBoard() {
                               {lead.email && <p className="text-xs text-gray-500 flex items-center gap-1"><Mail className="h-3 w-3" />{lead.email}</p>}
                             </div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <Badge className={lead.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
                               {lead.stage_type === 'pre_sales' ? 'Pre-Sales' : 'Sales'}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
                               {lead.source_display || lead.source?.replace('_', ' ')}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <Select 
                               value={lead.assigned_to || 'unassigned'} 
                               onValueChange={(v) => v !== 'unassigned' && handleAssignLead(lead.lead_id, v)}
                             >
-                              <SelectTrigger className="w-[140px] h-8 text-xs">
+                              <SelectTrigger className="w-[120px] h-8 text-xs">
                                 <SelectValue>
                                   {lead.assigned_to_name || 'Unassigned'}
                                 </SelectValue>
@@ -1084,23 +1084,23 @@ export default function MarketingBoard() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <Badge variant="outline" className="text-xs">
                               {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-500">
+                          <td className="px-3 py-3 text-xs text-gray-500">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => openLeadDetail(lead)} title="View Details">
+                          <td className="px-3 py-3 bg-white sticky right-0 border-l">
+                            <div className="flex items-center justify-center gap-0">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openLeadDetail(lead)} title="View Details">
                                 <Eye className="h-4 w-4 text-blue-600" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => openEditLead(lead)} title="Edit Lead">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEditLead(lead)} title="Edit Lead">
                                 <Edit2 className="h-4 w-4 text-amber-600" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => openDeleteLead(lead)} title="Delete Lead">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openDeleteLead(lead)} title="Delete Lead">
                                 <Trash2 className="h-4 w-4 text-red-600" />
                               </Button>
                             </div>
