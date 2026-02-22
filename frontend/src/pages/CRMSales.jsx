@@ -93,43 +93,16 @@ export default function CRMSales() {
     window.location.href = '/login';
   };
 
-  const handleStageChange = async (leadId, newStageId, advanceData = null) => {
+  const handleStageChange = async (leadId, newStageId) => {
     try {
-      // Check if this is a deal close stage
       const stage = stages.find(s => s.stage_id === newStageId);
-      const lead = leads.find(l => l.lead_id === leadId);
       
-      if (stage?.name === 'Deal Closed' && lead?.re_project_id && !advanceData) {
-        // Show deal close dialog to collect advance
-        try {
-          const res = await axios.get(`${API}/crm/re-projects/${lead.re_project_id}`);
-          setDealCloseREProject(res.data);
-          setDealCloseLead(lead);
-          setAdvanceAmount('');
-          setPaymentMode('');
-          setPaymentRef('');
-          setDealCloseDialog(true);
-          return; // Don't proceed until user confirms
-        } catch (error) {
-          toast.error('Failed to load RE project details');
-          return;
-        }
-      }
-      
-      // Proceed with stage change
-      const payload = { stage_id: newStageId };
-      if (advanceData) {
-        payload.advance_amount = advanceData.advance_amount;
-        payload.payment_mode = advanceData.payment_mode;
-        payload.payment_reference = advanceData.payment_reference;
-      }
-      
-      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, payload);
+      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, { stage_id: newStageId });
       
       if (result.data.re_project_created) {
         toast.success('Rough Estimate Project created! Planning team notified.');
-      } else if (result.data.project_created) {
-        toast.success(`Deal Closed! Project created successfully! Advance: ₹${(advanceData?.advance_amount || 0).toLocaleString()}`);
+      } else if (stage?.name === 'Deal Closed') {
+        toast.success('Deal Closed! Sent to CRE for project creation.');
       } else {
         toast.success('Lead stage updated');
       }
@@ -139,30 +112,6 @@ export default function CRMSales() {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     }
   };
-  
-  const handleDealClose = async () => {
-    if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
-      toast.error('Please enter a valid advance amount');
-      return;
-    }
-    if (!paymentMode) {
-      toast.error('Please select payment mode');
-      return;
-    }
-    
-    const dealCloseStage = stages.find(s => s.name === 'Deal Closed');
-    if (!dealCloseStage || !dealCloseLead) {
-      toast.error('Unable to process deal close');
-      return;
-    }
-    
-    try {
-      await handleStageChange(
-        dealCloseLead.lead_id, 
-        dealCloseStage.stage_id,
-        {
-          advance_amount: parseFloat(advanceAmount),
-          payment_mode: paymentMode,
           payment_reference: paymentRef
         }
       );
