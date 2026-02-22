@@ -226,9 +226,13 @@ const GMDashboard = () => {
 
   // Open view dialog
   const openViewDialog = (item, type) => {
+    // Preserve the current tab when opening dialog
+    const currentTab = activeTab;
     setViewItem(item);
     setViewType(type);
     setViewDialog(true);
+    // Ensure tab doesn't change
+    setTimeout(() => setActiveTab(currentTab), 0);
   };
 
   const handleLogout = async () => {
