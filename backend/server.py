@@ -8601,12 +8601,12 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.CRO, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRO can access this")
     
-    # Get counts by status
+    # Get counts by status - include 'planning' (from CRM RE conversion)
     base_query = {"created_by": user.user_id} if user.role == UserRole.CRO else {}
     draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
     pending_payment_count = await db.projects.count_documents({**base_query, "status": "pending_payment"})
     payment_verified_count = await db.projects.count_documents({**base_query, "status": "payment_verified"})
-    planning_review_count = await db.projects.count_documents({**base_query, "status": "planning_review"})
+    planning_review_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_review", "planning"]}})
     awaiting_approval_count = await db.projects.count_documents({**base_query, "status": "awaiting_approval"})
     approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active"]}})
     
