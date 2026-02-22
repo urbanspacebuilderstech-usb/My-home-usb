@@ -664,9 +664,19 @@ export default function CRMPreSales() {
             {/* Divider for Custom Fields */}
             {customFields.length > 0 && (
               <div className="col-span-2 border-t pt-4 mt-2">
-                <div className="flex items-center gap-2 mb-3">
-                  <Settings className="h-4 w-4 text-indigo-600" />
-                  <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Settings className="h-4 w-4 text-indigo-600" />
+                    <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => setManageFieldsDialog(true)}
+                    className="text-xs text-gray-500 hover:text-red-600"
+                  >
+                    <Edit2 className="h-3 w-3 mr-1" /> Manage
+                  </Button>
                 </div>
               </div>
             )}
