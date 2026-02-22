@@ -12709,6 +12709,162 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     return result
 
 
+# ==================== CRM LEAD DETAILS & INTERACTIONS ====================
+
+class LeadRemarkInput(BaseModel):
+    remark: str
+    remark_type: Optional[str] = "general"
+
+
+class LeadFollowUpInput(BaseModel):
+    scheduled_date: str
+    note: Optional[str] = None
+
+
+class LeadUpdateInput(BaseModel):
+    summary: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@api_router.get("/crm/leads/{lead_id}")
+async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
+    """Get detailed lead info including remarks and follow-ups"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Role-based access check
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    return lead
+
+
+@api_router.patch("/crm/leads/{lead_id}")
+async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(get_current_user)):
+    """Update lead fields including summary"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Role-based access check
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": update_data})
+    
+    return {"message": "Lead updated successfully"}
+
+
+@api_router.post("/crm/leads/{lead_id}/remarks")
+async def add_lead_remark(lead_id: str, data: LeadRemarkInput, user: User = Depends(get_current_user)):
+    """Add a remark/note to a lead"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Role-based access check
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    # Get user name for display
+    user_info = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    user_name = user_info.get("name", "User") if user_info else "User"
+    
+    remark = {
+        "remark_id": f"rem_{uuid.uuid4().hex[:8]}",
+        "text": data.remark,
+        "remark_type": data.remark_type,
+        "added_by": user.user_id,
+        "added_by_name": user_name,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {
+            "$push": {"remarks": remark},
+            "$set": {"updated_at": datetime.now(timezone.utc), "last_contacted": datetime.now(timezone.utc)}
+        }
+    )
+    
+    return {"message": "Remark added successfully", "remark": remark}
+
+
+@api_router.post("/crm/leads/{lead_id}/follow-ups")
+async def schedule_follow_up(lead_id: str, data: LeadFollowUpInput, user: User = Depends(get_current_user)):
+    """Schedule a follow-up for a lead"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Role-based access check
+    if lead["stage_type"] == "pre_sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRO, "sales"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    follow_up = {
+        "follow_up_id": f"fu_{uuid.uuid4().hex[:8]}",
+        "scheduled_date": data.scheduled_date,
+        "note": data.note,
+        "completed": False,
+        "completed_at": None,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {
+            "$push": {"follow_ups": follow_up},
+            "$set": {"updated_at": datetime.now(timezone.utc)}
+        }
+    )
+    
+    return {"message": "Follow-up scheduled", "follow_up": follow_up}
+
+
+@api_router.patch("/crm/leads/{lead_id}/follow-ups/{follow_up_id}/complete")
+async def complete_follow_up(lead_id: str, follow_up_id: str, user: User = Depends(get_current_user)):
+    """Mark a follow-up as completed"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Update the specific follow-up
+    result = await db.leads.update_one(
+        {"lead_id": lead_id, "follow_ups.follow_up_id": follow_up_id},
+        {
+            "$set": {
+                "follow_ups.$.completed": True,
+                "follow_ups.$.completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc)
+            }
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+    
+    return {"message": "Follow-up marked as completed"}
+
+
 # ==================== CRM B (SALES) ENDPOINTS ====================
 
 @api_router.get("/crm/sales/dashboard")
