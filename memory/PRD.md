@@ -22,15 +22,17 @@ Build a Construction Accounting CRM with:
 1. **Super Admin** - Full system access, invite users
 2. **General Manager** - Overall management, RE project approvals
 3. **CRE** (Customer Relationship Executive) - Client relations, deal conversion, advance payment collection
-4. **Accountant** - Approve/reject work orders, manage expenses, verify payments
-5. **Project Manager** - Create projects, submit work orders
-6. **Planning Department** - Create and manage BOQ, Rough Estimates
-7. **Procurement Department** - Create POs, manage vendors
-8. **Site Engineer** - Submit site receipts with GPS + photos
-9. **Pre-Sales** - Lead generation and qualification
-10. **Sales** - Deal negotiation and closure
-11. **Vendor** - View assigned orders via Vendor Portal
-12. **Client** - Read-only project portal
+4. **Accountant** - Approve/reject work orders, manage expenses, verify payments, issue petty cash
+5. **Project Manager** - Create projects, submit work orders, approve material/labour requests, assign team members
+6. **Associate Project Manager** (NEW) - Assist PM, limited project access, material/labour requests
+7. **Sr. Site Engineer** (NEW) - Senior field supervision, material/labour requests, petty cash
+8. **Planning Department** - Create and manage BOQ, Rough Estimates
+9. **Procurement Department** - Create POs, manage vendors, assign vendors to material requests
+10. **Site Engineer** - Submit site receipts with GPS + photos, request materials/labour/petty cash
+11. **Pre-Sales** - Lead generation and qualification
+12. **Sales** - Deal negotiation and closure
+13. **Vendor** - View assigned orders via Vendor Portal
+14. **Client** - Read-only project portal
 
 ### Tech Stack
 - **Backend**: FastAPI (Python)
