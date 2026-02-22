@@ -8766,19 +8766,28 @@ async def convert_deal_to_project(
     project_count = await db.projects.count_documents({})
     project_id = f"proj_{secrets.token_hex(6)}"
     
-    # Create the main project
+    # Create the main project with CRE-edited details
+    project_name = data.project_name or (re_project.get("project_name") if re_project else None) or lead.get("name", "New Project")
+    client_name = data.client_name or lead.get("name")
+    client_phone = data.client_phone or lead.get("phone")
+    client_email = data.client_email or lead.get("email")
+    location = data.location or (re_project.get("location") if re_project else None) or lead.get("city", "")
+    sqft = data.sqft or (re_project.get("sqft") if re_project else None) or 0
+    building_type = data.building_type or (re_project.get("building_type") if re_project else None) or "residential"
+    total_value = re_project.get("estimated_total", 0) if re_project else 0
+    
     main_project = {
         "project_id": project_id,
-        "name": re_project.get("project_name", lead.get("name", "New Project")) if re_project else lead.get("name", "New Project"),
-        # Client details
-        "client_name": lead.get("name"),
-        "client_email": lead.get("email"),
-        "client_phone": lead.get("phone"),
-        "location": re_project.get("location", "") if re_project else lead.get("city", ""),
-        "sqft": re_project.get("sqft", 0) if re_project else 0,
-        "building_type": re_project.get("building_type", "residential") if re_project else "residential",
+        "name": project_name,
+        # Client details (editable by CRE)
+        "client_name": client_name,
+        "client_email": client_email,
+        "client_phone": client_phone,
+        "location": location,
+        "sqft": sqft,
+        "building_type": building_type,
         # Financial
-        "total_value": re_project.get("estimated_total", 0) if re_project else 0,
+        "total_value": total_value,
         "advance_amount": data.advance_amount,
         "advance_payment_mode": data.payment_mode,
         "advance_payment_reference": data.payment_reference,
@@ -8802,6 +8811,8 @@ async def convert_deal_to_project(
         # Links
         "re_project_id": lead.get("re_project_id"),
         "lead_id": lead_id,
+        # Package if selected
+        "package_id": data.package_id,
         # Workflow
         "created_by": user.user_id,
         "created_at": now,
