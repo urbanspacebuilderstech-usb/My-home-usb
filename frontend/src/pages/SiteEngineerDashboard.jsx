@@ -530,6 +530,99 @@ export default function SiteEngineerDashboard() {
               </div>
             )}
           </TabsContent>
+          
+          {/* Petty Cash Tab */}
+          <TabsContent value="pettycash" className="mt-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Petty Cash</h3>
+              <Button onClick={() => setPettyCashDialog(true)} className="gap-2">
+                <Plus className="h-4 w-4" /> Request Petty Cash
+              </Button>
+            </div>
+            
+            {pettyCashList.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Petty Cash</h3>
+                  <p className="text-sm text-gray-600">Request petty cash for site expenses</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {pettyCashList.map((pc) => (
+                  <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h4 className="font-semibold">{pc.project_name}</h4>
+                            {getPettyCashStatusBadge(pc.status)}
+                          </div>
+                          <p className="text-sm text-gray-600">{pc.purpose}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-600">₹{pc.amount_issued || pc.amount_requested}</p>
+                          <p className="text-xs text-gray-500">
+                            Spent: ₹{pc.amount_spent || 0}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Expenses List */}
+                      {pc.expenses && pc.expenses.length > 0 && (
+                        <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                          <p className="text-xs font-semibold text-gray-500 mb-2">Expenses ({pc.expenses.length})</p>
+                          <div className="space-y-1">
+                            {pc.expenses.slice(-3).map((exp, idx) => (
+                              <div key={idx} className="flex justify-between text-sm">
+                                <span className="text-gray-600">{exp.description}</span>
+                                <span className="font-medium">₹{exp.amount}</span>
+                              </div>
+                            ))}
+                            {pc.expenses.length > 3 && (
+                              <p className="text-xs text-gray-400">...and {pc.expenses.length - 3} more</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Action Buttons */}
+                      <div className="flex gap-2 flex-wrap">
+                        {(pc.status === 'issued' || pc.status === 'partially_spent') && (
+                          <>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedPettyCash(pc);
+                                setPettyCashExpenseDialog(true);
+                              }}
+                            >
+                              <Receipt className="h-4 w-4 mr-1" /> Add Expense
+                            </Button>
+                            <Button 
+                              size="sm"
+                              className="bg-orange-600 hover:bg-orange-700"
+                              onClick={() => handleSubmitPettyCash(pc.petty_cash_id)}
+                            >
+                              <Send className="h-4 w-4 mr-1" /> Submit for Settlement
+                            </Button>
+                          </>
+                        )}
+                        {pc.status === 'pending_settlement' && (
+                          <Badge className="bg-orange-100 text-orange-700">Waiting for Accountant</Badge>
+                        )}
+                        {pc.status === 'settled' && (
+                          <Badge className="bg-green-100 text-green-700">Settled ✓</Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
 
