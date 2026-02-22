@@ -13259,11 +13259,8 @@ class REProjectUpdate(BaseModel):
     sqft: Optional[float] = None
     building_type: Optional[str] = None
     rough_scope_items: Optional[List[Dict[str, Any]]] = None
-    rough_materials: Optional[List[Dict[str, Any]]] = None
-    rough_labour: Optional[List[Dict[str, Any]]] = None
-    estimated_material_cost: Optional[float] = None
-    estimated_labour_cost: Optional[float] = None
-    estimated_overhead: Optional[float] = None
+    handover_months: Optional[int] = None
+    estimated_total: Optional[float] = None
     planning_notes: Optional[str] = None
 
 
@@ -13289,24 +13286,15 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
         update["building_type"] = data.building_type
     if data.rough_scope_items is not None:
         update["rough_scope_items"] = data.rough_scope_items
-    if data.rough_materials is not None:
-        update["rough_materials"] = data.rough_materials
-    if data.rough_labour is not None:
-        update["rough_labour"] = data.rough_labour
-    if data.estimated_material_cost is not None:
-        update["estimated_material_cost"] = data.estimated_material_cost
-    if data.estimated_labour_cost is not None:
-        update["estimated_labour_cost"] = data.estimated_labour_cost
-    if data.estimated_overhead is not None:
-        update["estimated_overhead"] = data.estimated_overhead
+        # Calculate total from scope items
+        scope_total = sum(item.get("total", 0) for item in data.rough_scope_items)
+        update["estimated_total"] = scope_total
+    if data.handover_months is not None:
+        update["handover_months"] = data.handover_months
+    if data.estimated_total is not None:
+        update["estimated_total"] = data.estimated_total
     if data.planning_notes is not None:
         update["planning_notes"] = data.planning_notes
-    
-    # Calculate total
-    material_cost = data.estimated_material_cost if data.estimated_material_cost is not None else project.get("estimated_material_cost", 0)
-    labour_cost = data.estimated_labour_cost if data.estimated_labour_cost is not None else project.get("estimated_labour_cost", 0)
-    overhead = data.estimated_overhead if data.estimated_overhead is not None else project.get("estimated_overhead", 0)
-    update["estimated_total"] = material_cost + labour_cost + overhead
     
     # Set status to in progress if it was requested
     if project["status"] == "re_requested":
