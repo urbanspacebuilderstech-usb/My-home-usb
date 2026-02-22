@@ -17,10 +17,23 @@ import {
 import {
   LayoutDashboard, Building2, ClipboardCheck, Calculator, Users, Package,
   HardHat, DollarSign, CheckCircle, XCircle, Clock, AlertTriangle, Eye,
-  ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase
+  ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
+
+// Company Details for PDF
+const COMPANY_INFO = {
+  name: 'URBAN SPACE BUILDERS',
+  tagline: 'Building Dreams Into Reality',
+  address: 'No.123, Construction Lane, Chennai - 600001',
+  phone: '+91 44 2345 6789',
+  email: 'info@urbanspacebuilders.com',
+  website: 'www.urbanspacebuilders.com',
+  gstin: 'GSTIN: 33XXXXX1234X1Z5'
+};
 
 const GMDashboard = () => {
   const [user, setUser] = useState(null);
