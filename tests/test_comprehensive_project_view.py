@@ -7,7 +7,7 @@ import requests
 import os
 import uuid
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://cre-board.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://build-accounting-1.preview.emergentagent.com')
 PROJECT_ID = "proj_classic001"
 DEMO_EMAIL = "admin@constructionos.com"
 

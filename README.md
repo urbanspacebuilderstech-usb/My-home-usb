@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://cre-board.preview.emergentagent.com
-- Backend API: https://cre-board.preview.emergentagent.com/api
+- Frontend: https://build-accounting-1.preview.emergentagent.com
+- Backend API: https://build-accounting-1.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
