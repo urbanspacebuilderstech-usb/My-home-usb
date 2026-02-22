@@ -49,6 +49,10 @@ export default function PlanningBoard() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   
+  // New projects from CRE
+  const [newProjectsFromCRE, setNewProjectsFromCRE] = useState([]);
+  const [newProjectsDialog, setNewProjectsDialog] = useState(false);
+  
   // Stage update dialog
   const [stageDialog, setStageDialog] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
