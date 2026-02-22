@@ -1526,14 +1526,21 @@ Complete end-to-end payment flow for work order stages:
 - `GET /api/marketing/team-members` - List team members
 - `POST /api/marketing/team-members` - Add new team member
 - `POST /api/marketing/assign-lead/{lead_id}` - Manual lead assignment
-- `GET /api/marketing/all-leads` - All leads for Super Admin
+- `GET /api/marketing/all-leads` - All leads for Super Admin (filters: stage_type, assigned_to)
+- `PATCH /api/crm/leads/{lead_id}` - Edit lead (name, email, phone, city)
 
 #### Files Created/Updated
 - **Created**: `/app/frontend/src/pages/MarketingBoard.jsx`
+- **Created**: `/app/backend/tests/test_marketing_board.py` - 19 comprehensive tests
 - **Updated**: `/app/frontend/src/App.js` - Added route
 - **Updated**: `/app/frontend/src/pages/Dashboard.jsx` - Added Quick Actions
 - **Updated**: `/app/frontend/src/pages/Login.jsx` - Added Pre-Sales B, Sales B buttons
 - **Updated**: `/app/backend/server.py` - Lead distribution engine, filtered CRM endpoints
+
+#### Testing Status
+- **Backend Tests**: 19/19 passed (100%)
+- **Frontend Tests**: All features verified working
+- **API Endpoints**: All 8 endpoints tested via curl and pytest
 
 ---
 
