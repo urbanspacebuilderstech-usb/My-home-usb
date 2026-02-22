@@ -44,7 +44,38 @@ Build a Construction Accounting CRM with:
 
 ### ✅ COMPLETED (December 2025 - February 2026)
 
-#### Authentication & User Management (February 21, 2026) - NEW
+#### CRE Workflow (February 22, 2026) - NEW
+- [x] **CRE Role Implementation**:
+  - Renamed CRO to CRE (Customer Relationship Executive)
+  - New CRE Board at `/cre-board`
+  - CRE user: cre@constructionos.com (Anita Desai)
+  
+- [x] **New Deals from Sales**:
+  - Sales closes deals → Leads move to CRE's "New Deals" queue
+  - CRE can view closed deals waiting for conversion
+  - Shows client info, contact details, RE project details if available
+  
+- [x] **Convert Deal to Project**:
+  - "Convert to Project" button for each new deal
+  - Collect advance payment (amount, mode, reference)
+  - Accountant confirmation checkbox
+  - Creates project with status "planning"
+  
+- [x] **CRE Dashboard**:
+  - Status cards: Draft, Pending Payment, Payment Received, In Planning, Approved
+  - Workflow banner showing project lifecycle
+  - Payment Collection Requests section
+  - Total Ongoing Projects and Total Value metrics
+  - Project Stages visualization
+  
+- [x] **API Endpoints**:
+  - `GET /api/cre/new-deals` - Get closed deals from Sales
+  - `POST /api/cre/convert-deal/{lead_id}` - Convert deal to project
+  - `GET /api/cre/dashboard` - Get CRE dashboard metrics
+  - `GET /api/cre/payment-requests` - Get payment collection requests
+  - `GET /api/cre/projects/all` - Get all CRE projects
+
+#### Authentication & User Management (February 21, 2026)
 - [x] **Google Login Integration**:
   - Emergent-managed Google OAuth
   - Only invited users can login via Google
