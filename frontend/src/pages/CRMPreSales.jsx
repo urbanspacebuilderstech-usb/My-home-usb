@@ -308,7 +308,7 @@ export default function CRMPreSales() {
               <SelectValue placeholder="All Sources" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Sources</SelectItem>
+              <SelectItem value="all">All Sources</SelectItem>
               <SelectItem value="meta">Meta</SelectItem>
               <SelectItem value="seo">SEO</SelectItem>
               <SelectItem value="referral">Referral</SelectItem>
