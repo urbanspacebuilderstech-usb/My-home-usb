@@ -8830,8 +8830,76 @@ async def convert_deal_to_project(
         "success": True,
         "project_id": project_id,
         "message": "Deal converted to project successfully",
-        "advance_collected": data.advance_amount
+        "advance_collected": data.advance_amount,
+        "status": "pending_payment"  # Waiting for accountant verification
     }
+
+
+@api_router.patch("/cre/projects/{project_id}/accountant-verify")
+async def accountant_verify_advance(project_id: str, user: User = Depends(get_current_user)):
+    """Accountant verifies the advance payment - moves project to payment_received"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can verify payments")
+    
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "pending_payment":
+        raise HTTPException(status_code=400, detail=f"Project must be in pending_payment status. Current: {project.get('status')}")
+    
+    now = datetime.now(timezone.utc)
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "payment_received",
+            "accountant_verified": True,
+            "accountant_verified_by": user.user_id,
+            "accountant_verified_at": now.isoformat()
+        }}
+    )
+    
+    # Record income entry
+    income_entry = {
+        "income_id": f"inc_{secrets.token_hex(6)}",
+        "project_id": project_id,
+        "type": "advance",
+        "amount": project.get("advance_amount", 0),
+        "payment_mode": project.get("advance_payment_mode"),
+        "payment_reference": project.get("advance_payment_reference"),
+        "verified_by": user.user_id,
+        "verified_at": now.isoformat(),
+        "created_at": now.isoformat()
+    }
+    await db.income_entries.insert_one(income_entry)
+    
+    return {"message": "Advance payment verified", "status": "payment_received"}
+
+
+@api_router.patch("/cre/projects/{project_id}/send-to-planning")
+async def send_project_to_planning(project_id: str, user: User = Depends(get_current_user)):
+    """CRE sends verified project to Planning department"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can send projects to planning")
+    
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    if project.get("status") != "payment_received":
+        raise HTTPException(status_code=400, detail="Project must have payment verified before sending to planning")
+    
+    now = datetime.now(timezone.utc)
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "status": "in_planning",
+            "sent_to_planning_by": user.user_id,
+            "sent_to_planning_at": now.isoformat()
+        }}
+    )
+    
+    return {"message": "Project sent to Planning", "status": "in_planning"}
 
 
 @api_router.get("/cre/payment-requests")
