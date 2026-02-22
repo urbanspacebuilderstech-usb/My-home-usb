@@ -1021,31 +1021,31 @@ export default function MarketingBoard() {
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm min-w-[900px]">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold">Lead</th>
-                        <th className="px-4 py-3 text-left font-semibold">Contact</th>
-                        <th className="px-4 py-3 text-left font-semibold">Type</th>
-                        <th className="px-4 py-3 text-left font-semibold">Source</th>
-                        <th className="px-4 py-3 text-left font-semibold">Assigned To</th>
-                        <th className="px-4 py-3 text-left font-semibold">Stage</th>
-                        <th className="px-4 py-3 text-left font-semibold">Created</th>
-                        <th className="px-4 py-3 text-center font-semibold">Actions</th>
+                        <th className="px-3 py-3 text-left font-semibold">Lead</th>
+                        <th className="px-3 py-3 text-left font-semibold">Contact</th>
+                        <th className="px-3 py-3 text-left font-semibold w-20">Type</th>
+                        <th className="px-3 py-3 text-left font-semibold">Source</th>
+                        <th className="px-3 py-3 text-left font-semibold">Assigned To</th>
+                        <th className="px-3 py-3 text-left font-semibold w-24">Stage</th>
+                        <th className="px-3 py-3 text-left font-semibold w-24">Created</th>
+                        <th className="px-3 py-3 text-center font-semibold w-28 bg-gray-50 sticky right-0">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {filteredLeads.map(lead => (
                         <tr key={lead.lead_id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <div className="flex items-center gap-2">
                               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
                                 {lead.name?.charAt(0)}
                               </div>
-                              <span className="font-medium">{lead.name}</span>
+                              <span className="font-medium text-sm">{lead.name}</span>
                             </div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-3 py-3">
                             <div className="space-y-1">
                               {lead.phone && <p className="text-xs flex items-center gap-1"><Phone className="h-3 w-3" />{lead.phone}</p>}
                               {lead.email && <p className="text-xs text-gray-500 flex items-center gap-1"><Mail className="h-3 w-3" />{lead.email}</p>}
