@@ -311,7 +311,7 @@ export default function ProjectDetail() {
         margin: { left: 14, right: 14 }
       });
       
-      yPos = (doc as any).lastAutoTable.finalY + 10;
+      yPos = doc.lastAutoTable.finalY + 10;
     } else {
       doc.setFontSize(10);
       doc.setFont('helvetica', 'italic');
