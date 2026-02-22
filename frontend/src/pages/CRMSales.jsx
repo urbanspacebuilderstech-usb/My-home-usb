@@ -721,6 +721,7 @@ export default function CRMSales() {
             ))}
           </div>
         </div>
+        )}
       </div>
 
       {/* View Lead Dialog */}
