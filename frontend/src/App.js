@@ -49,6 +49,7 @@ import CRMSales from '@/pages/CRMSales';
 import REProjectsPage from '@/pages/REProjectsPage';
 import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
 import CSVImportPage from '@/pages/CSVImportPage';
+import GMDashboard from '@/pages/GMDashboard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
