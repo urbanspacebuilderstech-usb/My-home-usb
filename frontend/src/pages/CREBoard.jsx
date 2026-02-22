@@ -502,9 +502,9 @@ export default function CREBoard() {
             <CardContent className="p-3 sm:p-4">
               <div className="flex items-center gap-2 text-emerald-600 mb-1">
                 <CheckCircle2 className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Payment Received</span>
+                <span className="text-xs sm:text-sm">Payment Verified</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-emerald-700">{dashboard.payment_verified_count || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-emerald-700">{dashboard.payment_received_count || 0}</p>
             </CardContent>
           </Card>
           
@@ -514,7 +514,7 @@ export default function CREBoard() {
                 <Clock className="h-4 w-4" />
                 <span className="text-xs sm:text-sm">In Planning</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.planning_review_count || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.in_planning_count || 0}</p>
             </CardContent>
           </Card>
           
