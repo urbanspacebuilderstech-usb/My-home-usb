@@ -215,10 +215,10 @@ const GMDashboard = () => {
       }
       
       if (approvalAction === 'approve') {
-        await axios.post(endpoint);
+        await axios.patch(endpoint, { approved: true });
         toast.success('Approved successfully!');
       } else {
-        await axios.post(endpoint, payload);
+        await axios.patch(endpoint, { approved: false, rejection_reason: rejectionReason });
         toast.success('Rejected successfully');
       }
       
