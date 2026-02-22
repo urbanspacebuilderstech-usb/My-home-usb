@@ -648,7 +648,7 @@ const GMDashboard = () => {
           </TabsContent>
 
           {/* Planning Tab - RE Projects */}
-          <TabsContent value="planning" className="space-y-6" forceMount={activeTab === 'planning' ? undefined : true} style={{ display: activeTab === 'planning' ? 'block' : 'none' }}>
+          <TabsContent value="planning" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
