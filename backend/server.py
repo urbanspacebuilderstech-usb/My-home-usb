@@ -9618,12 +9618,12 @@ async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
     for stage in PROJECT_STAGES:
         count = await db.projects.count_documents({
             "current_stage": stage["id"],
-            "status": {"$in": ["planning_review", "planning_approved", "active", "gm_approved"]}
+            "status": {"$in": ["in_planning", "planning_review", "planning_approved", "active", "gm_approved"]}
         })
         stage_counts[stage["id"]] = count
     
-    # Count by workflow status
-    new_projects = await db.projects.count_documents({"status": "planning_review"})
+    # Count by workflow status - include in_planning from CRE
+    new_projects = await db.projects.count_documents({"status": {"$in": ["in_planning", "planning_review", "planning"]}})
     awaiting_approval = await db.projects.count_documents({"status": "awaiting_approval"})
     working_projects = await db.projects.count_documents({"status": {"$in": ["planning_approved", "active", "gm_approved"]}})
     completed_projects = await db.projects.count_documents({"status": "completed"})
