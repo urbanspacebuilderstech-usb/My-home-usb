@@ -2480,6 +2480,141 @@ export default function ProjectDetail() {
                   )}
                 </table>
               </div>
+              </div>
+
+              {/* Payment History Section */}
+              <div className="mt-8">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" /> Payment Collection History
+                </h4>
+                <Card>
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Date</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Type</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Description</th>
+                            <th className="px-4 py-3 text-right font-semibold text-gray-600">Amount</th>
+                            <th className="px-4 py-3 text-center font-semibold text-gray-600">Mode</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Reference</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {/* Advance Payment Row */}
+                          {paymentSummary?.advance_payment?.amount > 0 && (
+                            <tr className="bg-green-50 hover:bg-green-100">
+                              <td className="px-4 py-3 text-sm">
+                                {paymentSummary.advance_payment.date 
+                                  ? new Date(paymentSummary.advance_payment.date).toLocaleDateString('en-IN')
+                                  : 'N/A'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge className="bg-green-600 text-white">Advance</Badge>
+                              </td>
+                              <td className="px-4 py-3 font-medium">Advance Payment at Project Start</td>
+                              <td className="px-4 py-3 text-right font-bold text-green-700">
+                                {formatCurrency(paymentSummary.advance_payment.amount)}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <Badge variant="outline" className="capitalize">
+                                  {paymentSummary.advance_payment.mode?.replace('_', ' ') || 'N/A'}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-500">-</td>
+                            </tr>
+                          )}
+                          
+                          {/* Stage Payments */}
+                          {paymentSummary?.payment_stages
+                            ?.filter(stage => stage.status === 'paid' || stage.status === 'partial')
+                            .map((stage, idx) => (
+                              <tr key={stage.stage_id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm">
+                                  {stage.payment_date 
+                                    ? new Date(stage.payment_date).toLocaleDateString('en-IN')
+                                    : 'N/A'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <Badge className={stage.status === 'paid' ? 'bg-blue-600 text-white' : 'bg-yellow-500 text-white'}>
+                                    {stage.status === 'paid' ? 'Stage Payment' : 'Partial'}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 font-medium">{stage.stage_name}</td>
+                                <td className="px-4 py-3 text-right font-bold text-green-700">
+                                  {formatCurrency(stage.amount_received || 0)}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <Badge variant="outline" className="capitalize">
+                                    {stage.payment_mode?.replace('_', ' ') || 'N/A'}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-gray-500">
+                                  {stage.payment_reference || '-'}
+                                </td>
+                              </tr>
+                            ))}
+                          
+                          {/* Income Records */}
+                          {paymentSummary?.income_records?.map((income, idx) => (
+                            <tr key={income.income_id || idx} className="hover:bg-gray-50 bg-purple-50">
+                              <td className="px-4 py-3 text-sm">
+                                {income.date ? new Date(income.date).toLocaleDateString('en-IN') : 
+                                 income.created_at ? new Date(income.created_at).toLocaleDateString('en-IN') : 'N/A'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge className="bg-purple-600 text-white">Income</Badge>
+                              </td>
+                              <td className="px-4 py-3 font-medium">{income.description || income.category || 'Payment Received'}</td>
+                              <td className="px-4 py-3 text-right font-bold text-green-700">
+                                {formatCurrency(income.amount)}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <Badge variant="outline" className="capitalize">
+                                  {income.payment_mode?.replace('_', ' ') || 'N/A'}
+                                </Badge>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-500">
+                                {income.reference || income.remarks || '-'}
+                              </td>
+                            </tr>
+                          ))}
+                          
+                          {/* Empty state */}
+                          {(!paymentSummary?.advance_payment?.amount && 
+                            !paymentSummary?.payment_stages?.some(s => s.status === 'paid' || s.status === 'partial') &&
+                            !paymentSummary?.income_records?.length) && (
+                            <tr>
+                              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                                No payments collected yet
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                        {/* Total Footer */}
+                        {(paymentSummary?.advance_payment?.amount > 0 || 
+                          paymentSummary?.payment_stages?.some(s => s.amount_received > 0) ||
+                          paymentSummary?.income_records?.length > 0) && (
+                          <tfoot className="bg-gray-100 font-semibold border-t-2">
+                            <tr>
+                              <td colSpan={3} className="px-4 py-3 text-right">Total Collected:</td>
+                              <td className="px-4 py-3 text-right text-green-700 text-lg">
+                                {formatCurrency(
+                                  (paymentSummary?.advance_payment?.amount || 0) +
+                                  (paymentSummary?.payment_stages?.reduce((sum, s) => sum + (s.amount_received || 0), 0) || 0) +
+                                  (paymentSummary?.income_records?.reduce((sum, i) => sum + (i.amount || 0), 0) || 0)
+                                )}
+                              </td>
+                              <td colSpan={2}></td>
+                            </tr>
+                          </tfoot>
+                        )}
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </TabsContent>
           </Tabs>
         </Card>
