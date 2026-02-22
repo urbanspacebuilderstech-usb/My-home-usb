@@ -13701,6 +13701,345 @@ async def get_planning_re_dashboard(user: User = Depends(get_current_user)):
     }
 
 
+# ==================== LEAD DISTRIBUTION ENGINE ====================
+
+class LeadDistributionSettings(BaseModel):
+    """Settings for auto-distributing leads"""
+    settings_id: str = Field(default_factory=lambda: f"lds_{uuid.uuid4().hex[:8]}")
+    distribution_type: str = "round_robin"  # round_robin, manual, weighted
+    enabled: bool = True
+    pre_sales_team: List[str] = []  # List of pre_sales user_ids
+    sales_team: List[str] = []  # List of sales user_ids
+    pre_sales_current_index: int = 0
+    sales_current_index: int = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+async def get_distribution_settings():
+    """Get or create distribution settings"""
+    settings = await db.lead_distribution_settings.find_one({}, {"_id": 0})
+    if not settings:
+        # Initialize with existing pre_sales and sales users
+        pre_sales_users = await db.users.find({"role": "pre_sales"}, {"_id": 0, "user_id": 1}).to_list(100)
+        sales_users = await db.users.find({"role": "sales"}, {"_id": 0, "user_id": 1}).to_list(100)
+        
+        settings = LeadDistributionSettings(
+            pre_sales_team=[u["user_id"] for u in pre_sales_users],
+            sales_team=[u["user_id"] for u in sales_users]
+        )
+        settings_dict = settings.model_dump()
+        settings_dict["created_at"] = settings_dict["created_at"].isoformat()
+        settings_dict["updated_at"] = settings_dict["updated_at"].isoformat()
+        await db.lead_distribution_settings.insert_one(settings_dict)
+        return settings.model_dump()
+    return settings
+
+
+async def assign_lead_to_next_user(stage_type: str) -> Optional[str]:
+    """Round-robin assignment of lead to next available team member"""
+    settings = await get_distribution_settings()
+    
+    if not settings.get("enabled", True):
+        return None
+    
+    if stage_type == "pre_sales":
+        team = settings.get("pre_sales_team", [])
+        current_idx = settings.get("pre_sales_current_index", 0)
+        index_field = "pre_sales_current_index"
+    else:
+        team = settings.get("sales_team", [])
+        current_idx = settings.get("sales_current_index", 0)
+        index_field = "sales_current_index"
+    
+    if not team:
+        return None
+    
+    # Get next user (round-robin)
+    assigned_user_id = team[current_idx % len(team)]
+    next_idx = (current_idx + 1) % len(team)
+    
+    # Update index
+    await db.lead_distribution_settings.update_one(
+        {},
+        {"$set": {index_field: next_idx, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return assigned_user_id
+
+
+@api_router.get("/marketing/distribution-settings")
+async def get_lead_distribution_settings(user: User = Depends(get_current_user)):
+    """Get lead distribution settings - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    settings = await get_distribution_settings()
+    
+    # Get user details for team members
+    pre_sales_users = await db.users.find(
+        {"user_id": {"$in": settings.get("pre_sales_team", [])}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1}
+    ).to_list(100)
+    
+    sales_users = await db.users.find(
+        {"user_id": {"$in": settings.get("sales_team", [])}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1}
+    ).to_list(100)
+    
+    settings["pre_sales_team_details"] = pre_sales_users
+    settings["sales_team_details"] = sales_users
+    
+    return settings
+
+
+class UpdateDistributionSettings(BaseModel):
+    enabled: Optional[bool] = None
+    distribution_type: Optional[str] = None
+    pre_sales_team: Optional[List[str]] = None
+    sales_team: Optional[List[str]] = None
+
+
+@api_router.patch("/marketing/distribution-settings")
+async def update_distribution_settings(data: UpdateDistributionSettings, user: User = Depends(get_current_user)):
+    """Update lead distribution settings - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    update_dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    
+    if data.enabled is not None:
+        update_dict["enabled"] = data.enabled
+    if data.distribution_type:
+        update_dict["distribution_type"] = data.distribution_type
+    if data.pre_sales_team is not None:
+        update_dict["pre_sales_team"] = data.pre_sales_team
+        update_dict["pre_sales_current_index"] = 0
+    if data.sales_team is not None:
+        update_dict["sales_team"] = data.sales_team
+        update_dict["sales_current_index"] = 0
+    
+    await get_distribution_settings()  # Ensure exists
+    await db.lead_distribution_settings.update_one({}, {"$set": update_dict})
+    
+    return {"message": "Distribution settings updated"}
+
+
+@api_router.get("/marketing/dashboard")
+async def get_marketing_dashboard(user: User = Depends(get_current_user)):
+    """Get Marketing Board dashboard - Super Admin can see all team performance"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Get all pre-sales and sales team members
+    pre_sales_users = await db.users.find({"role": "pre_sales"}, {"_id": 0}).to_list(100)
+    sales_users = await db.users.find({"role": "sales"}, {"_id": 0}).to_list(100)
+    
+    # Get lead counts per user
+    pre_sales_stats = []
+    for ps_user in pre_sales_users:
+        leads = await db.leads.count_documents({
+            "assigned_to": ps_user["user_id"],
+            "stage_type": "pre_sales"
+        })
+        converted = await db.leads.count_documents({
+            "assigned_to": ps_user["user_id"],
+            "stage_type": "pre_sales",
+            "transferred_to_lead_id": {"$ne": None}
+        })
+        pre_sales_stats.append({
+            "user_id": ps_user["user_id"],
+            "name": ps_user.get("name"),
+            "email": ps_user.get("email"),
+            "total_leads": leads,
+            "converted": converted,
+            "conversion_rate": round((converted / leads * 100), 1) if leads > 0 else 0
+        })
+    
+    sales_stats = []
+    for s_user in sales_users:
+        leads = await db.leads.count_documents({
+            "assigned_to": s_user["user_id"],
+            "stage_type": "sales"
+        })
+        closed = await db.leads.count_documents({
+            "assigned_to": s_user["user_id"],
+            "stage_type": "sales",
+            "current_stage_id": "stg_deal_closed"
+        })
+        sales_stats.append({
+            "user_id": s_user["user_id"],
+            "name": s_user.get("name"),
+            "email": s_user.get("email"),
+            "total_appointments": leads,
+            "deals_closed": closed,
+            "close_rate": round((closed / leads * 100), 1) if leads > 0 else 0
+        })
+    
+    # Get overall stats
+    total_pre_sales_leads = await db.leads.count_documents({"stage_type": "pre_sales"})
+    total_sales_leads = await db.leads.count_documents({"stage_type": "sales"})
+    
+    # Get leads by source
+    source_pipeline = [
+        {"$match": {"stage_type": "pre_sales"}},
+        {"$group": {"_id": "$source", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    leads_by_source = await db.leads.aggregate(source_pipeline).to_list(20)
+    
+    # Get recent leads
+    recent_leads = await db.leads.find(
+        {},
+        {"_id": 0, "lead_id": 1, "name": 1, "source": 1, "stage_type": 1, "assigned_to": 1, "created_at": 1}
+    ).sort("created_at", -1).limit(20).to_list(20)
+    
+    # Enrich with assigned user names
+    user_ids = list(set(l.get("assigned_to") for l in recent_leads if l.get("assigned_to")))
+    users_map = {}
+    if user_ids:
+        users = await db.users.find({"user_id": {"$in": user_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(100)
+        users_map = {u["user_id"]: u["name"] for u in users}
+    
+    for lead in recent_leads:
+        lead["assigned_to_name"] = users_map.get(lead.get("assigned_to"), "Unassigned")
+    
+    return {
+        "pre_sales_team": pre_sales_stats,
+        "sales_team": sales_stats,
+        "total_pre_sales_leads": total_pre_sales_leads,
+        "total_sales_leads": total_sales_leads,
+        "leads_by_source": leads_by_source,
+        "recent_leads": recent_leads,
+        "distribution_settings": await get_distribution_settings()
+    }
+
+
+@api_router.get("/marketing/team-members")
+async def get_team_members(user: User = Depends(get_current_user)):
+    """Get all Pre-Sales and Sales team members"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    pre_sales = await db.users.find({"role": "pre_sales"}, {"_id": 0, "password": 0}).to_list(100)
+    sales = await db.users.find({"role": "sales"}, {"_id": 0, "password": 0}).to_list(100)
+    
+    return {
+        "pre_sales_team": pre_sales,
+        "sales_team": sales
+    }
+
+
+class CreateTeamMemberInput(BaseModel):
+    name: str
+    email: str
+    role: str  # pre_sales or sales
+    phone: Optional[str] = None
+
+
+@api_router.post("/marketing/team-members")
+async def create_team_member(data: CreateTeamMemberInput, user: User = Depends(get_current_user)):
+    """Create a new Pre-Sales or Sales team member - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    if data.role not in ["pre_sales", "sales"]:
+        raise HTTPException(status_code=400, detail="Role must be 'pre_sales' or 'sales'")
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": data.email.lower()})
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    new_user = {
+        "user_id": f"user_{uuid.uuid4().hex[:12]}",
+        "email": data.email.lower(),
+        "name": data.name,
+        "role": data.role,
+        "phone": data.phone,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(new_user)
+    
+    # Auto-add to distribution team
+    settings = await get_distribution_settings()
+    team_field = "pre_sales_team" if data.role == "pre_sales" else "sales_team"
+    current_team = settings.get(team_field, [])
+    current_team.append(new_user["user_id"])
+    
+    await db.lead_distribution_settings.update_one(
+        {},
+        {"$set": {team_field: current_team, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Team member created", "user_id": new_user["user_id"]}
+
+
+@api_router.post("/marketing/assign-lead/{lead_id}")
+async def manually_assign_lead(lead_id: str, assigned_to: str, user: User = Depends(get_current_user)):
+    """Manually assign a lead to a team member - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Get assignee name
+    assignee = await db.users.find_one({"user_id": assigned_to}, {"_id": 0})
+    if not assignee:
+        raise HTTPException(status_code=404, detail="Assignee not found")
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "assigned_to": assigned_to,
+            "assigned_to_name": assignee.get("name"),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    return {"message": f"Lead assigned to {assignee.get('name')}"}
+
+
+@api_router.get("/marketing/all-leads")
+async def get_all_leads_for_marketing(
+    user: User = Depends(get_current_user),
+    stage_type: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 100
+):
+    """Get all leads with assignment info - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    query = {}
+    if stage_type:
+        query["stage_type"] = stage_type
+    if assigned_to:
+        query["assigned_to"] = assigned_to
+    
+    leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    total = await db.leads.count_documents(query)
+    
+    # Enrich with assigned user names
+    user_ids = list(set(l.get("assigned_to") for l in leads if l.get("assigned_to")))
+    users_map = {}
+    if user_ids:
+        users = await db.users.find({"user_id": {"$in": user_ids}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(100)
+        users_map = {u["user_id"]: u["name"] for u in users}
+    
+    for lead in leads:
+        lead["assigned_to_name"] = users_map.get(lead.get("assigned_to"), "Unassigned")
+    
+    return {"leads": leads, "total": total}
+
+
+# ==================== END LEAD DISTRIBUTION ENGINE ====================
+
+
 # ==================== END CRM MODULE ENDPOINTS ====================
 
 
