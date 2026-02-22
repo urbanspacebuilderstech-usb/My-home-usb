@@ -491,12 +491,53 @@ export default function MarketingBoard() {
       setShowEditLead(false);
       setEditingLead(null);
       fetchAllLeads();
+      fetchLeadSources();
       if (selectedPerson) {
         fetchPersonLeads(selectedPerson.user_id);
       }
     } catch (error) {
       toast.error('Failed to update lead');
     }
+  };
+
+  const handleDeleteLead = async () => {
+    if (!deletingLead || deleteConfirmText !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    try {
+      await axios.delete(`${API}/api/marketing/leads/${deletingLead.lead_id}`, { withCredentials: true });
+      toast.success('Lead deleted successfully');
+      setShowDeleteLead(false);
+      setDeletingLead(null);
+      setDeleteConfirmText('');
+      fetchAllLeads();
+      fetchDashboard();
+      fetchLeadSources();
+      if (showLeadDetail) {
+        setShowLeadDetail(false);
+        setSelectedLead(null);
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete lead');
+    }
+  };
+
+  const openLeadDetail = (lead) => {
+    setSelectedLead(lead);
+    setDetailTab('overview');
+    setShowLeadDetail(true);
+  };
+
+  const openEditLead = (lead) => {
+    setEditingLead({ ...lead });
+    setShowEditLead(true);
+  };
+
+  const openDeleteLead = (lead) => {
+    setDeletingLead(lead);
+    setDeleteConfirmText('');
+    setShowDeleteLead(true);
   };
 
   const filteredLeads = allLeads.filter(lead => {
