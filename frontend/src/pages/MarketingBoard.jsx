@@ -93,19 +93,23 @@ export default function MarketingBoard() {
   const [editingLead, setEditingLead] = useState(null);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      setUser(parsedUser);
-      if (parsedUser.role !== 'super_admin') {
-        toast.error('Super Admin access required');
-        window.location.href = '/dashboard';
-        return;
+    const checkAuthAndFetch = async () => {
+      try {
+        const res = await axios.get(`${API}/api/auth/me`, { withCredentials: true });
+        const currentUser = res.data;
+        setUser(currentUser);
+        if (currentUser.role !== 'super_admin') {
+          toast.error('Super Admin access required');
+          window.location.href = '/dashboard';
+          return;
+        }
+        fetchDashboard();
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        window.location.href = '/login';
       }
-      fetchDashboard();
-    } else {
-      window.location.href = '/login';
-    }
+    };
+    checkAuthAndFetch();
   }, []);
 
   const fetchDashboard = async () => {
