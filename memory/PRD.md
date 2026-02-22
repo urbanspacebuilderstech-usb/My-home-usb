@@ -1453,6 +1453,21 @@ Complete end-to-end payment flow for work order stages:
   - **File Updated**: `/app/backend/server.py` line 8762
   - **Testing**: Convert deal workflow now works correctly
 
+### ✅ CRM View Toggle Feature (February 22, 2026)
+
+#### Pre-Sales & Sales CRM List View
+- [x] **View Toggle Button**: Kanban | List toggle on the right side of search bar
+- [x] **List View Features**:
+  - Stage tabs with small font and colored dot indicators
+  - Shows stage counts: e.g., "New Lead (1)", "Contacted (3)"
+  - Clickable tabs to filter by stage
+  - Table columns: Lead, Contact, Source/Stage, Created, Actions
+  - Eye icon to view lead details
+- [x] **Kanban View**: Original drag-and-drop kanban board preserved
+- [x] **Files Updated**: 
+  - `/app/frontend/src/pages/CRMPreSales.jsx`
+  - `/app/frontend/src/pages/CRMSales.jsx`
+
 ---
 
 *Last Updated: February 22, 2026*
