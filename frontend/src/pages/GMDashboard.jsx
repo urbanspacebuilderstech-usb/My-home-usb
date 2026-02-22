@@ -238,6 +238,197 @@ const GMDashboard = () => {
     window.location.href = '/login';
   };
 
+  // Generate PDF for Rough Estimate
+  const generateREPDF = (project) => {
+    if (!project) return;
+    
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    
+    // Add watermark
+    doc.setTextColor(240, 240, 240);
+    doc.setFontSize(50);
+    doc.setFont('helvetica', 'bold');
+    const watermarkText = 'URBAN SPACE BUILDERS';
+    const watermarkWidth = doc.getTextWidth(watermarkText);
+    doc.text(watermarkText, (pageWidth - watermarkWidth) / 2, pageHeight / 2, { angle: 45 });
+    
+    // Reset text color
+    doc.setTextColor(0, 0, 0);
+    
+    // Company Header
+    doc.setFillColor(45, 45, 45);
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    
+    // Company Name
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(COMPANY_INFO.name, 14, 18);
+    
+    // Company Tagline
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(COMPANY_INFO.tagline, 14, 26);
+    
+    // Company Contact (right side)
+    doc.setFontSize(8);
+    doc.text(COMPANY_INFO.phone, pageWidth - 14, 14, { align: 'right' });
+    doc.text(COMPANY_INFO.email, pageWidth - 14, 20, { align: 'right' });
+    doc.text(COMPANY_INFO.website, pageWidth - 14, 26, { align: 'right' });
+    doc.text(COMPANY_INFO.address, pageWidth - 14, 32, { align: 'right' });
+    
+    // Document Title
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ROUGH ESTIMATE', pageWidth / 2, 55, { align: 'center' });
+    
+    // Estimate Reference
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Ref: ${project.re_project_id}`, pageWidth / 2, 62, { align: 'center' });
+    doc.text(`Date: ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}`, pageWidth / 2, 68, { align: 'center' });
+    
+    // Client Information Box
+    let yPos = 80;
+    doc.setFillColor(249, 250, 251);
+    doc.rect(14, yPos - 5, pageWidth - 28, 35, 'F');
+    doc.setDrawColor(200, 200, 200);
+    doc.rect(14, yPos - 5, pageWidth - 28, 35, 'S');
+    
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CLIENT INFORMATION', 18, yPos + 2);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    yPos += 10;
+    doc.text(`Name: ${project.client_name || '-'}`, 18, yPos);
+    doc.text(`Phone: ${project.client_phone || '-'}`, pageWidth / 2, yPos);
+    yPos += 7;
+    doc.text(`Email: ${project.client_email || '-'}`, 18, yPos);
+    doc.text(`Location: ${project.location || '-'}`, pageWidth / 2, yPos);
+    
+    // Project Details Box
+    yPos += 20;
+    doc.setFillColor(249, 250, 251);
+    doc.rect(14, yPos - 5, pageWidth - 28, 28, 'F');
+    doc.setDrawColor(200, 200, 200);
+    doc.rect(14, yPos - 5, pageWidth - 28, 28, 'S');
+    
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PROJECT DETAILS', 18, yPos + 2);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    yPos += 10;
+    doc.text(`Project Name: ${project.project_name || '-'}`, 18, yPos);
+    doc.text(`Square Feet: ${project.sqft ? `${project.sqft} sqft` : '-'}`, pageWidth / 2, yPos);
+    yPos += 7;
+    doc.text(`Building Type: ${project.building_type || '-'}`, 18, yPos);
+    doc.text(`Handover: ${project.handover_months ? `${project.handover_months} months` : '-'}`, pageWidth / 2, yPos);
+    
+    // Scope of Works Table
+    yPos += 20;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('SCOPE OF WORKS', 14, yPos);
+    yPos += 5;
+    
+    const scopeItems = project.rough_scope_items || [];
+    if (scopeItems.length > 0) {
+      const tableData = scopeItems.map((item, idx) => [
+        idx + 1,
+        item.description || item.name || '-',
+        item.quantity || '-',
+        item.unit || '-',
+        formatCurrency(item.rate || 0),
+        formatCurrency(item.total || 0)
+      ]);
+      
+      doc.autoTable({
+        startY: yPos,
+        head: [['S.No', 'Description', 'Qty', 'Unit', 'Rate', 'Amount']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [45, 45, 45],
+          textColor: [255, 255, 255],
+          fontSize: 9,
+          fontStyle: 'bold'
+        },
+        bodyStyles: {
+          fontSize: 9,
+          textColor: [50, 50, 50]
+        },
+        columnStyles: {
+          0: { cellWidth: 15, halign: 'center' },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 20, halign: 'center' },
+          3: { cellWidth: 20, halign: 'center' },
+          4: { cellWidth: 30, halign: 'right' },
+          5: { cellWidth: 35, halign: 'right' }
+        },
+        margin: { left: 14, right: 14 }
+      });
+      
+      yPos = doc.lastAutoTable.finalY + 10;
+    } else {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(150, 150, 150);
+      doc.text('No scope items added', 14, yPos + 5);
+      yPos += 15;
+    }
+    
+    // Total Amount Box
+    const total = project.estimated_total || scopeItems.reduce((sum, item) => sum + (item.total || 0), 0);
+    
+    doc.setFillColor(138, 43, 226);
+    doc.rect(pageWidth - 80, yPos, 66, 20, 'F');
+    
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text('ESTIMATED TOTAL', pageWidth - 47, yPos + 7, { align: 'center' });
+    doc.setFontSize(14);
+    doc.text(formatCurrency(total), pageWidth - 47, yPos + 16, { align: 'center' });
+    
+    // Planning Notes
+    if (project.planning_notes) {
+      yPos += 30;
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Notes:', 14, yPos);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      const splitNotes = doc.splitTextToSize(project.planning_notes, pageWidth - 28);
+      doc.text(splitNotes, 14, yPos + 6);
+    }
+    
+    // Footer
+    const footerY = pageHeight - 20;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(14, footerY - 5, pageWidth - 14, footerY - 5);
+    
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text('This is a rough estimate and subject to change based on site conditions and final specifications.', pageWidth / 2, footerY, { align: 'center' });
+    doc.text(COMPANY_INFO.gstin, pageWidth / 2, footerY + 5, { align: 'center' });
+    doc.text(`Generated on ${new Date().toLocaleString('en-IN')}`, pageWidth / 2, footerY + 10, { align: 'center' });
+    
+    // Save PDF
+    const fileName = `RE_${project.project_name || project.client_name}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(fileName);
+    toast.success('PDF downloaded successfully!');
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
