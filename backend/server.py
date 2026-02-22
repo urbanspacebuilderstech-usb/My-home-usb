@@ -3554,18 +3554,32 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
-    # Calculate totals
-    total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
-    total_received = sum(s.get("amount_received", 0) for s in payment_stages)
-    total_balance = total_scheduled - total_received
-    
     # Advance payment details (from project)
+    advance_amount = project.get("advance_amount", 0) or 0
     advance_payment = {
-        "amount": project.get("advance_amount", 0),
+        "amount": advance_amount,
         "date": project.get("advance_date"),
         "mode": project.get("advance_payment_mode"),
-        "status": "received" if project.get("advance_amount", 0) > 0 else "pending"
+        "status": "received" if advance_amount > 0 else "pending"
     }
+    
+    # Calculate totals - include advance payment in total_received
+    total_scheduled = sum(s.get("amount", 0) for s in payment_stages)
+    stages_received = sum(s.get("amount_received", 0) for s in payment_stages)
+    
+    # Total received includes advance payment + stages received
+    total_received = advance_amount + stages_received
+    
+    # Project value from scopes
+    project_value = project.get("total_value", 0) or 0
+    scope_total = project.get("scope_total", 0) or 0
+    additional_cost = project.get("additional_cost", 0) or 0
+    
+    # Total project value = scope total + additional cost (if any)
+    total_project_value = scope_total + additional_cost if scope_total > 0 else project_value
+    
+    # Balance = Total Project Value - Total Received
+    total_balance = total_project_value - total_received
     
     # Count stages by status
     stages_paid = len([s for s in payment_stages if s.get("status") == "paid"])
@@ -3575,15 +3589,19 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     return {
         "project_id": project_id,
         "project_name": project.get("name"),
-        "project_value": project.get("total_value", 0),
+        "project_value": total_project_value,
+        "scope_total": scope_total,
+        "additional_cost": additional_cost,
         "advance_payment": advance_payment,
         "payment_stages": payment_stages,
         "income_records": income_records,
         "summary": {
             "total_scheduled": total_scheduled,
             "total_received": total_received,
+            "advance_received": advance_amount,
+            "stages_received": stages_received,
             "total_balance": total_balance,
-            "collection_percentage": (total_received / total_scheduled * 100) if total_scheduled > 0 else 0,
+            "collection_percentage": (total_received / total_project_value * 100) if total_project_value > 0 else 0,
             "stages_total": len(payment_stages),
             "stages_paid": stages_paid,
             "stages_partial": stages_partial,
