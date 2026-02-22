@@ -1244,6 +1244,156 @@ export default function CREBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Convert Deal to Project Dialog */}
+      <Dialog open={convertDealDialog} onOpenChange={setConvertDealDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <Target className="h-5 w-5" />
+              Convert Deal to Project
+            </DialogTitle>
+            <DialogDescription>
+              Collect advance and convert this deal to a project
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedDeal && (
+            <div className="space-y-4">
+              {/* Deal Summary */}
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-lg border border-green-200">
+                <h4 className="font-semibold text-green-800 text-lg mb-2">{selectedDeal.name}</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="flex items-center gap-1">
+                    <Phone className="h-3 w-3 text-gray-500" />
+                    <span>{selectedDeal.phone || '-'}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Mail className="h-3 w-3 text-gray-500" />
+                    <span>{selectedDeal.email || '-'}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <MapPin className="h-3 w-3 text-gray-500" />
+                    <span>{selectedDeal.city || selectedDealRE?.location || '-'}</span>
+                  </div>
+                </div>
+                
+                {selectedDealRE && (
+                  <div className="mt-3 pt-3 border-t border-green-300">
+                    <p className="text-sm font-medium text-green-700 mb-1">Rough Estimate Details:</p>
+                    <div className="flex justify-between items-center">
+                      <div className="text-sm text-green-600">
+                        <span>{selectedDealRE.sqft?.toLocaleString()} sqft</span>
+                        <span className="mx-2">•</span>
+                        <span>{selectedDealRE.handover_months || 12} months</span>
+                      </div>
+                      <span className="text-xl font-bold text-green-700">
+                        ₹{(selectedDealRE.estimated_total || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Advance Payment Details */}
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm font-medium">
+                    Advance Amount <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="relative mt-1">
+                    <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
+                    <Input
+                      type="number"
+                      placeholder="Enter advance amount"
+                      value={advanceAmount}
+                      onChange={(e) => setAdvanceAmount(e.target.value)}
+                      className="pl-8"
+                      data-testid="advance-amount-input"
+                    />
+                  </div>
+                  {advanceAmount && selectedDealRE?.estimated_total && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {((parseFloat(advanceAmount) / selectedDealRE.estimated_total) * 100).toFixed(1)}% of total value
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">
+                    Payment Mode <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={advanceMode} onValueChange={setAdvanceMode}>
+                    <SelectTrigger className="mt-1" data-testid="payment-mode-select">
+                      <SelectValue placeholder="Select payment mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer / NEFT / RTGS</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="card">Debit/Credit Card</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">Payment Reference / Transaction ID</Label>
+                  <Input
+                    placeholder="e.g., UPI Ref, Cheque No., Transaction ID"
+                    value={advanceRef}
+                    onChange={(e) => setAdvanceRef(e.target.value)}
+                    className="mt-1"
+                    data-testid="payment-ref-input"
+                  />
+                </div>
+              </div>
+
+              {/* Balance Summary */}
+              {advanceAmount && parseFloat(advanceAmount) > 0 && selectedDealRE?.estimated_total && (
+                <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-blue-700">Balance After Advance</span>
+                    <span className="font-semibold text-blue-800">
+                      ₹{(selectedDealRE.estimated_total - parseFloat(advanceAmount)).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Accountant Confirmation */}
+              <div className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={accountantConfirmed}
+                    onChange={(e) => setAccountantConfirmed(e.target.checked)}
+                    className="w-4 h-4 rounded border-orange-300"
+                  />
+                  <span className="text-sm text-orange-800">
+                    <strong>Accountant Verification:</strong> I confirm the payment has been received and verified by accounts
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setConvertDealDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleConvertDeal}
+              className="bg-green-600 hover:bg-green-700"
+              disabled={!advanceAmount || parseFloat(advanceAmount) <= 0 || !advanceMode || !accountantConfirmed}
+              data-testid="confirm-convert-deal"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Convert to Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
