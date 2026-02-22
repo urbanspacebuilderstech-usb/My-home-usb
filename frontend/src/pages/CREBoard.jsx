@@ -1010,7 +1010,7 @@ export default function CREBoard() {
                           <div className="text-right flex items-center gap-3">
                             <p className="font-bold text-emerald-600">{formatCurrency(project.total_value)}</p>
                             <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)}>
-                              <Send className="h-3 w-3 mr-1" /> Send to Planning
+                              <Send className="h-3 w-3 mr-1" /> Planning Team
                             </Button>
                           </div>
                         </div>
