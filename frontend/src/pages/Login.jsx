@@ -21,10 +21,11 @@ const DEMO_USERS = [
   { email: 'planning@constructionos.com', name: 'Planning (Amit)', role: 'planning' },
   { email: 'procurement@constructionos.com', name: 'Procurement (Sneha)', role: 'procurement' },
   { email: 'engineer@constructionos.com', name: 'Site Engineer (Vikram)', role: 'site_engineer' },
-  { email: 'presales@constructionos.com', name: 'Pre-Sales (Priya)', role: 'pre_sales' },
-  { email: 'sales@constructionos.com', name: 'Sales (Sameer)', role: 'sales' },
+  { email: 'presales@constructionos.com', name: 'Pre-Sales A (Kavitha)', role: 'pre_sales' },
+  { email: 'presales.b@constructionos.com', name: 'Pre-Sales B (Priya)', role: 'pre_sales' },
+  { email: 'sales@constructionos.com', name: 'Sales A (Vikram)', role: 'sales' },
+  { email: 'sales.b@constructionos.com', name: 'Sales B (Rahul)', role: 'sales' },
   { email: 'raj@client.com', name: 'Client (Mr. Raj)', role: 'client' },
-  { email: 'mohan@client.com', name: 'Client (Mr. Mohan)', role: 'client' },
 ];
 
 export default function Login() {
