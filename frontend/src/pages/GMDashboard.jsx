@@ -161,12 +161,16 @@ const GMDashboard = () => {
 
   // Open approval dialog
   const openApprovalDialog = (item, type, action = 'approve') => {
+    // Preserve the current tab when opening dialog
+    const currentTab = activeTab;
     setSelectedItem(item);
     setApprovalType(type);
     setApprovalAction(action);
     setApproveConfirmText('');
     setRejectionReason('');
     setApprovalDialog(true);
+    // Ensure tab doesn't change
+    setTimeout(() => setActiveTab(currentTab), 0);
   };
 
   // Handle approval/rejection
