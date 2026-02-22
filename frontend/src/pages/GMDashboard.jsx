@@ -20,7 +20,7 @@ import {
   ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
