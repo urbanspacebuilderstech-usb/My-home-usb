@@ -44,6 +44,11 @@ import LabourContractorManagement from '@/pages/LabourContractorManagement';
 import ProjectMaterials from '@/pages/ProjectMaterials';
 import IndirectCostManagement from '@/pages/IndirectCostManagement';
 import SuspenseAccount from '@/pages/SuspenseAccount';
+import CRMPreSales from '@/pages/CRMPreSales';
+import CRMSales from '@/pages/CRMSales';
+import REProjectsPage from '@/pages/REProjectsPage';
+import CustomFieldsBuilder from '@/pages/CustomFieldsBuilder';
+import CSVImportPage from '@/pages/CSVImportPage';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
