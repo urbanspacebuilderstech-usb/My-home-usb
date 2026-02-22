@@ -1019,56 +1019,56 @@ export default function MarketingBoard() {
                   ))}
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[900px]">
+              <CardContent className="p-0 sm:p-6">
+                <div className="w-full">
+                  <table className="w-full text-sm table-fixed">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-3 py-3 text-left font-semibold">Lead</th>
-                        <th className="px-3 py-3 text-left font-semibold">Contact</th>
-                        <th className="px-3 py-3 text-left font-semibold w-20">Type</th>
-                        <th className="px-3 py-3 text-left font-semibold">Source</th>
-                        <th className="px-3 py-3 text-left font-semibold">Assigned To</th>
-                        <th className="px-3 py-3 text-left font-semibold w-24">Stage</th>
-                        <th className="px-3 py-3 text-left font-semibold w-24">Created</th>
-                        <th className="px-3 py-3 text-center font-semibold w-28 bg-gray-50 sticky right-0">Actions</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[15%]">Lead</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[18%]">Contact</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[8%]">Type</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[10%]">Source</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[15%]">Assigned To</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[10%]">Stage</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[10%]">Created</th>
+                        <th className="px-2 py-2 text-center font-semibold w-[14%]">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {filteredLeads.map(lead => (
                         <tr key={lead.lead_id} className="hover:bg-gray-50">
-                          <td className="px-3 py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold">
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-1">
+                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
                                 {lead.name?.charAt(0)}
                               </div>
-                              <span className="font-medium text-sm">{lead.name}</span>
+                              <span className="font-medium text-xs truncate">{lead.name}</span>
                             </div>
                           </td>
-                          <td className="px-3 py-3">
-                            <div className="space-y-1">
-                              {lead.phone && <p className="text-xs flex items-center gap-1"><Phone className="h-3 w-3" />{lead.phone}</p>}
-                              {lead.email && <p className="text-xs text-gray-500 flex items-center gap-1"><Mail className="h-3 w-3" />{lead.email}</p>}
+                          <td className="px-2 py-2">
+                            <div className="space-y-0">
+                              {lead.phone && <p className="text-xs truncate">{lead.phone}</p>}
+                              {lead.email && <p className="text-xs text-gray-500 truncate">{lead.email}</p>}
                             </div>
                           </td>
-                          <td className="px-3 py-3">
-                            <Badge className={lead.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
-                              {lead.stage_type === 'pre_sales' ? 'Pre-Sales' : 'Sales'}
+                          <td className="px-2 py-2">
+                            <Badge className={`text-[10px] px-1.5 ${lead.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                              {lead.stage_type === 'pre_sales' ? 'PS' : 'S'}
                             </Badge>
                           </td>
-                          <td className="px-3 py-3">
-                            <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
-                              {lead.source_display || lead.source?.replace('_', ' ')}
+                          <td className="px-2 py-2">
+                            <Badge className={`text-[10px] px-1.5 truncate ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
+                              {(lead.source_display || lead.source)?.substring(0, 8)}
                             </Badge>
                           </td>
-                          <td className="px-3 py-3">
+                          <td className="px-2 py-2">
                             <Select 
                               value={lead.assigned_to || 'unassigned'} 
                               onValueChange={(v) => v !== 'unassigned' && handleAssignLead(lead.lead_id, v)}
                             >
-                              <SelectTrigger className="w-[120px] h-8 text-xs">
+                              <SelectTrigger className="h-7 text-[10px] w-full">
                                 <SelectValue>
-                                  {lead.assigned_to_name || 'Unassigned'}
+                                  <span className="truncate">{lead.assigned_to_name?.split(' ')[0] || 'Unassigned'}</span>
                                 </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
@@ -1084,24 +1084,24 @@ export default function MarketingBoard() {
                               </SelectContent>
                             </Select>
                           </td>
-                          <td className="px-3 py-3">
-                            <Badge variant="outline" className="text-xs">
-                              {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}
+                          <td className="px-2 py-2">
+                            <Badge variant="outline" className="text-[10px] px-1.5 truncate">
+                              {lead.current_stage_id?.replace('stg_', '').replace(/_/g, ' ').substring(0, 10)}
                             </Badge>
                           </td>
-                          <td className="px-3 py-3 text-xs text-gray-500">
+                          <td className="px-2 py-2 text-[10px] text-gray-500">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </td>
-                          <td className="px-3 py-3 bg-white sticky right-0 border-l">
+                          <td className="px-2 py-2">
                             <div className="flex items-center justify-center gap-0">
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openLeadDetail(lead)} title="View Details">
-                                <Eye className="h-4 w-4 text-blue-600" />
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openLeadDetail(lead)} title="View">
+                                <Eye className="h-3.5 w-3.5 text-blue-600" />
                               </Button>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEditLead(lead)} title="Edit Lead">
-                                <Edit2 className="h-4 w-4 text-amber-600" />
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEditLead(lead)} title="Edit">
+                                <Edit2 className="h-3.5 w-3.5 text-amber-600" />
                               </Button>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openDeleteLead(lead)} title="Delete Lead">
-                                <Trash2 className="h-4 w-4 text-red-600" />
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openDeleteLead(lead)} title="Delete">
+                                <Trash2 className="h-3.5 w-3.5 text-red-600" />
                               </Button>
                             </div>
                           </td>
