@@ -49,6 +49,18 @@ export default function Dashboard() {
         return;
       }
       
+      // Redirect Pre-Sales users to CRM Pre-Sales
+      if (userRes.data.role === 'pre_sales') {
+        window.location.href = '/crm-pre-sales';
+        return;
+      }
+      
+      // Redirect Sales users to CRM Sales
+      if (userRes.data.role === 'sales') {
+        window.location.href = '/crm-sales';
+        return;
+      }
+      
       const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),
         axios.get(`${API}/notifications`).catch(() => ({ data: [] }))
