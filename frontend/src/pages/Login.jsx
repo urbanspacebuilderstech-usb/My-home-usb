@@ -160,7 +160,9 @@ export default function Login() {
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { label: 'Super Admin', email: 'admin@constructionos.com' },
+                  { label: 'GM', email: 'gm@constructionos.com' },
                   { label: 'Accountant', email: 'accountant@constructionos.com' },
+                  { label: 'Planning', email: 'planning@constructionos.com' },
                   { label: 'Pre-Sales', email: 'presales@constructionos.com' },
                   { label: 'Sales', email: 'sales@constructionos.com' },
                   { label: 'PM', email: 'pm@constructionos.com' },
