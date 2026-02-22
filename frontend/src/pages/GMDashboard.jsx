@@ -682,6 +682,14 @@ const GMDashboard = () => {
                           <Button 
                             size="sm" 
                             variant="outline"
+                            className="text-purple-600"
+                            onClick={() => generateREPDF(re)}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
                             onClick={() => openViewDialog(re, 're_project')}
                           >
                             <Eye className="h-4 w-4 mr-1" /> View
