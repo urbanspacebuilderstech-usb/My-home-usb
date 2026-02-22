@@ -39,6 +39,7 @@ const GMDashboard = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const lastActiveTabRef = React.useRef('overview');
   
   // Dashboard Data
   const [stats, setStats] = useState({});
