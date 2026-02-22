@@ -529,6 +529,7 @@ const GMDashboard = () => {
             // Only change tab if it's a valid tab value from explicit tab click
             const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accounts'];
             if (validTabs.includes(value)) {
+              lastActiveTabRef.current = value;
               setActiveTab(value);
             }
           }} 
