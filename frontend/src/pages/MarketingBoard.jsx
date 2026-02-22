@@ -101,6 +101,8 @@ export default function MarketingBoard() {
   const [allLeads, setAllLeads] = useState([]);
   const [leadsFilter, setLeadsFilter] = useState({ stage_type: '', assigned_to: '', source: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [leadSources, setLeadSources] = useState([]);
+  const [selectedSource, setSelectedSource] = useState('all');
   
   // Edit Lead
   const [showEditLead, setShowEditLead] = useState(false);
