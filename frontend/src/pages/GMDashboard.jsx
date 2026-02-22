@@ -140,6 +140,7 @@ const GMDashboard = () => {
       // RE Project statuses
       're_requested': { label: 'New Request', color: 'bg-blue-100 text-blue-800' },
       're_in_progress': { label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' },
+      're_submitted': { label: 'Pending GM Approval', color: 'bg-orange-100 text-orange-800' },
       're_awaiting_approval': { label: 'Awaiting GM Approval', color: 'bg-orange-100 text-orange-800' },
       're_approved': { label: 'Approved', color: 'bg-green-100 text-green-800' },
       're_rejected': { label: 'Rejected', color: 'bg-red-100 text-red-800' },
@@ -675,7 +676,7 @@ const GMDashboard = () => {
                     <div 
                       key={re.re_project_id} 
                       className={`p-4 rounded-lg border ${
-                        re.status === 're_awaiting_approval' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50'
+                        re.status === 're_submitted' ? 'bg-orange-50 border-orange-200' : 'bg-gray-50'
                       }`}
                     >
                       <div className="flex items-start justify-between">
@@ -726,7 +727,7 @@ const GMDashboard = () => {
                           >
                             <Eye className="h-4 w-4 mr-1" /> View
                           </Button>
-                          {(re.status === 're_awaiting_approval' || re.status === 're_in_progress') && (
+                          {(re.status === 're_submitted' || re.status === 're_in_progress') && (
                             <>
                               <Button 
                                 type="button"
