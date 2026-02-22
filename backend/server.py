@@ -8799,8 +8799,8 @@ async def convert_deal_to_project(
     
     await db.projects.insert_one(main_project)
     
-    # Update lead
-    await db.crm_leads.update_one(
+    # Update lead - use 'leads' collection
+    await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "project_created": True,
