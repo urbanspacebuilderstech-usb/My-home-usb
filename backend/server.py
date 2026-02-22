@@ -4768,7 +4768,8 @@ async def get_site_engineer_project_detail(
         "project": project,
         "material_requests": material_requests,
         "labour_requests": labour_requests,
-        "material_receipts": material_receipts
+        "material_receipts": material_receipts,
+        "petty_cash": petty_cash
     }
 
 
