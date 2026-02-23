@@ -2225,6 +2225,148 @@ export default function MarketingBoard() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Add New Lead Dialog */}
+      <Dialog open={showAddLead} onOpenChange={setShowAddLead}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-green-600" />
+              Add New Lead
+            </DialogTitle>
+            <DialogDescription>
+              Create a new lead and assign to a team member
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <Label>Lead Name *</Label>
+                <Input
+                  value={newLeadForm.name}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, name: e.target.value }))}
+                  placeholder="Enter lead name"
+                  data-testid="new-lead-name"
+                />
+              </div>
+              
+              <div>
+                <Label>Phone *</Label>
+                <Input
+                  value={newLeadForm.phone}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, phone: e.target.value }))}
+                  placeholder="Phone number"
+                  data-testid="new-lead-phone"
+                />
+              </div>
+              
+              <div>
+                <Label>Email</Label>
+                <Input
+                  value={newLeadForm.email}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, email: e.target.value }))}
+                  placeholder="Email address"
+                  type="email"
+                />
+              </div>
+              
+              <div>
+                <Label>Source</Label>
+                <Select value={newLeadForm.source} onValueChange={(v) => setNewLeadForm(p => ({ ...p, source: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="meta">Meta (Facebook/Instagram)</SelectItem>
+                    <SelectItem value="seo">SEO (Google)</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="walk_in">Walk-in</SelectItem>
+                    <SelectItem value="website">Website</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>City/Location</Label>
+                <Input
+                  value={newLeadForm.city}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, city: e.target.value }))}
+                  placeholder="City"
+                />
+              </div>
+              
+              <div>
+                <Label>Area (Sqft)</Label>
+                <Input
+                  value={newLeadForm.sqft}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, sqft: e.target.value }))}
+                  placeholder="e.g. 1500"
+                  type="number"
+                />
+              </div>
+              
+              <div>
+                <Label>Budget (₹)</Label>
+                <Input
+                  value={newLeadForm.budget}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, budget: e.target.value }))}
+                  placeholder="e.g. 5000000"
+                  type="number"
+                />
+              </div>
+              
+              <div>
+                <Label>Assign To</Label>
+                <Select value={newLeadForm.stage_type} onValueChange={(v) => setNewLeadForm(p => ({ ...p, stage_type: v, assigned_to: '' }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pre_sales">Pre-Sales Team</SelectItem>
+                    <SelectItem value="sales">Sales Team</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div>
+                <Label>Team Member</Label>
+                <Select value={newLeadForm.assigned_to} onValueChange={(v) => setNewLeadForm(p => ({ ...p, assigned_to: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Auto-assign or select" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">Auto-assign (Round Robin)</SelectItem>
+                    {newLeadForm.stage_type === 'pre_sales' && dashboard?.pre_sales_team?.map(m => (
+                      <SelectItem key={m.user_id} value={m.user_id}>{m.name}</SelectItem>
+                    ))}
+                    {newLeadForm.stage_type === 'sales' && dashboard?.sales_team?.map(m => (
+                      <SelectItem key={m.user_id} value={m.user_id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="col-span-2">
+                <Label>Notes</Label>
+                <Input
+                  value={newLeadForm.notes}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, notes: e.target.value }))}
+                  placeholder="Any additional notes..."
+                />
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddLead(false)}>Cancel</Button>
+            <Button onClick={handleAddNewLead} className="bg-green-600 hover:bg-green-700" data-testid="submit-new-lead">
+              <Plus className="h-4 w-4 mr-2" /> Create Lead
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
