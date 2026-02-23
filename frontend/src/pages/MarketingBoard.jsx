@@ -2332,12 +2332,12 @@ export default function MarketingBoard() {
               
               <div>
                 <Label>Team Member</Label>
-                <Select value={newLeadForm.assigned_to} onValueChange={(v) => setNewLeadForm(p => ({ ...p, assigned_to: v }))}>
+                <Select value={newLeadForm.assigned_to || "auto"} onValueChange={(v) => setNewLeadForm(p => ({ ...p, assigned_to: v === "auto" ? "" : v }))}>
                   <SelectTrigger>
                     <SelectValue placeholder="Auto-assign or select" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Auto-assign (Round Robin)</SelectItem>
+                    <SelectItem value="auto">Auto-assign (Round Robin)</SelectItem>
                     {newLeadForm.stage_type === 'pre_sales' && dashboard?.pre_sales_team?.map(m => (
                       <SelectItem key={m.user_id} value={m.user_id}>{m.name}</SelectItem>
                     ))}
