@@ -463,6 +463,52 @@ export default function MarketingBoard() {
     }
   };
 
+  // Add New Lead Function
+  const handleAddNewLead = async () => {
+    if (!newLeadForm.name) {
+      toast.error('Lead name is required');
+      return;
+    }
+    if (!newLeadForm.phone && !newLeadForm.email) {
+      toast.error('Phone or email is required');
+      return;
+    }
+    
+    try {
+      await axios.post(`${API}/api/crm/leads`, {
+        name: newLeadForm.name,
+        email: newLeadForm.email || '',
+        phone: newLeadForm.phone || '',
+        source: newLeadForm.source,
+        city: newLeadForm.city || '',
+        sqft: newLeadForm.sqft ? parseInt(newLeadForm.sqft) : null,
+        budget: newLeadForm.budget ? parseInt(newLeadForm.budget) : null,
+        notes: newLeadForm.notes || '',
+        stage_type: newLeadForm.stage_type,
+        assigned_to: newLeadForm.assigned_to || null
+      }, { withCredentials: true });
+      
+      toast.success('Lead created successfully');
+      setShowAddLead(false);
+      setNewLeadForm({
+        name: '',
+        email: '',
+        phone: '',
+        source: 'other',
+        city: '',
+        sqft: '',
+        budget: '',
+        notes: '',
+        stage_type: 'pre_sales',
+        assigned_to: ''
+      });
+      fetchAllLeads();
+      fetchDashboard();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to create lead');
+    }
+  };
+
   const handleAddMember = async () => {
     if (!newMember.name || !newMember.email) {
       toast.error('Name and email are required');
