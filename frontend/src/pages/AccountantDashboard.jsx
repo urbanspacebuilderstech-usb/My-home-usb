@@ -124,20 +124,17 @@ export default function AccountantDashboard() {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
+            <Button className="bg-emerald-600 hover:bg-emerald-700" size="sm" onClick={() => window.location.href = '/accountant-module'} data-testid="goto-accountant-module-btn">
+              <CheckCircle className="h-4 w-4 mr-1" /> Verify & Record
+            </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/payment-processing'} data-testid="goto-payment-processing-btn">
               <Shield className="h-4 w-4 mr-1" /> OTP Payments
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => window.location.href = '/accounts-board'} data-testid="goto-payments-btn">
-              <Receipt className="h-4 w-4 mr-1" /> Approvals
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/hr-portal'} data-testid="goto-hr-btn">
               <Users className="h-4 w-4 mr-1" /> HR
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/cheque-management'} data-testid="goto-cheques-btn">
               <FileText className="h-4 w-4 mr-1" /> Cheques
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => window.location.href = '/indirect-costs'} data-testid="goto-indirect-costs-btn">
-              <Building2 className="h-4 w-4 mr-1" /> Overheads
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.location.href = '/suspense-account'} data-testid="goto-suspense-btn">
               <AlertTriangle className="h-4 w-4 mr-1" /> Suspense
