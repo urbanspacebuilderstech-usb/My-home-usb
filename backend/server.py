@@ -13788,6 +13788,84 @@ async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_curre
     return {"message": "Lead created", "lead_id": lead.lead_id, "assigned_to": assigned_user_name}
 
 
+class AdminLeadCreate(BaseModel):
+    name: str
+    email: Optional[str] = ""
+    phone: Optional[str] = ""
+    source: str = "other"
+    city: Optional[str] = ""
+    sqft: Optional[int] = None
+    budget: Optional[int] = None
+    notes: Optional[str] = ""
+    stage_type: str = "pre_sales"
+    assigned_to: Optional[str] = None
+
+
+@api_router.post("/crm/leads")
+async def create_lead_admin(data: AdminLeadCreate, user: User = Depends(get_current_user)):
+    """Create a new lead - Super Admin only"""
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    stage_type = LeadStageType.PRE_SALES if data.stage_type == "pre_sales" else LeadStageType.SALES
+    
+    # Get default first stage based on type
+    if stage_type == LeadStageType.PRE_SALES:
+        stages = await get_default_pre_sales_stages()
+        first_stage = stages[0] if stages else {"stage_id": "stg_new_lead"}
+    else:
+        stages = await get_default_sales_stages()
+        first_stage = stages[0] if stages else {"stage_id": "stg_new_appointment"}
+    
+    # Assign to specific user or auto-assign
+    assigned_user_id = data.assigned_to
+    assigned_user_name = None
+    
+    if not assigned_user_id:
+        # Auto-assign using round-robin
+        team_type = "pre_sales" if stage_type == LeadStageType.PRE_SALES else "sales"
+        assigned_user_id = await assign_lead_to_next_user(team_type)
+    
+    if assigned_user_id:
+        assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+        assigned_user_name = assigned_user.get("name") if assigned_user else None
+    
+    lead = Lead(
+        name=data.name,
+        email=data.email or "",
+        phone=data.phone or "",
+        source=data.source,
+        current_stage_id=first_stage["stage_id"],
+        stage_type=stage_type,
+        stage_history=[{
+            "stage_id": first_stage["stage_id"],
+            "moved_at": datetime.now(timezone.utc).isoformat(),
+            "moved_by": user.user_id
+        }],
+        city=data.city or "",
+        notes=data.notes or "",
+        created_by=user.user_id,
+        assigned_to=assigned_user_id,
+        custom_fields={
+            "sqft": data.sqft,
+            "budget": data.budget
+        } if data.sqft or data.budget else {}
+    )
+    
+    lead_dict = lead.model_dump()
+    lead_dict["assigned_to_name"] = assigned_user_name
+    await db.leads.insert_one(lead_dict)
+    
+    # Create notification for assigned user
+    if assigned_user_id:
+        await create_notification(
+            assigned_user_id,
+            f"New lead assigned: {data.name}"
+        )
+    
+    return {"message": "Lead created", "lead_id": lead.lead_id, "assigned_to": assigned_user_name}
+
+
 class LeadStageUpdate(BaseModel):
     stage_id: str
     advance_amount: Optional[float] = None
