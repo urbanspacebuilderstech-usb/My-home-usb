@@ -100,6 +100,7 @@ function AppRouter() {
       <Route path="/cro-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
+      <Route path="/accountant-module" element={<ProtectedRoute><AccountantModule /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><AccountantDashboard /></ProtectedRoute>} />
       <Route path="/hr-portal" element={<ProtectedRoute><HRPortal /></ProtectedRoute>} />
       <Route path="/cheque-management" element={<ProtectedRoute><ChequeManagement /></ProtectedRoute>} />
