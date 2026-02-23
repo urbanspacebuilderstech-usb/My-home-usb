@@ -36,6 +36,7 @@ import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
 import AccountantDashboard from '@/pages/AccountantDashboard';
+import AccountantModule from '@/pages/AccountantModule';
 import HRPortal from '@/pages/HRPortal';
 import ChequeManagement from '@/pages/ChequeManagement';
 import PaymentProcessing from '@/pages/PaymentProcessing';
