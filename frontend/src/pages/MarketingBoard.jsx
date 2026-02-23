@@ -118,6 +118,21 @@ export default function MarketingBoard() {
   const [deletingLead, setDeletingLead] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
+  // Add New Lead
+  const [showAddLead, setShowAddLead] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    source: 'other',
+    city: '',
+    sqft: '',
+    budget: '',
+    notes: '',
+    stage_type: 'pre_sales',
+    assigned_to: ''
+  });
+  
   // Google Sheets Integration
   const [showSheetsDialog, setShowSheetsDialog] = useState(false);
   const [sheetsTab, setSheetsTab] = useState('website');
