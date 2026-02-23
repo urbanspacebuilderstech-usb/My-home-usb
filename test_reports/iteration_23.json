@@ -1,0 +1,144 @@
+{
+  "summary": "Complete E2E testing of Site Engineer and PM features including Petty Cash workflow and Material Request approval workflow. All 33 backend tests passed (100%). Frontend UI verified for Site Engineer, PM, and Accountant dashboards - all working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_petty_cash_material_request_e2e.py",
+    "/app/test_reports/pytest/pytest_petty_cash_material.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_petty_cash_material_request_e2e.py"
+  ],
+  "success_rate": {
+    "backend": "100% (33/33 tests passed)",
+    "frontend": "100% - All dashboards loading and functioning correctly"
+  },
+  "test_credentials": {
+    "site_engineer": "engineer@constructionos.com",
+    "project_manager": "pm@constructionos.com",
+    "accountant": "accountant@constructionos.com",
+    "planning": "planning@constructionos.com",
+    "procurement": "procurement@constructionos.com"
+  },
+  "seed_data_creation": "Created test petty cash and material request entries prefixed with TEST_ for workflow testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Petty Cash E2E workflow and Material Request E2E workflow fully tested and working. Test file at /app/backend/tests/test_petty_cash_material_request_e2e.py. All demo logins working via POST /api/auth/demo-login with email only.",
+  "features_tested": {
+    "petty_cash_e2e_flow": {
+      "status": "PASS",
+      "steps": [
+        "1. SE requests petty cash (POST /api/site-engineer/petty-cash/request)",
+        "2. Accountant views request (GET /api/accountant/petty-cash?status=requested)",
+        "3. Accountant issues cash (PATCH /api/accountant/petty-cash/{id}/issue?amount=3000)",
+        "4. SE views issued cash (GET /api/site-engineer/petty-cash)",
+        "5. SE adds expense (POST /api/site-engineer/petty-cash/{id}/expense)",
+        "6. SE adds second expense",
+        "7. SE submits for settlement (POST /api/site-engineer/petty-cash/{id}/submit)",
+        "8. Accountant views pending (GET /api/accountant/petty-cash?status=pending_settlement)",
+        "9. Accountant settles (PATCH /api/accountant/petty-cash/{id}/settle)",
+        "10. Verify settled status"
+      ]
+    },
+    "material_request_e2e_flow": {
+      "status": "PASS",
+      "steps": [
+        "1. SE creates material request (POST /api/site-engineer/material-requests)",
+        "2. PM views pending requests (GET /api/pm/material-requests)",
+        "3. PM approves (PATCH /api/site-engineer/material-requests/{id}/approve?action=pm_approve)",
+        "4. Planning approves (action=planning_approve)",
+        "5. Procurement assigns vendor (action=procurement_assign)",
+        "6. Verify final status = order_placed"
+      ]
+    },
+    "site_engineer_dashboard": {
+      "status": "PASS",
+      "features": [
+        "My Projects title visible",
+        "Projects tab with project cards",
+        "Work Orders tab",
+        "Petty Cash tab with request button",
+        "Material Receipt button in header"
+      ]
+    },
+    "pm_dashboard": {
+      "status": "PASS",
+      "features": [
+        "Stats cards (Total Projects, Active, Material Requests, Labour Requests, Team Members)",
+        "Pending Approvals alert",
+        "Overview tab with Pending Material Requests and Team Members",
+        "Projects tab",
+        "Requests tab with Approve/Reject buttons",
+        "Team tab with member details"
+      ]
+    },
+    "accountant_dashboard": {
+      "status": "PASS",
+      "features": [
+        "Total Income card",
+        "Total Expense card",
+        "Net Profit card",
+        "Pending Requests card",
+        "Income by Payment Method breakdown",
+        "HR & Payroll section",
+        "Cheque Management section",
+        "Project-wise Income & Expense table"
+      ]
+    },
+    "access_control": {
+      "status": "PASS",
+      "tests": [
+        "Engineer cannot access PM dashboard (403)",
+        "Engineer cannot access accountant petty cash (403)",
+        "PM cannot request petty cash (403)",
+        "Accountant cannot create material requests (403)"
+      ]
+    }
+  },
+  "api_endpoints_tested": {
+    "site_engineer": {
+      "GET /api/site-engineer/my-projects": "PASS",
+      "GET /api/site-engineer/petty-cash": "PASS",
+      "POST /api/site-engineer/petty-cash/request": "PASS",
+      "POST /api/site-engineer/petty-cash/{id}/expense": "PASS",
+      "POST /api/site-engineer/petty-cash/{id}/submit": "PASS",
+      "GET /api/site-engineer/material-requests": "PASS",
+      "POST /api/site-engineer/material-requests": "PASS",
+      "GET /api/site-engineer/work-orders": "PASS"
+    },
+    "project_manager": {
+      "GET /api/pm/dashboard": "PASS",
+      "GET /api/pm/projects": "PASS",
+      "GET /api/pm/material-requests": "PASS",
+      "GET /api/pm/labour-requests": "PASS",
+      "GET /api/pm/team-members": "PASS",
+      "PATCH /api/site-engineer/material-requests/{id}/approve (pm_approve)": "PASS"
+    },
+    "accountant": {
+      "GET /api/accountant/petty-cash": "PASS",
+      "PATCH /api/accountant/petty-cash/{id}/issue": "PASS",
+      "PATCH /api/accountant/petty-cash/{id}/settle": "PASS",
+      "GET /api/accountant/comprehensive-dashboard": "PASS"
+    },
+    "planning": {
+      "PATCH /api/site-engineer/material-requests/{id}/approve (planning_approve)": "PASS"
+    },
+    "procurement": {
+      "PATCH /api/site-engineer/material-requests/{id}/approve (procurement_assign)": "PASS"
+    }
+  },
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  },
+  "notes": "All workflows fully functional. No issues found during testing. Both E2E flows (Petty Cash and Material Request) completed successfully through all approval stages."
+}
