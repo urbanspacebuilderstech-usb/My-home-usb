@@ -1069,10 +1069,10 @@ export default function AccountantModule() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Project (Optional)</Label>
-                <Select value={expenseForm.project_id} onValueChange={(v) => setExpenseForm({...expenseForm, project_id: v})}>
+                <Select value={expenseForm.project_id || "none"} onValueChange={(v) => setExpenseForm({...expenseForm, project_id: v === "none" ? "" : v})}>
                   <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None (Indirect Cost)</SelectItem>
+                    <SelectItem value="none">None (Indirect Cost)</SelectItem>
                     {projects.map(p => (
                       <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
                     ))}
