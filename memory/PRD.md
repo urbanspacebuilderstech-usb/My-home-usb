@@ -900,6 +900,63 @@ Build a Construction Accounting CRM with:
 
 ---
 
+## Recently Completed (February 23, 2026)
+
+### Comprehensive Accountant Module
+- [x] **New Accountant Module** (`/accountant-module`):
+  - Unified interface for all accountant tasks
+  - 4-tab layout: Verify | Income | Expense | Suspense
+  - Summary cards showing Pending Requests, Total Income, Total Expenses, Suspense Entries
+
+- [x] **Request Verification Tab**:
+  - CRE Advance Payment verification
+  - Material Request approval/rejection
+  - Labour Request approval/rejection
+  - Petty Cash issuance and settlement
+  - Filter by request type (All, CRE, Material, Labour, Petty Cash)
+  - Issue Cash and Reject dialogs with reason field
+
+- [x] **Income Tab (VIEW ONLY)**:
+  - Read-only view of all income entries
+  - Income recorded by CRE through payment collection
+  - Summary by payment method (Cash, Cheque, Bank Transfer, UPI)
+  - Cannot edit - only view income records
+
+- [x] **Expense Tab (Record Expenses)**:
+  - Record expenses with 10 categories:
+    1. Salary & Wages
+    2. Material Purchase
+    3. Labour Payment
+    4. Transport & Logistics
+    5. Utilities (Power/Water)
+    6. Rent & Lease
+    7. Marketing & Advertising
+    8. Office Supplies
+    9. Maintenance & Repairs
+    10. Other Expenses
+  - Fields: Category, Amount, Description, Project (optional), Payment Method, Vendor, Reference, Remarks
+  - Expense category summary view
+
+- [x] **Suspense Account Tab**:
+  - Track unclear/excess transactions
+  - Add entries for: Petty Cash Excess, Material Excess, Labour Excess, Vendor Excess, Client Overpayment
+  - Summary: Pending, Allocated, Pending Amount
+  - Requires Super Admin approval for allocation
+
+- [x] **API Endpoints**:
+  - `GET /api/accountant/material-requests` - Material requests for verification
+  - `PATCH /api/accountant/material-requests/{id}/approve` - Approve material request
+  - `PATCH /api/accountant/material-requests/{id}/reject` - Reject material request
+  - `GET /api/accountant/labour-requests` - Labour requests for verification
+  - `PATCH /api/accountant/labour-requests/{id}/approve` - Approve labour request
+  - `PATCH /api/accountant/labour-requests/{id}/reject` - Reject labour request
+  - `POST /api/accountant/record-expense` - Record new expense with category
+  - `GET /api/accountant/recorded-expenses` - Get all recorded expenses
+
+- [x] **Testing**: 17/17 backend tests passed (100%), All frontend UI working
+
+---
+
 ## Recently Completed (February 22, 2026)
 
 ### GM Dashboard Redirect Bug Fix
