@@ -5616,6 +5616,203 @@ async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = D
     return {"message": "Petty cash rejected"}
 
 
+# ==================== ACCOUNTANT MODULE - COMPREHENSIVE ====================
+
+EXPENSE_CATEGORIES = [
+    "salary", "material", "labour", "transport", "utility",
+    "rent", "marketing", "office", "maintenance", "other"
+]
+
+class RecordedExpenseCreate(BaseModel):
+    project_id: Optional[str] = None
+    category: str
+    description: str
+    amount: float
+    payment_method: str = "bank_transfer"
+    reference: Optional[str] = None
+    vendor_name: Optional[str] = None
+    remarks: Optional[str] = None
+
+@api_router.get("/accountant/material-requests")
+async def get_accountant_material_requests(user: User = Depends(get_current_user)):
+    """Get material requests for accountant verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    # Get requests pending accounts approval or all recent ones
+    requests = await db.material_requests.find(
+        {"status": {"$in": ["pending_accounts_approval", "accounts_approved", "order_placed"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with project and material names
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r.get("project_id")}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+        material = await db.materials.find_one({"material_id": r.get("material_id")}, {"_id": 0, "name": 1})
+        r["material_name"] = material["name"] if material else r.get("material_name", "Unknown")
+        
+        # Get vendor info if assigned
+        if r.get("vendor_id"):
+            vendor = await db.vendor_master.find_one({"vendor_id": r["vendor_id"]}, {"_id": 0, "name": 1})
+            r["vendor_name"] = vendor["name"] if vendor else "Unknown"
+    
+    return requests
+
+@api_router.patch("/accountant/material-requests/{request_id}/approve")
+async def accountant_approve_material_request(request_id: str, action: str = "approve", user: User = Depends(get_current_user)):
+    """Accountant approves material request for payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    
+    request = await db.material_requests.find_one({"request_id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if action == "approve":
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "accounts_approved",
+                "accounts_approved_by": user.user_id,
+                "accounts_approved_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(10)
+        for p in proc_users:
+            await create_notification(p["user_id"], f"Material request approved by accounts: {request.get('material_name', 'Unknown')}")
+        return {"message": "Approved by accounts"}
+    else:
+        return {"message": "No action taken"}
+
+@api_router.patch("/accountant/material-requests/{request_id}/reject")
+async def accountant_reject_material_request(request_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects material request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "accounts_rejected",
+            "accounts_rejected_by": user.user_id,
+            "accounts_rejected_reason": reason,
+            "accounts_rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Rejected by accounts"}
+
+@api_router.get("/accountant/labour-requests")
+async def get_accountant_labour_requests(user: User = Depends(get_current_user)):
+    """Get labour requests for accountant verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    requests = await db.labour_expenses.find(
+        {"status": {"$in": ["pending_accounts_approval", "accounts_approved"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with project name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r.get("project_id")}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+@api_router.patch("/accountant/labour-requests/{labour_expense_id}/approve")
+async def accountant_approve_labour(labour_expense_id: str, user: User = Depends(get_current_user)):
+    """Accountant approves labour payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    
+    await db.labour_expenses.update_one(
+        {"labour_expense_id": labour_expense_id},
+        {"$set": {
+            "status": "accounts_approved",
+            "accounts_approved_by": user.user_id,
+            "accounts_approved_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Labour payment approved"}
+
+@api_router.patch("/accountant/labour-requests/{labour_expense_id}/reject")
+async def accountant_reject_labour(labour_expense_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects labour payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    
+    await db.labour_expenses.update_one(
+        {"labour_expense_id": labour_expense_id},
+        {"$set": {
+            "status": "accounts_rejected",
+            "accounts_rejected_by": user.user_id,
+            "accounts_rejected_reason": reason,
+            "accounts_rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Labour payment rejected"}
+
+@api_router.post("/accountant/record-expense")
+async def record_expense(data: RecordedExpenseCreate, user: User = Depends(get_current_user)):
+    """Accountant records an expense after verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can record expenses")
+    
+    if data.category not in EXPENSE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
+    
+    expense = {
+        "expense_id": f"exp_{secrets.token_hex(8)}",
+        "project_id": data.project_id,
+        "category": data.category,
+        "description": data.description,
+        "amount": data.amount,
+        "payment_method": data.payment_method,
+        "reference": data.reference,
+        "vendor_name": data.vendor_name,
+        "remarks": data.remarks,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "recorded"
+    }
+    
+    # Get project name if provided
+    if data.project_id:
+        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+        expense["project_name"] = project["name"] if project else "Unknown"
+    
+    await db.recorded_expenses.insert_one(expense)
+    expense.pop("_id", None)
+    
+    await create_audit_log(user.user_id, "create", "recorded_expense", expense["expense_id"], {"amount": data.amount, "category": data.category})
+    
+    return expense
+
+@api_router.get("/accountant/recorded-expenses")
+async def get_recorded_expenses(
+    project_id: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all recorded expenses"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    if category:
+        query["category"] = category
+    
+    expenses = await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return expenses
+
+
+
+
 # ==================== PROJECT MANAGER MODULE ====================
 
 class TeamAssignmentCreate(BaseModel):
