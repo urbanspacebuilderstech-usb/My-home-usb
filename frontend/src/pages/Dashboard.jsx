@@ -173,9 +173,9 @@ export default function Dashboard() {
       return null;
     }
     
-    // Accountant gets redirected to Accounts Board
+    // Accountant gets redirected to Accountant Dashboard
     if (user.role === 'accountant') {
-      window.location.href = '/accounts-board';
+      window.location.href = '/accountant-dashboard';
       return null;
     }
     
