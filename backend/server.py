@@ -1544,7 +1544,7 @@ async def invite_user(invite: InviteUserRequest, user: User = Depends(get_curren
     await db.users.insert_one(new_user)
     
     # Send invitation email (or mock it)
-    frontend_url = os.environ.get("FRONTEND_URL", "https://construct-crm-3.preview.emergentagent.com")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://construction-hub-182.preview.emergentagent.com")
     
     if resend.api_key:
         try:
@@ -1636,7 +1636,7 @@ async def resend_invitation(email: str, user: User = Depends(get_current_user)):
     if not user_doc:
         raise HTTPException(status_code=404, detail="Pending invitation not found for this email")
     
-    frontend_url = os.environ.get("FRONTEND_URL", "https://construct-crm-3.preview.emergentagent.com")
+    frontend_url = os.environ.get("FRONTEND_URL", "https://construction-hub-182.preview.emergentagent.com")
     
     if not resend.api_key:
         return {

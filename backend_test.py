@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
 class ConstructionCRMTester:
-    def __init__(self, base_url="https://construct-crm-3.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://construction-hub-182.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.session_tokens = {}
         self.tests_run = 0
