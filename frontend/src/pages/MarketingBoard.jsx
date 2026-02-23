@@ -1019,6 +1019,9 @@ export default function MarketingBoard() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <CardTitle>All Leads</CardTitle>
                   <div className="flex flex-wrap gap-3">
+                    <Button onClick={() => setShowAddLead(true)} className="bg-green-600 hover:bg-green-700" data-testid="add-new-lead-btn">
+                      <Plus className="h-4 w-4 mr-2" /> Add New Lead
+                    </Button>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <Input
