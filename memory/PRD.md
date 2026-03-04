@@ -1718,7 +1718,7 @@ Complete end-to-end payment flow for work order stages:
 ```env
 GOOGLE_SHEETS_CLIENT_ID=<your-google-client-id>
 GOOGLE_SHEETS_CLIENT_SECRET=<your-google-client-secret>
-GOOGLE_SHEETS_REDIRECT_URI=https://construction-hub-182.preview.emergentagent.com/api/oauth/sheets/callback
+GOOGLE_SHEETS_REDIRECT_URI=https://construction-control.preview.emergentagent.com/api/oauth/sheets/callback
 ```
 
 #### Google Cloud Setup Required
