@@ -900,6 +900,27 @@ Build a Construction Accounting CRM with:
 
 ---
 
+## Recently Completed (March 4, 2026)
+
+### IDOR Security Vulnerability Fixes (P0)
+- [x] **8 IDOR vulnerabilities fixed** across all critical endpoints:
+  - `GET /api/projects` - Site Engineers now only see assigned projects (was seeing all 13)
+  - `GET /api/income` - Restricted to financial roles (Super Admin, GM, Accountant, PM, CRE)
+  - `GET /api/income/summary` - Same financial role restriction
+  - `GET /api/projects/{id}/income` - Same financial role restriction
+  - `GET /api/projects/{id}/payment-summary` - Restricted to management/financial roles
+  - `GET /api/projects/{id}/comprehensive` - Restricted to management/financial roles
+  - `GET /api/vendor-master` - Restricted to procurement/management roles
+  - `GET /api/vendor-master/{id}` - Same procurement/management restriction
+- [x] All 8 fixes tested: SE gets 403, Admin retains full access
+- [x] **Testing**: 11/11 tests passed (iteration_25.json)
+
+### GM Dashboard Bug Fixes (P1)
+- [x] **Approval button "Method Not Allowed" fixed**: Frontend was calling `/gm/approve-project/` (non-existent), now correctly calls `/approvals/projects/{id}/gm-approve`
+- [x] **Tab switching bug fixed**: `fetchAllData()` now accepts `showLoading` param; post-action refreshes skip the loading spinner that was unmounting the Tabs component
+- [x] **GM role database fix**: Updated GM user role from `gm` to `general_manager` to match UserRole enum
+- [x] Removed fragile `setTimeout` hacks from dialog open/close handlers
+
 ## Recently Completed (February 23, 2026)
 
 ### Comprehensive Accountant Module

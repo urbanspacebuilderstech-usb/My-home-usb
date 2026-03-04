@@ -67,9 +67,9 @@ const GMDashboard = () => {
     fetchAllData();
   }, []);
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const [userRes, projectsRes, reProjectsRes, siteReqRes, paymentReqRes, suspenseRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
@@ -163,16 +163,12 @@ const GMDashboard = () => {
 
   // Open approval dialog
   const openApprovalDialog = (item, type, action = 'approve') => {
-    // Preserve the current tab when opening dialog
-    const currentTab = activeTab;
     setSelectedItem(item);
     setApprovalType(type);
     setApprovalAction(action);
     setApproveConfirmText('');
     setRejectionReason('');
     setApprovalDialog(true);
-    // Ensure tab doesn't change
-    setTimeout(() => setActiveTab(currentTab), 0);
   };
 
   // Handle approval/rejection
@@ -200,7 +196,11 @@ const GMDashboard = () => {
           }
           break;
         case 'project':
-          endpoint = `${API}/gm/approve-project/${selectedItem.project_id}`;
+          if (approvalAction === 'approve') {
+            endpoint = `${API}/approvals/projects/${selectedItem.project_id}/gm-approve`;
+          } else {
+            endpoint = `${API}/approvals/projects/${selectedItem.project_id}/reject?reason=${encodeURIComponent(rejectionReason)}`;
+          }
           break;
         case 'suspense':
           if (approvalAction === 'approve') {
@@ -224,7 +224,7 @@ const GMDashboard = () => {
       }
       
       setApprovalDialog(false);
-      fetchAllData();
+      fetchAllData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Action failed');
     }
@@ -232,13 +232,9 @@ const GMDashboard = () => {
 
   // Open view dialog
   const openViewDialog = (item, type) => {
-    // Preserve the current tab when opening dialog
-    const currentTab = activeTab;
     setViewItem(item);
     setViewType(type);
     setViewDialog(true);
-    // Ensure tab doesn't change
-    setTimeout(() => setActiveTab(currentTab), 0);
   };
 
   const handleLogout = async () => {
@@ -1007,14 +1003,7 @@ const GMDashboard = () => {
       <Dialog 
         open={approvalDialog} 
         onOpenChange={(open) => {
-          if (!open) {
-            setApprovalDialog(false);
-            setTimeout(() => {
-              setActiveTab(lastActiveTabRef.current);
-            }, 50);
-          } else {
-            setApprovalDialog(true);
-          }
+          setApprovalDialog(open);
         }} 
         modal={true}
       >
@@ -1113,15 +1102,7 @@ const GMDashboard = () => {
       <Dialog 
         open={viewDialog} 
         onOpenChange={(open) => {
-          if (!open) {
-            // Restore the last active tab when dialog closes
-            setViewDialog(false);
-            setTimeout(() => {
-              setActiveTab(lastActiveTabRef.current);
-            }, 50);
-          } else {
-            setViewDialog(true);
-          }
+          setViewDialog(open);
         }} 
         modal={true}
       >

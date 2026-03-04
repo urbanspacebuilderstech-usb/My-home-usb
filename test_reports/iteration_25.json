@@ -1,0 +1,23 @@
+{
+  "iteration": 25,
+  "date": "2026-03-04",
+  "summary": "IDOR Security Fix + GM Dashboard Bug Fixes - All tests passed",
+  "tests": [
+    {"test": "IDOR Fix 1: SE projects filtered", "status": "PASS", "details": "SE sees 8 assigned projects, Admin sees 13"},
+    {"test": "IDOR Fix 2: SE blocked from /api/income", "status": "PASS", "details": "Returns 403"},
+    {"test": "IDOR Fix 3: SE blocked from /api/income/summary", "status": "PASS", "details": "Returns 403"},
+    {"test": "IDOR Fix 4: SE blocked from /api/vendor-master", "status": "PASS", "details": "Returns 403"},
+    {"test": "IDOR Fix 5: SE blocked from /api/projects/{id}/payment-summary", "status": "PASS", "details": "Returns 403"},
+    {"test": "IDOR Fix 6: SE blocked from /api/projects/{id}/comprehensive", "status": "PASS", "details": "Returns 403"},
+    {"test": "IDOR Fix 7: SE blocked from /api/projects/{id}/income", "status": "PASS", "details": "Returns 403"},
+    {"test": "Admin full access retained", "status": "PASS", "details": "All 6 endpoints return 200 for admin"},
+    {"test": "GM role fix (gm -> general_manager)", "status": "PASS", "details": "GM user can now login and access dashboard"},
+    {"test": "GM approval endpoint fix", "status": "PASS", "details": "Returns 404 for missing project (not 405)"},
+    {"test": "GM Dashboard UI loads", "status": "PASS", "details": "Screenshot confirms GM Command Center working"}
+  ],
+  "total_tests": 11,
+  "passed": 11,
+  "failed": 0,
+  "retest_needed": false,
+  "should_main_agent_self_test": false
+}

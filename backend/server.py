@@ -1867,8 +1867,20 @@ async def logout(request: Request, response: Response):
 
 @api_router.get("/projects")
 async def get_projects(user: User = Depends(get_current_user)):
+    # IDOR Fix: Role-based project filtering
+    full_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.CRE
+    ]
     if user.role == UserRole.CLIENT:
         projects = await db.projects.find({"client_user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    elif user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        projects = await db.projects.find(
+            {"$or": [{"assigned_to": user.user_id}, {"team_members": user.user_id}]},
+            {"_id": 0}
+        ).to_list(1000)
+    elif user.role in full_access_roles:
+        projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     else:
         projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     
@@ -3407,6 +3419,13 @@ class AdditionalCostUpdate(BaseModel):
 @api_router.get("/projects/{project_id}/comprehensive")
 async def get_comprehensive_project_view(project_id: str, user: User = Depends(get_current_user)):
     """Get comprehensive project data including BOQ, payment schedule, and additional costs"""
+    # IDOR Fix: Only management/financial roles can access comprehensive project view
+    comprehensive_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
+    ]
+    if user.role not in comprehensive_roles:
+        raise HTTPException(status_code=403, detail="Access denied to comprehensive project data")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -3770,6 +3789,13 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
 @api_router.get("/projects/{project_id}/payment-summary")
 async def get_payment_summary(project_id: str, user: User = Depends(get_current_user)):
     """Get complete payment summary for a project - all payments from advance to final"""
+    # IDOR Fix: Only financial/management roles can access payment summaries
+    financial_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
+    ]
+    if user.role not in financial_roles:
+        raise HTTPException(status_code=403, detail="Access denied to financial data")
     
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -6241,6 +6267,13 @@ async def get_all_income(
     user: User = Depends(get_current_user)
 ):
     """Get all income entries with optional filters"""
+    # IDOR Fix: Only financial/management roles can access income data
+    income_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.CRE
+    ]
+    if user.role not in income_access_roles:
+        raise HTTPException(status_code=403, detail="Access denied to financial data")
     query = {}
     
     if project_id:
@@ -6278,6 +6311,13 @@ async def get_all_income(
 @api_router.get("/income/summary")
 async def get_income_summary(user: User = Depends(get_current_user)):
     """Get income summary with totals by payment mode"""
+    # IDOR Fix: Only financial/management roles can access income summary
+    income_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.CRE
+    ]
+    if user.role not in income_access_roles:
+        raise HTTPException(status_code=403, detail="Access denied to financial data")
     income_entries = await db.income.find({}, {"_id": 0}).to_list(10000)
     
     summary = {
@@ -6303,6 +6343,13 @@ async def get_income_summary(user: User = Depends(get_current_user)):
 @api_router.get("/projects/{project_id}/income")
 async def get_project_income(project_id: str, user: User = Depends(get_current_user)):
     """Get all income entries for a specific project"""
+    # IDOR Fix: Only financial/management roles can access project income
+    income_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+        UserRole.PROJECT_MANAGER, UserRole.CRE
+    ]
+    if user.role not in income_access_roles:
+        raise HTTPException(status_code=403, detail="Access denied to financial data")
     income_entries = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
     
     for entry in income_entries:
@@ -7576,6 +7623,13 @@ async def get_vendor_master_list(
     user: User = Depends(get_current_user)
 ):
     """Get all vendors from master list"""
+    # IDOR Fix: Only procurement/management roles can access vendor master
+    vendor_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+        UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
+    ]
+    if user.role not in vendor_access_roles:
+        raise HTTPException(status_code=403, detail="Access denied to vendor data")
     query = {}
     if active_only:
         query["is_active"] = True
@@ -7592,6 +7646,13 @@ async def get_vendor_master_list(
 @api_router.get("/vendor-master/{vendor_id}")
 async def get_vendor_master(vendor_id: str, user: User = Depends(get_current_user)):
     """Get a specific vendor from master"""
+    # IDOR Fix: Only procurement/management roles can access vendor details
+    vendor_access_roles = [
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+        UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER
+    ]
+    if user.role not in vendor_access_roles:
+        raise HTTPException(status_code=403, detail="Access denied to vendor data")
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
