@@ -921,6 +921,21 @@ Build a Construction Accounting CRM with:
 - [x] **GM role database fix**: Updated GM user role from `gm` to `general_manager` to match UserRole enum
 - [x] Removed fragile `setTimeout` hacks from dialog open/close handlers
 
+### server.py Refactoring Complete (P0 Technical Debt)
+- [x] **16,000+ line monolith broken into modular architecture**
+- [x] `server.py` reduced from **16,226 lines to 67 lines** (app bootstrap only)
+- [x] Created `core/` module: `database.py` (20 lines), `models.py` (1246 lines), `deps.py` (121 lines)
+- [x] Created 7 modular route files under `routes/`:
+  - `auth.py` (509 lines) - Auth & Security
+  - `projects.py` (2639 lines) - Project Management, CRUD, Scope, Deductions
+  - `site_ops.py` (1785 lines) - Site Engineer, Petty Cash, Accountant Module, PM
+  - `financial.py` (1648 lines) - Income, Expenses, Settings, Materials, Users
+  - `procurement.py` (1800 lines) - Procurement Board, Packages, Labour Contractors
+  - `operations.py` (3989 lines) - CRE, Planning, Approvals, Work Orders, HR, Payroll
+  - `crm.py` (2621 lines) - CRM, Marketing, Google Sheets
+- [x] **370+ routes migrated** with zero functionality loss
+- [x] **Testing**: 28/28 regression tests passed (iteration_26.json)
+
 ## Recently Completed (February 23, 2026)
 
 ### Comprehensive Accountant Module

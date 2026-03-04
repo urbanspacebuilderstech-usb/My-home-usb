@@ -1,10 +1,20 @@
-"""Database connection module"""
+"""
+Database connection module - shared across all route files
+"""
 import os
-from motor.motor_asyncio import AsyncIOMotorClient
+from pathlib import Path
+from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorGridFSBucket
+import logging
 
-# MongoDB connection
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-DB_NAME = os.environ.get("DB_NAME", "constructionos")
+ROOT_DIR = Path(__file__).parent.parent
+load_dotenv(ROOT_DIR / '.env')
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
+logger = logging.getLogger(__name__)
+
+mongo_url = os.environ['MONGO_URL']
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ['DB_NAME']]
+
+# GridFS for file storage
+fs = AsyncIOMotorGridFSBucket(db)

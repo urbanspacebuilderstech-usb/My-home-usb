@@ -1,0 +1,1785 @@
+"""
+Site Operations Routes - Site Engineer Module, Petty Cash, Accountant Module, PM Module
+Migrated from server.py monolith
+"""
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone, timedelta
+from enum import Enum
+import uuid
+import os
+import io
+import json
+import logging
+from bson import ObjectId
+
+from core.database import db, fs
+from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
+from core.models import *
+from security import InputValidator
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# ==================== SITE ENGINEER MODULE ====================
+
+class MaterialRequestStatus(str, Enum):
+    REQUESTED = "requested"  # Site Engineer created request
+    PM_APPROVED = "pm_approved"  # Project Manager approved
+    PLANNING_APPROVED = "planning_approved"  # Planning approved
+    PROCUREMENT_ASSIGNED = "procurement_assigned"  # Procurement assigned vendor
+    VENDOR_SELECTED = "vendor_selected"  # Procurement selected vendor & pricing
+    WAITING_PAYMENT = "waiting_payment"  # Waiting for accounts approval
+    PAYMENT_APPROVED = "payment_approved"  # Accounts approved payment
+    PO_GENERATED = "po_generated"  # Purchase order generated
+    ORDER_PLACED = "order_placed"  # Order placed with vendor
+    IN_TRANSIT = "in_transit"  # Material dispatched
+    RECEIVED_PARTIAL = "received_partial"
+    RECEIVED_COMPLETED = "received_completed"
+    REJECTED = "rejected"
+    CLOSED = "closed"
+
+
+class VendorPaymentType(str, Enum):
+    ADVANCE = "advance"  # Full payment upfront before delivery
+    FULL_PAYMENT = "full_payment"  # Full payment on delivery
+    CREDIT = "credit"  # Payment after delivery (credit period)
+
+
+class PaymentType(str, Enum):
+    ADVANCE = "advance"  # Full payment upfront
+    PARTIAL = "partial"  # Partial payment, balance later
+    CREDIT = "credit"  # No payment now, add to ledger
+
+
+class LabourRequestStatus(str, Enum):
+    REQUESTED = "requested"
+    PLANNING_APPROVED = "planning_approved"
+    ACCOUNTANT_APPROVED = "accountant_approved"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class VendorCategory(str, Enum):
+    MATERIAL = "material"
+    LABOUR = "labour"
+
+
+class LabourCategory(str, Enum):
+    CIVIL = "civil"
+    ELECTRICAL = "electrical"
+    PLUMBING = "plumbing"
+    WELDER = "welder"
+    CARPENTER = "carpenter"
+    TILES_GRANITE = "tiles_granite"
+    PAINTING = "painting"
+    NMR = "nmr"  # Non-Measurement Rate
+
+
+class SiteEngineerAssignment(BaseModel):
+    assignment_id: str = Field(default_factory=lambda: f"sea_{uuid.uuid4().hex[:12]}")
+    user_id: str  # Site Engineer user ID
+    project_id: str
+    assigned_by: str  # Super Admin or Project Manager
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MaterialRequest(BaseModel):
+    request_id: str = Field(default_factory=lambda: f"mreq_{uuid.uuid4().hex[:12]}")
+    order_id: str = Field(default_factory=lambda: f"ORD-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
+    project_id: str
+    project_name: Optional[str] = None
+    site_engineer_id: str
+    material_id: str
+    material_name: str
+    quantity: float
+    unit: str
+    stage: Optional[str] = None  # Construction stage
+    remarks: Optional[str] = None
+    status: MaterialRequestStatus = MaterialRequestStatus.REQUESTED
+    # Planning approval
+    planning_approved_by: Optional[str] = None
+    planning_approved_at: Optional[datetime] = None
+    # Vendor selection & pricing
+    vendor_id: Optional[str] = None
+    vendor_name: Optional[str] = None
+    unit_rate: Optional[float] = None
+    transport_cost: Optional[float] = 0
+    discount: Optional[float] = 0
+    total_amount: Optional[float] = None
+    # Payment details
+    payment_type: Optional[str] = None  # advance, partial, credit
+    advance_amount: Optional[float] = None
+    balance_amount: Optional[float] = None
+    # Accounts approval
+    accountant_approved_by: Optional[str] = None
+    accountant_approved_at: Optional[datetime] = None
+    payment_reference: Optional[str] = None
+    # PO details
+    po_id: Optional[str] = None
+    po_generated_at: Optional[datetime] = None
+    expected_delivery: Optional[datetime] = None
+    # Transit
+    dispatched_at: Optional[datetime] = None
+    vehicle_number: Optional[str] = None
+    driver_phone: Optional[str] = None
+    # Receipt
+    received_qty: Optional[float] = None
+    received_at: Optional[datetime] = None
+    receipt_photo_id: Optional[str] = None
+    receipt_gps_lat: Optional[float] = None
+    receipt_gps_lng: Optional[float] = None
+    receipt_otp: Optional[str] = None
+    receipt_otp_verified: bool = False
+    # Rejection
+    rejection_reason: Optional[str] = None
+    rejected_by: Optional[str] = None
+    # Legacy fields for compatibility
+    procurement_approved_by: Optional[str] = None
+    procurement_approved_at: Optional[datetime] = None
+    procurement_pricing: Optional[float] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LabourRequest(BaseModel):
+    request_id: str = Field(default_factory=lambda: f"lreq_{uuid.uuid4().hex[:12]}")
+    order_id: str = Field(default_factory=lambda: f"LAB-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
+    project_id: str
+    site_engineer_id: str
+    labour_type: str  # Mason, Helper, Carpenter, Electrician, Plumber, etc.
+    num_workers: int
+    num_days: int
+    rate_per_day: float
+    total_amount: float  # num_workers * num_days * rate_per_day
+    remarks: Optional[str] = None
+    status: LabourRequestStatus = LabourRequestStatus.REQUESTED
+    planning_approved_by: Optional[str] = None
+    planning_approved_at: Optional[datetime] = None
+    accountant_approved_by: Optional[str] = None
+    accountant_approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MaterialReceipt(BaseModel):
+    receipt_id: str = Field(default_factory=lambda: f"rcpt_{uuid.uuid4().hex[:12]}")
+    request_id: str  # Links to MaterialRequest
+    project_id: str
+    site_engineer_id: str
+    requested_qty: float
+    received_qty: float
+    gps_latitude: float
+    gps_longitude: float
+    photo_url: Optional[str] = None
+    remarks: Optional[str] = None
+    otp_verified: bool = False
+    otp_code: Optional[str] = None
+    otp_expires_at: Optional[datetime] = None
+    verified_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Enhanced Vendor Master Model
+class VendorMaster(BaseModel):
+    vendor_id: str = Field(default_factory=lambda: f"vm_{uuid.uuid4().hex[:12]}")
+    name: str
+    category: str = "material"  # material or labour
+    contact_person: Optional[str] = None
+    phone: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    # Bank Details
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: str = "bank"  # bank, upi, cash
+    upi_id: Optional[str] = None
+    # Tax & Compliance
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    # For Labour Vendors
+    labour_category: Optional[str] = None  # civil, electrical, plumbing, etc.
+    aadhar_file_id: Optional[str] = None  # Uploaded Aadhar PDF
+    location_coverage: Optional[str] = None
+    rate_type: Optional[str] = None  # per_day, per_sqft, contract
+    # Materials supplied (for material vendors)
+    materials_supplied: List[str] = []
+    # Tags & Status
+    tags: List[str] = []  # premium, local, bulk_supplier
+    is_active: bool = True
+    payment_terms: str = "full"  # full, partial, credit
+    credit_limit: Optional[float] = None
+    # Metadata
+    created_by: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+
+
+# Credit Ledger Entry
+class CreditLedgerEntry(BaseModel):
+    entry_id: str = Field(default_factory=lambda: f"cle_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    project_id: str
+    project_name: Optional[str] = None
+    request_id: str  # Links to MaterialRequest
+    po_id: Optional[str] = None
+    credit_amount: float
+    paid_amount: float = 0
+    balance_amount: float
+    due_date: Optional[datetime] = None
+    status: str = "outstanding"  # outstanding, partially_paid, paid, overdue
+    payment_history: List[dict] = []  # [{date, amount, reference, paid_by}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
+
+
+# Purchase Order (Enhanced)
+class PurchaseOrderV2(BaseModel):
+    po_id: str = Field(default_factory=lambda: f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
+    po_number: str = Field(default_factory=lambda: f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+    request_id: str
+    project_id: str
+    project_name: Optional[str] = None
+    # Vendor Details
+    vendor_id: str
+    vendor_name: str
+    vendor_phone: Optional[str] = None
+    vendor_address: Optional[str] = None
+    # Material Details
+    material_name: str
+    quantity: float
+    unit: str
+    unit_rate: float
+    transport_cost: float = 0
+    discount: float = 0
+    total_amount: float
+    # Payment Details
+    payment_type: str  # advance, partial, credit
+    payment_terms: Optional[str] = None
+    advance_paid: float = 0
+    balance_due: float = 0
+    # Delivery Details
+    delivery_address: str
+    expected_delivery: datetime
+    actual_delivery: Optional[datetime] = None
+    # Status
+    status: str = "generated"  # generated, dispatched, in_transit, delivered, closed
+    dispatched_at: Optional[datetime] = None
+    vehicle_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    # Receipt
+    received_qty: Optional[float] = None
+    receipt_verified: bool = False
+    # Metadata
+    generated_by: str
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Transit Tracking
+class TransitTracking(BaseModel):
+    tracking_id: str = Field(default_factory=lambda: f"trk_{uuid.uuid4().hex[:12]}")
+    po_id: str
+    request_id: str
+    project_id: str
+    status: str  # dispatched, in_transit, reached, unloading, delivered
+    vehicle_number: Optional[str] = None
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    current_location: Optional[str] = None
+    gps_lat: Optional[float] = None
+    gps_lng: Optional[float] = None
+    estimated_arrival: Optional[datetime] = None
+    updates: List[dict] = []  # [{timestamp, status, location, remarks}]
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# Site Engineer Assignment Endpoints
+class AssignmentCreate(BaseModel):
+    user_id: str
+    project_id: str
+
+
+@router.post("/site-engineer/assignments")
+async def create_site_engineer_assignment(
+    data: AssignmentCreate,
+    user: User = Depends(get_current_user)
+):
+    """Assign a Site Engineer to a project (Super Admin or Project Manager only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Check if user is a site engineer
+    target_user = await db.users.find_one({"user_id": data.user_id}, {"_id": 0})
+    if not target_user or target_user.get("role") != "site_engineer":
+        raise HTTPException(status_code=400, detail="Target user must be a Site Engineer")
+    
+    # Check if already assigned
+    existing = await db.site_engineer_assignments.find_one({
+        "user_id": data.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    }, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Site Engineer already assigned to this project")
+    
+    # Check max 3 active projects
+    active_count = await db.site_engineer_assignments.count_documents({
+        "user_id": data.user_id,
+        "is_active": True
+    })
+    if active_count >= 3:
+        raise HTTPException(status_code=400, detail="Site Engineer can only have up to 3 active projects")
+    
+    assignment = SiteEngineerAssignment(
+        user_id=data.user_id,
+        project_id=data.project_id,
+        assigned_by=user.user_id
+    )
+    
+    assign_dict = assignment.model_dump()
+    assign_dict["created_at"] = assign_dict["created_at"].isoformat()
+    await db.site_engineer_assignments.insert_one(assign_dict)
+    assign_dict.pop("_id", None)
+    
+    await create_notification(data.user_id, f"You have been assigned to a new project")
+    await create_audit_log(user.user_id, "assign", "site_engineer", data.user_id, {"project_id": data.project_id})
+    
+    return assign_dict
+
+
+@router.get("/site-engineer/assignments")
+async def get_site_engineer_assignments(
+    project_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get site engineer assignments"""
+    query = {"is_active": True}
+    
+    if user.role == UserRole.SITE_ENGINEER:
+        query["user_id"] = user.user_id
+    elif project_id:
+        query["project_id"] = project_id
+    elif user_id:
+        query["user_id"] = user_id
+    
+    assignments = await db.site_engineer_assignments.find(query, {"_id": 0}).to_list(100)
+    
+    # Enrich with project and user details
+    for a in assignments:
+        project = await db.projects.find_one({"project_id": a["project_id"]}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "location": 1, "status": 1})
+        a["project"] = project
+        eng = await db.users.find_one({"user_id": a["user_id"]}, {"_id": 0, "user_id": 1, "name": 1, "email": 1})
+        a["engineer"] = eng
+    
+    return assignments
+
+
+@router.delete("/site-engineer/assignments/{assignment_id}")
+async def remove_site_engineer_assignment(
+    assignment_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Remove a site engineer from a project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    result = await db.site_engineer_assignments.update_one(
+        {"assignment_id": assignment_id},
+        {"$set": {"is_active": False}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    return {"message": "Assignment removed"}
+
+
+# Site Engineer Dashboard
+@router.get("/site-engineer/my-projects")
+async def get_site_engineer_projects(user: User = Depends(get_current_user)):
+    """Get projects assigned to the current site engineer, associate PM, or Sr. site engineer"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers, Sr. Site Engineers, or Associate PMs can access this")
+    
+    assignments = await db.site_engineer_assignments.find({
+        "user_id": user.user_id,
+        "is_active": True
+    }, {"_id": 0}).to_list(10)
+    
+    projects = []
+    for a in assignments:
+        project = await db.projects.find_one({"project_id": a["project_id"]}, {"_id": 0})
+        if project:
+            # IMPORTANT: Remove financial details - Site Engineers cannot see client payments
+            project.pop("total_value", None)
+            project.pop("advance_amount", None)
+            project.pop("income_project", None)
+            project.pop("income_additional", None)
+            project.pop("agreement_value", None)
+            project.pop("received_amount", None)
+            project.pop("total_received", None)
+            
+            # Get active orders count
+            material_orders = await db.material_requests.count_documents({
+                "project_id": a["project_id"],
+                "site_engineer_id": user.user_id,
+                "status": {"$nin": ["received_completed", "rejected"]}
+            })
+            labour_orders = await db.labour_requests.count_documents({
+                "project_id": a["project_id"],
+                "site_engineer_id": user.user_id,
+                "status": {"$nin": ["approved", "rejected"]}
+            })
+            
+            # Get pending petty cash
+            petty_cash = await db.petty_cash.count_documents({
+                "project_id": a["project_id"],
+                "requested_by": user.user_id,
+                "status": {"$in": ["requested", "issued", "partially_spent"]}
+            })
+            
+            project["active_orders"] = material_orders + labour_orders
+            project["active_petty_cash"] = petty_cash
+            project["assignment_id"] = a["assignment_id"]
+            projects.append(project)
+    
+    return projects
+
+
+@router.get("/site-engineer/project/{project_id}")
+async def get_site_engineer_project_detail(
+    project_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get project detail for a site engineer - LIMITED VIEW (no financial info)"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
+    
+    # Verify assignment
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id,
+        "project_id": project_id,
+        "is_active": True
+    }, {"_id": 0})
+    
+    if not assignment:
+        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # IMPORTANT: Remove ALL financial details - Site Engineers cannot see client payments/project value
+    financial_fields = [
+        "total_value", "advance_amount", "income_project", "income_additional",
+        "agreement_value", "received_amount", "total_received", "spent_amount",
+        "total_expense", "additional_cost", "scope_total"
+    ]
+    for field in financial_fields:
+        project.pop(field, None)
+    
+    # Get material requests
+    material_requests = await db.material_requests.find({
+        "project_id": project_id,
+        "site_engineer_id": user.user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get labour requests
+    labour_requests = await db.labour_requests.find({
+        "project_id": project_id,
+        "site_engineer_id": user.user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get material receipts
+    material_receipts = await db.material_receipts.find({
+        "project_id": project_id,
+        "site_engineer_id": user.user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Get petty cash
+    petty_cash = await db.petty_cash.find({
+        "project_id": project_id,
+        "requested_by": user.user_id
+    }, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    return {
+        "project": project,
+        "material_requests": material_requests,
+        "labour_requests": labour_requests,
+        "material_receipts": material_receipts,
+        "petty_cash": petty_cash
+    }
+
+
+# Material Request Endpoints
+class MaterialRequestCreate(BaseModel):
+    project_id: str
+    material_id: str
+    quantity: float
+    remarks: Optional[str] = None
+
+
+@router.post("/site-engineer/material-requests")
+async def create_material_request(
+    data: MaterialRequestCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a new material request"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can create material requests")
+    
+    # Verify assignment
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    }, {"_id": 0})
+    
+    if not assignment:
+        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    
+    # Get material details
+    material = await db.materials.find_one({"material_id": data.material_id}, {"_id": 0})
+    if not material:
+        raise HTTPException(status_code=404, detail="Material not found")
+    
+    request = MaterialRequest(
+        project_id=data.project_id,
+        site_engineer_id=user.user_id,
+        material_id=data.material_id,
+        material_name=material["name"],
+        quantity=data.quantity,
+        unit=material["unit"],
+        remarks=data.remarks
+    )
+    
+    req_dict = request.model_dump()
+    req_dict["status"] = req_dict["status"].value
+    req_dict["created_at"] = req_dict["created_at"].isoformat()
+    await db.material_requests.insert_one(req_dict)
+    req_dict.pop("_id", None)
+    
+    # Notify Planning department
+    planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
+    for p in planners:
+        await create_notification(p["user_id"], f"New material request: {material['name']} x {data.quantity}")
+    
+    await create_audit_log(user.user_id, "create", "material_request", request.request_id, {"material": material["name"], "qty": data.quantity})
+    
+    return req_dict
+
+
+@router.get("/site-engineer/material-requests")
+async def get_material_requests(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material requests"""
+    query = {}
+    
+    if user.role == UserRole.SITE_ENGINEER:
+        query["site_engineer_id"] = user.user_id
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if status:
+        query["status"] = status
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Enrich with project name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+
+@router.patch("/site-engineer/material-requests/{request_id}/approve")
+async def approve_material_request(
+    request_id: str,
+    action: str,  # pm_approve, planning_approve, procurement_assign, accountant_approve, reject
+    rejection_reason: Optional[str] = None,
+    pricing: Optional[float] = None,
+    vendor_id: Optional[str] = None,
+    vendor_payment_type: Optional[str] = None,  # advance, full_payment, credit
+    user: User = Depends(get_current_user)
+):
+    """Approve or reject a material request at various stages"""
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    update_data = {}
+    
+    # Step 1: Project Manager approves (first approval)
+    if action == "pm_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+            raise HTTPException(status_code=403, detail="Only Project Manager can approve this")
+        if request["status"] != "requested":
+            raise HTTPException(status_code=400, detail="Invalid status for PM approval")
+        update_data = {
+            "status": MaterialRequestStatus.PM_APPROVED.value,
+            "pm_approved_by": user.user_id,
+            "pm_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify planning
+        planning_users = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
+        for p in planning_users:
+            await create_notification(p["user_id"], f"Material request needs planning approval: {request['material_name']}")
+    
+    # Step 2: Planning approves
+    elif action == "planning_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+            raise HTTPException(status_code=403, detail="Only Planning can approve this")
+        if request["status"] not in ["requested", "pm_approved"]:
+            raise HTTPException(status_code=400, detail="Invalid status for planning approval")
+        update_data = {
+            "status": MaterialRequestStatus.PLANNING_APPROVED.value,
+            "planning_approved_by": user.user_id,
+            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
+        for p in proc_users:
+            await create_notification(p["user_id"], f"Material request ready for vendor assignment: {request['material_name']}")
+    
+    # Step 3: Procurement assigns vendor
+    elif action == "procurement_assign":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+            raise HTTPException(status_code=403, detail="Only Procurement can assign vendor")
+        if request["status"] != "planning_approved":
+            raise HTTPException(status_code=400, detail="Invalid status for procurement assignment")
+        if not vendor_id:
+            raise HTTPException(status_code=400, detail="Vendor ID is required")
+        
+        # Get vendor details
+        vendor = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        
+        update_data = {
+            "status": MaterialRequestStatus.PROCUREMENT_ASSIGNED.value,
+            "vendor_id": vendor_id,
+            "vendor_name": vendor.get("name", "Unknown"),
+            "vendor_payment_type": vendor_payment_type or "full_payment",
+            "procurement_pricing": pricing,
+            "procurement_assigned_by": user.user_id,
+            "procurement_assigned_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # If advance payment type, notify accountant
+        if vendor_payment_type == "advance":
+            acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+            for a in acc_users:
+                await create_notification(a["user_id"], f"Advance payment required for: {request['material_name']} - ₹{pricing or 0}")
+            update_data["status"] = MaterialRequestStatus.WAITING_PAYMENT.value
+        else:
+            # For full_payment and credit, order can be placed directly
+            update_data["status"] = MaterialRequestStatus.ORDER_PLACED.value
+            await create_notification(request["site_engineer_id"], f"Order placed: {request['material_name']}")
+    
+    # Step 4: Accountant approves payment (for advance payment)
+    elif action == "accountant_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+            raise HTTPException(status_code=403, detail="Only Accountant can approve payment")
+        if request["status"] != "waiting_payment":
+            raise HTTPException(status_code=400, detail="Invalid status for payment approval")
+        update_data = {
+            "status": MaterialRequestStatus.ORDER_PLACED.value,
+            "payment_approved_by": user.user_id,
+            "payment_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify procurement and site engineer
+        await create_notification(request.get("procurement_assigned_by", ""), f"Payment approved, order can be placed: {request['material_name']}")
+        await create_notification(request["site_engineer_id"], f"Order placed: {request['material_name']}")
+    
+    # Mark as in transit
+    elif action == "mark_in_transit":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+            raise HTTPException(status_code=403, detail="Only Procurement can mark as in transit")
+        if request["status"] != "order_placed":
+            raise HTTPException(status_code=400, detail="Invalid status")
+        update_data = {
+            "status": MaterialRequestStatus.IN_TRANSIT.value,
+            "dispatched_at": datetime.now(timezone.utc).isoformat()
+        }
+        await create_notification(request["site_engineer_id"], f"Material dispatched: {request['material_name']}")
+    
+    elif action == "reject":
+        update_data = {
+            "status": MaterialRequestStatus.REJECTED.value,
+            "rejected_by": user.user_id,
+            "rejection_reason": rejection_reason,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }
+        await create_notification(request["site_engineer_id"], f"Material request rejected: {request['material_name']} - {rejection_reason or 'No reason'}")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update_data})
+    await create_audit_log(user.user_id, action, "material_request", request_id, update_data)
+    
+    return await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+
+
+# Labour Request Endpoints
+class LabourRequestCreate(BaseModel):
+    project_id: str
+    labour_type: str
+    num_workers: int
+    num_days: int
+    rate_per_day: float
+    remarks: Optional[str] = None
+
+
+@router.post("/site-engineer/labour-requests")
+async def create_labour_request(
+    data: LabourRequestCreate,
+    user: User = Depends(get_current_user)
+):
+    """Create a new labour request"""
+    if user.role != UserRole.SITE_ENGINEER:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can create labour requests")
+    
+    # Verify assignment
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    }, {"_id": 0})
+    
+    if not assignment:
+        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    
+    total_amount = data.num_workers * data.num_days * data.rate_per_day
+    
+    request = LabourRequest(
+        project_id=data.project_id,
+        site_engineer_id=user.user_id,
+        labour_type=data.labour_type,
+        num_workers=data.num_workers,
+        num_days=data.num_days,
+        rate_per_day=data.rate_per_day,
+        total_amount=total_amount,
+        remarks=data.remarks
+    )
+    
+    req_dict = request.model_dump()
+    req_dict["status"] = req_dict["status"].value
+    req_dict["created_at"] = req_dict["created_at"].isoformat()
+    await db.labour_requests.insert_one(req_dict)
+    req_dict.pop("_id", None)
+    
+    # Notify Planning department
+    planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
+    for p in planners:
+        await create_notification(p["user_id"], f"New labour request: {data.labour_type} x {data.num_workers} workers")
+    
+    await create_audit_log(user.user_id, "create", "labour_request", request.request_id, {"type": data.labour_type, "workers": data.num_workers})
+    
+    return req_dict
+
+
+@router.get("/site-engineer/labour-requests")
+async def get_labour_requests(
+    project_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get labour requests"""
+    query = {}
+    
+    if user.role == UserRole.SITE_ENGINEER:
+        query["site_engineer_id"] = user.user_id
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    if status:
+        query["status"] = status
+    
+    requests = await db.labour_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Enrich with project name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+
+@router.patch("/site-engineer/labour-requests/{request_id}/approve")
+async def approve_labour_request(
+    request_id: str,
+    action: str,  # planning_approve, accountant_approve, reject
+    rejection_reason: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Approve or reject a labour request"""
+    request = await db.labour_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    update_data = {}
+    
+    if action == "planning_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+            raise HTTPException(status_code=403, detail="Permission denied")
+        if request["status"] != "requested":
+            raise HTTPException(status_code=400, detail="Invalid status")
+        update_data = {
+            "status": LabourRequestStatus.PLANNING_APPROVED.value,
+            "planning_approved_by": user.user_id,
+            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        # Notify accountant
+        acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+        for a in acc_users:
+            await create_notification(a["user_id"], f"Labour request ready for approval: {request['labour_type']}")
+    
+    elif action == "accountant_approve":
+        if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+            raise HTTPException(status_code=403, detail="Permission denied")
+        if request["status"] != "planning_approved":
+            raise HTTPException(status_code=400, detail="Invalid status")
+        update_data = {
+            "status": LabourRequestStatus.APPROVED.value,
+            "accountant_approved_by": user.user_id,
+            "accountant_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        await create_notification(request["site_engineer_id"], f"Labour request approved: {request['labour_type']}")
+    
+    elif action == "reject":
+        update_data = {
+            "status": LabourRequestStatus.REJECTED.value,
+            "rejection_reason": rejection_reason
+        }
+        await create_notification(request["site_engineer_id"], f"Labour request rejected: {request['labour_type']}")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    await db.labour_requests.update_one({"request_id": request_id}, {"$set": update_data})
+    await create_audit_log(user.user_id, action, "labour_request", request_id, update_data)
+    
+    return await db.labour_requests.find_one({"request_id": request_id}, {"_id": 0})
+
+
+# Material Receipt with OTP
+class MaterialReceiptCreate(BaseModel):
+    request_id: str
+    received_qty: float
+    gps_latitude: float
+    gps_longitude: float
+    photo_url: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+import random
+import string
+
+def generate_otp(length=6):
+    return ''.join(random.choices(string.digits, k=length))
+
+
+@router.post("/site-engineer/material-receipts/initiate")
+async def initiate_material_receipt(
+    data: MaterialReceiptCreate,
+    user: User = Depends(get_current_user)
+):
+    """Initiate material receipt - sends OTP to site engineer email"""
+    if user.role != UserRole.SITE_ENGINEER:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can receive materials")
+    
+    # Get the material request
+    request = await db.material_requests.find_one({"request_id": data.request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Material request not found")
+    
+    if request["site_engineer_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only receive materials for your own requests")
+    
+    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial"]:
+        raise HTTPException(status_code=400, detail="Material is not ready for receiving")
+    
+    # Generate OTP
+    otp_code = generate_otp()
+    otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+    
+    # Create receipt record
+    receipt = MaterialReceipt(
+        request_id=data.request_id,
+        project_id=request["project_id"],
+        site_engineer_id=user.user_id,
+        requested_qty=request["quantity"],
+        received_qty=data.received_qty,
+        gps_latitude=data.gps_latitude,
+        gps_longitude=data.gps_longitude,
+        photo_url=data.photo_url,
+        remarks=data.remarks,
+        otp_code=otp_code,
+        otp_expires_at=otp_expires_at
+    )
+    
+    rcpt_dict = receipt.model_dump()
+    rcpt_dict["created_at"] = rcpt_dict["created_at"].isoformat()
+    rcpt_dict["otp_expires_at"] = rcpt_dict["otp_expires_at"].isoformat()
+    await db.material_receipts.insert_one(rcpt_dict)
+    rcpt_dict.pop("_id", None)
+    
+    # Get user email
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    user_email = user_doc.get("email") if user_doc else None
+    
+    # Send OTP via Resend
+    otp_sent = False
+    if resend.api_key and user_email:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [user_email],
+                "subject": f"ConstructionOS - Material Receipt OTP: {otp_code}",
+                "html": f"""
+                <h2>Material Receipt Verification</h2>
+                <p>Your OTP for material receipt verification is:</p>
+                <h1 style="color: #2563eb; font-size: 32px; letter-spacing: 4px;">{otp_code}</h1>
+                <p><strong>Material:</strong> {request['material_name']}</p>
+                <p><strong>Quantity:</strong> {data.received_qty} / {request['quantity']} {request['unit']}</p>
+                <p>This OTP expires in 10 minutes.</p>
+                <p style="color: #666;">If you did not request this, please ignore this email.</p>
+                """
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            otp_sent = True
+            logger.info(f"OTP sent to {user_email}")
+        except Exception as e:
+            logger.error(f"Failed to send OTP email: {str(e)}")
+    
+    # Remove OTP from response (security)
+    rcpt_dict.pop("otp_code", None)
+    rcpt_dict["otp_sent"] = otp_sent
+    rcpt_dict["otp_email"] = user_email if otp_sent else None
+    
+    # For testing: if OTP not sent, log it
+    if not otp_sent:
+        logger.warning(f"OTP not sent via email. OTP for testing: {otp_code}")
+        rcpt_dict["test_otp"] = otp_code  # Only for demo/testing
+    
+    return rcpt_dict
+
+
+class OTPVerifyRequest(BaseModel):
+    receipt_id: str
+    otp_code: str
+
+
+@router.post("/site-engineer/material-receipts/verify-otp")
+async def verify_material_receipt_otp(
+    data: OTPVerifyRequest,
+    user: User = Depends(get_current_user)
+):
+    """Verify OTP and complete material receipt"""
+    if user.role != UserRole.SITE_ENGINEER:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can verify receipts")
+    
+    receipt = await db.material_receipts.find_one({"receipt_id": data.receipt_id}, {"_id": 0})
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    
+    if receipt["site_engineer_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only verify your own receipts")
+    
+    if receipt["otp_verified"]:
+        raise HTTPException(status_code=400, detail="Receipt already verified")
+    
+    # Check OTP expiry
+    otp_expires = datetime.fromisoformat(receipt["otp_expires_at"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > otp_expires:
+        raise HTTPException(status_code=400, detail="OTP has expired. Please initiate receipt again.")
+    
+    # Verify OTP
+    if receipt["otp_code"] != data.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    # Update receipt
+    await db.material_receipts.update_one(
+        {"receipt_id": data.receipt_id},
+        {"$set": {
+            "otp_verified": True,
+            "verified_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Update material request status
+    request = await db.material_requests.find_one({"request_id": receipt["request_id"]}, {"_id": 0})
+    if request:
+        total_received = receipt["received_qty"]
+        # Check if there are other receipts for this request
+        other_receipts = await db.material_receipts.find({
+            "request_id": receipt["request_id"],
+            "otp_verified": True,
+            "receipt_id": {"$ne": data.receipt_id}
+        }, {"_id": 0}).to_list(100)
+        
+        for r in other_receipts:
+            total_received += r["received_qty"]
+        
+        if total_received >= request["quantity"]:
+            new_status = MaterialRequestStatus.RECEIVED_COMPLETED.value
+        else:
+            new_status = MaterialRequestStatus.RECEIVED_PARTIAL.value
+        
+        await db.material_requests.update_one(
+            {"request_id": receipt["request_id"]},
+            {"$set": {"status": new_status}}
+        )
+    
+    await create_audit_log(user.user_id, "verify_receipt", "material_receipt", data.receipt_id, {
+        "received_qty": receipt["received_qty"],
+        "gps": f"{receipt['gps_latitude']}, {receipt['gps_longitude']}"
+    })
+    
+    return {"message": "Material receipt verified successfully", "status": "verified"}
+
+
+@router.get("/site-engineer/material-receipts")
+async def get_material_receipts(
+    request_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material receipts"""
+    query = {}
+    
+    if user.role == UserRole.SITE_ENGINEER:
+        query["site_engineer_id"] = user.user_id
+    
+    if request_id:
+        query["request_id"] = request_id
+    
+    if project_id:
+        query["project_id"] = project_id
+    
+    receipts = await db.material_receipts.find(query, {"_id": 0, "otp_code": 0}).sort("created_at", -1).to_list(1000)
+    return receipts
+
+
+# Labour types list
+@router.get("/site-engineer/labour-types")
+async def get_labour_types(user: User = Depends(get_current_user)):
+    """Get available labour types"""
+    return [
+        {"value": "mason", "label": "Mason"},
+        {"value": "helper", "label": "Helper"},
+        {"value": "carpenter", "label": "Carpenter"},
+        {"value": "electrician", "label": "Electrician"},
+        {"value": "plumber", "label": "Plumber"},
+        {"value": "painter", "label": "Painter"},
+        {"value": "welder", "label": "Welder"},
+        {"value": "tile_fitter", "label": "Tile Fitter"},
+        {"value": "supervisor", "label": "Supervisor"},
+        {"value": "other", "label": "Other"}
+    ]
+
+
+# ==================== PETTY CASH MODULE ====================
+
+class PettyCashRequestCreate(BaseModel):
+    project_id: str
+    amount: float
+    purpose: str
+    remarks: Optional[str] = None
+
+class PettyCashExpenseCreate(BaseModel):
+    petty_cash_id: str
+    amount: float
+    expense_type: str  # transport, food, misc, tools, etc
+    description: str
+    date: str  # YYYY-MM-DD
+
+@router.post("/site-engineer/petty-cash/request")
+async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(get_current_user)):
+    """Site Engineer requests petty cash from Accountant"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can request petty cash")
+    
+    # Verify assignment to project
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    })
+    if not assignment:
+        raise HTTPException(status_code=403, detail="You are not assigned to this project")
+    
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    
+    petty_cash = {
+        "petty_cash_id": f"pc_{secrets.token_hex(6)}",
+        "project_id": data.project_id,
+        "project_name": project["name"] if project else "Unknown",
+        "requested_by": user.user_id,
+        "requested_by_name": user.name,
+        "amount_requested": data.amount,
+        "amount_issued": 0,
+        "amount_spent": 0,
+        "amount_returned": 0,
+        "purpose": data.purpose,
+        "remarks": data.remarks,
+        "status": "requested",  # requested, issued, partially_spent, settled, rejected
+        "expenses": [],  # List of expense entries
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "week_start": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "week_end": (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+    }
+    
+    await db.petty_cash.insert_one(petty_cash)
+    petty_cash.pop("_id", None)
+    
+    # Notify accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash request: ₹{data.amount} for {project['name'] if project else 'project'}")
+    
+    return petty_cash
+
+
+@router.get("/site-engineer/petty-cash")
+async def get_my_petty_cash(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get petty cash requests for Site Engineer"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        query["requested_by"] = user.user_id
+    if project_id:
+        query["project_id"] = project_id
+    
+    petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return petty_cash_list
+
+
+@router.post("/site-engineer/petty-cash/{petty_cash_id}/expense")
+async def add_petty_cash_expense(petty_cash_id: str, data: PettyCashExpenseCreate, user: User = Depends(get_current_user)):
+    """Site Engineer records petty cash expense"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can record petty cash expenses")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+    
+    if petty_cash["requested_by"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only add expenses to your own petty cash")
+    
+    if petty_cash["status"] not in ["issued", "partially_spent"]:
+        raise HTTPException(status_code=400, detail="Petty cash must be issued before recording expenses")
+    
+    expense = {
+        "expense_id": f"pce_{secrets.token_hex(6)}",
+        "amount": data.amount,
+        "expense_type": data.expense_type,
+        "description": data.description,
+        "date": data.date,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "recorded_by": user.user_id
+    }
+    
+    new_spent = petty_cash["amount_spent"] + data.amount
+    new_status = "partially_spent" if new_spent < petty_cash["amount_issued"] else "partially_spent"
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {
+            "$push": {"expenses": expense},
+            "$set": {"amount_spent": new_spent, "status": new_status}
+        }
+    )
+    
+    return {"message": "Expense recorded", "expense_id": expense["expense_id"], "total_spent": new_spent}
+
+
+@router.post("/site-engineer/petty-cash/{petty_cash_id}/submit")
+async def submit_petty_cash_for_settlement(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Site Engineer submits petty cash for accountant settlement"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can submit petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["requested_by"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only submit your own petty cash")
+    
+    amount_returned = petty_cash["amount_issued"] - petty_cash["amount_spent"]
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "pending_settlement",
+            "amount_returned": amount_returned,
+            "submitted_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash settlement: {petty_cash['project_name']} - ₹{petty_cash['amount_spent']} spent")
+    
+    return {"message": "Petty cash submitted for settlement", "amount_spent": petty_cash["amount_spent"], "amount_to_return": amount_returned}
+
+
+@router.get("/accountant/petty-cash")
+async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Accountant gets petty cash requests"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return petty_cash_list
+
+
+@router.patch("/accountant/petty-cash/{petty_cash_id}/issue")
+async def issue_petty_cash(petty_cash_id: str, amount: float, user: User = Depends(get_current_user)):
+    """Accountant issues petty cash"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can issue petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["status"] != "requested":
+        raise HTTPException(status_code=400, detail="Petty cash is not in requested status")
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "issued",
+            "amount_issued": amount,
+            "issued_by": user.user_id,
+            "issued_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash issued: ₹{amount}")
+    
+    return {"message": "Petty cash issued", "amount": amount}
+
+
+@router.patch("/accountant/petty-cash/{petty_cash_id}/settle")
+async def settle_petty_cash(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Accountant settles petty cash and moves to master expense"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can settle petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    if petty_cash["status"] != "pending_settlement":
+        raise HTTPException(status_code=400, detail="Petty cash is not pending settlement")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Create master expense entries for each petty cash expense
+    for expense in petty_cash.get("expenses", []):
+        master_expense = {
+            "expense_id": f"exp_{secrets.token_hex(6)}",
+            "project_id": petty_cash["project_id"],
+            "expense_type": "petty_cash",
+            "sub_type": expense["expense_type"],
+            "description": expense["description"],
+            "amount": expense["amount"],
+            "expense_date": expense["date"],
+            "source_type": "petty_cash",
+            "source_id": petty_cash_id,
+            "recorded_by": petty_cash["requested_by"],
+            "verified_by": user.user_id,
+            "status": "approved",
+            "created_at": now.isoformat()
+        }
+        await db.expenses.insert_one(master_expense)
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "settled",
+            "settled_by": user.user_id,
+            "settled_at": now.isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash settled: {petty_cash['project_name']}")
+    
+    return {"message": "Petty cash settled and added to master expenses", "expenses_count": len(petty_cash.get("expenses", []))}
+
+
+@router.patch("/accountant/petty-cash/{petty_cash_id}/reject")
+async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects petty cash request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject petty cash")
+    
+    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not petty_cash:
+        raise HTTPException(status_code=404, detail="Petty cash not found")
+    
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "rejected",
+            "rejected_by": user.user_id,
+            "rejected_reason": reason,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify site engineer
+    await create_notification(petty_cash["requested_by"], f"Petty cash rejected: {reason or 'No reason provided'}")
+    
+    return {"message": "Petty cash rejected"}
+
+
+# ==================== ACCOUNTANT MODULE - COMPREHENSIVE ====================
+
+EXPENSE_CATEGORIES = [
+    "salary", "material", "labour", "transport", "utility",
+    "rent", "marketing", "office", "maintenance", "other"
+]
+
+class RecordedExpenseCreate(BaseModel):
+    project_id: Optional[str] = None
+    category: str
+    description: str
+    amount: float
+    payment_method: str = "bank_transfer"
+    reference: Optional[str] = None
+    vendor_name: Optional[str] = None
+    remarks: Optional[str] = None
+
+@router.get("/accountant/material-requests")
+async def get_accountant_material_requests(user: User = Depends(get_current_user)):
+    """Get material requests for accountant verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    # Get requests pending accounts approval or all recent ones
+    requests = await db.material_requests.find(
+        {"status": {"$in": ["pending_accounts_approval", "accounts_approved", "order_placed"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with project and material names
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r.get("project_id")}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+        material = await db.materials.find_one({"material_id": r.get("material_id")}, {"_id": 0, "name": 1})
+        r["material_name"] = material["name"] if material else r.get("material_name", "Unknown")
+        
+        # Get vendor info if assigned
+        if r.get("vendor_id"):
+            vendor = await db.vendor_master.find_one({"vendor_id": r["vendor_id"]}, {"_id": 0, "name": 1})
+            r["vendor_name"] = vendor["name"] if vendor else "Unknown"
+    
+    return requests
+
+@router.patch("/accountant/material-requests/{request_id}/approve")
+async def accountant_approve_material_request(request_id: str, action: str = "approve", user: User = Depends(get_current_user)):
+    """Accountant approves material request for payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    
+    request = await db.material_requests.find_one({"request_id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if action == "approve":
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "accounts_approved",
+                "accounts_approved_by": user.user_id,
+                "accounts_approved_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(10)
+        for p in proc_users:
+            await create_notification(p["user_id"], f"Material request approved by accounts: {request.get('material_name', 'Unknown')}")
+        return {"message": "Approved by accounts"}
+    else:
+        return {"message": "No action taken"}
+
+@router.patch("/accountant/material-requests/{request_id}/reject")
+async def accountant_reject_material_request(request_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects material request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "accounts_rejected",
+            "accounts_rejected_by": user.user_id,
+            "accounts_rejected_reason": reason,
+            "accounts_rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Rejected by accounts"}
+
+@router.get("/accountant/labour-requests")
+async def get_accountant_labour_requests(user: User = Depends(get_current_user)):
+    """Get labour requests for accountant verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    requests = await db.labour_expenses.find(
+        {"status": {"$in": ["pending_accounts_approval", "accounts_approved"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with project name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r.get("project_id")}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+@router.patch("/accountant/labour-requests/{labour_expense_id}/approve")
+async def accountant_approve_labour(labour_expense_id: str, user: User = Depends(get_current_user)):
+    """Accountant approves labour payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    
+    await db.labour_expenses.update_one(
+        {"labour_expense_id": labour_expense_id},
+        {"$set": {
+            "status": "accounts_approved",
+            "accounts_approved_by": user.user_id,
+            "accounts_approved_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Labour payment approved"}
+
+@router.patch("/accountant/labour-requests/{labour_expense_id}/reject")
+async def accountant_reject_labour(labour_expense_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Accountant rejects labour payment"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    
+    await db.labour_expenses.update_one(
+        {"labour_expense_id": labour_expense_id},
+        {"$set": {
+            "status": "accounts_rejected",
+            "accounts_rejected_by": user.user_id,
+            "accounts_rejected_reason": reason,
+            "accounts_rejected_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return {"message": "Labour payment rejected"}
+
+@router.post("/accountant/record-expense")
+async def record_expense(data: RecordedExpenseCreate, user: User = Depends(get_current_user)):
+    """Accountant records an expense after verification"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can record expenses")
+    
+    if data.category not in EXPENSE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {EXPENSE_CATEGORIES}")
+    
+    expense = {
+        "expense_id": f"exp_{secrets.token_hex(8)}",
+        "project_id": data.project_id,
+        "category": data.category,
+        "description": data.description,
+        "amount": data.amount,
+        "payment_method": data.payment_method,
+        "reference": data.reference,
+        "vendor_name": data.vendor_name,
+        "remarks": data.remarks,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "recorded"
+    }
+    
+    # Get project name if provided
+    if data.project_id:
+        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+        expense["project_name"] = project["name"] if project else "Unknown"
+    
+    await db.recorded_expenses.insert_one(expense)
+    expense.pop("_id", None)
+    
+    await create_audit_log(user.user_id, "create", "recorded_expense", expense["expense_id"], {"amount": data.amount, "category": data.category})
+    
+    return expense
+
+@router.get("/accountant/recorded-expenses")
+async def get_recorded_expenses(
+    project_id: Optional[str] = None,
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get all recorded expenses"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access this")
+    
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    if category:
+        query["category"] = category
+    
+    expenses = await db.recorded_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return expenses
+
+
+
+
+# ==================== PROJECT MANAGER MODULE ====================
+
+class TeamAssignmentCreate(BaseModel):
+    project_id: str
+    user_id: str
+    role: str  # associate_pm, sr_site_engineer, site_engineer
+
+@router.get("/pm/dashboard")
+async def get_pm_dashboard(user: User = Depends(get_current_user)):
+    """Project Manager dashboard"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    # Get all projects (PM sees all projects)
+    total_projects = await db.projects.count_documents({})
+    active_projects = await db.projects.count_documents({"status": {"$in": ["in_planning", "planning_approved", "active"]}})
+    
+    # Pending material requests (need PM approval)
+    pending_material = await db.material_requests.count_documents({"status": "requested"})
+    
+    # Pending labour requests (need PM approval)
+    pending_labour = await db.labour_expenses.count_documents({"status": "requested"})
+    
+    # Team members count
+    team_members = await db.users.count_documents({
+        "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
+    })
+    
+    return {
+        "total_projects": total_projects,
+        "active_projects": active_projects,
+        "pending_material_requests": pending_material,
+        "pending_labour_requests": pending_labour,
+        "team_members": team_members
+    }
+
+
+@router.get("/pm/projects")
+async def get_pm_projects(user: User = Depends(get_current_user)):
+    """Get all projects for PM"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    projects = await db.projects.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    # Enrich with team assignments
+    for proj in projects:
+        assignments = await db.site_engineer_assignments.find({
+            "project_id": proj["project_id"],
+            "is_active": True
+        }, {"_id": 0}).to_list(10)
+        proj["team_assignments"] = assignments
+        
+        # Get team member details
+        team = []
+        for a in assignments:
+            u = await db.users.find_one({"user_id": a["user_id"]}, {"_id": 0, "user_id": 1, "name": 1, "role": 1})
+            if u:
+                team.append(u)
+        proj["team"] = team
+    
+    return projects
+
+
+@router.get("/pm/material-requests")
+async def get_pm_material_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get material requests pending PM approval"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    else:
+        query["status"] = "requested"  # Default: pending PM approval
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    # Enrich with project name and requester name
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+        
+        requester = await db.users.find_one({"user_id": r["site_engineer_id"]}, {"_id": 0, "name": 1})
+        r["requester_name"] = requester["name"] if requester else "Unknown"
+    
+    return requests
+
+
+@router.get("/pm/labour-requests")
+async def get_pm_labour_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get labour requests pending PM verification"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    else:
+        query["status"] = "requested"
+    
+    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    
+    for r in requests:
+        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+        r["project_name"] = project["name"] if project else "Unknown"
+    
+    return requests
+
+
+@router.patch("/pm/labour-requests/{request_id}/verify")
+async def pm_verify_labour_request(
+    request_id: str,
+    action: str,  # approve, reject
+    rejection_reason: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """PM verifies labour request, then it goes to GM for final approval"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can verify")
+    
+    request = await db.labour_expenses.find_one({"labour_expense_id": request_id})
+    if not request:
+        raise HTTPException(status_code=404, detail="Labour request not found")
+    
+    if action == "approve":
+        await db.labour_expenses.update_one(
+            {"labour_expense_id": request_id},
+            {"$set": {
+                "status": "pm_verified",
+                "pm_verified_by": user.user_id,
+                "pm_verified_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        # Notify GM
+        gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0}).to_list(10)
+        for gm in gm_users:
+            await create_notification(gm["user_id"], f"Labour request needs GM approval: {request.get('description', 'Labour payment')}")
+        return {"message": "Labour request verified by PM, sent to GM for approval"}
+    
+    elif action == "reject":
+        await db.labour_expenses.update_one(
+            {"labour_expense_id": request_id},
+            {"$set": {
+                "status": "rejected",
+                "pm_rejected_by": user.user_id,
+                "pm_rejection_reason": rejection_reason,
+                "pm_rejected_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"message": "Labour request rejected by PM"}
+    
+    raise HTTPException(status_code=400, detail="Invalid action")
+
+
+@router.post("/pm/assign-team")
+async def assign_team_to_project(data: TeamAssignmentCreate, user: User = Depends(get_current_user)):
+    """Project Manager assigns team members to project"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can assign team")
+    
+    # Validate project exists
+    project = await db.projects.find_one({"project_id": data.project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Validate user exists and has correct role
+    team_member = await db.users.find_one({"user_id": data.user_id})
+    if not team_member:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if team_member["role"] not in ["associate_pm", "sr_site_engineer", "site_engineer"]:
+        raise HTTPException(status_code=400, detail="User must be Associate PM, Sr. Site Engineer, or Site Engineer")
+    
+    # Check if already assigned
+    existing = await db.site_engineer_assignments.find_one({
+        "user_id": data.user_id,
+        "project_id": data.project_id,
+        "is_active": True
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="User already assigned to this project")
+    
+    assignment = {
+        "assignment_id": f"sea_{secrets.token_hex(6)}",
+        "user_id": data.user_id,
+        "user_name": team_member["name"],
+        "user_role": team_member["role"],
+        "project_id": data.project_id,
+        "project_name": project["name"],
+        "assigned_by": user.user_id,
+        "assigned_by_name": user.name,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.site_engineer_assignments.insert_one(assignment)
+    
+    # Notify team member
+    await create_notification(data.user_id, f"You have been assigned to project: {project['name']}")
+    
+    return {"message": f"Assigned {team_member['name']} to {project['name']}", "assignment": assignment}
+
+
+@router.get("/pm/team-members")
+async def get_team_members(user: User = Depends(get_current_user)):
+    """Get all team members (Associate PM, Sr. Site Engineer, Site Engineer)"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    
+    team = await db.users.find({
+        "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
+    }, {"_id": 0, "password": 0}).to_list(100)
+    
+    # Add current project assignments
+    for member in team:
+        assignments = await db.site_engineer_assignments.find({
+            "user_id": member["user_id"],
+            "is_active": True
+        }, {"_id": 0}).to_list(10)
+        member["active_projects"] = len(assignments)
+        member["assignments"] = assignments
+    
+    return team
+
+

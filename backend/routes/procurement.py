@@ -1,0 +1,1800 @@
+"""
+Procurement Routes - Procurement Board, Enhanced Flow, Credit Ledger, Vendor Enhanced, Transit, Reports, Packages, Labour Contractors
+Migrated from server.py monolith
+"""
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse, JSONResponse
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone, timedelta
+from enum import Enum
+import uuid
+import os
+import io
+import json
+import logging
+from bson import ObjectId
+
+from core.database import db, fs
+from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
+from core.models import *
+from security import InputValidator
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# ==================== PROCUREMENT BOARD MODULE ====================
+
+class ProcurementOrderStatus(str, Enum):
+    PENDING = "pending"  # Planning approved, waiting for procurement pricing
+    PRICING_IN_PROGRESS = "pricing_in_progress"  # Procurement adding quotes
+    WAITING_ACCOUNTS = "waiting_accounts"  # Submitted for Accounts approval
+    ACCOUNTS_APPROVED = "accounts_approved"  # Ready for payment/delivery
+    ACCOUNTS_REJECTED = "accounts_rejected"  # Rejected by Accounts
+    PAID = "paid"  # Payment completed
+    CREDIT = "credit"  # Credit term
+    DELIVERED_PARTIAL = "delivered_partial"
+    DELIVERED_COMPLETED = "delivered_completed"
+
+
+class VendorQuote(BaseModel):
+    quote_id: str = Field(default_factory=lambda: f"quote_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+    total: float = 0  # (unit_price * quantity) + transport_cost - discount
+    is_selected: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProcurementPricing(BaseModel):
+    pricing_id: str = Field(default_factory=lambda: f"prc_{uuid.uuid4().hex[:12]}")
+    request_id: str  # Links to MaterialRequest
+    request_type: str = "material_request"  # or "material_expense"
+    project_id: str
+    project_name: str
+    material_id: str
+    material_name: str
+    requested_qty: float
+    unit: str
+    site_engineer_id: str
+    site_engineer_name: str
+    vendor_quotes: List[Dict] = []  # List of VendorQuote objects
+    selected_vendor_id: Optional[str] = None
+    selected_vendor_name: Optional[str] = None
+    final_amount: float = 0
+    status: str = "pending"
+    submitted_by: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    accounts_action: Optional[str] = None  # approved/rejected
+    accounts_by: Optional[str] = None
+    accounts_at: Optional[datetime] = None
+    accounts_comment: Optional[str] = None
+    payment_status: str = "pending"  # pending, paid, credit, partial
+    paid_amount: float = 0
+    delivery_status: str = "pending"  # pending, partial, completed
+    delivered_qty: float = 0
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VendorPriceHistory(BaseModel):
+    history_id: str = Field(default_factory=lambda: f"vph_{uuid.uuid4().hex[:12]}")
+    vendor_id: str
+    vendor_name: str
+    material_id: str
+    material_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+    total: float = 0
+    project_id: str
+    project_name: str
+    pricing_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProcurementLog(BaseModel):
+    log_id: str = Field(default_factory=lambda: f"plog_{uuid.uuid4().hex[:12]}")
+    pricing_id: str
+    action: str  # add_quote, update_quote, select_vendor, submit, approve, reject, etc.
+    user_id: str
+    user_name: str
+    details: Dict = {}
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AddVendorQuoteInput(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_price: float
+    quantity: float
+    transport_cost: float = 0
+    discount: float = 0
+
+
+class NewVendorInput(BaseModel):
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    gst_number: Optional[str] = None
+    payment_terms: str = "full"  # full, advance, credit
+
+
+@router.get("/procurement/dashboard")
+async def get_procurement_dashboard(user: User = Depends(get_current_user)):
+    """Get procurement dashboard metrics"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    
+    # Count pending (planning approved material requests waiting for procurement)
+    pending_requests = await db.material_requests.count_documents({
+        "status": "planning_approved"
+    })
+    
+    # Count pricing in progress
+    pricing_in_progress = await db.procurement_pricing.count_documents({
+        "status": "pricing_in_progress"
+    })
+    
+    # Count waiting for accounts
+    waiting_accounts = await db.procurement_pricing.count_documents({
+        "status": "waiting_accounts"
+    })
+    
+    # Count approved orders
+    approved_orders = await db.procurement_pricing.count_documents({
+        "status": {"$in": ["accounts_approved", "paid", "credit"]}
+    })
+    
+    # Count delivered
+    delivered_orders = await db.procurement_pricing.count_documents({
+        "delivery_status": {"$in": ["partial", "completed"]}
+    })
+    
+    # Total value in pricing
+    pricing_docs = await db.procurement_pricing.find(
+        {"status": {"$in": ["pricing_in_progress", "waiting_accounts"]}},
+        {"final_amount": 1, "_id": 0}
+    ).to_list(1000)
+    total_in_pricing = sum(p.get("final_amount", 0) for p in pricing_docs)
+    
+    # Credit outstanding
+    credit_docs = await db.procurement_pricing.find(
+        {"payment_status": "credit"},
+        {"final_amount": 1, "paid_amount": 1, "_id": 0}
+    ).to_list(1000)
+    credit_outstanding = sum(p.get("final_amount", 0) - p.get("paid_amount", 0) for p in credit_docs)
+    
+    # Vendor-wise spend (top 5)
+    pipeline = [
+        {"$match": {"status": {"$in": ["accounts_approved", "paid", "credit"]}}},
+        {"$group": {"_id": "$selected_vendor_name", "total_spend": {"$sum": "$final_amount"}}},
+        {"$sort": {"total_spend": -1}},
+        {"$limit": 5}
+    ]
+    vendor_spend = await db.procurement_pricing.aggregate(pipeline).to_list(5)
+    
+    return {
+        "pending_requests": pending_requests,
+        "pricing_in_progress": pricing_in_progress,
+        "waiting_accounts": waiting_accounts,
+        "approved_orders": approved_orders,
+        "delivered_orders": delivered_orders,
+        "total_in_pricing": total_in_pricing,
+        "credit_outstanding": credit_outstanding,
+        "vendor_spend": [{"vendor": v["_id"] or "Unknown", "amount": v["total_spend"]} for v in vendor_spend]
+    }
+
+
+@router.get("/procurement/requests")
+async def get_procurement_requests(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material requests by status for procurement board"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    
+    results = []
+    
+    if status == "pending" or status is None:
+        # Get planning-approved material requests not yet in procurement_pricing
+        existing_pricing_ids = await db.procurement_pricing.distinct("request_id")
+        pending_requests = await db.material_requests.find({
+            "status": "planning_approved",
+            "request_id": {"$nin": existing_pricing_ids}
+        }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        
+        # Enrich with project and engineer names
+        for req in pending_requests:
+            project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+            engineer = await db.users.find_one({"user_id": req.get("site_engineer_id")}, {"_id": 0, "name": 1})
+            req["project_name"] = project.get("name") if project else "Unknown"
+            req["site_engineer_name"] = engineer.get("name") if engineer else "Unknown"
+            req["procurement_status"] = "pending"
+        
+        if status == "pending":
+            return pending_requests
+        results.extend(pending_requests)
+    
+    # Get from procurement_pricing collection for other statuses
+    query = {}
+    if status == "pricing_in_progress":
+        query["status"] = "pricing_in_progress"
+    elif status == "waiting_accounts":
+        query["status"] = "waiting_accounts"
+    elif status == "approved":
+        query["status"] = {"$in": ["accounts_approved", "paid", "credit"]}
+    elif status == "delivered":
+        query["delivery_status"] = {"$in": ["partial", "completed"]}
+    
+    if query:
+        pricing_docs = await db.procurement_pricing.find(query, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+        results.extend(pricing_docs)
+    elif status is None:
+        # Get all
+        all_pricing = await db.procurement_pricing.find({}, {"_id": 0}).sort("updated_at", -1).to_list(1000)
+        results.extend(all_pricing)
+    
+    return results
+
+
+@router.post("/procurement/start-pricing/{request_id}")
+async def start_pricing(request_id: str, user: User = Depends(get_current_user)):
+    """Start pricing process for a material request"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can start pricing")
+    
+    # Check if already in pricing
+    existing = await db.procurement_pricing.find_one({"request_id": request_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Pricing already started for this request")
+    
+    # Get the material request
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Request must be planning approved")
+    
+    # Get project and engineer info
+    project = await db.projects.find_one({"project_id": request.get("project_id")}, {"_id": 0, "name": 1})
+    engineer = await db.users.find_one({"user_id": request.get("site_engineer_id")}, {"_id": 0, "name": 1})
+    
+    # Create procurement pricing record
+    pricing = ProcurementPricing(
+        request_id=request_id,
+        project_id=request.get("project_id"),
+        project_name=project.get("name") if project else "Unknown",
+        material_id=request.get("material_id"),
+        material_name=request.get("material_name"),
+        requested_qty=request.get("quantity"),
+        unit=request.get("unit"),
+        site_engineer_id=request.get("site_engineer_id"),
+        site_engineer_name=engineer.get("name") if engineer else "Unknown",
+        status="pricing_in_progress"
+    )
+    
+    pricing_dict = pricing.model_dump()
+    pricing_dict["created_at"] = pricing_dict["created_at"].isoformat()
+    pricing_dict["updated_at"] = pricing_dict["updated_at"].isoformat()
+    
+    await db.procurement_pricing.insert_one(pricing_dict)
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing.pricing_id,
+        action="start_pricing",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"request_id": request_id, "material": request.get("material_name")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"pricing_id": pricing.pricing_id, "message": "Pricing started"}
+
+
+@router.get("/procurement/pricing/{pricing_id}")
+async def get_pricing_details(pricing_id: str, user: User = Depends(get_current_user)):
+    """Get detailed pricing information"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    # Get original request details
+    request = await db.material_requests.find_one({"request_id": pricing.get("request_id")}, {"_id": 0})
+    
+    # Get vendor list for dropdown
+    vendors = await db.vendor_master.find({"is_active": True}, {"_id": 0}).to_list(1000)
+    
+    # Get price history for this material
+    price_history = await db.vendor_price_history.find(
+        {"material_id": pricing.get("material_id")},
+        {"_id": 0}
+    ).sort("created_at", -1).limit(20).to_list(20)
+    
+    return {
+        "pricing": pricing,
+        "original_request": request,
+        "vendors": vendors,
+        "price_history": price_history
+    }
+
+
+@router.post("/procurement/pricing/{pricing_id}/add-quote")
+async def add_vendor_quote(pricing_id: str, quote_input: AddVendorQuoteInput, user: User = Depends(get_current_user)):
+    """Add a vendor quote for comparison"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can add quotes")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot add quotes - pricing not in progress")
+    
+    # Calculate total
+    total = (quote_input.unit_price * quote_input.quantity) + quote_input.transport_cost - quote_input.discount
+    
+    quote = {
+        "quote_id": f"quote_{uuid.uuid4().hex[:12]}",
+        "vendor_id": quote_input.vendor_id,
+        "vendor_name": quote_input.vendor_name,
+        "unit_price": quote_input.unit_price,
+        "quantity": quote_input.quantity,
+        "transport_cost": quote_input.transport_cost,
+        "discount": quote_input.discount,
+        "total": total,
+        "is_selected": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$push": {"vendor_quotes": quote},
+            "$set": {
+                "status": "pricing_in_progress",
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="add_quote",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"vendor": quote_input.vendor_name, "total": total}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Quote added", "quote": quote}
+
+
+@router.delete("/procurement/pricing/{pricing_id}/quote/{quote_id}")
+async def remove_vendor_quote(pricing_id: str, quote_id: str, user: User = Depends(get_current_user)):
+    """Remove a vendor quote"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can remove quotes")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot remove quotes - pricing locked")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$pull": {"vendor_quotes": {"quote_id": quote_id}},
+            "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
+        }
+    )
+    
+    return {"message": "Quote removed"}
+
+
+@router.patch("/procurement/pricing/{pricing_id}/select-vendor")
+async def select_vendor(pricing_id: str, vendor_id: str, user: User = Depends(get_current_user)):
+    """Select a vendor as the final choice"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can select vendor")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") not in ["pricing_in_progress", "pending"]:
+        raise HTTPException(status_code=400, detail="Cannot select vendor - pricing locked")
+    
+    # Find the selected quote
+    selected_quote = None
+    updated_quotes = []
+    for quote in pricing.get("vendor_quotes", []):
+        quote["is_selected"] = quote["vendor_id"] == vendor_id
+        if quote["is_selected"]:
+            selected_quote = quote
+        updated_quotes.append(quote)
+    
+    if not selected_quote:
+        raise HTTPException(status_code=400, detail="Vendor quote not found")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "vendor_quotes": updated_quotes,
+                "selected_vendor_id": vendor_id,
+                "selected_vendor_name": selected_quote.get("vendor_name"),
+                "final_amount": selected_quote.get("total"),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="select_vendor",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"vendor": selected_quote.get("vendor_name"), "amount": selected_quote.get("total")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Vendor selected", "final_amount": selected_quote.get("total")}
+
+
+@router.post("/procurement/pricing/{pricing_id}/submit")
+async def submit_for_accounts(pricing_id: str, user: User = Depends(get_current_user)):
+    """Submit pricing for accounts approval"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can submit")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if not pricing.get("selected_vendor_id"):
+        raise HTTPException(status_code=400, detail="Must select a vendor before submitting")
+    
+    if not pricing.get("vendor_quotes"):
+        raise HTTPException(status_code=400, detail="Must add at least one quote before submitting")
+    
+    # Update status
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "status": "waiting_accounts",
+                "submitted_by": user.user_id,
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update original material request status
+    await db.material_requests.update_one(
+        {"request_id": pricing.get("request_id")},
+        {
+            "$set": {
+                "status": "procurement_approved",
+                "procurement_approved_by": user.user_id,
+                "procurement_approved_at": datetime.now(timezone.utc).isoformat(),
+                "procurement_pricing": pricing.get("final_amount"),
+                "vendor_id": pricing.get("selected_vendor_id")
+            }
+        }
+    )
+    
+    # Save vendor price history
+    selected_quote = None
+    for q in pricing.get("vendor_quotes", []):
+        if q.get("is_selected"):
+            selected_quote = q
+            break
+    
+    if selected_quote:
+        history = VendorPriceHistory(
+            vendor_id=selected_quote.get("vendor_id"),
+            vendor_name=selected_quote.get("vendor_name"),
+            material_id=pricing.get("material_id"),
+            material_name=pricing.get("material_name"),
+            unit_price=selected_quote.get("unit_price"),
+            quantity=selected_quote.get("quantity"),
+            transport_cost=selected_quote.get("transport_cost", 0),
+            discount=selected_quote.get("discount", 0),
+            total=selected_quote.get("total"),
+            project_id=pricing.get("project_id"),
+            project_name=pricing.get("project_name"),
+            pricing_id=pricing_id
+        )
+        history_dict = history.model_dump()
+        history_dict["created_at"] = history_dict["created_at"].isoformat()
+        await db.vendor_price_history.insert_one(history_dict)
+    
+    # Notify accounts
+    accounts_users = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for au in accounts_users:
+        await create_notification(
+            au["user_id"],
+            f"Material order ready for approval: {pricing.get('material_name')} - ₹{pricing.get('final_amount')}"
+        )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action="submit_for_accounts",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"amount": pricing.get("final_amount"), "vendor": pricing.get("selected_vendor_name")}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": "Submitted for accounts approval"}
+
+
+@router.patch("/procurement/pricing/{pricing_id}/accounts-action")
+async def accounts_action_on_procurement(
+    pricing_id: str,
+    action: str,  # approve or reject
+    comment: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Accounts approval/rejection"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve/reject")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    if pricing.get("status") != "waiting_accounts":
+        raise HTTPException(status_code=400, detail="Invalid status for accounts action")
+    
+    new_status = "accounts_approved" if action == "approve" else "accounts_rejected"
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {
+            "$set": {
+                "status": new_status,
+                "accounts_action": action,
+                "accounts_by": user.user_id,
+                "accounts_at": datetime.now(timezone.utc).isoformat(),
+                "accounts_comment": comment,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+        }
+    )
+    
+    # Update original material request
+    request_status = "accountant_approved" if action == "approve" else "rejected"
+    update_data = {
+        "status": request_status,
+        "accountant_approved_by": user.user_id if action == "approve" else None,
+        "accountant_approved_at": datetime.now(timezone.utc).isoformat() if action == "approve" else None
+    }
+    if action == "reject":
+        update_data["rejection_reason"] = comment
+    
+    await db.material_requests.update_one(
+        {"request_id": pricing.get("request_id")},
+        {"$set": update_data}
+    )
+    
+    # Notify procurement
+    proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(100)
+    for pu in proc_users:
+        status_text = "approved" if action == "approve" else f"rejected: {comment}"
+        await create_notification(
+            pu["user_id"],
+            f"Material order {status_text}: {pricing.get('material_name')}"
+        )
+    
+    # Create log
+    log = ProcurementLog(
+        pricing_id=pricing_id,
+        action=f"accounts_{action}",
+        user_id=user.user_id,
+        user_name=user.name,
+        details={"comment": comment}
+    )
+    log_dict = log.model_dump()
+    log_dict["created_at"] = log_dict["created_at"].isoformat()
+    await db.procurement_logs.insert_one(log_dict)
+    
+    return {"message": f"Order {action}d"}
+
+
+@router.patch("/procurement/pricing/{pricing_id}/payment-status")
+async def update_payment_status(
+    pricing_id: str,
+    payment_status: str,  # paid, credit, partial
+    paid_amount: Optional[float] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update payment status"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can update payment status")
+    
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    update_data = {
+        "payment_status": payment_status,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if payment_status == "paid":
+        update_data["paid_amount"] = pricing.get("final_amount")
+        update_data["status"] = "paid"
+    elif payment_status == "credit":
+        update_data["status"] = "credit"
+    elif payment_status == "partial" and paid_amount:
+        update_data["paid_amount"] = paid_amount
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Payment status updated"}
+
+
+@router.patch("/procurement/pricing/{pricing_id}/delivery-status")
+async def update_delivery_status(
+    pricing_id: str,
+    delivery_status: str,  # partial, completed
+    delivered_qty: Optional[float] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update delivery status (called when Site Engineer confirms receipt)"""
+    pricing = await db.procurement_pricing.find_one({"pricing_id": pricing_id}, {"_id": 0})
+    if not pricing:
+        raise HTTPException(status_code=404, detail="Pricing not found")
+    
+    update_data = {
+        "delivery_status": delivery_status,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if delivered_qty:
+        update_data["delivered_qty"] = delivered_qty
+    elif delivery_status == "completed":
+        update_data["delivered_qty"] = pricing.get("requested_qty")
+    
+    await db.procurement_pricing.update_one(
+        {"pricing_id": pricing_id},
+        {"$set": update_data}
+    )
+    
+    return {"message": "Delivery status updated"}
+
+
+@router.get("/procurement/logs/{pricing_id}")
+async def get_procurement_logs(pricing_id: str, user: User = Depends(get_current_user)):
+    """Get audit logs for a pricing record"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    logs = await db.procurement_logs.find(
+        {"pricing_id": pricing_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return logs
+
+
+@router.get("/procurement/price-history")
+async def get_price_history(
+    material_id: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get vendor price history"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if material_id:
+        query["material_id"] = material_id
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    
+    history = await db.vendor_price_history.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    return history
+
+
+@router.post("/procurement/add-vendor")
+async def quick_add_vendor(vendor_input: NewVendorInput, user: User = Depends(get_current_user)):
+    """Quick add vendor from pricing screen"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can add vendors")
+    
+    # Check for duplicate name
+    existing = await db.vendor_master.find_one({"name": vendor_input.name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    vendor_id = f"vnd_{uuid.uuid4().hex[:12]}"
+    vendor_doc = {
+        "vendor_id": vendor_id,
+        "name": vendor_input.name,
+        "contact_person": vendor_input.contact_person,
+        "phone": vendor_input.phone,
+        "email": vendor_input.email,
+        "address": vendor_input.address,
+        "gst_number": vendor_input.gst_number,
+        "payment_terms": vendor_input.payment_terms,
+        "credit_limit": 0,
+        "credit_days": 0,
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.vendor_master.insert_one(vendor_doc)
+    
+    return {"vendor_id": vendor_id, "name": vendor_input.name, "message": "Vendor added"}
+
+
+# ==================== ENHANCED PROCUREMENT FLOW ====================
+
+class VendorSelectionInput(BaseModel):
+    vendor_id: str
+    vendor_name: str
+    unit_rate: float
+    transport_cost: float = 0
+    discount: float = 0
+    payment_type: str  # advance, partial, credit
+    advance_amount: Optional[float] = None  # For partial payment
+    expected_delivery: Optional[str] = None
+
+
+class PaymentApprovalInput(BaseModel):
+    action: str  # approve, reject
+    payment_reference: Optional[str] = None
+    remarks: Optional[str] = None
+
+
+class DispatchInput(BaseModel):
+    vehicle_number: str
+    driver_name: Optional[str] = None
+    driver_phone: Optional[str] = None
+    estimated_arrival: Optional[str] = None
+
+
+class ReceiptInput(BaseModel):
+    received_qty: float
+    gps_lat: float
+    gps_lng: float
+    photo_id: Optional[str] = None
+    otp: str
+    remarks: Optional[str] = None
+
+
+@router.post("/procurement/v2/select-vendor/{request_id}")
+async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: User = Depends(get_current_user)):
+    """Procurement selects vendor and pricing for material request"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can select vendors")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Request must be planning approved first")
+    
+    # Get vendor details
+    vendor = await db.vendor_master.find_one({"vendor_id": data.vendor_id}, {"_id": 0})
+    
+    # Calculate total
+    quantity = request.get("quantity", 0)
+    total_amount = (data.unit_rate * quantity) + data.transport_cost - data.discount
+    
+    # Determine status based on payment type
+    if data.payment_type == "credit":
+        new_status = "vendor_selected"  # Can generate PO directly for credit
+    else:
+        new_status = "waiting_payment"  # Needs accounts approval
+    
+    update_data = {
+        "vendor_id": data.vendor_id,
+        "vendor_name": data.vendor_name,
+        "unit_rate": data.unit_rate,
+        "transport_cost": data.transport_cost,
+        "discount": data.discount,
+        "total_amount": total_amount,
+        "payment_type": data.payment_type,
+        "advance_amount": data.advance_amount if data.payment_type == "partial" else (total_amount if data.payment_type == "advance" else 0),
+        "balance_amount": total_amount - (data.advance_amount or 0) if data.payment_type == "partial" else (0 if data.payment_type == "advance" else total_amount),
+        "expected_delivery": data.expected_delivery,
+        "status": new_status,
+        "procurement_approved_by": user.user_id,
+        "procurement_approved_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": update_data}
+    )
+    
+    # Notify accounts if payment required
+    if data.payment_type in ["advance", "partial"]:
+        accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for acc in accountants:
+            await create_notification(
+                acc["user_id"],
+                f"Payment approval needed: {request.get('material_name')} - ₹{total_amount:,.0f} ({data.payment_type})"
+            )
+    
+    return {"message": "Vendor selected", "status": new_status, "total_amount": total_amount}
+
+
+@router.patch("/procurement/v2/accounts-approval/{request_id}")
+async def accounts_approval_v2(request_id: str, data: PaymentApprovalInput, user: User = Depends(get_current_user)):
+    """Accounts approves or rejects payment for material request"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can approve payments")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "waiting_payment":
+        raise HTTPException(status_code=400, detail="Request is not waiting for payment approval")
+    
+    if data.action == "approve":
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "payment_approved",
+                "accountant_approved_by": user.user_id,
+                "accountant_approved_at": datetime.now(timezone.utc).isoformat(),
+                "payment_reference": data.payment_reference
+            }}
+        )
+        
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for pu in proc_users:
+            await create_notification(pu["user_id"], f"Payment approved for {request.get('material_name')}. Ready for PO generation.")
+        
+        return {"message": "Payment approved", "status": "payment_approved"}
+    else:
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "rejected",
+                "rejection_reason": data.remarks,
+                "rejected_by": user.user_id
+            }}
+        )
+        return {"message": "Payment rejected", "status": "rejected"}
+
+
+@router.post("/procurement/v2/generate-po/{request_id}")
+async def generate_purchase_order_v2(request_id: str, user: User = Depends(get_current_user)):
+    """Generate Purchase Order after payment approval (or directly for credit)"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can generate PO")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    # Allow PO generation for payment_approved or vendor_selected (credit)
+    if request.get("status") not in ["payment_approved", "vendor_selected"]:
+        raise HTTPException(status_code=400, detail="Payment must be approved first (or credit selected)")
+    
+    if request.get("payment_type") not in ["credit"] and request.get("status") != "payment_approved":
+        raise HTTPException(status_code=400, detail="Payment must be approved for advance/partial payments")
+    
+    # Get project and vendor details
+    project = await db.projects.find_one({"project_id": request.get("project_id")}, {"_id": 0, "name": 1, "location": 1})
+    vendor = await db.vendor_master.find_one({"vendor_id": request.get("vendor_id")}, {"_id": 0})
+    
+    # Generate PO
+    po_id = f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    po_number = f"PO-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
+    po_doc = {
+        "po_id": po_id,
+        "po_number": po_number,
+        "request_id": request_id,
+        "order_id": request.get("order_id"),
+        "project_id": request.get("project_id"),
+        "project_name": project.get("name") if project else "",
+        "vendor_id": request.get("vendor_id"),
+        "vendor_name": request.get("vendor_name"),
+        "vendor_phone": vendor.get("phone") if vendor else "",
+        "vendor_address": vendor.get("address") if vendor else "",
+        "material_name": request.get("material_name"),
+        "quantity": request.get("quantity"),
+        "unit": request.get("unit"),
+        "unit_rate": request.get("unit_rate"),
+        "transport_cost": request.get("transport_cost", 0),
+        "discount": request.get("discount", 0),
+        "total_amount": request.get("total_amount"),
+        "payment_type": request.get("payment_type"),
+        "advance_paid": request.get("advance_amount", 0),
+        "balance_due": request.get("balance_amount", 0),
+        "delivery_address": project.get("location") if project else "",
+        "expected_delivery": request.get("expected_delivery"),
+        "status": "generated",
+        "generated_by": user.user_id,
+        "generated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.purchase_orders_v2.insert_one(po_doc)
+    
+    # Update material request
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "po_generated",
+            "po_id": po_id,
+            "po_generated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # If credit, add to credit ledger
+    if request.get("payment_type") == "credit":
+        credit_entry = {
+            "entry_id": f"cle_{uuid.uuid4().hex[:12]}",
+            "vendor_id": request.get("vendor_id"),
+            "vendor_name": request.get("vendor_name"),
+            "project_id": request.get("project_id"),
+            "project_name": project.get("name") if project else "",
+            "request_id": request_id,
+            "po_id": po_id,
+            "credit_amount": request.get("total_amount"),
+            "paid_amount": 0,
+            "balance_amount": request.get("total_amount"),
+            "status": "outstanding",
+            "payment_history": [],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.credit_ledger.insert_one(credit_entry)
+    
+    return {"message": "Purchase Order generated", "po_id": po_id, "po_number": po_number}
+
+
+@router.patch("/procurement/v2/dispatch/{request_id}")
+async def mark_dispatched(request_id: str, data: DispatchInput, user: User = Depends(get_current_user)):
+    """Mark material as dispatched / in transit"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update dispatch")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "po_generated":
+        raise HTTPException(status_code=400, detail="PO must be generated first")
+    
+    # Generate OTP for site engineer receipt verification
+    otp = str(random.randint(100000, 999999))
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "in_transit",
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+            "vehicle_number": data.vehicle_number,
+            "driver_phone": data.driver_phone,
+            "receipt_otp": otp
+        }}
+    )
+    
+    # Update PO status
+    if request.get("po_id"):
+        await db.purchase_orders_v2.update_one(
+            {"po_id": request.get("po_id")},
+            {"$set": {
+                "status": "in_transit",
+                "dispatched_at": datetime.now(timezone.utc).isoformat(),
+                "vehicle_number": data.vehicle_number,
+                "driver_name": data.driver_name,
+                "driver_phone": data.driver_phone
+            }}
+        )
+    
+    # Create transit tracking entry
+    tracking_doc = {
+        "tracking_id": f"trk_{uuid.uuid4().hex[:12]}",
+        "po_id": request.get("po_id"),
+        "request_id": request_id,
+        "project_id": request.get("project_id"),
+        "status": "dispatched",
+        "vehicle_number": data.vehicle_number,
+        "driver_name": data.driver_name,
+        "driver_phone": data.driver_phone,
+        "estimated_arrival": data.estimated_arrival,
+        "updates": [{
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "status": "dispatched",
+            "remarks": "Material dispatched from vendor"
+        }],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.transit_tracking.insert_one(tracking_doc)
+    
+    # Notify site engineer
+    await create_notification(
+        request.get("site_engineer_id"),
+        f"Material {request.get('material_name')} dispatched. Vehicle: {data.vehicle_number}. OTP for receipt: {otp}"
+    )
+    
+    return {"message": "Marked as dispatched", "otp": otp, "status": "in_transit"}
+
+
+@router.post("/procurement/v2/receive/{request_id}")
+async def receive_material(request_id: str, data: ReceiptInput, user: User = Depends(get_current_user)):
+    """Site Engineer receives material with OTP verification"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can receive materials")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "in_transit":
+        raise HTTPException(status_code=400, detail="Material must be in transit")
+    
+    # Verify OTP
+    if request.get("receipt_otp") != data.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    
+    # Determine if partial or complete
+    requested_qty = request.get("quantity", 0)
+    is_partial = data.received_qty < requested_qty
+    new_status = "received_partial" if is_partial else "received_completed"
+    
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": new_status,
+            "received_qty": data.received_qty,
+            "received_at": datetime.now(timezone.utc).isoformat(),
+            "receipt_photo_id": data.photo_id,
+            "receipt_gps_lat": data.gps_lat,
+            "receipt_gps_lng": data.gps_lng,
+            "receipt_otp_verified": True
+        }}
+    )
+    
+    # Update PO
+    if request.get("po_id"):
+        await db.purchase_orders_v2.update_one(
+            {"po_id": request.get("po_id")},
+            {"$set": {
+                "status": "delivered" if not is_partial else "partial_delivery",
+                "received_qty": data.received_qty,
+                "actual_delivery": datetime.now(timezone.utc).isoformat(),
+                "receipt_verified": True
+            }}
+        )
+    
+    # Update transit tracking
+    await db.transit_tracking.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": "delivered"},
+         "$push": {"updates": {
+             "timestamp": datetime.now(timezone.utc).isoformat(),
+             "status": "delivered",
+             "remarks": f"Received {data.received_qty} {request.get('unit')} at site"
+         }}}
+    )
+    
+    # Notify procurement
+    proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for pu in proc_users:
+        status_msg = f"{'Partial' if is_partial else 'Full'} receipt: {request.get('material_name')} - {data.received_qty}/{requested_qty}"
+        await create_notification(pu["user_id"], status_msg)
+    
+    return {
+        "message": "Material received",
+        "status": new_status,
+        "received_qty": data.received_qty,
+        "requested_qty": requested_qty,
+        "is_partial": is_partial
+    }
+
+
+# ==================== CREDIT LEDGER ENDPOINTS ====================
+
+@router.get("/procurement/credit-ledger")
+async def get_credit_ledger(
+    vendor_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get credit ledger entries"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {}
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    if status:
+        query["status"] = status
+    
+    entries = await db.credit_ledger.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    
+    # Calculate totals
+    total_outstanding = sum(e.get("balance_amount", 0) for e in entries if e.get("status") != "paid")
+    
+    return {
+        "entries": entries,
+        "total_outstanding": total_outstanding,
+        "count": len(entries)
+    }
+
+
+class CreditPaymentInput(BaseModel):
+    amount: float
+    payment_reference: str
+    remarks: Optional[str] = None
+
+
+@router.post("/procurement/credit-ledger/{entry_id}/pay")
+async def pay_credit(entry_id: str, data: CreditPaymentInput, user: User = Depends(get_current_user)):
+    """Record payment against credit ledger entry"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accounts can record payments")
+    
+    entry = await db.credit_ledger.find_one({"entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    
+    new_paid = entry.get("paid_amount", 0) + data.amount
+    new_balance = entry.get("credit_amount", 0) - new_paid
+    new_status = "paid" if new_balance <= 0 else "partially_paid"
+    
+    payment_record = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "amount": data.amount,
+        "reference": data.payment_reference,
+        "paid_by": user.user_id,
+        "remarks": data.remarks
+    }
+    
+    await db.credit_ledger.update_one(
+        {"entry_id": entry_id},
+        {
+            "$set": {
+                "paid_amount": new_paid,
+                "balance_amount": max(0, new_balance),
+                "status": new_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            },
+            "$push": {"payment_history": payment_record}
+        }
+    )
+    
+    return {
+        "message": "Payment recorded",
+        "paid_amount": new_paid,
+        "balance_amount": max(0, new_balance),
+        "status": new_status
+    }
+
+
+# ==================== VENDOR MASTER ENHANCED ENDPOINTS ====================
+
+class VendorMasterInput(BaseModel):
+    name: str
+    category: str = "material"  # material or labour
+    contact_person: Optional[str] = None
+    phone: str
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    payment_method: str = "bank"
+    upi_id: Optional[str] = None
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    labour_category: Optional[str] = None
+    location_coverage: Optional[str] = None
+    rate_type: Optional[str] = None
+    materials_supplied: List[str] = []
+    tags: List[str] = []
+    payment_terms: str = "full"
+    credit_limit: Optional[float] = None
+
+
+@router.post("/vendor-master/v2/create")
+async def create_vendor_master_v2(data: VendorMasterInput, user: User = Depends(get_current_user)):
+    """Create new vendor in vendor master"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can create vendors")
+    
+    # Check duplicate
+    existing = await db.vendor_master.find_one({"name": data.name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Vendor with this name already exists")
+    
+    vendor_id = f"vm_{uuid.uuid4().hex[:12]}"
+    vendor_doc = {
+        "vendor_id": vendor_id,
+        **data.model_dump(),
+        "is_active": True,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.vendor_master.insert_one(vendor_doc)
+    
+    return {"message": "Vendor created", "vendor_id": vendor_id}
+
+
+@router.get("/vendor-master")
+async def get_vendors_master(
+    category: Optional[str] = None,
+    labour_category: Optional[str] = None,
+    is_active: bool = True,
+    user: User = Depends(get_current_user)
+):
+    """Get all vendors from vendor master"""
+    query = {"is_active": is_active}
+    if category:
+        query["category"] = category
+    if labour_category:
+        query["labour_category"] = labour_category
+    
+    vendors = await db.vendor_master.find(query, {"_id": 0}).sort("name", 1).to_list(500)
+    return vendors
+
+
+@router.get("/vendor-master/{vendor_id}")
+async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_user)):
+    """Get single vendor details"""
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    # Get spending history
+    spending = await db.purchase_orders_v2.aggregate([
+        {"$match": {"vendor_id": vendor_id}},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}, "count": {"$sum": 1}}}
+    ]).to_list(1)
+    
+    # Get credit status
+    credit = await db.credit_ledger.aggregate([
+        {"$match": {"vendor_id": vendor_id, "status": {"$ne": "paid"}}},
+        {"$group": {"_id": None, "total_credit": {"$sum": "$balance_amount"}}}
+    ]).to_list(1)
+    
+    vendor["total_spend"] = spending[0]["total"] if spending else 0
+    vendor["order_count"] = spending[0]["count"] if spending else 0
+    vendor["outstanding_credit"] = credit[0]["total_credit"] if credit else 0
+    
+    return vendor
+
+
+@router.patch("/vendor-master/v2/{vendor_id}")
+async def update_vendor_master_v2(vendor_id: str, data: VendorMasterInput, user: User = Depends(get_current_user)):
+    """Update vendor in vendor master"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update vendors")
+    
+    update_dict = data.model_dump()
+    update_dict["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    result = await db.vendor_master.update_one(
+        {"vendor_id": vendor_id},
+        {"$set": update_dict}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    
+    return {"message": "Vendor updated"}
+
+
+@router.post("/vendor-master/{vendor_id}/upload-aadhar")
+async def upload_vendor_aadhar(
+    vendor_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user)
+):
+    """Upload Aadhar document for labour vendor"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can upload documents")
+    
+    contents = await file.read()
+    file_id = await fs.upload_from_stream(
+        f"aadhar_{vendor_id}_{file.filename}",
+        contents,
+        metadata={"contentType": file.content_type, "vendor_id": vendor_id, "type": "aadhar"}
+    )
+    
+    await db.vendor_master.update_one(
+        {"vendor_id": vendor_id},
+        {"$set": {"aadhar_file_id": str(file_id), "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Aadhar uploaded", "file_id": str(file_id)}
+
+
+# ==================== TRANSIT TRACKING ENDPOINTS ====================
+
+@router.get("/procurement/transit")
+async def get_transit_orders(user: User = Depends(get_current_user)):
+    """Get all in-transit orders"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SITE_ENGINEER, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {"status": "in_transit"}
+    if user.role == UserRole.SITE_ENGINEER:
+        # Site engineers see only their project's transit orders
+        assignments = await db.site_engineer_assignments.find(
+            {"user_id": user.user_id, "is_active": True}, {"project_id": 1}
+        ).to_list(100)
+        project_ids = [a["project_id"] for a in assignments]
+        query["project_id"] = {"$in": project_ids}
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("dispatched_at", -1).to_list(100)
+    
+    # Enrich with project names
+    for req in requests:
+        project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+        req["project_name"] = project.get("name") if project else ""
+    
+    return requests
+
+
+@router.get("/procurement/transit/{request_id}/tracking")
+async def get_transit_tracking(request_id: str, user: User = Depends(get_current_user)):
+    """Get tracking details for a transit order"""
+    tracking = await db.transit_tracking.find_one({"request_id": request_id}, {"_id": 0})
+    if not tracking:
+        raise HTTPException(status_code=404, detail="Tracking not found")
+    return tracking
+
+
+@router.patch("/procurement/transit/{request_id}/update")
+async def update_transit_status(
+    request_id: str,
+    status: str,
+    location: Optional[str] = None,
+    remarks: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Update transit tracking status"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can update tracking")
+    
+    update = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "location": location,
+        "remarks": remarks
+    }
+    
+    await db.transit_tracking.update_one(
+        {"request_id": request_id},
+        {"$set": {"status": status, "current_location": location}, "$push": {"updates": update}}
+    )
+    
+    return {"message": "Tracking updated"}
+
+
+# ==================== PROCUREMENT REPORTS ====================
+
+@router.get("/procurement/reports/vendor-spend")
+async def vendor_spend_report(user: User = Depends(get_current_user)):
+    """Get vendor-wise spending report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    pipeline = [
+        {"$match": {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}}},
+        {"$group": {
+            "_id": "$vendor_id",
+            "vendor_name": {"$first": "$vendor_name"},
+            "total_amount": {"$sum": "$total_amount"},
+            "order_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_amount": -1}}
+    ]
+    
+    result = await db.material_requests.aggregate(pipeline).to_list(100)
+    return result
+
+
+@router.get("/procurement/reports/material-spend")
+async def material_spend_report(user: User = Depends(get_current_user)):
+    """Get material-wise spending report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    pipeline = [
+        {"$match": {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}}},
+        {"$group": {
+            "_id": "$material_name",
+            "total_amount": {"$sum": "$total_amount"},
+            "total_quantity": {"$sum": "$quantity"},
+            "order_count": {"$sum": 1}
+        }},
+        {"$sort": {"total_amount": -1}}
+    ]
+    
+    result = await db.material_requests.aggregate(pipeline).to_list(100)
+    return result
+
+
+@router.get("/procurement/reports/monthly")
+async def monthly_procurement_report(year: int = None, user: User = Depends(get_current_user)):
+    """Get monthly procurement value report"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if not year:
+        year = datetime.now().year
+    
+    # This is a simplified version - in production you'd parse dates properly
+    requests = await db.material_requests.find(
+        {"status": {"$in": ["po_generated", "in_transit", "received_partial", "received_completed", "closed"]}},
+        {"_id": 0, "total_amount": 1, "created_at": 1}
+    ).to_list(1000)
+    
+    monthly_totals = {}
+    for req in requests:
+        created = req.get("created_at")
+        if isinstance(created, str):
+            try:
+                dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+                if dt.year == year:
+                    month = dt.month
+                    monthly_totals[month] = monthly_totals.get(month, 0) + req.get("total_amount", 0)
+            except:
+                pass
+    
+    return {"year": year, "monthly": monthly_totals}
+
+
+# ==================== PACKAGE SYSTEM ENDPOINTS ====================
+
+class PackageScopeItemInput(BaseModel):
+    name: str
+    description: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    unit_rate: float = 0
+
+
+class PackageMaterialItemInput(BaseModel):
+    material_id: Optional[str] = None
+    name: str
+    brand: Optional[str] = None
+    specification: Optional[str] = None
+    quantity: float = 1
+    unit: str = "nos"
+    estimated_rate: float = 0
+
+
+class PackageLabourItemInput(BaseModel):
+    work_type: str
+    description: Optional[str] = None
+    estimated_days: float = 0
+    daily_rate: float = 0
+    workers_count: int = 1
+
+
+class PackageCreateInput(BaseModel):
+    name: str
+    code: str
+    description: Optional[str] = None
+    building_types: List[str] = []
+    base_rate_per_sqft: float = 0
+    scope_items: List[PackageScopeItemInput] = []
+    material_items: List[PackageMaterialItemInput] = []
+    labour_items: List[PackageLabourItemInput] = []
+
+
+@router.get("/packages")
+async def get_packages(user: User = Depends(get_current_user)):
+    """Get all active packages"""
+    packages = await db.packages.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return packages
+
+
+@router.get("/packages/{package_id}")
+async def get_package(package_id: str, user: User = Depends(get_current_user)):
+    """Get package details"""
+    package = await db.packages.find_one({"package_id": package_id}, {"_id": 0})
+    if not package:
+        raise HTTPException(status_code=404, detail="Package not found")
+    return package
+
+
+@router.post("/packages")
+async def create_package(package_input: PackageCreateInput, user: User = Depends(get_current_user)):
+    """Create a new package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can create packages")
+    
+    # Check for duplicate code
+    existing = await db.packages.find_one({"code": package_input.code, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Package with code '{package_input.code}' already exists")
+    
+    # Process scope items with calculated totals
+    scope_items = []
+    total_scope_value = 0
+    for item in package_input.scope_items:
+        scope_item = {
+            "item_id": f"psi_{uuid.uuid4().hex[:8]}",
+            "name": item.name,
+            "description": item.description,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "unit_rate": item.unit_rate,
+            "total": item.quantity * item.unit_rate
+        }
+        total_scope_value += scope_item["total"]
+        scope_items.append(scope_item)
+    
+    # Process material items
+    material_items = []
+    for item in package_input.material_items:
+        material_items.append({
+            "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
+            "material_id": item.material_id,
+            "name": item.name,
+            "brand": item.brand,
+            "specification": item.specification,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "estimated_rate": item.estimated_rate
+        })
+    
+    # Process labour items
+    labour_items = []
+    for item in package_input.labour_items:
+        labour_items.append({
+            "item_id": f"pli_{uuid.uuid4().hex[:8]}",
+            "work_type": item.work_type,
+            "description": item.description,
+            "estimated_days": item.estimated_days,
+            "daily_rate": item.daily_rate,
+            "workers_count": item.workers_count
+        })
+    
+    package = Package(
+        name=package_input.name,
+        code=package_input.code,
+        description=package_input.description,
+        building_types=package_input.building_types,
+        base_rate_per_sqft=package_input.base_rate_per_sqft,
+        scope_items=scope_items,
+        material_items=material_items,
+        labour_items=labour_items,
+        created_by=user.user_id
+    )
+    
+    package_dict = package.model_dump()
+    package_dict["created_at"] = package_dict["created_at"].isoformat()
+    package_dict["updated_at"] = package_dict["updated_at"].isoformat()
+    
+    await db.packages.insert_one(package_dict)
+    
+    return {"package_id": package.package_id, "message": "Package created", "total_scope_value": total_scope_value}
+
+
+@router.patch("/packages/{package_id}")
+async def update_package(package_id: str, package_input: PackageCreateInput, user: User = Depends(get_current_user)):
+    """Update a package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can update packages")
+    
+    existing = await db.packages.find_one({"package_id": package_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    # Process scope items
+    scope_items = []
+    for item in package_input.scope_items:
+        scope_items.append({
+            "item_id": f"psi_{uuid.uuid4().hex[:8]}",
+            "name": item.name,
+            "description": item.description,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "unit_rate": item.unit_rate,
+            "total": item.quantity * item.unit_rate
+        })
+    
+    # Process material items
+    material_items = []
+    for item in package_input.material_items:
+        material_items.append({
+            "item_id": f"pmi_{uuid.uuid4().hex[:8]}",
+            "material_id": item.material_id,
+            "name": item.name,
+            "brand": item.brand,
+            "specification": item.specification,
+            "quantity": item.quantity,
+            "unit": item.unit,
+            "estimated_rate": item.estimated_rate
+        })
+    
+    # Process labour items
+    labour_items = []
+    for item in package_input.labour_items:
+        labour_items.append({
+            "item_id": f"pli_{uuid.uuid4().hex[:8]}",
+            "work_type": item.work_type,
+            "description": item.description,
+            "estimated_days": item.estimated_days,
+            "daily_rate": item.daily_rate,
+            "workers_count": item.workers_count
+        })
+    
+    update_data = {
+        "name": package_input.name,
+        "code": package_input.code,
+        "description": package_input.description,
+        "building_types": package_input.building_types,
+        "base_rate_per_sqft": package_input.base_rate_per_sqft,
+        "scope_items": scope_items,
+        "material_items": material_items,
+        "labour_items": labour_items,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.packages.update_one({"package_id": package_id}, {"$set": update_data})
+    
+    return {"message": "Package updated"}
+
+
+@router.delete("/packages/{package_id}")
+async def delete_package(package_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a package (Super Admin and GM only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and GM can delete packages")
+    
+    result = await db.packages.update_one(
+        {"package_id": package_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Package not found")
+    
+    return {"message": "Package deleted"}
+
+
+# ==================== LABOUR CONTRACTOR ENDPOINTS ====================
+
+class LabourContractorInput(BaseModel):
+    name: str
+    work_types: List[str] = []
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    rate_structure: Dict = {}
+
+
+@router.get("/labour-contractors")
+async def get_labour_contractors(user: User = Depends(get_current_user)):
+    """Get all active labour contractors"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    contractors = await db.labour_contractors.find({"is_active": True}, {"_id": 0}).to_list(100)
+    return contractors
+
+
+@router.post("/labour-contractors")
+async def create_labour_contractor(contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
+    """Create a new labour contractor (Planning only)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can create labour contractors")
+    
+    contractor = LabourContractor(
+        name=contractor_input.name,
+        work_types=contractor_input.work_types,
+        phone=contractor_input.phone,
+        email=contractor_input.email,
+        address=contractor_input.address,
+        bank_name=contractor_input.bank_name,
+        account_number=contractor_input.account_number,
+        ifsc_code=contractor_input.ifsc_code,
+        rate_structure=contractor_input.rate_structure,
+        created_by=user.user_id
+    )
+    
+    contractor_dict = contractor.model_dump()
+    contractor_dict["created_at"] = contractor_dict["created_at"].isoformat()
+    contractor_dict["updated_at"] = contractor_dict["updated_at"].isoformat()
+    
+    await db.labour_contractors.insert_one(contractor_dict)
+    
+    return {"contractor_id": contractor.contractor_id, "message": "Labour contractor created"}
+
+
+@router.patch("/labour-contractors/{contractor_id}")
+async def update_labour_contractor(contractor_id: str, contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
+    """Update a labour contractor"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can update labour contractors")
+    
+    update_data = {
+        "name": contractor_input.name,
+        "work_types": contractor_input.work_types,
+        "phone": contractor_input.phone,
+        "email": contractor_input.email,
+        "address": contractor_input.address,
+        "bank_name": contractor_input.bank_name,
+        "account_number": contractor_input.account_number,
+        "ifsc_code": contractor_input.ifsc_code,
+        "rate_structure": contractor_input.rate_structure,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    result = await db.labour_contractors.update_one(
+        {"contractor_id": contractor_id},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Labour contractor not found")
+    
+    return {"message": "Labour contractor updated"}
+
+
+@router.delete("/labour-contractors/{contractor_id}")
+async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a labour contractor"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete labour contractors")
+    
+    result = await db.labour_contractors.update_one(
+        {"contractor_id": contractor_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Labour contractor not found")
+    
+    return {"message": "Labour contractor deleted"}
+
+
