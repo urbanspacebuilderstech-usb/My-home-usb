@@ -83,14 +83,7 @@ export default function Login() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{
-        backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.65)), url('https://images.unsplash.com/photo-1644411813513-ad77c1b77581?crop=entropy&cs=srgb&fm=jpg&q=85')`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center'
-      }}
-    >
+    <div className="min-h-screen flex items-center justify-center p-4 bg-white">
       <Card className="w-full max-w-md border-2 border-primary" data-testid="login-card">
         <CardHeader className="text-center pb-4">
           <div className="flex justify-center mb-3">
