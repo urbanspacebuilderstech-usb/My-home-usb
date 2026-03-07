@@ -902,6 +902,13 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
+### Login Page Glassmorphism Redesign (DONE)
+- [x] **Glassmorphism/Polymorphism Card**: Frosted glass card with `backdrop-filter: blur(20px)`, semi-transparent background, and soft shadow
+- [x] **Branding**: Logo generated (navy/gold house icon), title "My Home USB", subtitle "Powered by Urban Space Builders"
+- [x] **Subtle Background**: Amber and slate blur orbs behind the card for depth
+- [x] **Both tabs preserved**: Password Login + Demo Access with Quick Access buttons
+- [x] **Logo stored**: `/app/frontend/public/logo.png`
+
 ### Phase 3: Integrations - Email Notifications & File Uploads (DONE)
 - [x] **Email Notification Service** — Integrated Resend email notifications into 7 key route handlers:
   - Material request created → notifies Procurement + PM

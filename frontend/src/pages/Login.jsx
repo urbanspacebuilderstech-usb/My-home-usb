@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Building2, Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -33,11 +31,8 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [loginTab, setLoginTab] = useState('password');
 
-  // Real login state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Demo login state
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
 
   const handlePasswordLogin = async (e) => {
@@ -83,34 +78,62 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-white">
-      <Card className="w-full max-w-md border-2 border-primary" data-testid="login-card">
-        <CardHeader className="text-center pb-4">
-          <div className="flex justify-center mb-3">
-            <div className="bg-primary p-3 rounded-sm">
-              <Building2 className="w-10 h-10 text-primary-foreground" />
-            </div>
-          </div>
-          <CardTitle className="text-2xl font-bold tracking-tight">ConstructionOS</CardTitle>
-          <CardDescription className="text-xs font-semibold uppercase tracking-wider">
-            Project Control & Accounting System
-          </CardDescription>
-        </CardHeader>
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-white">
+      {/* Subtle background decoration */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-[-120px] left-[-80px] w-[400px] h-[400px] rounded-full bg-amber-100/60 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[-60px] w-[350px] h-[350px] rounded-full bg-slate-200/70 blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-blue-50/40 blur-3xl" />
+      </div>
 
-        <CardContent className="space-y-4">
+      {/* Glassmorphism Card */}
+      <div
+        data-testid="login-card"
+        className="relative z-10 w-full max-w-md rounded-2xl border border-white/40 shadow-2xl"
+        style={{
+          background: 'rgba(255, 255, 255, 0.55)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255,255,255,0.7)',
+        }}
+      >
+        {/* Header / Branding */}
+        <div className="flex flex-col items-center pt-8 pb-4 px-6">
+          <img
+            src="/logo.png"
+            alt="My Home USB"
+            className="w-20 h-20 object-contain mb-4 drop-shadow-md"
+            data-testid="login-logo"
+          />
+          <h1
+            className="text-2xl font-extrabold tracking-tight text-slate-800"
+            data-testid="login-title"
+          >
+            My Home USB
+          </h1>
+          <p
+            className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-600/80 mt-1"
+            data-testid="login-subtitle"
+          >
+            Powered by Urban Space Builders
+          </p>
+        </div>
+
+        {/* Content */}
+        <div className="px-6 pb-8 space-y-4">
           <Tabs value={loginTab} onValueChange={setLoginTab}>
-            <TabsList className="grid w-full grid-cols-2" data-testid="login-tabs">
+            <TabsList className="grid w-full grid-cols-2 bg-white/50" data-testid="login-tabs">
               <TabsTrigger value="password" data-testid="tab-password">Login</TabsTrigger>
               <TabsTrigger value="demo" data-testid="tab-demo">Demo Access</TabsTrigger>
             </TabsList>
 
-            {/* Real Login Tab */}
+            {/* Password Login Tab */}
             <TabsContent value="password" className="space-y-4 mt-4">
               <form onSubmit={handlePasswordLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email" className="text-slate-700 text-sm font-medium">Email</Label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
                       id="email"
                       data-testid="email-input"
@@ -118,7 +141,7 @@ export default function Login() {
                       placeholder="you@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="pl-10 h-11"
+                      className="pl-10 h-11 bg-white/70 border-slate-200/80 focus:border-amber-400 focus:ring-amber-400/20"
                       required
                     />
                   </div>
@@ -126,13 +149,13 @@ export default function Login() {
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password">Password</Label>
-                    <Link to="/forgot-password" className="text-xs text-primary hover:underline" data-testid="forgot-password-link">
+                    <Label htmlFor="password" className="text-slate-700 text-sm font-medium">Password</Label>
+                    <Link to="/forgot-password" className="text-xs text-amber-600 hover:text-amber-700 hover:underline" data-testid="forgot-password-link">
                       Forgot password?
                     </Link>
                   </div>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                     <Input
                       id="password"
                       data-testid="password-input"
@@ -140,13 +163,13 @@ export default function Login() {
                       placeholder="Enter your password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="pl-10 pr-10 h-11"
+                      className="pl-10 pr-10 h-11 bg-white/70 border-slate-200/80 focus:border-amber-400 focus:ring-amber-400/20"
                       required
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
+                      className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors"
                       data-testid="toggle-password"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -158,25 +181,25 @@ export default function Login() {
                   type="submit"
                   data-testid="login-submit-btn"
                   disabled={isLoading}
-                  className="w-full h-11 text-base font-bold"
+                  className="w-full h-11 text-base font-bold bg-slate-800 hover:bg-slate-900 text-white rounded-lg transition-all duration-200"
                 >
                   {isLoading ? 'Logging in...' : 'Login'}
                 </Button>
               </form>
 
-              <p className="text-xs text-center text-muted-foreground mt-4">
+              <p className="text-xs text-center text-slate-400 mt-4">
                 Only invited users can login. Contact your admin for access.
               </p>
             </TabsContent>
 
             {/* Demo Tab */}
             <TabsContent value="demo" className="space-y-4 mt-4">
-              <div className="bg-accent/50 border border-primary/20 rounded p-4">
-                <p className="text-xs font-semibold text-center mb-3 uppercase tracking-wide">Demo Mode</p>
+              <div className="bg-white/40 border border-amber-200/50 rounded-xl p-4">
+                <p className="text-xs font-semibold text-center mb-3 uppercase tracking-wide text-slate-500">Demo Mode</p>
 
                 <div className="space-y-3">
                   <Select value={selectedEmail} onValueChange={setSelectedEmail}>
-                    <SelectTrigger data-testid="demo-user-select" className="h-11">
+                    <SelectTrigger data-testid="demo-user-select" className="h-11 bg-white/70 border-slate-200/80">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -193,14 +216,14 @@ export default function Login() {
                     data-testid="demo-login-btn"
                     onClick={() => handleDemoLogin()}
                     disabled={isLoading}
-                    className="w-full h-11 font-bold"
+                    className="w-full h-11 font-bold bg-slate-800 hover:bg-slate-900 text-white rounded-lg transition-all duration-200"
                   >
                     {isLoading ? 'Logging in...' : 'Login as Demo User'}
                   </Button>
                 </div>
 
-                <div className="border-t mt-3 pt-3">
-                  <p className="text-xs text-center text-muted-foreground mb-2">Quick Access:</p>
+                <div className="border-t border-slate-200/50 mt-3 pt-3">
+                  <p className="text-xs text-center text-slate-400 mb-2">Quick Access:</p>
                   <div className="grid grid-cols-2 gap-1.5">
                     {DEMO_USERS.slice(0, 8).map((quick) => (
                       <Button
@@ -208,7 +231,7 @@ export default function Login() {
                         data-testid={`quick-${quick.name.toLowerCase().replace(/\s/g, '-')}`}
                         variant="outline"
                         size="sm"
-                        className="text-xs h-8"
+                        className="text-xs h-8 bg-white/50 border-slate-200/60 hover:bg-amber-50 hover:border-amber-300 transition-all duration-150"
                         onClick={() => handleDemoLogin(quick.email)}
                         disabled={isLoading}
                       >
@@ -220,8 +243,8 @@ export default function Login() {
               </div>
             </TabsContent>
           </Tabs>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
