@@ -12,6 +12,7 @@ import uuid
 import os
 import io
 import json
+import asyncio
 import logging
 from bson import ObjectId
 
@@ -961,68 +962,56 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
 
 @router.get("/admin/dashboard-summary")
 async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
-    """Get comprehensive Super Admin dashboard data matching user's sketch"""
+    """Get comprehensive Super Admin dashboard data — optimized with bulk queries"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin only")
     
     # Get all projects
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+    project_ids = [p.get("project_id") for p in projects]
     
-    # Initialize totals
+    # Bulk-fetch all related data in parallel
+    scope_all, additions_all, stages_all, deductions_all, expenses_all = await asyncio.gather(
+        db.scope_items.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "total_amount": 1}).to_list(10000),
+        db.additional_costs.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "estimated_amount": 1, "income_received": 1}).to_list(10000),
+        db.payment_stages.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount_received": 1}).to_list(10000),
+        db.deductions.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
+        db.expenses.find({"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(10000),
+    )
+    
+    # Index by project_id
+    from collections import defaultdict
+    scope_by_proj = defaultdict(list)
+    for s in scope_all: scope_by_proj[s["project_id"]].append(s)
+    add_by_proj = defaultdict(list)
+    for a in additions_all: add_by_proj[a["project_id"]].append(a)
+    stages_by_proj = defaultdict(list)
+    for st in stages_all: stages_by_proj[st["project_id"]].append(st)
+    ded_by_proj = defaultdict(list)
+    for d in deductions_all: ded_by_proj[d["project_id"]].append(d)
+    exp_by_proj = defaultdict(list)
+    for e in expenses_all: exp_by_proj[e["project_id"]].append(e)
+    
     totals = {
-        # Project Value Section
-        "project_total_value": 0,
-        "project_addition_cost": 0,
-        "project_value_total": 0,
-        
-        # Income Section
-        "income_project": 0,
-        "income_additional": 0,
-        "income_total": 0,
-        
-        # Balance Section
-        "balance_project": 0,
-        "balance_additional": 0,
-        "balance_grand_total": 0,
-        
-        # Expense Section
-        "total_expense": 0,
-        "cash_in_book": 0,
-        
-        # Count
-        "total_projects": len(projects)
+        "project_total_value": 0, "project_addition_cost": 0, "project_value_total": 0,
+        "income_project": 0, "income_additional": 0, "income_total": 0,
+        "balance_project": 0, "balance_additional": 0, "balance_grand_total": 0,
+        "total_expense": 0, "cash_in_book": 0, "total_projects": len(projects)
     }
     
     project_summaries = []
-    
     for p in projects:
-        project_id = p.get("project_id")
-        
-        # Get scope items for this project
-        scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-        scope_total = sum(item.get("total_amount", 0) for item in scope_items)
-        
-        # Use scope total if available, otherwise use project's total_value
+        pid = p.get("project_id")
+        scope_items = scope_by_proj.get(pid, [])
+        scope_total = sum(i.get("total_amount", 0) for i in scope_items)
         project_value = scope_total if scope_items else p.get("total_value", 0)
         
-        # Get additional costs
-        additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-        additions_total = sum(c.get("estimated_amount", 0) for c in additional_costs)
-        additions_income = sum(c.get("income_received", 0) for c in additional_costs)
+        additions_total = sum(c.get("estimated_amount", 0) for c in add_by_proj.get(pid, []))
+        additions_income = sum(c.get("income_received", 0) for c in add_by_proj.get(pid, []))
+        payment_received = sum(s.get("amount_received", 0) for s in stages_by_proj.get(pid, []))
+        deductions_total = sum(d.get("amount", 0) for d in ded_by_proj.get(pid, []))
+        expenses_total = sum(e.get("amount", 0) for e in exp_by_proj.get(pid, []))
         
-        # Get payment stages for income
-        payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-        payment_received = sum(s.get("amount_received", 0) for s in payment_stages)
-        
-        # Get deductions
-        deductions = await db.deductions.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-        deductions_total = sum(d.get("amount", 0) for d in deductions)
-        
-        # Get expenses
-        expenses = await db.expenses.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
-        expenses_total = sum(e.get("amount", 0) for e in expenses)
-        
-        # Calculate project-level values
         value_total = project_value + additions_total
         income_total = payment_received + additions_income
         balance_project = project_value - payment_received
@@ -1030,7 +1019,6 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
         balance_total = balance_project + balance_additional - deductions_total
         cash_in_book = income_total - expenses_total
         
-        # Add to totals
         totals["project_total_value"] += project_value
         totals["project_addition_cost"] += additions_total
         totals["project_value_total"] += value_total
@@ -1044,25 +1032,15 @@ async def get_admin_dashboard_summary(user: User = Depends(get_current_user)):
         totals["cash_in_book"] += cash_in_book
         
         project_summaries.append({
-            "project_id": project_id,
-            "name": p.get("name"),
-            "client_name": p.get("client_name"),
-            "location": p.get("location"),
-            "status": p.get("status"),
-            "project_value": project_value,
-            "additions": additions_total,
-            "total_value": value_total,
-            "income_received": income_total,
-            "deductions": deductions_total,
-            "balance": balance_total,
-            "expenses": expenses_total,
-            "cash_in_book": cash_in_book
+            "project_id": pid, "name": p.get("name"), "client_name": p.get("client_name"),
+            "location": p.get("location"), "status": p.get("status"),
+            "project_value": project_value, "additions": additions_total,
+            "total_value": value_total, "income_received": income_total,
+            "deductions": deductions_total, "balance": balance_total,
+            "expenses": expenses_total, "cash_in_book": cash_in_book
         })
     
-    return {
-        "totals": totals,
-        "projects": project_summaries
-    }
+    return {"totals": totals, "projects": project_summaries}
 
 
 @router.get("/admin/financial-overview")
