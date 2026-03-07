@@ -45,16 +45,24 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if request.method in self.SAFE_METHODS:
             return await call_next(request)
         
-        # Skip CSRF for API calls with session cookie auth (validated via session token)
-        # The SameSite=None + Secure cookie attributes provide CSRF protection
-        # Additional check: validate Origin header matches allowed origins
         origin = request.headers.get("origin", "")
-        referer = request.headers.get("referer", "")
+        
+        # Allow if no origin (same-origin / server-to-server)
+        if not origin:
+            return await call_next(request)
         
         allowed_origins = os.environ.get('CORS_ORIGINS', '').split(',')
         
-        # Allow requests from allowed origins or if no origin (same-origin / server-to-server)
-        if origin and not any(origin.startswith(ao.strip()) for ao in allowed_origins if ao.strip()):
+        # Check explicit origins
+        is_allowed = any(origin.startswith(ao.strip()) for ao in allowed_origins if ao.strip())
+        
+        # Also allow Cloudflare preview cluster origins (cluster-N pattern)
+        if not is_allowed and '.preview.emergentcf.cloud' in origin:
+            app_name = allowed_origins[0].split('//')[1].split('.')[0] if allowed_origins else ''
+            if app_name and app_name in origin:
+                is_allowed = True
+        
+        if not is_allowed:
             logger.warning(f"CSRF: Blocked request from origin {origin}")
             return Response(content='{"detail":"CSRF validation failed"}', status_code=403,
                           media_type="application/json")
@@ -88,7 +96,9 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'https://construction-crm-6.preview.emergentagent.com').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://construction-crm-6.preview.emergentagent.com').split(',') + [
+        f"https://construction-crm-6.cluster-{i}.preview.emergentcf.cloud" for i in range(10)
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -12,8 +12,12 @@ import uuid
 import os
 import io
 import json
+import asyncio
+import random
 import logging
 from bson import ObjectId
+
+import resend
 
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
@@ -23,6 +27,10 @@ from security import InputValidator
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', '')
+resend.api_key = os.environ.get('RESEND_API_KEY', '')
 
 # ==================== PROCUREMENT BOARD MODULE ====================
 
@@ -1049,13 +1057,108 @@ async def mark_dispatched(request_id: str, data: DispatchInput, user: User = Dep
     }
     await db.transit_tracking.insert_one(tracking_doc)
     
-    # Notify site engineer
+    # Notify site engineer (in-app)
     await create_notification(
         request.get("site_engineer_id"),
         f"Material {request.get('material_name')} dispatched. Vehicle: {data.vehicle_number}. OTP for receipt: {otp}"
     )
     
+    # Send OTP via email to site engineer (non-blocking)
+    try:
+        se_user = await db.users.find_one({"user_id": request.get("site_engineer_id")}, {"_id": 0})
+        if se_user and se_user.get("email") and resend.api_key:
+            asyncio.ensure_future(_send_otp_email(
+                se_user["email"], otp,
+                request.get("material_name", "Material"),
+                request.get("quantity", 0), request.get("unit", ""),
+                data.vehicle_number, se_user.get("name", "Engineer")
+            ))
+    except Exception as e:
+        logger.error(f"Failed to queue OTP email: {e}")
+    
     return {"message": "Marked as dispatched", "otp": otp, "status": "in_transit"}
+
+
+async def _send_otp_email(email, otp, material_name, qty, unit, vehicle, engineer_name):
+    """Send OTP email to site engineer for material receipt verification"""
+    try:
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [email],
+            "subject": f"Material Receipt OTP: {otp}",
+            "html": f"""
+            <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+                <div style="background: #F97316; color: white; padding: 16px; border-radius: 8px 8px 0 0; text-align: center;">
+                    <h2 style="margin: 0;">Material Receipt Verification</h2>
+                </div>
+                <div style="border: 1px solid #E5E7EB; border-top: none; padding: 24px; border-radius: 0 0 8px 8px;">
+                    <p>Hi <strong>{engineer_name}</strong>,</p>
+                    <p>A material has been dispatched to your site. Use this OTP to verify receipt:</p>
+                    <div style="background: #EFF6FF; border: 2px solid #2563EB; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0;">
+                        <p style="color: #2563EB; font-size: 36px; font-weight: bold; letter-spacing: 8px; margin: 0;">{otp}</p>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                        <tr><td style="padding: 8px; border: 1px solid #E5E7EB; background: #F9FAFB;"><strong>Material</strong></td>
+                            <td style="padding: 8px; border: 1px solid #E5E7EB;">{material_name}</td></tr>
+                        <tr><td style="padding: 8px; border: 1px solid #E5E7EB; background: #F9FAFB;"><strong>Quantity</strong></td>
+                            <td style="padding: 8px; border: 1px solid #E5E7EB;">{qty} {unit}</td></tr>
+                        <tr><td style="padding: 8px; border: 1px solid #E5E7EB; background: #F9FAFB;"><strong>Vehicle</strong></td>
+                            <td style="padding: 8px; border: 1px solid #E5E7EB;">{vehicle}</td></tr>
+                    </table>
+                    <p style="color: #666; font-size: 12px;">This OTP is valid until material is received. Do not share it with anyone.</p>
+                </div>
+            </div>
+            """
+        }
+        await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"OTP email sent to {email}")
+    except Exception as e:
+        logger.error(f"OTP email failed: {e}")
+
+
+@router.post("/procurement/v2/resend-otp/{request_id}")
+async def resend_receipt_otp(request_id: str, user: User = Depends(get_current_user)):
+    """Resend OTP via email for material receipt verification"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer can request OTP resend")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if request.get("status") != "in_transit":
+        raise HTTPException(status_code=400, detail="Material must be in transit")
+    
+    otp = request.get("receipt_otp")
+    if not otp:
+        raise HTTPException(status_code=400, detail="No OTP found for this order")
+    
+    # Get site engineer email
+    se_user = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not se_user or not se_user.get("email"):
+        raise HTTPException(status_code=400, detail="Email not found")
+    
+    otp_sent = False
+    if resend.api_key:
+        try:
+            await _send_otp_email(
+                se_user["email"], otp,
+                request.get("material_name", "Material"),
+                request.get("quantity", 0), request.get("unit", ""),
+                request.get("vehicle_number", "-"),
+                se_user.get("name", "Engineer")
+            )
+            otp_sent = True
+        except Exception as e:
+            logger.error(f"Resend OTP email failed: {e}")
+    
+    result = {"message": "OTP sent to your email" if otp_sent else "Email delivery failed", "otp_sent": otp_sent}
+    
+    # Fallback: show OTP if email couldn't be sent
+    if not otp_sent:
+        result["test_otp"] = otp
+    
+    return result
 
 
 @router.post("/procurement/v2/receive/{request_id}")
