@@ -100,9 +100,9 @@ export default function Login() {
         {/* Header / Branding */}
         <div className="flex flex-col items-center pt-8 pb-4 px-6">
           <img
-            src="/logo.png"
-            alt="My Home USB"
-            className="w-20 h-20 object-contain mb-4 drop-shadow-md"
+            src="/logo.webp"
+            alt="Urban Space Builders"
+            className="w-48 object-contain mb-2 drop-shadow-md"
             data-testid="login-logo"
           />
           <h1
