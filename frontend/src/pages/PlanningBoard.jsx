@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   ClipboardList, LogOut, FileText, Clock, CheckCircle, Briefcase,
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
@@ -931,6 +932,7 @@ export default function PlanningBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

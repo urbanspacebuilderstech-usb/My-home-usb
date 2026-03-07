@@ -10,6 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Wallet, LogOut, DollarSign, TrendingUp, TrendingDown, Building2, Users,
   CreditCard, Banknote, Landmark, CheckCircle, AlertTriangle, Clock,
@@ -611,6 +612,7 @@ export default function AccountantDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

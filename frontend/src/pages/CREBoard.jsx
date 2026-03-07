@@ -9,6 +9,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Building2, LogOut, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
@@ -1754,6 +1755,7 @@ export default function CREBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

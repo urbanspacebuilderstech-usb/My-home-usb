@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-
+import MobileBottomNav from '../components/MobileBottomNav';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -297,15 +297,7 @@ export default function Dashboard() {
           </div>
         </div>
         
-        {/* Mobile Navigation Links */}
-        <div className="lg:hidden flex items-center gap-1 mt-3 pt-3 border-t overflow-x-auto pb-1 -mx-2 px-2">
-          <Button variant="ghost" size="sm" className="text-blue-600 font-semibold flex-shrink-0 text-xs h-8">Dashboard</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/projects'} className="flex-shrink-0 text-xs h-8">Projects</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/income'} className="flex-shrink-0 text-xs h-8">Income</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/expense-management'} className="flex-shrink-0 text-xs h-8">Expenses</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/users'} className="flex-shrink-0 text-xs h-8">Users</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/settings'} className="flex-shrink-0 text-xs h-8">Settings</Button>
-        </div>
+        {/* Mobile Navigation Links - handled by MobileBottomNav */}
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
@@ -716,6 +708,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

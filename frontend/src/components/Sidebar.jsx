@@ -44,7 +44,7 @@ export default function Sidebar({ open, onClose, user }) {
     <>
       {open && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden" 
+          className="fixed inset-0 bg-black/50 z-40" 
           onClick={onClose}
         />
       )}
@@ -54,7 +54,6 @@ export default function Sidebar({ open, onClose, user }) {
           fixed top-0 left-0 h-full w-64 bg-secondary text-secondary-foreground z-50
           transform transition-transform duration-300 ease-in-out
           ${open ? 'translate-x-0' : '-translate-x-full'}
-          md:translate-x-0
         `}
       >
         <div className="p-6 flex items-center justify-between border-b border-secondary-foreground/10">
@@ -66,7 +65,7 @@ export default function Sidebar({ open, onClose, user }) {
             data-testid="close-sidebar-btn"
             variant="ghost"
             size="icon"
-            className="md:hidden text-secondary-foreground"
+            className="text-secondary-foreground"
             onClick={onClose}
           >
             <X className="h-5 w-5" />

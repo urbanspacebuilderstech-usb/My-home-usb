@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -1347,6 +1348,7 @@ const GMDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 };

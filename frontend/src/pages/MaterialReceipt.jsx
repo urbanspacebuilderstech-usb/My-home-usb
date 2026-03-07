@@ -11,7 +11,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
-import { 
+import MobileBottomNav from '../components/MobileBottomNav';import { 
   Package, Truck, CheckCircle, XCircle, MapPin, Camera, Phone, 
   Clock, AlertCircle, Navigation, QrCode, ShieldCheck, Eye, 
   LogOut, Mail, RefreshCw, Loader2
@@ -581,6 +581,7 @@ export default function MaterialReceipt() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

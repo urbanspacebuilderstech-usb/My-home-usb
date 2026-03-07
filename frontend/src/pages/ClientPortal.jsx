@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-
+import MobileBottomNav from '../components/MobileBottomNav';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
@@ -127,25 +127,25 @@ export default function ClientPortal() {
   if (!projectId || !projectData) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white border-b border-gray-200 px-6 py-4 print:hidden">
+        <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 print:hidden">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-yellow-500 p-2 rounded-lg">
-                <Building2 className="h-6 w-6 text-white" />
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="bg-yellow-500 p-1.5 sm:p-2 rounded-lg">
+                <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+                <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
                 <p className="text-xs text-gray-500">Client Portal</p>
               </div>
             </div>
             
-            <div className="flex items-center gap-4">
-              <div className="text-right">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <div className="text-right hidden sm:block">
                 <p className="text-sm font-semibold text-gray-900">{user.name}</p>
                 <p className="text-xs text-gray-500">Client</p>
               </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
+              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
               </Button>
             </div>
           </div>
@@ -222,37 +222,37 @@ export default function ClientPortal() {
       `}</style>
 
       {/* Navigation - hidden in print */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4 print:hidden">
+      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 print:hidden">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/client-portal')}>
-              <ChevronLeft className="h-5 w-5" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Button variant="ghost" size="icon" onClick={() => navigate('/client-portal')} className="h-8 w-8 sm:h-10 sm:w-10">
+              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
-            <div className="bg-yellow-500 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
+            <div className="bg-yellow-500 p-1.5 sm:p-2 rounded-lg">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
-              <p className="text-xs text-gray-500">Client Portal</p>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <p className="text-xs text-gray-500 hidden sm:block">Client Portal</p>
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Button 
               variant="outline" 
-              className="gap-2"
+              className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-10 px-2 sm:px-4"
               onClick={handlePrintPDF}
               data-testid="print-pdf-btn"
             >
-              <Printer className="h-4 w-4" />
-              Share as PDF
+              <Printer className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Share as</span> PDF
             </Button>
-            <div className="text-right">
+            <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-gray-900">{user.name}</p>
               <p className="text-xs text-gray-500">Client</p>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-5 w-5" />
+            <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
+              <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
           </div>
         </div>
@@ -271,11 +271,11 @@ export default function ClientPortal() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-6 py-8" ref={printRef}>
+      <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 sm:py-8" ref={printRef}>
         {/* Project Header */}
-        <div className="mb-8 print:break-inside-avoid">
-          <h2 data-testid="client-portal-title" className="text-3xl font-bold text-gray-900">{project.name}</h2>
-          <div className="flex items-center gap-4 mt-2 flex-wrap">
+        <div className="mb-6 sm:mb-8 print:break-inside-avoid">
+          <h2 data-testid="client-portal-title" className="text-xl sm:text-3xl font-bold text-gray-900">{project.name}</h2>
+          <div className="flex items-center gap-2 sm:gap-4 mt-2 flex-wrap">
             <span className="text-gray-600">{project.location}</span>
             <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
               {project.status}
@@ -652,6 +652,7 @@ export default function ClientPortal() {
           <p>Generated from ConstructionOS Client Portal • {new Date().toLocaleDateString('en-IN')}</p>
         </div>
       </div>
+      <MobileBottomNav user={user} />
     </div>
   );
 }
