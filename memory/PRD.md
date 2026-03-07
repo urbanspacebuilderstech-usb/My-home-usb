@@ -940,6 +940,24 @@ Build a Construction Accounting CRM with:
 - [x] **CSRF Middleware Enhancement** — Now handles dynamic Cloudflare cluster-N origins
 - [x] **Testing**: 9/9 tests passed (iteration_30.json) — 100% backend + frontend success rate
 
+### Phase 4: Mobile Responsiveness + PWA (DONE)
+- [x] **MobileBottomNav component** — Role-based bottom navigation for mobile (<768px)
+  - Site Engineer: Projects, Receipt, Alerts, Profile
+  - GM/Admin: Dashboard/Command, Projects, GM Center, Alerts, More
+  - Planning/Accountant/CRE/Procurement: role-specific tabs + More
+  - "More" button opens full sidebar overlay with all navigation items
+  - iOS safe-area support with env(safe-area-inset-bottom)
+- [x] **Integrated into 9 pages**: Dashboard, SiteEngineerDashboard, ClientPortal, MaterialReceipt, GMDashboard, PlanningBoard, AccountantDashboard, CREBoard, ProcurementBoardV2
+- [x] **Responsive Layout Fixes** — Client Portal nav, headers, content areas made mobile-friendly
+- [x] **Sidebar → Overlay Only** — Sidebar no longer auto-shows on desktop, only opens via "More" button
+- [x] **PWA Setup**:
+  - Web App Manifest (manifest.json) with ConstructionOS branding
+  - Service Worker (sw.js) — Network-first strategy, caches static assets, offline fallback
+  - App icons (192x192 and 512x512 PNG)
+  - Apple meta tags for iOS home screen support
+  - viewport-fit=cover for notch-aware layout
+- [x] **Testing**: 9/9 tests passed (iteration_31.json) — 100% success rate
+
 ### Phase 2: Security Hardening (DONE)
 - [x] **CORS restricted** — Changed from `*` to production domain, env-configurable via `CORS_ORIGINS`
 - [x] **RBAC expanded** — Added role checks to 10+ unprotected endpoints: vendors, expenses, payments, vendor-master, verify scope/payment/additions/deductions
@@ -1095,8 +1113,8 @@ Build a Construction Accounting CRM with:
 - [x] ~~Google Maps API Integration~~ - DONE (Leaflet/OpenStreetMap, March 2026)
 
 ### P1 - Phase 4
-- [ ] **Mobile Responsiveness** - Site Engineer and Client Portal dashboards on mobile
-- [ ] **PWA Setup** - Progressive Web App for offline capabilities
+- [x] ~~Mobile Responsiveness~~ - DONE (March 2026) - MobileBottomNav, responsive layouts
+- [x] ~~PWA Setup~~ - DONE (March 2026) - manifest, service worker, icons, offline support
 
 ### P1 - Code Refactoring (HIGH PRIORITY)
 - [x] ~~Refactor server.py Monolith~~ - DONE (March 2026)
