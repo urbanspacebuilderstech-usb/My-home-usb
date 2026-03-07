@@ -460,9 +460,9 @@ class AdminLeadCreate(BaseModel):
 
 @router.post("/crm/leads")
 async def create_lead_admin(data: AdminLeadCreate, user: User = Depends(get_current_user)):
-    """Create a new lead - Super Admin only"""
-    if user.role not in [UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Super Admin access required")
+    """Create a new lead - Super Admin, Sales, Pre-Sales"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+        raise HTTPException(status_code=403, detail="Sales/Pre-Sales/Admin access required")
     
     stage_type = LeadStageType.PRE_SALES if data.stage_type == "pre_sales" else LeadStageType.SALES
     
@@ -1889,7 +1889,8 @@ GOOGLE_SHEETS_CLIENT_ID = os.environ.get('GOOGLE_SHEETS_CLIENT_ID', '')
 GOOGLE_SHEETS_CLIENT_SECRET = os.environ.get('GOOGLE_SHEETS_CLIENT_SECRET', '')
 GOOGLE_SHEETS_REDIRECT_URI = os.environ.get('GOOGLE_SHEETS_REDIRECT_URI', '')
 GOOGLE_SHEETS_SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.file",
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile"
@@ -2564,6 +2565,188 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
     except Exception as e:
         logger.error(f"Failed to import all sheets: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to import: {str(e)}")
+
+
+class ExportLeadsRequest(BaseModel):
+    spreadsheet_url: Optional[str] = None  # If provided, export to existing sheet
+    sheet_name: str = "CRM Export"
+    filters: Dict[str, str] = {}  # e.g., {"source": "meta", "stage_type": "pre_sales"}
+
+
+@router.post("/sheets/export")
+async def export_leads_to_sheet(data: ExportLeadsRequest, user: User = Depends(get_current_user)):
+    """Export CRM leads to a Google Sheet"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales", "sales"]:
+        raise HTTPException(status_code=403, detail="Sales/Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Build query filter
+        query = {}
+        if data.filters.get("source"):
+            query["source"] = data.filters["source"]
+        if data.filters.get("stage_type"):
+            query["stage_type"] = data.filters["stage_type"]
+        if data.filters.get("assigned_to"):
+            query["assigned_to"] = data.filters["assigned_to"]
+        
+        # Fetch leads
+        leads = await db.leads.find(query, {"_id": 0}).to_list(5000)
+        
+        if not leads:
+            return {"message": "No leads to export", "exported": 0}
+        
+        # Prepare headers and rows
+        headers = ["Name", "Phone", "Email", "Source", "City", "Sqft", "Budget", "Stage", "Assigned To", "Created At", "Notes"]
+        rows = [headers]
+        
+        for lead in leads:
+            rows.append([
+                lead.get("name", ""),
+                lead.get("phone", ""),
+                lead.get("email", ""),
+                lead.get("source_display") or lead.get("source", ""),
+                lead.get("city", ""),
+                str(lead.get("sqft", "")),
+                str(lead.get("budget", "")),
+                lead.get("current_stage_id", ""),
+                lead.get("assigned_to_name", ""),
+                lead.get("created_at", "")[:10] if lead.get("created_at") else "",
+                lead.get("notes", "")
+            ])
+        
+        if data.spreadsheet_url:
+            # Export to existing spreadsheet
+            spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+            
+            # Check if sheet exists, create if not
+            spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            existing_sheets = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
+            
+            if data.sheet_name not in existing_sheets:
+                service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body={"requests": [{"addSheet": {"properties": {"title": data.sheet_name}}}]}
+                ).execute()
+            
+            # Clear existing data and write new
+            service.spreadsheets().values().clear(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{data.sheet_name}'"
+            ).execute()
+            
+            service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{data.sheet_name}'!A1",
+                valueInputOption="USER_ENTERED",
+                body={"values": rows}
+            ).execute()
+            
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+        else:
+            # Create new spreadsheet
+            new_sheet = service.spreadsheets().create(
+                body={
+                    "properties": {"title": f"CRM Export - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}"},
+                    "sheets": [{"properties": {"title": data.sheet_name}}]
+                }
+            ).execute()
+            
+            spreadsheet_id = new_sheet['spreadsheetId']
+            
+            service.spreadsheets().values().update(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{data.sheet_name}'!A1",
+                valueInputOption="USER_ENTERED",
+                body={"values": rows}
+            ).execute()
+            
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+        
+        return {
+            "message": f"Exported {len(leads)} leads",
+            "exported": len(leads),
+            "sheet_url": sheet_url,
+            "spreadsheet_id": spreadsheet_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to export leads: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to export: {str(e)}")
+
+
+class AutoSyncConfig(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 1  # Sync every N hours
+    spreadsheet_url: Optional[str] = None
+    column_mapping: Dict[str, str] = {}
+
+
+@router.post("/sheets/auto-sync/config")
+async def set_auto_sync_config(data: AutoSyncConfig, user: User = Depends(get_current_user)):
+    """Configure auto-sync settings for Google Sheets"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    config = {
+        "user_id": user.user_id,
+        "enabled": data.enabled,
+        "interval_hours": data.interval_hours,
+        "spreadsheet_url": data.spreadsheet_url,
+        "column_mapping": data.column_mapping,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.sheets_auto_sync.update_one(
+        {"user_id": user.user_id},
+        {"$set": config},
+        upsert=True
+    )
+    
+    return {"message": "Auto-sync configuration updated", "config": {k: v for k, v in config.items() if k != "_id"}}
+
+
+@router.get("/sheets/auto-sync/config")
+async def get_auto_sync_config(user: User = Depends(get_current_user)):
+    """Get auto-sync configuration"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    config = await db.sheets_auto_sync.find_one({"user_id": user.user_id}, {"_id": 0})
+    return config or {"enabled": False, "interval_hours": 1}
+
+
+@router.post("/sheets/auto-sync/run")
+async def run_auto_sync(user: User = Depends(get_current_user)):
+    """Manually trigger auto-sync (also called by background scheduler)"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    config = await db.sheets_auto_sync.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not config or not config.get("spreadsheet_url"):
+        raise HTTPException(status_code=400, detail="Auto-sync not configured")
+    
+    # Run import-all with saved config
+    result = await import_all_sheets(
+        ImportAllSheetsRequest(
+            spreadsheet_url=config["spreadsheet_url"],
+            column_mapping=config.get("column_mapping", {})
+        ),
+        user
+    )
+    
+    # Update last sync time
+    await db.sheets_auto_sync.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"last_synced": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return result
 
 
 @router.get("/sheets/sync/{spreadsheet_id}")

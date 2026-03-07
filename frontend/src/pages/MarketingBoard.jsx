@@ -147,6 +147,15 @@ export default function MarketingBoard() {
   const [customFieldsToCreate, setCustomFieldsToCreate] = useState([]);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  
+  // Export & Auto-Sync
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportUrl, setExportUrl] = useState('');
+  const [exportSheetName, setExportSheetName] = useState('CRM Export');
+  const [exportFilters, setExportFilters] = useState({});
+  const [isExporting, setIsExporting] = useState(false);
+  const [autoSyncConfig, setAutoSyncConfig] = useState({ enabled: false, interval_hours: 1 });
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
@@ -434,6 +443,63 @@ export default function MarketingBoard() {
     }
   };
 
+  // Export leads to Google Sheets
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/export`, {
+        spreadsheet_url: exportUrl || undefined,
+        sheet_name: exportSheetName,
+        filters: exportFilters
+      }, { withCredentials: true });
+      
+      toast.success(`Exported ${res.data.exported} leads!`);
+      if (res.data.sheet_url) {
+        window.open(res.data.sheet_url, '_blank');
+      }
+      setShowExportDialog(false);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to export leads');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Auto-sync functions
+  const fetchAutoSyncConfig = async () => {
+    try {
+      const res = await axios.get(`${API}/api/sheets/auto-sync/config`, { withCredentials: true });
+      if (res.data) setAutoSyncConfig(res.data);
+    } catch {}
+  };
+
+  const saveAutoSyncConfig = async (config) => {
+    try {
+      await axios.post(`${API}/api/sheets/auto-sync/config`, config, { withCredentials: true });
+      setAutoSyncConfig(config);
+      toast.success(`Auto-sync ${config.enabled ? 'enabled' : 'disabled'}`);
+    } catch (error) {
+      toast.error('Failed to save auto-sync config');
+    }
+  };
+
+  const runManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/auto-sync/run`, {}, { withCredentials: true });
+      toast.success(`Synced ${res.data.imported || 0} leads from ${res.data.sources?.length || 0} tabs`);
+      fetchDashboard();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Sync failed');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user && sheetsConfig?.is_connected) fetchAutoSyncConfig();
+  }, [user, sheetsConfig]);
+
   // Check for sheets_connected URL param
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -656,15 +722,25 @@ export default function MarketingBoard() {
                 <p className="text-sm text-gray-500">Lead Distribution & Team Management</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <Button variant="outline" onClick={() => setShowSheetsDialog(true)} className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" data-testid="connect-sheets-btn">
-                <FileSpreadsheet className="h-4 w-4 mr-2" /> Connect Google Sheets
+                <FileSpreadsheet className="h-4 w-4 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Google</span> Sheets
               </Button>
+              {sheetsConfig?.is_connected && (
+                <Button variant="outline" onClick={() => setShowExportDialog(true)} className="border-blue-500 text-blue-600 hover:bg-blue-50" data-testid="export-sheets-btn">
+                  <Download className="h-4 w-4 mr-1 sm:mr-2" /> Export
+                </Button>
+              )}
+              {sheetsConfig?.is_connected && autoSyncConfig?.enabled && (
+                <Button variant="outline" onClick={runManualSync} disabled={isSyncing} className="border-amber-500 text-amber-600 hover:bg-amber-50" data-testid="sync-now-btn">
+                  <RefreshCw className={`h-4 w-4 mr-1 sm:mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Now
+                </Button>
+              )}
               <Button variant="outline" onClick={fetchDashboard}>
-                <RefreshCw className="h-4 w-4 mr-2" /> Refresh
+                <RefreshCw className="h-4 w-4 mr-1 sm:mr-2" /> Refresh
               </Button>
               <Button onClick={() => setShowAddMember(true)} className="bg-indigo-600 hover:bg-indigo-700">
-                <UserPlus className="h-4 w-4 mr-2" /> Add Team Member
+                <UserPlus className="h-4 w-4 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Add</span> Team
               </Button>
             </div>
           </div>
@@ -2223,7 +2299,139 @@ export default function MarketingBoard() {
                 </TabsContent>
               </Tabs>
             )}
+
+            {/* Auto-Sync Configuration */}
+            {sheetsConfig?.is_connected && (
+              <div className="mt-6 p-4 rounded-lg border bg-amber-50 border-amber-200">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <RefreshCw className="h-5 w-5 text-amber-600" />
+                    <h3 className="font-semibold text-amber-800">Auto-Sync</h3>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoSyncConfig.enabled}
+                      onChange={(e) => saveAutoSyncConfig({ ...autoSyncConfig, enabled: e.target.checked })}
+                      className="sr-only peer"
+                      data-testid="auto-sync-toggle"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
+                {autoSyncConfig.enabled && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-amber-700">Sync every</span>
+                      <select
+                        value={autoSyncConfig.interval_hours}
+                        onChange={(e) => saveAutoSyncConfig({ ...autoSyncConfig, interval_hours: parseInt(e.target.value) })}
+                        className="border rounded px-2 py-1 text-sm"
+                        data-testid="sync-interval-select"
+                      >
+                        <option value={1}>1 hour</option>
+                        <option value={3}>3 hours</option>
+                        <option value={6}>6 hours</option>
+                        <option value={12}>12 hours</option>
+                        <option value={24}>24 hours</option>
+                      </select>
+                    </div>
+                    {autoSyncConfig.last_synced && (
+                      <p className="text-xs text-amber-600">Last synced: {new Date(autoSyncConfig.last_synced).toLocaleString('en-IN')}</p>
+                    )}
+                    <Button size="sm" variant="outline" onClick={runManualSync} disabled={isSyncing} className="mt-2" data-testid="manual-sync-btn">
+                      <RefreshCw className={`h-3 w-3 mr-1 ${isSyncing ? 'animate-spin' : ''}`} />
+                      {isSyncing ? 'Syncing...' : 'Sync Now'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Export to Google Sheets Dialog */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5 text-blue-600" />
+              Export Leads to Google Sheets
+            </DialogTitle>
+            <DialogDescription>Export your CRM leads to a new or existing Google Sheet</DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 mt-4">
+            <div>
+              <label className="text-sm font-medium">Spreadsheet URL (optional)</label>
+              <input
+                type="text"
+                placeholder="Leave empty to create a new sheet"
+                value={exportUrl}
+                onChange={(e) => setExportUrl(e.target.value)}
+                className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                data-testid="export-url-input"
+              />
+              <p className="text-xs text-gray-500 mt-1">Paste an existing Google Sheet URL or leave empty to create new</p>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Sheet Tab Name</label>
+              <input
+                type="text"
+                value={exportSheetName}
+                onChange={(e) => setExportSheetName(e.target.value)}
+                className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                data-testid="export-sheet-name-input"
+              />
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Filter by Source</label>
+              <select
+                value={exportFilters.source || ''}
+                onChange={(e) => setExportFilters(prev => ({ ...prev, source: e.target.value || undefined }))}
+                className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                data-testid="export-source-filter"
+              >
+                <option value="">All Sources</option>
+                <option value="meta">Meta Ads</option>
+                <option value="google">Google Ads</option>
+                <option value="seo">SEO</option>
+                <option value="referral">Referral</option>
+                <option value="walk_in">Walk-in</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Filter by Stage</label>
+              <select
+                value={exportFilters.stage_type || ''}
+                onChange={(e) => setExportFilters(prev => ({ ...prev, stage_type: e.target.value || undefined }))}
+                className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                data-testid="export-stage-filter"
+              >
+                <option value="">All Stages</option>
+                <option value="pre_sales">Pre-Sales</option>
+                <option value="sales">Sales</option>
+              </select>
+            </div>
+          </div>
+          
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => setShowExportDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleExport} 
+              disabled={isExporting}
+              className="bg-blue-600 hover:bg-blue-700"
+              data-testid="export-submit-btn"
+            >
+              {isExporting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              {isExporting ? 'Exporting...' : 'Export Leads'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
