@@ -8,7 +8,6 @@ import Login from '@/pages/Login';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import SetupPassword from '@/pages/SetupPassword';
-import AuthCallback from '@/pages/AuthCallback';
 import Dashboard from '@/pages/Dashboard';
 import Projects from '@/pages/Projects';
 import ProjectDetail from '@/pages/ProjectDetail';
@@ -64,9 +63,6 @@ axios.defaults.withCredentials = true;
 
 function AppRouter() {
   const location = useLocation();
-  if (location.hash?.includes('session_id=')) {
-    return <AuthCallback />;
-  }
   
   return (
     <Routes>

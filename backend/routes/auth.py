@@ -268,53 +268,6 @@ async def demo_login(login_request: DemoLoginRequest, request: Request, response
     return await _create_session_and_respond(user_doc, request, response, "demo_login")
 
 
-# ==================== GOOGLE OAUTH SESSION EXCHANGE ====================
-
-@router.post("/auth/session")
-async def exchange_session(request: Request, response: Response):
-    """Exchange Google OAuth session - ONLY for invited users"""
-    session_id = request.headers.get("X-Session-ID")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Missing session ID")
-
-    async with httpx.AsyncClient() as client:
-        try:
-            verify_response = await client.get(
-                f"https://auth.emergentagent.com/verify?session_id={session_id}",
-                timeout=10.0
-            )
-            if verify_response.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid session")
-
-            session_data = verify_response.json()
-        except httpx.RequestError:
-            raise HTTPException(status_code=503, detail="Auth service unavailable")
-
-    google_email = session_data.get("email", "").lower()
-    if not google_email:
-        raise HTTPException(status_code=400, detail="Email not found in session")
-
-    user_doc = await db.users.find_one({"email": google_email}, {"_id": 0})
-    if not user_doc:
-        raise HTTPException(status_code=403, detail=f"No account found for {google_email}. Contact administrator for access.")
-
-    if not user_doc.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Account is deactivated")
-
-    # Activate invited user on first login
-    if user_doc.get("status") == "invited":
-        await db.users.update_one(
-            {"user_id": user_doc["user_id"]},
-            {"$set": {"status": "active", "google_linked": True, "last_login": datetime.now(timezone.utc).isoformat()}}
-        )
-        user_doc["status"] = "active"
-
-    if isinstance(user_doc.get("created_at"), str):
-        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
-
-    return await _create_session_and_respond(user_doc, request, response, "google_oauth")
-
-
 # ==================== FORGOT / RESET PASSWORD ====================
 
 class ForgotPasswordRequest(BaseModel):
