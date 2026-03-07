@@ -102,12 +102,12 @@ export default function Login() {
           <img
             src="/logo.webp"
             alt="Urban Space Builders"
-            className="w-72 object-contain mb-2"
+            className="w-44 object-contain mb-3"
             style={{ mixBlendMode: 'multiply' }}
             data-testid="login-logo"
           />
           <h1
-            className="text-2xl font-extrabold tracking-tight text-slate-800"
+            className="text-3xl font-extrabold tracking-tight text-slate-800"
             data-testid="login-title"
           >
             My Home USB
