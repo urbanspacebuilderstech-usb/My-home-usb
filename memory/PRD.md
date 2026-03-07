@@ -1127,6 +1127,10 @@ Build a Construction Accounting CRM with:
 
 ### P2 - Features
 - [ ] **Google Sheets Integration** for CRM - Sync leads from Google Sheets tabs (Meta, SEO, Other)
+- [x] ~~Google Sheets Import~~ - DONE (pre-existing)
+- [x] ~~Google Sheets Export~~ - DONE (March 2026) - Export leads to new/existing sheet with filters
+- [x] ~~Auto-Sync Config~~ - DONE (March 2026) - Toggle, interval, manual trigger
+- [x] ~~Sales/Pre-Sales Lead Creation~~ - DONE (March 2026) - Sales/Pre-Sales roles can now create leads
 - [ ] **Unified Approval Dashboard** for GM/Admin roles
 - [x] ~~Email Notifications via Resend~~ - DONE (Phase 3)
 - [ ] **Aadhar Document Upload** for labour contractors (encrypted storage)
