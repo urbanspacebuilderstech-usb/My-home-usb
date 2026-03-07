@@ -102,7 +102,8 @@ export default function Login() {
           <img
             src="/logo.webp"
             alt="Urban Space Builders"
-            className="w-48 object-contain mb-2 drop-shadow-md"
+            className="w-72 object-contain mb-2"
+            style={{ mixBlendMode: 'multiply' }}
             data-testid="login-logo"
           />
           <h1
