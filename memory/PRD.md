@@ -947,7 +947,7 @@ Build a Construction Accounting CRM with:
   - Planning/Accountant/CRE/Procurement: role-specific tabs + More
   - "More" button opens full sidebar overlay with all navigation items
   - iOS safe-area support with env(safe-area-inset-bottom)
-- [x] **Integrated into 9 pages**: Dashboard, SiteEngineerDashboard, ClientPortal, MaterialReceipt, GMDashboard, PlanningBoard, AccountantDashboard, CREBoard, ProcurementBoardV2
+- [x] **Integrated into ALL 47 non-auth pages** (Login, ForgotPassword, ResetPassword, SetupPassword, AuthCallback excluded)
 - [x] **Responsive Layout Fixes** — Client Portal nav, headers, content areas made mobile-friendly
 - [x] **Sidebar → Overlay Only** — Sidebar no longer auto-shows on desktop, only opens via "More" button
 - [x] **PWA Setup**:
@@ -956,7 +956,7 @@ Build a Construction Accounting CRM with:
   - App icons (192x192 and 512x512 PNG)
   - Apple meta tags for iOS home screen support
   - viewport-fit=cover for notch-aware layout
-- [x] **Testing**: 9/9 tests passed (iteration_31.json) — 100% success rate
+- [x] **Testing**: 9/9 tests passed (iteration_31.json + iteration_32.json) — 100% success rate
 
 ### Phase 2: Security Hardening (DONE)
 - [x] **CORS restricted** — Changed from `*` to production domain, env-configurable via `CORS_ORIGINS`
