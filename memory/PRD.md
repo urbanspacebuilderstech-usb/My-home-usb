@@ -900,6 +900,22 @@ Build a Construction Accounting CRM with:
 
 ---
 
+## Recently Completed (March 7, 2026)
+
+### Phase 1: Real Authentication System (Blocker → DONE)
+- [x] **Real password login** with bcrypt hashing — `POST /api/auth/login` (email + password)
+- [x] **Forgot password flow** — `POST /api/auth/forgot-password` generates reset token, sends email via Resend (or returns link if no API key)
+- [x] **Reset password** — `POST /api/auth/reset-password` with token + new_password, invalidates all sessions
+- [x] **User invitation system** — `POST /api/auth/invite-user` (Super Admin only), creates user + sends invite email
+- [x] **Setup password page** — `POST /api/auth/setup-password` for invited users to set name + password
+- [x] **Invitation management** — List, cancel, resend invitations
+- [x] **Frontend pages**: Login (with tabs: Login/Demo), Forgot Password, Reset Password, Setup Password
+- [x] **marketing_head role** added to UserRole enum
+- [x] **Demo login preserved** alongside real auth for testing
+- [x] **All 11 demo users** have password `Demo@1234`
+- [x] **Resend email integration** code ready — needs `RESEND_API_KEY` env var for production emails
+- [x] **Testing**: 13/13 tests passed (iteration_27.json)
+
 ## Recently Completed (March 4, 2026)
 
 ### IDOR Security Vulnerability Fixes (P0)

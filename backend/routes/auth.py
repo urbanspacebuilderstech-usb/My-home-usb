@@ -1,6 +1,6 @@
 """
 Auth & Security Routes
-Migrated from server.py monolith
+Includes: Real password login, forgot/reset password, user invitation, demo login, Google OAuth
 """
 from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from pydantic import BaseModel, Field
@@ -8,8 +8,15 @@ from typing import Optional, List
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
+import hashlib
+import secrets
+import os
 import httpx
+import asyncio
+import resend
 import logging
+
+from passlib.context import CryptContext
 
 from core.database import db
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
@@ -20,172 +27,55 @@ from security import (
 )
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
-# Security Status Endpoint
-@router.get("/security/status")
-async def get_security_status(user: User = Depends(get_current_user)):
-    """Get security status - Super Admin only"""
-    if user.role not in [UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Super Admin access required")
-    
-    # Get security metrics
-    now = datetime.now(timezone.utc)
-    last_24h = now - timedelta(hours=24)
-    last_24h_str = last_24h.isoformat()
-    
-    # Count recent events
-    failed_logins = await db.audit_logs.count_documents({
-        "action": AuditAction.LOGIN_FAILED,
-        "timestamp": {"$gte": last_24h_str}
-    })
-    
-    successful_logins = await db.audit_logs.count_documents({
-        "action": AuditAction.LOGIN,
-        "timestamp": {"$gte": last_24h_str}
-    })
-    
-    active_sessions = await db.user_sessions.count_documents({
-        "expires_at": {"$gte": now.isoformat()}
-    })
-    
-    total_users = await db.users.count_documents({})
-    active_users = await db.users.count_documents({"is_active": True})
-    
-    return {
-        "status": "secure",
-        "last_24_hours": {
-            "failed_login_attempts": failed_logins,
-            "successful_logins": successful_logins,
-            "active_sessions": active_sessions
-        },
-        "users": {
-            "total": total_users,
-            "active": active_users
-        },
-        "security_features": {
-            "rate_limiting": True,
-            "session_expiry": f"{SecurityConfig.SESSION_EXPIRY_HOURS} hours",
-            "input_validation": True,
-            "nosql_injection_prevention": True,
-            "audit_logging": True,
-            "https_only": True,
-            "security_headers": True
-        },
-        "checked_at": now.isoformat()
-    }
+# Password hashing
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+resend.api_key = os.environ.get('RESEND_API_KEY', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://construction-control.preview.emergentagent.com")
 
 
-# Audit Logs Endpoint
-@router.get("/security/audit-logs")
-async def get_audit_logs(
-    limit: int = 100,
-    action: Optional[str] = None,
-    user_id: Optional[str] = None,
-    user: User = Depends(get_current_user)
-):
-    """Get audit logs - Super Admin and GM only"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    query = {}
-    if action:
-        query["action"] = action
-    if user_id:
-        query["user_id"] = user_id
-    
-    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).limit(limit).to_list(limit)
-    return logs
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 
-class DemoLoginRequest(BaseModel):
-    email: str
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 
-@router.post("/auth/demo-login")
-async def demo_login(login_request: DemoLoginRequest, request: Request, response: Response):
-    """Demo login with security controls"""
-    # Get client IP for rate limiting
+async def _create_session_and_respond(user_doc: dict, request: Request, response: Response, login_method: str):
+    """Shared session creation logic for all login methods"""
     client_ip = request.client.host if request.client else "unknown"
-    
-    # Check login rate limit (stricter than normal requests)
-    if not rate_limiter.check_login_rate_limit(client_ip):
-        # Log failed attempt
-        audit_entry = AuditLogger.create_audit_entry(
-            user_id="unknown",
-            action=AuditAction.LOGIN_FAILED,
-            resource_type="auth",
-            details={"reason": "rate_limit_exceeded", "email": login_request.email[:50]},
-            ip_address=client_ip,
-            success=False
-        )
-        await db.audit_logs.insert_one(audit_entry)
-        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait a minute.")
-    
-    # Validate and sanitize email
-    try:
-        email = InputValidator.validate_email(login_request.email)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    # Check for NoSQL injection
-    if not InputValidator.check_nosql_injection(email):
-        logger.warning(f"Potential NoSQL injection attempt from IP: {client_ip}")
-        raise HTTPException(status_code=400, detail="Invalid input detected")
-    
-    # Find user by email
-    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
-    
-    if not user_doc:
-        # Log failed login attempt
-        audit_entry = AuditLogger.create_audit_entry(
-            user_id="unknown",
-            action=AuditAction.LOGIN_FAILED,
-            resource_type="auth",
-            details={"reason": "user_not_found", "email": email[:50]},
-            ip_address=client_ip,
-            success=False
-        )
-        await db.audit_logs.insert_one(audit_entry)
-        raise HTTPException(status_code=404, detail="User not found. Available demo users: admin@constructionos.com, accountant@constructionos.com, pm@constructionos.com, etc.")
-    
-    # Check if user is active
-    if not user_doc.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Account is deactivated. Contact administrator.")
-    
-    if isinstance(user_doc.get("created_at"), str):
-        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
-    
-    # Create secure session token
+
     session_token = SessionManager.generate_session_token()
     expires_at = SessionManager.get_session_expiry()
-    
+
     session = UserSession(
         user_id=user_doc["user_id"],
         session_token=session_token,
         expires_at=expires_at,
         created_at=datetime.now(timezone.utc)
     )
-    
+
     session_dict = session.model_dump()
     session_dict["expires_at"] = session_dict["expires_at"].isoformat()
     session_dict["created_at"] = session_dict["created_at"].isoformat()
-    session_dict["ip_address"] = client_ip  # Track login IP
+    session_dict["ip_address"] = client_ip
     session_dict["user_agent"] = request.headers.get("User-Agent", "")[:500]
     await db.user_sessions.insert_one(session_dict)
-    
-    # Log successful login
+
     audit_entry = AuditLogger.create_audit_entry(
         user_id=user_doc["user_id"],
         action=AuditAction.LOGIN,
         resource_type="auth",
-        details={"method": "demo_login"},
+        details={"method": login_method},
         ip_address=client_ip,
         success=True
     )
     await db.audit_logs.insert_one(audit_entry)
-    
+
     response.set_cookie(
         key="session_token",
         value=session_token,
@@ -195,10 +85,190 @@ async def demo_login(login_request: DemoLoginRequest, request: Request, response
         path="/",
         max_age=SecurityConfig.SESSION_EXPIRY_HOURS * 60 * 60
     )
-    
-    # Return user without sensitive fields
+
     return DataMasker.mask_document(user_doc)
 
+
+# ==================== SECURITY STATUS ====================
+
+@router.get("/security/status")
+async def get_security_status(user: User = Depends(get_current_user)):
+    """Get security status - Super Admin only"""
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    now = datetime.now(timezone.utc)
+    last_24h = now - timedelta(hours=24)
+    last_24h_str = last_24h.isoformat()
+
+    failed_logins = await db.audit_logs.count_documents({
+        "action": AuditAction.LOGIN_FAILED,
+        "timestamp": {"$gte": last_24h_str}
+    })
+
+    successful_logins = await db.audit_logs.count_documents({
+        "action": AuditAction.LOGIN,
+        "timestamp": {"$gte": last_24h_str}
+    })
+
+    active_sessions = await db.user_sessions.count_documents({
+        "expires_at": {"$gte": now.isoformat()}
+    })
+
+    return {
+        "status": "secure",
+        "security_features": {
+            "rate_limiting": True,
+            "input_sanitization": True,
+            "nosql_injection_prevention": True,
+            "session_management": True,
+            "security_headers": True,
+            "audit_logging": True,
+            "password_hashing": True,
+            "rbac": True
+        },
+        "metrics": {
+            "active_sessions": active_sessions,
+            "failed_logins_24h": failed_logins,
+            "successful_logins_24h": successful_logins
+        },
+        "config": {
+            "session_expiry": f"{SecurityConfig.SESSION_EXPIRY_HOURS} hours",
+            "rate_limit": f"{SecurityConfig.MAX_REQUESTS_PER_MINUTE} req/min",
+            "login_rate_limit": f"{SecurityConfig.MAX_LOGIN_ATTEMPTS} attempts/min"
+        }
+    }
+
+
+@router.get("/security/audit-logs")
+async def get_audit_logs(
+    limit: int = 100,
+    action: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    query = {}
+    if action:
+        query["action"] = action
+
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+    return logs
+
+
+# ==================== REAL PASSWORD LOGIN ====================
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@router.post("/auth/login")
+async def login(login_request: LoginRequest, request: Request, response: Response):
+    """Real login with email + password"""
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not rate_limiter.check_login_rate_limit(client_ip):
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id="unknown", action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "rate_limit_exceeded"},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait a minute.")
+
+    try:
+        email = InputValidator.validate_email(login_request.email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not InputValidator.check_nosql_injection(email):
+        raise HTTPException(status_code=400, detail="Invalid input detected")
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+
+    if not user_doc:
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id="unknown", action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "user_not_found"},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is deactivated. Contact administrator.")
+
+    # Check password
+    stored_hash = user_doc.get("password_hash")
+    if not stored_hash:
+        raise HTTPException(status_code=401, detail="Password not set. Please use 'Forgot Password' or contact administrator.")
+
+    if not verify_password(login_request.password, stored_hash):
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id=user_doc.get("user_id", "unknown"), action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "invalid_password"},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if isinstance(user_doc.get("created_at"), str):
+        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
+
+    return await _create_session_and_respond(user_doc, request, response, "password")
+
+
+# ==================== DEMO LOGIN (kept for testing) ====================
+
+class DemoLoginRequest(BaseModel):
+    email: str
+
+
+@router.post("/auth/demo-login")
+async def demo_login(login_request: DemoLoginRequest, request: Request, response: Response):
+    """Demo login - email only, no password. For testing/demo purposes."""
+    client_ip = request.client.host if request.client else "unknown"
+
+    if not rate_limiter.check_login_rate_limit(client_ip):
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id="unknown", action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "rate_limit_exceeded", "email": login_request.email[:50]},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please wait a minute.")
+
+    try:
+        email = InputValidator.validate_email(login_request.email)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not InputValidator.check_nosql_injection(email):
+        raise HTTPException(status_code=400, detail="Invalid input detected")
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+
+    if not user_doc:
+        audit_entry = AuditLogger.create_audit_entry(
+            user_id="unknown", action=AuditAction.LOGIN_FAILED,
+            resource_type="auth", details={"reason": "user_not_found", "email": email[:50]},
+            ip_address=client_ip, success=False
+        )
+        await db.audit_logs.insert_one(audit_entry)
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is deactivated. Contact administrator.")
+
+    if isinstance(user_doc.get("created_at"), str):
+        user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
+
+    return await _create_session_and_respond(user_doc, request, response, "demo_login")
+
+
+# ==================== GOOGLE OAUTH SESSION EXCHANGE ====================
 
 @router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
@@ -206,72 +276,158 @@ async def exchange_session(request: Request, response: Response):
     session_id = request.headers.get("X-Session-ID")
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session ID")
-    
+
     async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": session_id}
+            verify_response = await client.get(
+                f"https://auth.emergentagent.com/verify?session_id={session_id}",
+                timeout=10.0
             )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            logger.error(f"Failed to fetch session data: {str(e)}")
-            raise HTTPException(status_code=400, detail="Invalid session")
-    
-    email = data["email"].lower()
-    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
-    
-    # ONLY invited users can login via Google
+            if verify_response.status_code != 200:
+                raise HTTPException(status_code=401, detail="Invalid session")
+
+            session_data = verify_response.json()
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="Auth service unavailable")
+
+    google_email = session_data.get("email", "").lower()
+    if not google_email:
+        raise HTTPException(status_code=400, detail="Email not found in session")
+
+    user_doc = await db.users.find_one({"email": google_email}, {"_id": 0})
     if not user_doc:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied. You must be invited by an administrator to access this system. Please contact your Super Admin."
+        raise HTTPException(status_code=403, detail=f"No account found for {google_email}. Contact administrator for access.")
+
+    if not user_doc.get("is_active", True):
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    # Activate invited user on first login
+    if user_doc.get("status") == "invited":
+        await db.users.update_one(
+            {"user_id": user_doc["user_id"]},
+            {"$set": {"status": "active", "google_linked": True, "last_login": datetime.now(timezone.utc).isoformat()}}
         )
-    
-    # Update user profile picture and name from Google if available
-    update_fields = {}
-    if data.get("picture") and not user_doc.get("picture"):
-        update_fields["picture"] = data["picture"]
-    if data.get("name") and not user_doc.get("name"):
-        update_fields["name"] = data["name"]
-    
-    if update_fields:
-        await db.users.update_one({"email": email}, {"$set": update_fields})
-        user_doc.update(update_fields)
-    
+        user_doc["status"] = "active"
+
     if isinstance(user_doc.get("created_at"), str):
         user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
-    
-    session_token = data["session_token"]
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    
-    session = UserSession(
-        user_id=user_doc["user_id"],
-        session_token=session_token,
-        expires_at=expires_at,
-        created_at=datetime.now(timezone.utc)
-    )
-    
-    session_dict = session.model_dump()
-    session_dict["expires_at"] = session_dict["expires_at"].isoformat()
-    session_dict["created_at"] = session_dict["created_at"].isoformat()
-    await db.user_sessions.insert_one(session_dict)
-    
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7*24*60*60
-    )
-    
-    return User(**user_doc)
+
+    return await _create_session_and_respond(user_doc, request, response, "google_oauth")
 
 
-# ==================== USER INVITATION SYSTEM ====================
+# ==================== FORGOT / RESET PASSWORD ====================
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class SetupPasswordRequest(BaseModel):
+    token: str
+    name: str
+    password: str
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Send password reset email"""
+    email = req.email.lower().strip()
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    # Always return success to prevent email enumeration
+    if not user_doc:
+        return {"message": "If an account exists with this email, a reset link has been sent."}
+
+    # Generate reset token
+    reset_token = secrets.token_urlsafe(48)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    await db.password_resets.delete_many({"email": email})
+    await db.password_resets.insert_one({
+        "email": email,
+        "token_hash": hashlib.sha256(reset_token.encode()).hexdigest(),
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    reset_link = f"{FRONTEND_URL}/reset-password?token={reset_token}"
+
+    if resend.api_key:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [email],
+                "subject": "ConstructionOS - Reset Your Password",
+                "html": f"""
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <div style="background: #1F2937; padding: 20px; text-align: center;">
+                        <h1 style="margin: 0; color: #FBBF24;">ConstructionOS</h1>
+                    </div>
+                    <div style="padding: 30px; background: #ffffff; border: 1px solid #E5E7EB;">
+                        <h2 style="color: #1F2937;">Reset Your Password</h2>
+                        <p style="color: #4B5563;">
+                            We received a request to reset your password. Click the button below to set a new password.
+                        </p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="{reset_link}"
+                               style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                                Reset Password
+                            </a>
+                        </div>
+                        <p style="color: #9CA3AF; font-size: 13px;">
+                            This link expires in 1 hour. If you didn't request this, ignore this email.
+                        </p>
+                    </div>
+                </div>
+                """
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logger.info(f"Password reset email sent to {email}")
+        except Exception as e:
+            logger.error(f"Failed to send reset email: {e}")
+
+    return {"message": "If an account exists with this email, a reset link has been sent."}
+
+
+@router.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """Reset password using token"""
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    token_hash = hashlib.sha256(req.token.encode()).hexdigest()
+
+    reset_doc = await db.password_resets.find_one({"token_hash": token_hash}, {"_id": 0})
+    if not reset_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    if reset_doc.get("expires_at", "") < datetime.now(timezone.utc).isoformat():
+        await db.password_resets.delete_one({"token_hash": token_hash})
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+
+    email = reset_doc["email"]
+    hashed = hash_password(req.new_password)
+
+    await db.users.update_one(
+        {"email": email},
+        {"$set": {"password_hash": hashed, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    # Cleanup
+    await db.password_resets.delete_many({"email": email})
+    # Invalidate all existing sessions for security
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    if user_doc:
+        await db.user_sessions.delete_many({"user_id": user_doc["user_id"]})
+
+    return {"message": "Password reset successfully. You can now login."}
+
+
+# ==================== USER INVITATION + PASSWORD SETUP ====================
 
 class UserInvitationStatus(str, Enum):
     PENDING = "pending"
@@ -286,7 +442,7 @@ class UserInvitation(BaseModel):
     invited_by: str
     invited_by_name: Optional[str] = None
     status: UserInvitationStatus = UserInvitationStatus.PENDING
-    invitation_token: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    invitation_token: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     expires_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc) + timedelta(days=7))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -302,198 +458,246 @@ async def invite_user(invite: InviteUserRequest, user: User = Depends(get_curren
     """Super Admin invites a new user by email"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can invite users")
-    
-    email = invite.email.lower()
-    
-    # Check if user already exists
+
+    email = invite.email.lower().strip()
+
     existing_user = await db.users.find_one({"email": email}, {"_id": 0})
     if existing_user:
         raise HTTPException(status_code=400, detail="User with this email already exists")
-    
-    # Check for existing pending invitation
-    existing_invite = await db.user_invitations.find_one({
-        "email": email, 
-        "status": "pending"
-    }, {"_id": 0})
-    
-    if existing_invite:
-        # Update existing invitation
-        await db.user_invitations.update_one(
-            {"invitation_id": existing_invite["invitation_id"]},
-            {"$set": {
-                "role": invite.role,
-                "invitation_token": uuid.uuid4().hex,
-                "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-                "invited_by": user.user_id,
-                "invited_by_name": user.name
-            }}
-        )
-        invitation_token = existing_invite["invitation_token"]
-    else:
-        # Create new invitation
-        invitation = UserInvitation(
-            email=email,
-            role=invite.role,
-            invited_by=user.user_id,
-            invited_by_name=user.name
-        )
-        
-        inv_dict = invitation.model_dump()
-        inv_dict["expires_at"] = inv_dict["expires_at"].isoformat()
-        inv_dict["created_at"] = inv_dict["created_at"].isoformat()
-        await db.user_invitations.insert_one(inv_dict)
-        invitation_token = invitation.invitation_token
-    
-    # Create the user in database (status: invited, pending activation)
+
+    # Create invitation
+    invitation = UserInvitation(
+        email=email,
+        role=invite.role,
+        invited_by=user.user_id,
+        invited_by_name=user.name
+    )
+
+    # Upsert invitation
+    await db.user_invitations.update_one(
+        {"email": email, "status": "pending"},
+        {"$set": {
+            **invitation.model_dump(),
+            "expires_at": invitation.expires_at.isoformat(),
+            "created_at": invitation.created_at.isoformat()
+        }},
+        upsert=True
+    )
+
+    # Create user record (status: invited)
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     new_user = {
         "user_id": user_id,
         "email": email,
         "name": invite.name or "",
         "role": invite.role,
-        "status": "invited",  # User is invited but hasn't logged in yet
+        "is_active": True,
+        "status": "invited",
         "invited_by": user.user_id,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.users.insert_one(new_user)
-    
-    # Send invitation email (or mock it)
-    frontend_url = os.environ.get("FRONTEND_URL", "https://construction-control.preview.emergentagent.com")
-    
+
+    # Send invitation email
+    setup_link = f"{FRONTEND_URL}/setup-password?token={invitation.invitation_token}"
+    email_sent = False
+
     if resend.api_key:
         try:
-            await send_notification_email(
-                email,
-                "You've been invited to ConstructionOS",
-                f"""
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [email],
+                "subject": "You've been invited to ConstructionOS",
+                "html": f"""
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <div style="background: #FBBF24; padding: 20px; text-align: center;">
-                        <h1 style="margin: 0; color: #1F2937;">ConstructionOS</h1>
+                    <div style="background: #1F2937; padding: 20px; text-align: center;">
+                        <h1 style="margin: 0; color: #FBBF24;">ConstructionOS</h1>
                     </div>
-                    <div style="padding: 30px; background: #ffffff;">
+                    <div style="padding: 30px; background: #ffffff; border: 1px solid #E5E7EB;">
                         <h2 style="color: #1F2937;">You've been invited!</h2>
                         <p style="color: #4B5563;">
-                            <strong>{user.name}</strong> has invited you to join ConstructionOS as a <strong>{invite.role.replace('_', ' ').title()}</strong>.
+                            <strong>{user.name}</strong> has invited you to join ConstructionOS as a <strong>{invite.role.value.replace('_', ' ').title()}</strong>.
                         </p>
-                        <p style="color: #4B5563;">
-                            Click the button below to login with your Google account:
-                        </p>
+                        <p style="color: #4B5563;">Click below to set up your password and get started:</p>
                         <div style="text-align: center; margin: 30px 0;">
-                            <a href="{frontend_url}/login" 
-                               style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                                Login with Google
+                            <a href="{setup_link}"
+                               style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                                Set Up Your Account
                             </a>
                         </div>
-                        <p style="color: #6B7280; font-size: 14px;">
-                            Note: You must login using this email address ({email}) to access the system.
-                        </p>
-                    </div>
-                    <div style="background: #F3F4F6; padding: 15px; text-align: center; color: #6B7280; font-size: 12px;">
-                        This invitation expires in 7 days.
+                        <p style="color: #9CA3AF; font-size: 13px;">This invitation expires in 7 days.</p>
                     </div>
                 </div>
                 """
-            )
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
             email_sent = True
         except Exception as e:
             logger.error(f"Failed to send invitation email: {e}")
-            email_sent = False
-    else:
-        email_sent = False
-    
+
     return {
-        "message": f"User invited successfully",
+        "message": "User invited successfully",
         "email": email,
         "role": invite.role,
         "email_sent": email_sent,
-        "note": "User can now login with Google using this email" if email_sent else "Email not sent (Resend API key not configured). User can login with Google using this email."
+        "setup_link": setup_link if not email_sent else None,
+        "note": "Setup link sent via email" if email_sent else f"Email not configured. Share this setup link manually: {setup_link}"
     }
 
 
+@router.get("/auth/verify-invitation/{token}")
+async def verify_invitation(token: str):
+    """Verify an invitation token is valid"""
+    invitation = await db.user_invitations.find_one({
+        "invitation_token": token,
+        "status": "pending"
+    }, {"_id": 0})
+
+    if not invitation:
+        raise HTTPException(status_code=400, detail="Invalid or expired invitation link")
+
+    if invitation.get("expires_at", "") < datetime.now(timezone.utc).isoformat():
+        await db.user_invitations.update_one(
+            {"invitation_token": token},
+            {"$set": {"status": "expired"}}
+        )
+        raise HTTPException(status_code=400, detail="Invitation has expired. Contact administrator.")
+
+    return {
+        "email": invitation["email"],
+        "role": invitation["role"],
+        "invited_by_name": invitation.get("invited_by_name", "Administrator")
+    }
+
+
+@router.post("/auth/setup-password")
+async def setup_password(req: SetupPasswordRequest):
+    """Accept invitation and set password"""
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    invitation = await db.user_invitations.find_one({
+        "invitation_token": req.token,
+        "status": "pending"
+    }, {"_id": 0})
+
+    if not invitation:
+        raise HTTPException(status_code=400, detail="Invalid or expired invitation link")
+
+    if invitation.get("expires_at", "") < datetime.now(timezone.utc).isoformat():
+        raise HTTPException(status_code=400, detail="Invitation has expired")
+
+    email = invitation["email"]
+    hashed = hash_password(req.password)
+
+    # Update user with name and password
+    result = await db.users.update_one(
+        {"email": email},
+        {"$set": {
+            "name": req.name.strip(),
+            "password_hash": hashed,
+            "status": "active",
+            "is_active": True,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="User account not found")
+
+    # Mark invitation as accepted
+    await db.user_invitations.update_one(
+        {"invitation_token": req.token},
+        {"$set": {"status": "accepted"}}
+    )
+
+    return {"message": "Account setup complete! You can now login."}
+
+
+# ==================== INVITATION MANAGEMENT ====================
+
 @router.get("/auth/invitations")
 async def get_invitations(user: User = Depends(get_current_user)):
-    """Get all user invitations (Super Admin only)"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can view invitations")
-    
     invitations = await db.user_invitations.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return invitations
 
 
 @router.delete("/auth/invitations/{invitation_id}")
 async def cancel_invitation(invitation_id: str, user: User = Depends(get_current_user)):
-    """Cancel a pending invitation (Super Admin only)"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can cancel invitations")
-    
+
     invitation = await db.user_invitations.find_one({"invitation_id": invitation_id}, {"_id": 0})
     if not invitation:
         raise HTTPException(status_code=404, detail="Invitation not found")
-    
-    # Delete the invitation
+
     await db.user_invitations.delete_one({"invitation_id": invitation_id})
-    
-    # Also delete the user if they haven't logged in yet
     await db.users.delete_one({"email": invitation["email"], "status": "invited"})
-    
+
     return {"message": "Invitation cancelled"}
 
 
 @router.post("/auth/resend-invitation/{email}")
 async def resend_invitation(email: str, user: User = Depends(get_current_user)):
-    """Resend invitation email (Super Admin only)"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can resend invitations")
-    
+
     email = email.lower()
-    user_doc = await db.users.find_one({"email": email, "status": "invited"}, {"_id": 0})
-    if not user_doc:
+    invitation = await db.user_invitations.find_one({"email": email, "status": "pending"}, {"_id": 0})
+    if not invitation:
         raise HTTPException(status_code=404, detail="Pending invitation not found for this email")
-    
-    frontend_url = os.environ.get("FRONTEND_URL", "https://construction-control.preview.emergentagent.com")
-    
+
+    # Generate new token
+    new_token = secrets.token_urlsafe(48)
+    await db.user_invitations.update_one(
+        {"email": email, "status": "pending"},
+        {"$set": {
+            "invitation_token": new_token,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        }}
+    )
+
+    setup_link = f"{FRONTEND_URL}/setup-password?token={new_token}"
+
     if not resend.api_key:
-        return {
-            "message": "Email not sent (Resend API key not configured)",
-            "email_sent": False,
-            "note": f"User can login at {frontend_url}/login with Google using {email}"
-        }
-    
+        return {"message": "Email not configured", "email_sent": False, "setup_link": setup_link}
+
     try:
-        await send_notification_email(
-            email,
-            "Reminder: You've been invited to ConstructionOS",
-            f"""
+        user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+        role_name = user_doc.get("role", "user").replace("_", " ").title() if user_doc else "User"
+
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [email],
+            "subject": "Reminder: You're invited to ConstructionOS",
+            "html": f"""
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <div style="background: #FBBF24; padding: 20px; text-align: center;">
-                    <h1 style="margin: 0; color: #1F2937;">ConstructionOS</h1>
+                <div style="background: #1F2937; padding: 20px; text-align: center;">
+                    <h1 style="margin: 0; color: #FBBF24;">ConstructionOS</h1>
                 </div>
-                <div style="padding: 30px; background: #ffffff;">
+                <div style="padding: 30px; background: #ffffff; border: 1px solid #E5E7EB;">
                     <h2 style="color: #1F2937;">Reminder: You're invited!</h2>
-                    <p style="color: #4B5563;">
-                        You were invited to join ConstructionOS as a <strong>{user_doc.get('role', 'user').replace('_', ' ').title()}</strong>.
-                    </p>
+                    <p style="color: #4B5563;">You were invited to join as <strong>{role_name}</strong>.</p>
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="{frontend_url}/login" 
-                           style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                            Login with Google
+                        <a href="{setup_link}"
+                           style="background: #FBBF24; color: #1F2937; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                            Set Up Your Account
                         </a>
                     </div>
-                    <p style="color: #6B7280; font-size: 14px;">
-                        Login using: {email}
-                    </p>
                 </div>
             </div>
             """
-        )
+        }
+        await asyncio.to_thread(resend.Emails.send, params)
         return {"message": "Invitation email resent", "email_sent": True}
     except Exception as e:
         logger.error(f"Failed to resend invitation: {e}")
-        return {"message": "Failed to send email", "email_sent": False, "error": str(e)}
+        return {"message": "Failed to send email", "email_sent": False, "setup_link": setup_link}
 
 
-# ==================== END USER INVITATION SYSTEM ====================
-
+# ==================== CURRENT USER & LOGOUT ====================
 
 @router.get("/auth/me")
 async def get_me(user: User = Depends(get_current_user)):

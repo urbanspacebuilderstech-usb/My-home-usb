@@ -23,6 +23,7 @@ class UserRole(str, Enum):
     CLIENT = "client"
     PRE_SALES = "pre_sales"  # CRM Pre-Sales
     SALES = "sales"  # CRM Sales
+    MARKETING_HEAD = "marketing_head"  # Marketing Head
 
 
 class ProjectStatus(str, Enum):

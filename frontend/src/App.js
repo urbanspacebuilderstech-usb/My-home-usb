@@ -5,6 +5,9 @@ import { Toaster } from '@/components/ui/sonner';
 import '@/App.css';
 
 import Login from '@/pages/Login';
+import ForgotPassword from '@/pages/ForgotPassword';
+import ResetPassword from '@/pages/ResetPassword';
+import SetupPassword from '@/pages/SetupPassword';
 import AuthCallback from '@/pages/AuthCallback';
 import Dashboard from '@/pages/Dashboard';
 import Projects from '@/pages/Projects';
@@ -68,6 +71,9 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/setup-password" element={<SetupPassword />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
