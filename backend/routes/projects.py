@@ -301,6 +301,11 @@ async def reject_work_order(work_order_id: str, reason: str, user: User = Depend
 
 @router.get("/vendors")
 async def get_vendors(user: User = Depends(get_current_user)):
+    # RBAC: Restrict vendor list to management/procurement roles
+    vendor_access = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+                     UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.CRE]
+    if user.role not in vendor_access:
+        raise HTTPException(status_code=403, detail="Access denied")
     vendors = await db.vendors.find({}, {"_id": 0}).to_list(1000)
     for v in vendors:
         if isinstance(v.get("created_at"), str):
@@ -424,6 +429,11 @@ async def create_site_receipt(receipt: SiteReceipt, user: User = Depends(get_cur
 
 @router.get("/expenses")
 async def get_expenses(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    # RBAC: Financial data restricted
+    finance_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+                     UserRole.PROJECT_MANAGER, UserRole.CRE]
+    if user.role not in finance_roles:
+        raise HTTPException(status_code=403, detail="Access denied to expense data")
     query = {}
     if project_id:
         query["project_id"] = project_id
@@ -437,6 +447,11 @@ async def get_expenses(project_id: Optional[str] = None, user: User = Depends(ge
 
 @router.get("/payments")
 async def get_payments(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    # RBAC: Financial data restricted
+    finance_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
+                     UserRole.PROJECT_MANAGER, UserRole.CRE]
+    if user.role not in finance_roles:
+        raise HTTPException(status_code=403, detail="Access denied to payment data")
     query = {}
     if project_id:
         query["project_id"] = project_id
@@ -452,6 +467,9 @@ async def get_payments(project_id: Optional[str] = None, user: User = Depends(ge
 
 @router.post("/payments")
 async def create_payment(payment: Payment, user: User = Depends(get_current_user)):
+    # RBAC: Only accountant/admin can create payments
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Admin can create payments")
     payment_dict = payment.model_dump()
     payment_dict["payment_date"] = payment_dict["payment_date"].isoformat()
     payment_dict["created_at"] = payment_dict["created_at"].isoformat()
@@ -2473,6 +2491,9 @@ class VerifyRequest(BaseModel):
 @router.post("/scope-items/verify")
 async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify scope items - requires typing VERIFY"""
+    # RBAC: Only CRE, Accountant, Admin can verify
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2493,6 +2514,8 @@ async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_curre
 @router.post("/payment-stages/verify")
 async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify payment stages - requires typing VERIFY"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2513,6 +2536,8 @@ async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_cu
 @router.post("/additional-costs/verify")
 async def verify_additions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify additions - requires typing VERIFY"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2533,6 +2558,8 @@ async def verify_additions(data: VerifyRequest, user: User = Depends(get_current
 @router.post("/deductions/verify")
 async def verify_deductions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify deductions - requires typing VERIFY"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     

@@ -3,11 +3,12 @@ ConstructionOS - Main Application Entry Point
 All routes are in modular files under /routes/
 Shared infrastructure is in /core/
 """
-from fastapi import FastAPI, APIRouter, Request
+from fastapi import FastAPI, APIRouter, Request, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 import os
+import secrets
 import logging
 from pathlib import Path
 
@@ -33,6 +34,34 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# CSRF Protection middleware
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """CSRF protection for state-changing requests.
+    Validates Origin/Referer header matches allowed origins for POST/PATCH/PUT/DELETE."""
+    
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+    
+    async def dispatch(self, request: Request, call_next):
+        if request.method in self.SAFE_METHODS:
+            return await call_next(request)
+        
+        # Skip CSRF for API calls with session cookie auth (validated via session token)
+        # The SameSite=None + Secure cookie attributes provide CSRF protection
+        # Additional check: validate Origin header matches allowed origins
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+        
+        allowed_origins = os.environ.get('CORS_ORIGINS', '').split(',')
+        
+        # Allow requests from allowed origins or if no origin (same-origin / server-to-server)
+        if origin and not any(origin.startswith(ao.strip()) for ao in allowed_origins if ao.strip()):
+            logger.warning(f"CSRF: Blocked request from origin {origin}")
+            return Response(content='{"detail":"CSRF validation failed"}', status_code=403,
+                          media_type="application/json")
+        
+        return await call_next(request)
+
+
 # Include modular routers
 from routes.auth import router as auth_router
 from routes.projects import router as projects_router
@@ -50,13 +79,14 @@ app.include_router(procurement_router, prefix="/api")
 app.include_router(operations_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 
-# Add security headers middleware
+# Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(CSRFMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://construction-control.preview.emergentagent.com').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )

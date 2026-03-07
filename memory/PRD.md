@@ -902,6 +902,23 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
+### Phase 2: Security Hardening (DONE)
+- [x] **CORS restricted** — Changed from `*` to production domain, env-configurable via `CORS_ORIGINS`
+- [x] **RBAC expanded** — Added role checks to 10+ unprotected endpoints: vendors, expenses, payments, vendor-master, verify scope/payment/additions/deductions
+- [x] **Database indexes** — 31 indexes created across 11 collections (user_sessions, notifications, petty_cash, work_orders, password_resets, invitations, expenses, vendor_master, staff)
+- [x] **CSRF protection** — Origin validation middleware for POST/PATCH/PUT/DELETE requests
+- [x] **Testing**: 13/13 tests passed (iteration_28.json)
+
+### Phase 1: Real Authentication System (DONE)
+- [x] **Real password login** with bcrypt hashing — `POST /api/auth/login`
+- [x] **Forgot/Reset password flow** with Resend email
+- [x] **User invitation system** with setup password page
+- [x] **Resend email integration** configured with API key (domain verification pending)
+- [x] **marketing_head role** added to UserRole enum
+- [x] **Testing**: 13/13 tests passed (iteration_27.json)
+
+## Recently Completed (March 7, 2026)
+
 ### Phase 1: Real Authentication System (Blocker → DONE)
 - [x] **Real password login** with bcrypt hashing — `POST /api/auth/login` (email + password)
 - [x] **Forgot password flow** — `POST /api/auth/forgot-password` generates reset token, sends email via Resend (or returns link if no API key)

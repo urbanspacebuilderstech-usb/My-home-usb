@@ -1269,6 +1269,11 @@ async def get_vendors_master(
     user: User = Depends(get_current_user)
 ):
     """Get all vendors from vendor master"""
+    # RBAC: Restrict to procurement/management roles
+    vendor_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+                    UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    if user.role not in vendor_roles:
+        raise HTTPException(status_code=403, detail="Access denied to vendor data")
     query = {"is_active": is_active}
     if category:
         query["category"] = category
@@ -1282,6 +1287,10 @@ async def get_vendors_master(
 @router.get("/vendor-master/{vendor_id}")
 async def get_vendor_detail(vendor_id: str, user: User = Depends(get_current_user)):
     """Get single vendor details"""
+    vendor_roles = [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PROCUREMENT,
+                    UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    if user.role not in vendor_roles:
+        raise HTTPException(status_code=403, detail="Access denied to vendor data")
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
