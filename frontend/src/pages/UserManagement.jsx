@@ -122,12 +122,24 @@ export default function UserManagement() {
         toast.success('User updated successfully');
       } else {
         // Invite new user via the invitation system
-        await axios.post(`${API}/auth/invite-user`, {
+        const res = await axios.post(`${API}/auth/invite-user`, {
           email: formData.email.toLowerCase(),
           name: formData.name || null,
           role: formData.role
         });
-        toast.success('Invitation sent! User can now login with Google using this email.');
+        if (res.data.email_sent) {
+          toast.success('Invitation email sent successfully!');
+        } else if (res.data.setup_link) {
+          toast.success('User created! Share this setup link with them:', { duration: 10000 });
+          // Copy to clipboard
+          navigator.clipboard.writeText(res.data.setup_link).then(() => {
+            toast.info('Setup link copied to clipboard!', { duration: 5000 });
+          }).catch(() => {
+            toast.info(`Setup link: ${res.data.setup_link}`, { duration: 15000 });
+          });
+        } else {
+          toast.success('User invited successfully!');
+        }
       }
       setDialogOpen(false);
       fetchData();
