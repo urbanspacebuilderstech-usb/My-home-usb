@@ -12,6 +12,7 @@ import uuid
 import os
 import io
 import json
+import asyncio
 import logging
 from bson import ObjectId
 
@@ -205,6 +206,15 @@ async def create_income_entry(income_input: IncomeCreate, user: User = Depends(g
         "amount": income_input.amount,
         "payment_mode": income_input.payment_mode
     })
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_income_recorded
+        asyncio.ensure_future(notify_income_recorded(
+            project.get("name", "Unknown"), income_input.amount, income_input.payment_mode, user.name
+        ))
+    except Exception:
+        pass
     
     return income
 

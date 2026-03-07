@@ -70,6 +70,7 @@ from routes.financial import router as financial_router
 from routes.procurement import router as procurement_router
 from routes.operations import router as operations_router
 from routes.crm import router as crm_router
+from routes.files import router as files_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -78,6 +79,7 @@ app.include_router(financial_router, prefix="/api")
 app.include_router(procurement_router, prefix="/api")
 app.include_router(operations_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
+app.include_router(files_router, prefix="/api")
 
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -86,7 +88,7 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'https://construction-control.preview.emergentagent.com').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://construction-crm-6.preview.emergentagent.com').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -95,3 +97,13 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+@app.on_event("startup")
+async def startup_init():
+    """Initialize services at startup"""
+    try:
+        from core.storage import init_storage
+        init_storage()
+    except Exception as e:
+        logger.warning(f"Storage init failed (non-fatal): {e}")

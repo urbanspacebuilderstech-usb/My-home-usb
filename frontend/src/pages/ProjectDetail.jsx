@@ -4,7 +4,7 @@ import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
-  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download
+  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { FileUpload, FileList } from '../components/FileUpload';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -109,6 +110,7 @@ export default function ProjectDetail() {
   
   // Rough Estimate state
   const [reProject, setReProject] = useState(null);
+  const [projectFiles, setProjectFiles] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -146,11 +148,23 @@ export default function ProjectDetail() {
       } catch (e) {
         console.log('Payment summary not available');
       }
+      
+      // Fetch project files
+      fetchProjectFiles();
     } catch (error) {
       console.error('Failed to fetch data:', error);
       toast.error('Failed to load project data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProjectFiles = async () => {
+    try {
+      const res = await axios.get(`${API}/files?project_id=${projectId}`, { withCredentials: true });
+      setProjectFiles(res.data);
+    } catch {
+      // Files endpoint may not have data yet
     }
   };
 
@@ -1007,6 +1021,10 @@ export default function ProjectDetail() {
                 <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
                   <DollarSign className="h-3 w-3 mr-1" />
                   Payment Summary
+                </TabsTrigger>
+                <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  <Folder className="h-3 w-3 mr-1" />
+                  Documents {projectFiles.length > 0 && <Badge variant="secondary" className="ml-1 text-xs">{projectFiles.length}</Badge>}
                 </TabsTrigger>
               </TabsList>
             </CardHeader>
@@ -2625,6 +2643,31 @@ export default function ProjectDetail() {
                     </div>
                   </CardContent>
                 </Card>
+              </div>
+            </TabsContent>
+
+            {/* ==================== DOCUMENTS TAB ==================== */}
+            <TabsContent value="documents" className="p-3 sm:p-6">
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                    <Folder className="h-5 w-5 text-amber-600" />
+                    Project Documents
+                  </h3>
+                  <Badge variant="outline">{projectFiles.length} file(s)</Badge>
+                </div>
+
+                <FileUpload
+                  projectId={projectId}
+                  category="project-documents"
+                  onUploadComplete={fetchProjectFiles}
+                />
+
+                <FileList
+                  files={projectFiles}
+                  onDelete={fetchProjectFiles}
+                  canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
+                />
               </div>
             </TabsContent>
           </Tabs>

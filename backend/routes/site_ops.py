@@ -12,6 +12,7 @@ import uuid
 import os
 import io
 import json
+import asyncio
 import logging
 from bson import ObjectId
 
@@ -565,10 +566,17 @@ async def create_material_request(
     await db.material_requests.insert_one(req_dict)
     req_dict.pop("_id", None)
     
-    # Notify Planning department
+    # Notify Planning department (in-app)
     planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
     for p in planners:
         await create_notification(p["user_id"], f"New material request: {material['name']} x {data.quantity}")
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_material_request_created
+        asyncio.ensure_future(notify_material_request_created(req_dict, user.name))
+    except Exception:
+        pass
     
     await create_audit_log(user.user_id, "create", "material_request", request.request_id, {"material": material["name"], "qty": data.quantity})
     
@@ -780,10 +788,17 @@ async def create_labour_request(
     await db.labour_requests.insert_one(req_dict)
     req_dict.pop("_id", None)
     
-    # Notify Planning department
+    # Notify Planning department (in-app)
     planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
     for p in planners:
         await create_notification(p["user_id"], f"New labour request: {data.labour_type} x {data.num_workers} workers")
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_labour_request_created
+        asyncio.ensure_future(notify_labour_request_created(req_dict, user.name))
+    except Exception:
+        pass
     
     await create_audit_log(user.user_id, "create", "labour_request", request.request_id, {"type": data.labour_type, "workers": data.num_workers})
     
@@ -1146,10 +1161,17 @@ async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(
     await db.petty_cash.insert_one(petty_cash)
     petty_cash.pop("_id", None)
     
-    # Notify accountant
+    # Notify accountant (in-app)
     accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
     for acc in accountants:
         await create_notification(acc["user_id"], f"Petty cash request: ₹{data.amount} for {project['name'] if project else 'project'}")
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_petty_cash_request
+        asyncio.ensure_future(notify_petty_cash_request(petty_cash, user.name))
+    except Exception:
+        pass
     
     return petty_cash
 

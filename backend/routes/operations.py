@@ -12,6 +12,7 @@ import uuid
 import os
 import io
 import json
+import asyncio
 import logging
 from bson import ObjectId
 
@@ -994,12 +995,19 @@ async def planning_submit_for_approval(project_id: str, user: User = Depends(get
         }
     )
     
-    # Notify GM and Super Admin
+    # Notify GM and Super Admin (in-app)
     gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0, "user_id": 1}).to_list(10)
     admin_users = await db.users.find({"role": "super_admin"}, {"_id": 0, "user_id": 1}).to_list(10)
     
     for u in gm_users + admin_users:
         await create_notification(u["user_id"], f"Project awaiting approval: {project.get('name')}")
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_approval_needed
+        asyncio.ensure_future(notify_approval_needed("Project", project.get("name", ""), user.name))
+    except Exception:
+        pass
     
     return {"message": "Project submitted for approval"}
 
@@ -1170,10 +1178,19 @@ async def gm_approve_project(project_id: str, user: User = Depends(get_current_u
         }
     )
     
-    # Notify Super Admin
+    # Notify Super Admin (in-app)
     admin_users = await db.users.find({"role": "super_admin"}, {"_id": 0, "user_id": 1}).to_list(10)
     for u in admin_users:
         await create_notification(u["user_id"], f"Project GM approved, awaiting final approval: {project.get('name')}")
+    
+    # Send email notification (non-blocking) - notify the project creator/PM
+    try:
+        from core.notifications import notify_project_approved
+        pm_id = project.get("created_by", project.get("pm_id", ""))
+        if pm_id:
+            asyncio.ensure_future(notify_project_approved(project.get("name", ""), user.name, pm_id))
+    except Exception:
+        pass
     
     return {"message": "Project approved by GM"}
 
@@ -1204,13 +1221,20 @@ async def final_approve_project(project_id: str, user: User = Depends(get_curren
         }
     )
     
-    # Notify Planning and CRO
+    # Notify Planning and CRO (in-app)
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
     for u in planning_users:
         await create_notification(u["user_id"], f"Project approved for execution: {project.get('name')}")
     
     if project.get("created_by"):
         await create_notification(project["created_by"], f"Your project has been approved: {project.get('name')}")
+    
+    # Send email notification (non-blocking)
+    try:
+        from core.notifications import notify_project_final_approved
+        asyncio.ensure_future(notify_project_final_approved(project.get("name", ""), user.name))
+    except Exception:
+        pass
     
     return {"message": "Project approved - Ready for execution. Material brands are now locked."}
 
