@@ -30,6 +30,7 @@ import {
   FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -2367,6 +2368,7 @@ export default function MarketingBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FileUpload, FileList } from '../components/FileUpload';
@@ -2804,6 +2805,7 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Building2, LogOut, Package, Truck, Clock, CheckCircle, XCircle, 
   DollarSign, Plus, Trash2, Check, AlertCircle, History, Eye,
@@ -836,6 +837,7 @@ export default function ProcurementDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

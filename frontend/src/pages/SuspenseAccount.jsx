@@ -9,6 +9,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   HelpCircle, LogOut, Plus, CheckCircle, Clock, AlertTriangle, XCircle,
   ArrowLeft, RefreshCw, DollarSign, Lock, ArrowUpRight, ArrowDownRight
@@ -538,6 +539,7 @@ export default function SuspenseAccount() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

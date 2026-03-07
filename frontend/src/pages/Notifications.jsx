@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -226,6 +227,7 @@ export default function Notifications() {
           </CardContent>
         </Card>
       </div>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

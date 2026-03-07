@@ -10,6 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
@@ -905,6 +906,7 @@ export default function REProjectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

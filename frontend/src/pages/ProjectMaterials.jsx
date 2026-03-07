@@ -9,6 +9,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   ArrowLeft, Plus, Edit, Trash2, Lock, Unlock, Package, AlertTriangle
 } from 'lucide-react';
@@ -24,6 +25,7 @@ export default function ProjectMaterials() {
   const [projectStatus, setProjectStatus] = useState('');
   const [materialsLocked, setMaterialsLocked] = useState(false);
   const [materials, setMaterials] = useState([]);
+  const [user, setUser] = useState(null);
   
   const [addDialog, setAddDialog] = useState(false);
   const [editDialog, setEditDialog] = useState(false);
@@ -44,6 +46,7 @@ export default function ProjectMaterials() {
 
   useEffect(() => {
     fetchMaterials();
+    axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
   }, [projectId]);
 
   const fetchMaterials = async () => {
@@ -387,6 +390,7 @@ export default function ProjectMaterials() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

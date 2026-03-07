@@ -10,6 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Settings, LogOut, Plus, Trash2, Edit2, GripVertical, Save, ArrowLeft,
   Type, Hash, List, CheckSquare, MapPin, Calendar, Mail, Phone, Link2,
@@ -493,6 +494,7 @@ export default function CustomFieldsBuilder() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }

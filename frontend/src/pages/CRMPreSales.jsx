@@ -10,6 +10,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
+import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Users, LogOut, Plus, Search, Upload, Phone, Mail, MapPin, Calendar, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
@@ -1664,6 +1665,7 @@ export default function CRMPreSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <MobileBottomNav user={user} />
     </div>
   );
 }
