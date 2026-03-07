@@ -902,6 +902,30 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
+### Phase 3: Integrations - Email Notifications & File Uploads (DONE)
+- [x] **Email Notification Service** — Integrated Resend email notifications into 7 key route handlers:
+  - Material request created → notifies Procurement + PM
+  - Labour request created → notifies Planning + PM
+  - Petty cash requested → notifies Accountant
+  - Project submitted for approval → notifies GM + Admin
+  - Project GM approved → notifies PM/creator
+  - Project final approved → notifies Planning + CRE
+  - Income recorded → notifies Accountant + GM
+- [x] **Non-blocking async emails** — Uses `asyncio.ensure_future()` so emails never block main endpoints
+- [x] **Resend domain limitation** — Emails only deliver to `urbanspacebuilderstech@gmail.com` until domain is verified
+- [x] **File Upload System** — Full CRUD via Emergent Object Storage:
+  - `POST /api/files/upload` — Upload files (max 10MB, multipart form)
+  - `GET /api/files?project_id=xxx` — List files with filters
+  - `GET /api/files/{file_id}/download` — Download with cookie auth
+  - `DELETE /api/files/{file_id}` — Soft delete
+- [x] **Frontend Documents Tab** — New tab in Project Detail page:
+  - Reusable `FileUpload` component with drag-and-drop zone
+  - `FileList` component with download/delete actions
+  - File type icons, size display, category badges
+- [x] **CORS fix** — Added Cloudflare internal origin to CORS_ORIGINS for proper CSRF validation
+- [x] **EMERGENT_LLM_KEY .env fix** — Fixed missing newline that prevented Object Storage initialization
+- [x] **Testing**: 9/9 tests passed (iteration_29.json) — 100% frontend success rate
+
 ### Phase 2: Security Hardening (DONE)
 - [x] **CORS restricted** — Changed from `*` to production domain, env-configurable via `CORS_ORIGINS`
 - [x] **RBAC expanded** — Added role checks to 10+ unprotected endpoints: vendors, expenses, payments, vendor-master, verify scope/payment/additions/deductions
@@ -1053,15 +1077,15 @@ Build a Construction Accounting CRM with:
 
 ## Pending/Backlog Tasks
 
+### P1 - Phase 3 Remaining
+- [ ] **Google Maps API Integration** - Visualize project site locations on a map
+
+### P1 - Phase 4
+- [ ] **Mobile Responsiveness** - Site Engineer and Client Portal dashboards on mobile
+- [ ] **PWA Setup** - Progressive Web App for offline capabilities
+
 ### P1 - Code Refactoring (HIGH PRIORITY)
-- [ ] **Refactor server.py Monolith** - Split 8000+ line file into modular router files:
-  - `/app/backend/routes/auth.py`
-  - `/app/backend/routes/projects.py`
-  - `/app/backend/routes/payments.py`
-  - `/app/backend/routes/procurement.py`
-  - `/app/backend/routes/work_orders.py`
-  - `/app/backend/routes/packages.py`
-  - etc.
+- [x] ~~Refactor server.py Monolith~~ - DONE (March 2026)
 
 ### P1 - Database Security
 - [ ] **Database Security & Production Readiness** - Implement recommendations from `/app/docs/DATABASE_ARCHITECTURE.md`
@@ -1072,12 +1096,14 @@ Build a Construction Accounting CRM with:
 ### P2 - Features
 - [ ] **Google Sheets Integration** for CRM - Sync leads from Google Sheets tabs (Meta, SEO, Other)
 - [ ] **Unified Approval Dashboard** for GM/Admin roles
-- [ ] **Email Notifications** via Resend (requires API key)
+- [x] ~~Email Notifications via Resend~~ - DONE (Phase 3)
 - [ ] **Aadhar Document Upload** for labour contractors (encrypted storage)
 
 ### P3 - Future
+- [ ] Screen-by-Screen UI/UX Review (after all phases)
+- [ ] Site Engineer Labour Request Flow
 - [ ] Gantt Chart for Project Timelines
-- [ ] Enhanced Client Portal with document upload
+- [x] ~~Enhanced Client Portal with document upload~~ - DONE (Phase 3)
 - [ ] Bulk-add scope items approval workflow refinement
 
 ---
