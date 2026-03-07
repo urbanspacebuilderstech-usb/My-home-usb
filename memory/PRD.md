@@ -926,6 +926,20 @@ Build a Construction Accounting CRM with:
 - [x] **EMERGENT_LLM_KEY .env fix** — Fixed missing newline that prevented Object Storage initialization
 - [x] **Testing**: 9/9 tests passed (iteration_29.json) — 100% frontend success rate
 
+### Phase 3: Google Maps + Material Receipt OTP Enhancement (DONE)
+- [x] **Leaflet/OpenStreetMap Map** — Interactive map in Material Receipt dialog showing GPS coordinates
+  - `LocationMap` component renders map with marker at receipt location
+  - Shows map in both receipt dialog and received orders view
+  - Uses OpenStreetMap tiles (free, no API key needed)
+- [x] **Email OTP Verification** — Site engineers receive OTP via email for material receipt
+  - OTP sent automatically when Procurement dispatches material
+  - "Send OTP to Email" button for on-demand OTP delivery
+  - Auto-fill fallback when email service is unavailable
+  - `POST /api/procurement/v2/resend-otp/{request_id}` — Resend OTP endpoint
+- [x] **Professional OTP Email Template** — Styled HTML email with material details and OTP code
+- [x] **CSRF Middleware Enhancement** — Now handles dynamic Cloudflare cluster-N origins
+- [x] **Testing**: 9/9 tests passed (iteration_30.json) — 100% backend + frontend success rate
+
 ### Phase 2: Security Hardening (DONE)
 - [x] **CORS restricted** — Changed from `*` to production domain, env-configurable via `CORS_ORIGINS`
 - [x] **RBAC expanded** — Added role checks to 10+ unprotected endpoints: vendors, expenses, payments, vendor-master, verify scope/payment/additions/deductions
@@ -1078,7 +1092,7 @@ Build a Construction Accounting CRM with:
 ## Pending/Backlog Tasks
 
 ### P1 - Phase 3 Remaining
-- [ ] **Google Maps API Integration** - Visualize project site locations on a map
+- [x] ~~Google Maps API Integration~~ - DONE (Leaflet/OpenStreetMap, March 2026)
 
 ### P1 - Phase 4
 - [ ] **Mobile Responsiveness** - Site Engineer and Client Portal dashboards on mobile
