@@ -1433,66 +1433,39 @@ async def get_accounts_dashboard(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accounts can access this")
     
-    # New project advance payments pending verification
-    pending_advance_payments = await db.projects.count_documents({"status": "pending_payment"})
-    advance_payments_total = await db.projects.aggregate([
-        {"$match": {"status": "pending_payment"}},
-        {"$group": {"_id": None, "total": {"$sum": "$advance_amount"}}}
-    ]).to_list(1)
-    
-    # Pending payments (approved by planning)
-    pending_material = await db.material_expenses.count_documents({"status": "planning_approved"})
-    pending_labour = await db.labour_expenses.count_documents({"status": "planning_approved"})
-    pending_procurement = await db.procurement_pricing.count_documents({"status": "waiting_accounts"})
-    
-    # Count work order stage payments (approved by Planning, waiting for Accounts)
-    work_orders = await db.work_orders.find(
-        {"stages.status": "payment_approved"},
-        {"_id": 0, "stages": 1}
-    ).to_list(500)
-    pending_stage_payments = sum(
-        1 for wo in work_orders 
-        for stage in wo.get("stages", []) 
-        if stage.get("status") == "payment_approved"
-    )
-    stage_payments_total = sum(
-        stage.get("amount", 0) for wo in work_orders 
-        for stage in wo.get("stages", []) 
-        if stage.get("status") == "payment_approved"
+    (pending_advance_payments, advance_agg, pending_material, pending_labour,
+     pending_procurement, work_orders, material_agg, labour_agg, procurement_agg) = await asyncio.gather(
+        db.projects.count_documents({"status": "pending_payment"}),
+        db.projects.aggregate([{"$match": {"status": "pending_payment"}}, {"$group": {"_id": None, "total": {"$sum": "$advance_amount"}}}]).to_list(1),
+        db.material_expenses.count_documents({"status": "planning_approved"}),
+        db.labour_expenses.count_documents({"status": "planning_approved"}),
+        db.procurement_pricing.count_documents({"status": "waiting_accounts"}),
+        db.work_orders.find({"stages.status": "payment_approved"}, {"_id": 0, "stages": 1}).to_list(500),
+        db.material_expenses.aggregate([{"$match": {"status": "planning_approved"}}, {"$group": {"_id": None, "total": {"$sum": "$estimated_cost"}}}]).to_list(1),
+        db.labour_expenses.aggregate([{"$match": {"status": "planning_approved"}}, {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}]).to_list(1),
+        db.procurement_pricing.aggregate([{"$match": {"status": "waiting_accounts"}}, {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}}]).to_list(1),
     )
     
-    # Get totals
-    material_total = await db.material_expenses.aggregate([
-        {"$match": {"status": "planning_approved"}},
-        {"$group": {"_id": None, "total": {"$sum": "$estimated_cost"}}}
-    ]).to_list(1)
+    pending_stage_payments = sum(1 for wo in work_orders for s in wo.get("stages", []) if s.get("status") == "payment_approved")
+    stage_payments_total = sum(s.get("amount", 0) for wo in work_orders for s in wo.get("stages", []) if s.get("status") == "payment_approved")
     
-    labour_total = await db.labour_expenses.aggregate([
-        {"$match": {"status": "planning_approved"}},
-        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
-    ]).to_list(1)
-    
-    procurement_total = await db.procurement_pricing.aggregate([
-        {"$match": {"status": "waiting_accounts"}},
-        {"$group": {"_id": None, "total": {"$sum": "$final_amount"}}}
-    ]).to_list(1)
+    adv_total = advance_agg[0]["total"] if advance_agg else 0
+    mat_total = material_agg[0]["total"] if material_agg else 0
+    lab_total = labour_agg[0]["total"] if labour_agg else 0
+    proc_total = procurement_agg[0]["total"] if procurement_agg else 0
     
     return {
         "pending_advance_payments": pending_advance_payments,
-        "advance_payments_total": advance_payments_total[0]["total"] if advance_payments_total else 0,
+        "advance_payments_total": adv_total,
         "pending_material": pending_material,
         "pending_labour": pending_labour,
         "pending_procurement": pending_procurement,
         "pending_stage_payments": pending_stage_payments,
-        "material_total": material_total[0]["total"] if material_total else 0,
-        "labour_total": labour_total[0]["total"] if labour_total else 0,
-        "procurement_total": procurement_total[0]["total"] if procurement_total else 0,
+        "material_total": mat_total,
+        "labour_total": lab_total,
+        "procurement_total": proc_total,
         "stage_payments_total": stage_payments_total,
-        "total_pending": (material_total[0]["total"] if material_total else 0) + 
-                        (labour_total[0]["total"] if labour_total else 0) +
-                        (procurement_total[0]["total"] if procurement_total else 0) +
-                        stage_payments_total +
-                        (advance_payments_total[0]["total"] if advance_payments_total else 0)
+        "total_pending": mat_total + lab_total + proc_total + stage_payments_total + adv_total
     }
 
 
@@ -2229,92 +2202,74 @@ async def get_accountant_comprehensive_dashboard(user: User = Depends(get_curren
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant/Admin can access this")
     
-    # Get all projects
-    projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+    # Parallel bulk fetch
+    (projects, income_entries, transactions, material_expenses, labour_expenses,
+     vendor_expenses, staff_count, pending_payroll, pending_cheques, bounced_cheques,
+     recent_transactions, pending_payments) = await asyncio.gather(
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "project_code": 1, "client_name": 1, "total_value": 1}).to_list(1000),
+        db.income_entries.find({}, {"_id": 0, "project_id": 1, "amount": 1, "payment_mode": 1}).to_list(5000),
+        db.transactions.find({}, {"_id": 0}).to_list(5000),
+        db.material_expenses.find({"status": "completed"}, {"_id": 0, "project_id": 1, "final_amount": 1}).to_list(1000),
+        db.labour_expenses.find({"status": "completed"}, {"_id": 0, "project_id": 1, "total_amount": 1}).to_list(1000),
+        db.vendor_service_expenses.find({"status": "completed"}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(1000),
+        db.staff.count_documents({}),
+        db.payroll.count_documents({"status": {"$in": ["draft", "pending_approval"]}}),
+        db.cheques.count_documents({"status": {"$in": ["issued", "deposited", "post_dated"]}}),
+        db.cheques.count_documents({"status": "bounced"}),
+        db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(10),
+        db.payment_verifications.count_documents({"status": {"$in": ["pending", "otp_sent"]}}),
+    )
     
-    # Get all income entries
-    income_entries = await db.income_entries.find({}, {"_id": 0}).to_list(5000)
+    # Index expenses by project_id
+    from collections import defaultdict
+    inc_by_proj = defaultdict(float)
+    for inc in income_entries:
+        inc_by_proj[inc.get("project_id")] += inc.get("amount", 0)
+    mat_by_proj = defaultdict(float)
+    for e in material_expenses:
+        mat_by_proj[e.get("project_id")] += e.get("final_amount", 0)
+    lab_by_proj = defaultdict(float)
+    for e in labour_expenses:
+        lab_by_proj[e.get("project_id")] += e.get("total_amount", 0)
+    vend_by_proj = defaultdict(float)
+    for e in vendor_expenses:
+        vend_by_proj[e.get("project_id")] += e.get("amount", 0)
     
-    # Get all transactions
-    transactions = await db.transactions.find({}, {"_id": 0}).to_list(5000)
-    
-    # Get all expenses (from multiple collections)
-    material_expenses = await db.material_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
-    labour_expenses = await db.labour_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
-    vendor_expenses = await db.vendor_service_expenses.find({"status": "completed"}, {"_id": 0}).to_list(1000)
-    
-    # Get staff and payroll data
-    staff_count = await db.staff.count_documents({})
-    pending_payroll = await db.payroll.count_documents({"status": {"$in": ["draft", "pending_approval"]}})
-    
-    # Get cheque data
-    pending_cheques = await db.cheques.count_documents({"status": {"$in": ["issued", "deposited", "post_dated"]}})
-    bounced_cheques = await db.cheques.count_documents({"status": "bounced"})
-    
-    # Calculate totals by payment method
     income_by_method = {"cash": 0, "cheque": 0, "bank_transfer": 0, "upi": 0, "credit_card": 0}
     for inc in income_entries:
         method = inc.get("payment_mode", "cash")
         income_by_method[method] = income_by_method.get(method, 0) + inc.get("amount", 0)
     
-    # Calculate project-wise financials
-    project_financials = []
     total_income = sum(inc.get("amount", 0) for inc in income_entries)
     total_expense = 0
+    project_financials = []
     
     for p in projects:
         pid = p.get("project_id")
-        
-        # Income for this project
-        proj_income = sum(inc.get("amount", 0) for inc in income_entries if inc.get("project_id") == pid)
-        
-        # Expense for this project
-        proj_mat_exp = sum(e.get("final_amount", 0) for e in material_expenses if e.get("project_id") == pid)
-        proj_lab_exp = sum(e.get("total_amount", 0) for e in labour_expenses if e.get("project_id") == pid)
-        proj_vend_exp = sum(e.get("amount", 0) for e in vendor_expenses if e.get("project_id") == pid)
-        proj_expense = proj_mat_exp + proj_lab_exp + proj_vend_exp
-        
+        proj_income = inc_by_proj.get(pid, 0)
+        proj_expense = mat_by_proj.get(pid, 0) + lab_by_proj.get(pid, 0) + vend_by_proj.get(pid, 0)
         total_expense += proj_expense
-        
         project_financials.append({
-            "project_id": pid,
-            "project_name": p.get("name"),
-            "project_code": p.get("project_code"),
-            "client_name": p.get("client_name"),
-            "total_value": p.get("total_value", 0),
-            "income": proj_income,
-            "expense": proj_expense,
+            "project_id": pid, "project_name": p.get("name"), "project_code": p.get("project_code"),
+            "client_name": p.get("client_name"), "total_value": p.get("total_value", 0),
+            "income": proj_income, "expense": proj_expense,
             "profit": proj_income - proj_expense,
             "profit_margin": round((proj_income - proj_expense) / proj_income * 100, 2) if proj_income > 0 else 0
         })
     
-    # Sort by profit (descending)
     project_financials.sort(key=lambda x: x["profit"], reverse=True)
-    
-    # Recent transactions
-    recent_transactions = await db.transactions.find({}, {"_id": 0}).sort("created_at", -1).to_list(10)
-    
-    # Pending payment requests
-    pending_payments = await db.payment_verifications.count_documents({"status": {"$in": ["pending", "otp_sent"]}})
     
     return {
         "summary": {
-            "total_income": total_income,
-            "total_expense": total_expense,
+            "total_income": total_income, "total_expense": total_expense,
             "total_profit": total_income - total_expense,
             "profit_margin": round((total_income - total_expense) / total_income * 100, 2) if total_income > 0 else 0
         },
         "income_by_method": income_by_method,
         "project_financials": project_financials,
         "recent_transactions": recent_transactions,
-        "hr_summary": {
-            "total_staff": staff_count,
-            "pending_payroll": pending_payroll
-        },
-        "cheque_summary": {
-            "pending_cheques": pending_cheques,
-            "bounced_cheques": bounced_cheques
-        },
+        "hr_summary": {"total_staff": staff_count, "pending_payroll": pending_payroll},
+        "cheque_summary": {"pending_cheques": pending_cheques, "bounced_cheques": bounced_cheques},
         "pending_payment_requests": pending_payments
     }
 

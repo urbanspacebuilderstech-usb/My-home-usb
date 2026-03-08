@@ -902,6 +902,14 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
+### Accounts & Finance Module - Phase 1 (March 8, 2026) - LATEST
+- [x] **API Optimization**: `accounts/dashboard` and `accountant/comprehensive-dashboard` parallelized (3.4s → 2.0s)
+- [x] **Unified Approvals Page** (`/approvals`): 4-tab layout for Income, Materials, Labour, Suppliers approvals
+  - Backend: `/api/approvals/unified` endpoint for fetching all pending items in one call
+  - Backend: `/api/approvals/income/{id}/approve` and `/api/approvals/income/{id}/reject` endpoints
+  - Frontend: Summary cards + tabs + approve/reject buttons + rejection reason dialog
+- [x] **Sub-menu restructured**: Accounts Board | Approvals | Cashbook | Suspense Account | Cheque Management | Project Finance | HR Portal
+
 ### Shared Sticky Header + Sub-Menus (March 8, 2026) - LATEST
 - [x] **AppHeader component** (`/app/frontend/src/components/AppHeader.jsx`) — shared sticky header for all super admin pages
   - Main nav: My Dashboard | All Projects | Accounts | Planning | Marketing Board | GM | Users | Settings

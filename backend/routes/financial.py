@@ -276,6 +276,97 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
     return {"message": "Income entry deleted"}
 
 
+
+# ==================== UNIFIED APPROVALS ENDPOINT ====================
+
+@router.get("/approvals/unified")
+async def get_unified_approvals(user: User = Depends(get_current_user)):
+    """Get all pending approvals in one call - income and expense"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Parallel fetch all pending items
+    (pending_income, pending_materials, pending_labour, pending_vendor,
+     projects_list) = await asyncio.gather(
+        db.income.find({"status": "pending_approval"}, {"_id": 0}).sort("created_at", -1).to_list(500),
+        db.material_expenses.find(
+            {"status": {"$in": ["requested", "planning_approved", "procurement_priced"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500),
+        db.labour_expenses.find(
+            {"status": {"$in": ["requested", "planning_approved"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500),
+        db.vendor_service_expenses.find(
+            {"status": {"$in": ["requested", "planning_approved"]}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
+    )
+    
+    project_map = {p["project_id"]: p["name"] for p in projects_list}
+    
+    # Enrich with project names
+    for item in pending_income:
+        item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
+    for item in pending_materials + pending_labour + pending_vendor:
+        item["project_name"] = project_map.get(item.get("project_id"), "Unknown")
+    
+    return {
+        "income": pending_income,
+        "materials": pending_materials,
+        "labour": pending_labour,
+        "vendor": pending_vendor,
+        "summary": {
+            "income_count": len(pending_income),
+            "income_total": sum(i.get("amount", 0) for i in pending_income),
+            "material_count": len(pending_materials),
+            "material_total": sum(m.get("estimated_cost", 0) or m.get("final_amount", 0) for m in pending_materials),
+            "labour_count": len(pending_labour),
+            "labour_total": sum(l.get("total_amount", 0) for l in pending_labour),
+            "vendor_count": len(pending_vendor),
+            "vendor_total": sum(v.get("amount", 0) for v in pending_vendor),
+        }
+    }
+
+
+@router.post("/approvals/income/{income_id}/approve")
+async def approve_income(income_id: str, user: User = Depends(get_current_user)):
+    """Approve an income entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can approve income")
+    
+    result = await db.income.find_one_and_update(
+        {"income_id": income_id, "status": "pending_approval"},
+        {"$set": {"status": "approved", "approved_by": user.user_id, "approved_at": datetime.now(timezone.utc).isoformat()}},
+        return_document=False
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Income entry not found or already processed")
+    
+    await create_audit_log(user.user_id, "approve", "income", income_id, {"action": "approved"})
+    return {"message": "Income approved successfully"}
+
+
+@router.post("/approvals/income/{income_id}/reject")
+async def reject_income(income_id: str, reason: str = "", user: User = Depends(get_current_user)):
+    """Reject an income entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can reject income")
+    
+    result = await db.income.find_one_and_update(
+        {"income_id": income_id, "status": "pending_approval"},
+        {"$set": {"status": "rejected", "rejected_by": user.user_id, "rejected_at": datetime.now(timezone.utc).isoformat(), "rejection_reason": reason}},
+        return_document=False
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Income entry not found or already processed")
+    
+    await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason})
+    return {"message": "Income rejected"}
+
+
+
 # ==================== ENHANCED PROJECT VIEW ENDPOINT ====================
 
 @router.get("/projects/{project_id}/full-details")

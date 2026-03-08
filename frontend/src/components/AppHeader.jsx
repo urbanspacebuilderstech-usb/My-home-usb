@@ -23,14 +23,12 @@ const SUB_MENUS = {
   ],
   '/accounts-board': [
     { label: 'Accounts Board', path: '/accounts-board' },
-    { label: 'Accountant Module', path: '/accountant-module' },
-    { label: 'Cheque Management', path: '/cheque-management' },
-    { label: 'Payment Processing', path: '/payment-processing' },
-    { label: 'Indirect Costs', path: '/indirect-costs' },
+    { label: 'Approvals', path: '/approvals' },
+    { label: 'Cashbook', path: '/accountant-module' },
     { label: 'Suspense Account', path: '/suspense-account' },
+    { label: 'Cheque Management', path: '/cheque-management' },
+    { label: 'Project Finance', path: '/accountant-dashboard' },
     { label: 'HR Portal', path: '/hr-portal' },
-    { label: 'Income', path: '/income' },
-    { label: 'Expenses', path: '/expense-management' },
   ],
   '/planning-board': [
     { label: 'Planning Board', path: '/planning-board' },
@@ -47,7 +45,6 @@ const SUB_MENUS = {
   '/gm-dashboard': [
     { label: 'GM Command Center', path: '/gm-dashboard' },
     { label: 'PM Dashboard', path: '/pm-dashboard' },
-    { label: 'Approvals', path: '/approvals' },
     { label: 'Financial Overview', path: '/financial-overview' },
     { label: 'Procurement', path: '/procurement-board-v2' },
     { label: 'Work Orders', path: '/work-order-management' },
