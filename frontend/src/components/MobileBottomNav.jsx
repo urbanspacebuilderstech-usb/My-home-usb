@@ -67,12 +67,6 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Settings', icon: Settings, path: '/settings' },
   ],
-  accountant: [
-    { label: 'Accounts', icon: Calculator, path: '/accountant-dashboard' },
-    { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
-    { label: 'Expenses', icon: DollarSign, path: '/expenses' },
-    { label: 'Alerts', icon: Bell, path: '/notifications' },
-  ],
   cre: [
     { label: 'CRE Board', icon: Target, path: '/cre-board' },
     { label: 'Projects', icon: FolderKanban, path: '/projects' },
@@ -130,7 +124,7 @@ export default function MobileBottomNav({ user }) {
   return (
     <>
       {/* More drawer overlay */}
-      {moreOpen && isSuperAdmin && (
+      {moreOpen && hasMore && (
         <div className="md:hidden fixed inset-0 z-[60]" data-testid="mobile-more-drawer">
           <div className="absolute inset-0 bg-black/40" onClick={() => setMoreOpen(false)} />
           <div className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-2xl border-t"
@@ -142,7 +136,7 @@ export default function MobileBottomNav({ user }) {
               </button>
             </div>
             <div className="px-2 pb-3 space-y-0.5">
-              {SA_MORE_ITEMS.map((item) => {
+              {moreItems.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.path);
                 return (
