@@ -105,7 +105,7 @@ export default function ClientPortal() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading your projects...</p>
         </div>
       </div>
@@ -130,11 +130,9 @@ export default function ClientPortal() {
         <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 print:hidden">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="bg-yellow-500 p-1.5 sm:p-2 rounded-lg">
-                <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-              </div>
+              <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
               <div>
-                <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+                <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
                 <p className="text-xs text-gray-500">Client Portal</p>
               </div>
             </div>
@@ -180,7 +178,7 @@ export default function ClientPortal() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm text-gray-500">Project Value</p>
-                        <p className="text-xl font-bold text-blue-600">₹{(proj.total_value / 100000).toFixed(2)}L</p>
+                        <p className="text-xl font-bold text-amber-600">₹{(proj.total_value / 100000).toFixed(2)}L</p>
                         <ArrowRight className="h-5 w-5 text-gray-400 ml-auto mt-2" />
                       </div>
                     </div>
@@ -228,11 +226,9 @@ export default function ClientPortal() {
             <Button variant="ghost" size="icon" onClick={() => navigate('/client-portal')} className="h-8 w-8 sm:h-10 sm:w-10">
               <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
-            <div className="bg-yellow-500 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Client Portal</p>
             </div>
           </div>
@@ -262,7 +258,7 @@ export default function ClientPortal() {
       <div className="hidden print:block p-6 border-b">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">ConstructionOS</h1>
+            <h1 className="text-2xl font-bold">My Home USB</h1>
             <p className="text-gray-500">Project Report</p>
           </div>
           <div className="text-right">
@@ -281,7 +277,7 @@ export default function ClientPortal() {
               {project.status}
             </Badge>
             {project.construction_stage && (
-              <Badge className="bg-blue-100 text-blue-700">
+              <Badge className="bg-amber-50 text-amber-700">
                 Stage: {CONSTRUCTION_STAGES.find(s => s.id === project.construction_stage)?.label || project.construction_stage}
               </Badge>
             )}
@@ -297,7 +293,7 @@ export default function ClientPortal() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-700">₹{((project.total_value || 0) / 100000).toFixed(2)}L</div>
+              <div className="text-2xl font-bold text-amber-700">₹{((project.total_value || 0) / 100000).toFixed(2)}L</div>
             </CardContent>
           </Card>
 
@@ -358,7 +354,7 @@ export default function ClientPortal() {
                         <div className={`
                           w-10 h-10 rounded-full flex items-center justify-center
                           ${isCompleted ? 'bg-green-500 text-white' : 
-                            isCurrent ? 'bg-blue-500 text-white' : 
+                            isCurrent ? 'bg-amber-500 text-white' : 
                             'bg-gray-200 text-gray-500'}
                         `}>
                           {isCompleted ? (
@@ -367,7 +363,7 @@ export default function ClientPortal() {
                             <span className="text-sm font-bold">{index + 1}</span>
                           )}
                         </div>
-                        <span className={`text-xs mt-2 text-center ${isCurrent ? 'font-bold text-blue-600' : 'text-gray-500'}`}>
+                        <span className={`text-xs mt-2 text-center ${isCurrent ? 'font-bold text-amber-600' : 'text-gray-500'}`}>
                           {stage.label}
                         </span>
                       </div>
@@ -524,7 +520,7 @@ export default function ClientPortal() {
                     )}
                   </tbody>
                   {paymentStages.length > 0 && (
-                    <tfoot className="bg-blue-50 border-t-2">
+                    <tfoot className="bg-amber-50 border-t-2">
                       <tr>
                         <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
                         <td className="px-4 py-3 text-right font-bold">₹{totalScheduled.toLocaleString()}</td>
@@ -576,7 +572,7 @@ export default function ClientPortal() {
                     )}
                   </tbody>
                   {scopeItems.length > 0 && (
-                    <tfoot className="bg-blue-50 border-t-2">
+                    <tfoot className="bg-amber-50 border-t-2">
                       <tr>
                         <td colSpan="5" className="px-4 py-3 text-right font-bold">Total Scope Value:</td>
                         <td className="px-4 py-3 text-right font-bold">
@@ -626,7 +622,7 @@ export default function ClientPortal() {
                   {documents.map((doc) => (
                     <div key={doc.document_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <FileText className="h-8 w-8 text-blue-600" />
+                        <FileText className="h-8 w-8 text-amber-600" />
                         <div>
                           <p className="font-medium">{doc.title}</p>
                           <p className="text-sm text-gray-500">{doc.category}</p>
@@ -649,7 +645,7 @@ export default function ClientPortal() {
 
         {/* Print Footer */}
         <div className="hidden print:block mt-8 pt-4 border-t text-center text-sm text-gray-500">
-          <p>Generated from ConstructionOS Client Portal • {new Date().toLocaleDateString('en-IN')}</p>
+          <p>Generated from My Home USB Client Portal • {new Date().toLocaleDateString('en-IN')}</p>
         </div>
       </div>
       <MobileBottomNav user={user} />

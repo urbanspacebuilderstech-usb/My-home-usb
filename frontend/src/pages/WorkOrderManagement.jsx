@@ -219,7 +219,7 @@ export default function WorkOrderManagement() {
   const getStatusBadge = (status) => {
     const config = {
       draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
-      assigned: { label: 'Assigned', className: 'bg-blue-100 text-blue-700' },
+      assigned: { label: 'Assigned', className: 'bg-amber-50 text-amber-700' },
       in_progress: { label: 'In Progress', className: 'bg-yellow-100 text-yellow-700' },
       completed: { label: 'Completed', className: 'bg-green-100 text-green-700' },
       cancelled: { label: 'Cancelled', className: 'bg-red-100 text-red-700' }
@@ -231,7 +231,7 @@ export default function WorkOrderManagement() {
   const getStageStatusBadge = (status) => {
     const config = {
       pending: { label: 'Pending', className: 'bg-gray-100 text-gray-600' },
-      in_progress: { label: 'In Progress', className: 'bg-blue-100 text-blue-700' },
+      in_progress: { label: 'In Progress', className: 'bg-amber-50 text-amber-700' },
       completed: { label: 'Completed', className: 'bg-green-100 text-green-700' },
       payment_requested: { label: 'Payment Requested', className: 'bg-orange-100 text-orange-700' },
       payment_approved: { label: 'Approved', className: 'bg-purple-100 text-purple-700' },
@@ -283,7 +283,7 @@ export default function WorkOrderManagement() {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{workOrders.filter(w => w.order_type === 'labour').length}</p>
+              <p className="text-2xl font-bold text-amber-600">{workOrders.filter(w => w.order_type === 'labour').length}</p>
               <p className="text-sm text-gray-500">Labour</p>
             </CardContent>
           </Card>
@@ -309,7 +309,7 @@ export default function WorkOrderManagement() {
                 <TabsTrigger value="all" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none">
                   All
                 </TabsTrigger>
-                <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none">
+                <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none">
                   Labour
                 </TabsTrigger>
                 <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none">
@@ -332,7 +332,7 @@ export default function WorkOrderManagement() {
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             {wo.order_type === 'labour' ? (
-                              <Users className="h-4 w-4 text-blue-600" />
+                              <Users className="h-4 w-4 text-amber-600" />
                             ) : (
                               <Package className="h-4 w-4 text-green-600" />
                             )}
@@ -630,9 +630,9 @@ export default function WorkOrderManagement() {
                 </div>
               </div>
 
-              <Card className="bg-blue-50">
+              <Card className="bg-amber-50">
                 <CardContent className="p-3">
-                  <p className="text-sm text-blue-800">
+                  <p className="text-sm text-amber-800">
                     Total: <strong>{formatCurrency((parseFloat(materialForm.quantity) || 0) * (parseFloat(materialForm.unit_price) || 0))}</strong>
                   </p>
                 </CardContent>

@@ -139,14 +139,14 @@ const GMDashboard = () => {
   const getStatusBadge = (status) => {
     const statusConfig = {
       // RE Project statuses
-      're_requested': { label: 'New Request', color: 'bg-blue-100 text-blue-800' },
+      're_requested': { label: 'New Request', color: 'bg-amber-50 text-amber-800' },
       're_in_progress': { label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' },
       're_submitted': { label: 'Pending GM Approval', color: 'bg-orange-100 text-orange-800' },
       're_awaiting_approval': { label: 'Awaiting GM Approval', color: 'bg-orange-100 text-orange-800' },
       're_approved': { label: 'Approved', color: 'bg-green-100 text-green-800' },
       're_rejected': { label: 'Rejected', color: 'bg-red-100 text-red-800' },
       // Project statuses
-      'new': { label: 'New', color: 'bg-blue-100 text-blue-800' },
+      'new': { label: 'New', color: 'bg-amber-50 text-amber-800' },
       'planning_review': { label: 'Planning Review', color: 'bg-purple-100 text-purple-800' },
       'awaiting_approval': { label: 'Awaiting Approval', color: 'bg-orange-100 text-orange-800' },
       'gm_approved': { label: 'GM Approved', color: 'bg-green-100 text-green-800' },
@@ -476,7 +476,7 @@ const GMDashboard = () => {
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats Overview */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+          <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white">
             <CardContent className="p-4">
               <Building2 className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.totalProjects}</p>
@@ -591,7 +591,7 @@ const GMDashboard = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5 text-blue-600" />
+                  <Building2 className="h-5 w-5 text-amber-600" />
                   All Projects Status
                 </CardTitle>
               </CardHeader>
@@ -772,7 +772,7 @@ const GMDashboard = () => {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5 text-blue-600" />
+                  <Building2 className="h-5 w-5 text-amber-600" />
                   Project Approvals
                 </CardTitle>
                 <CardDescription>Projects awaiting GM approval</CardDescription>
@@ -792,7 +792,7 @@ const GMDashboard = () => {
                           </div>
                           <p className="text-sm text-gray-600">Client: {project.client_name || '-'}</p>
                           <p className="text-sm text-gray-500">Package: {project.package_name || '-'}</p>
-                          <p className="text-lg font-bold text-blue-700 mt-2">
+                          <p className="text-lg font-bold text-amber-700 mt-2">
                             {formatCurrency(project.value)}
                           </p>
                         </div>
@@ -1111,7 +1111,7 @@ const GMDashboard = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between pr-8">
               <div className="flex items-center gap-2">
-                <Eye className="h-5 w-5 text-blue-600" />
+                <Eye className="h-5 w-5 text-amber-600" />
                 {viewType === 're_project' && 'RE Project Details'}
                 {viewType === 'project' && 'Project Details'}
                 {viewType === 'site_request' && 'Site Request Details'}
@@ -1291,7 +1291,7 @@ const GMDashboard = () => {
                     </div>
                     <div>
                       <p className="text-sm text-gray-500">Value</p>
-                      <p className="font-bold text-blue-700">{formatCurrency(viewItem.value)}</p>
+                      <p className="font-bold text-amber-700">{formatCurrency(viewItem.value)}</p>
                     </div>
                   </div>
                 </>

@@ -110,11 +110,9 @@ export default function Projects() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Project Management System</p>
             </div>
           </div>
@@ -133,7 +131,7 @@ export default function Projects() {
               data-testid="projects-btn"
               variant="ghost"
               size="sm"
-              className="hidden sm:inline-flex text-blue-600 font-semibold"
+              className="hidden sm:inline-flex text-amber-600 font-semibold"
             >
               Projects
             </Button>
@@ -177,7 +175,7 @@ export default function Projects() {
           {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="create-project-btn" className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
+                <Button data-testid="create-project-btn" className="gap-2 bg-secondary hover:bg-secondary/90 w-full sm:w-auto">
                   <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
                   New Project
                 </Button>
@@ -273,7 +271,7 @@ export default function Projects() {
                     <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                       Cancel
                     </Button>
-                    <Button data-testid="submit-project-btn" type="submit" className="bg-blue-600 hover:bg-blue-700">
+                    <Button data-testid="submit-project-btn" type="submit" className="bg-secondary hover:bg-secondary/90">
                       Create Project
                     </Button>
                   </div>

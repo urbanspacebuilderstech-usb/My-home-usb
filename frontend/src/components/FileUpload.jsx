@@ -69,7 +69,7 @@ export function FileUpload({ projectId, category = 'general', onUploadComplete }
     <div
       data-testid="file-upload-zone"
       className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer ${
-        dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+        dragOver ? 'border-amber-500 bg-amber-50' : 'border-gray-300 hover:border-gray-400'
       }`}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
@@ -87,7 +87,7 @@ export function FileUpload({ projectId, category = 'general', onUploadComplete }
       />
       {uploading ? (
         <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-8 w-8 text-blue-500 animate-spin" />
+          <Loader2 className="h-8 w-8 text-amber-600 animate-spin" />
           <p className="text-sm text-gray-500">Uploading...</p>
         </div>
       ) : (
@@ -141,8 +141,8 @@ export function FileList({ files, onDelete, canDelete = true }) {
             className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border hover:bg-gray-100 transition-colors"
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className={`p-2 rounded-lg ${isImage ? 'bg-purple-100' : 'bg-blue-100'}`}>
-                <IconComponent className={`h-4 w-4 ${isImage ? 'text-purple-600' : 'text-blue-600'}`} />
+              <div className={`p-2 rounded-lg ${isImage ? 'bg-purple-100' : 'bg-amber-50'}`}>
+                <IconComponent className={`h-4 w-4 ${isImage ? 'text-purple-600' : 'text-amber-600'}`} />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{file.original_filename || file.filename}</p>

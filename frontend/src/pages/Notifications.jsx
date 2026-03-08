@@ -72,11 +72,9 @@ export default function Notifications() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -115,8 +113,8 @@ export default function Notifications() {
             </CardHeader>
             <CardContent>
               <div className="flex items-center gap-2">
-                <Bell className="h-6 w-6 text-blue-600" />
-                <span className="text-2xl font-bold text-blue-700">{notifications.length}</span>
+                <Bell className="h-6 w-6 text-amber-600" />
+                <span className="text-2xl font-bold text-amber-700">{notifications.length}</span>
               </div>
             </CardContent>
           </Card>
@@ -178,10 +176,10 @@ export default function Notifications() {
                   <div
                     key={notif.notification_id}
                     data-testid={`notif-${notif.notification_id}`}
-                    className={`p-4 flex items-start gap-4 hover:bg-gray-50 ${!notif.read ? 'bg-blue-50' : ''}`}
+                    className={`p-4 flex items-start gap-4 hover:bg-gray-50 ${!notif.read ? 'bg-amber-50' : ''}`}
                   >
-                    <div className={`p-2 rounded-full ${!notif.read ? 'bg-blue-100' : 'bg-gray-100'}`}>
-                      <Bell className={`h-5 w-5 ${!notif.read ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <div className={`p-2 rounded-full ${!notif.read ? 'bg-amber-50' : 'bg-gray-100'}`}>
+                      <Bell className={`h-5 w-5 ${!notif.read ? 'text-amber-600' : 'text-gray-400'}`} />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-start justify-between">
@@ -190,7 +188,7 @@ export default function Notifications() {
                           <p className="text-gray-600 mt-1">{notif.message}</p>
                         </div>
                         {!notif.read && (
-                          <Badge variant="default" className="bg-blue-600">New</Badge>
+                          <Badge variant="default" className="bg-secondary">New</Badge>
                         )}
                       </div>
                       <div className="flex items-center gap-4 mt-3">
@@ -201,7 +199,7 @@ export default function Notifications() {
                           <Button
                             variant="link"
                             size="sm"
-                            className="p-0 h-auto text-blue-600"
+                            className="p-0 h-auto text-amber-600"
                             onClick={() => window.location.href = notif.link}
                           >
                             View Details

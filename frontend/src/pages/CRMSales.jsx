@@ -33,7 +33,7 @@ const COMPANY_INFO = {
 };
 
 const RE_STATUS_CONFIG = {
-  re_requested: { label: 'RE Requested', color: 'bg-blue-100 text-blue-700', icon: Clock },
+  re_requested: { label: 'RE Requested', color: 'bg-amber-50 text-amber-700', icon: Clock },
   re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700', icon: RefreshCw },
   re_submitted: { label: 'Submitted', color: 'bg-purple-100 text-purple-700', icon: FileText },
   re_approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: CheckCircle },
@@ -408,13 +408,13 @@ export default function CRMSales() {
             </CardContent>
           </Card>
           
-          <Card className="bg-blue-50 border-blue-200">
+          <Card className="bg-amber-50 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-1">
-                <Clock className="h-4 w-4 text-blue-600" />
-                <span className="text-xs text-blue-600">RE Requested</span>
+                <Clock className="h-4 w-4 text-amber-600" />
+                <span className="text-xs text-amber-600">RE Requested</span>
               </div>
-              <p className="text-2xl font-bold text-blue-700">{dashboard?.re_stats?.requested || 0}</p>
+              <p className="text-2xl font-bold text-amber-700">{dashboard?.re_stats?.requested || 0}</p>
             </CardContent>
           </Card>
           

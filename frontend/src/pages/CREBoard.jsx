@@ -431,9 +431,9 @@ export default function CREBoard() {
       pending_payment: { label: 'Awaiting Accountant', className: 'bg-orange-100 text-orange-700' },
       payment_received: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
       payment_verified: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
-      in_planning: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
-      planning_review: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
-      planning: { label: 'In Planning', className: 'bg-blue-100 text-blue-700' },
+      in_planning: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
+      planning_review: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
+      planning: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
       awaiting_approval: { label: 'Awaiting Approval', className: 'bg-yellow-100 text-yellow-700' },
       gm_approved: { label: 'GM Approved', className: 'bg-purple-100 text-purple-700' },
       planning_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
@@ -465,7 +465,7 @@ export default function CREBoard() {
       case 'payment_received':
       case 'payment_verified':
         return (
-          <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
+          <Button size="sm" className="gap-1 bg-secondary hover:bg-secondary/90" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
             <Send className="h-3 w-3" /> Planning Dept
           </Button>
         );
@@ -473,7 +473,7 @@ export default function CREBoard() {
       case 'planning':
       case 'planning_review':
         return (
-          <Badge variant="outline" className="text-blue-600 border-blue-300">
+          <Badge variant="outline" className="text-amber-600 border-blue-300">
             <Clock className="h-3 w-3 mr-1" /> In Planning (Scopes & Payments)
           </Badge>
         );
@@ -509,7 +509,7 @@ export default function CREBoard() {
       <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
+            <div className="bg-secondary p-2 rounded-lg">
               <Users className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -570,11 +570,11 @@ export default function CREBoard() {
           
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('in_planning')} data-testid="planning-card">
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-1">
+              <div className="flex items-center gap-2 text-amber-600 mb-1">
                 <Clock className="h-4 w-4" />
                 <span className="text-xs sm:text-sm">In Planning</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.in_planning_count || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.in_planning_count || 0}</p>
             </CardContent>
           </Card>
           
@@ -601,7 +601,7 @@ export default function CREBoard() {
               <ArrowRight className="h-4 w-4 text-gray-400" />
               <Badge variant="outline" className="bg-emerald-100 text-emerald-700">Payment Received</Badge>
               <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-blue-100 text-blue-700">Planning Dept</Badge>
+              <Badge variant="outline" className="bg-amber-50 text-amber-700">Planning Dept</Badge>
               <ArrowRight className="h-4 w-4 text-gray-400" />
               <Badge variant="outline" className="bg-indigo-100 text-indigo-700">Drawing Stage</Badge>
             </div>
@@ -651,7 +651,7 @@ export default function CREBoard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-gray-500">Total Ongoing Projects</p>
-                  <p className="text-3xl font-bold text-blue-600">{dashboard.total_ongoing || 0}</p>
+                  <p className="text-3xl font-bold text-amber-600">{dashboard.total_ongoing || 0}</p>
                 </div>
                 <Button variant="outline" onClick={() => window.location.href = '/projects'}>
                   View All Projects
@@ -706,7 +706,7 @@ export default function CREBoard() {
             <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} data-testid="filter-btn">
               <Filter className="h-4 w-4 mr-1" /> Filters
             </Button>
-            <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-blue-600 hover:bg-blue-700" data-testid="create-project-btn">
+            <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-secondary hover:bg-secondary/90" data-testid="create-project-btn">
               <Plus className="h-4 w-4" /> Create Project
             </Button>
           </div>
@@ -791,7 +791,7 @@ export default function CREBoard() {
                 <TabsTrigger value="payment_received" className="data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 rounded-none text-xs sm:text-sm" data-testid="tab-payment-received">
                   Payment Received
                 </TabsTrigger>
-                <TabsTrigger value="in_planning" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-xs sm:text-sm" data-testid="tab-planning">
+                <TabsTrigger value="in_planning" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm" data-testid="tab-planning">
                   In Planning
                 </TabsTrigger>
                 <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm" data-testid="tab-approved">
@@ -822,7 +822,7 @@ export default function CREBoard() {
                               ) : (
                                 <Badge className="bg-yellow-100 text-yellow-700">New Deal</Badge>
                               )}
-                              {deal.re_project_id && deal.deal_type !== 're_project' && <Badge className="bg-blue-100 text-blue-700">Has RE</Badge>}
+                              {deal.re_project_id && deal.deal_type !== 're_project' && <Badge className="bg-amber-50 text-amber-700">Has RE</Badge>}
                             </div>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600 mb-2">
                               <div className="flex items-center gap-1">
@@ -840,9 +840,9 @@ export default function CREBoard() {
                             </div>
                             {/* RE Project details */}
                             {(deal.deal_type === 're_project' || deal.re_project) && (
-                              <div className="bg-blue-50 p-2 rounded-lg mt-2">
-                                <p className="text-sm font-medium text-blue-800">RE: {deal.re_project?.project_name || deal.project_name}</p>
-                                <div className="flex gap-4 text-xs text-blue-600">
+                              <div className="bg-amber-50 p-2 rounded-lg mt-2">
+                                <p className="text-sm font-medium text-amber-800">RE: {deal.re_project?.project_name || deal.project_name}</p>
+                                <div className="flex gap-4 text-xs text-amber-600">
                                   <span>{(deal.sqft || deal.re_project?.sqft || deal.re_project?.area_sqft)?.toLocaleString()} sqft</span>
                                   <span>₹{(deal.estimated_total || deal.re_project?.estimated_total || 0).toLocaleString()}</span>
                                   <span>{deal.handover_months || deal.re_project?.handover_months} months</span>
@@ -1020,7 +1020,7 @@ export default function CREBoard() {
                           </div>
                           <div className="text-right flex items-center gap-3">
                             <p className="font-bold text-emerald-600">{formatCurrency(project.total_value)}</p>
-                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleSubmitToPlanning(project.project_id)}>
+                            <Button size="sm" className="bg-secondary hover:bg-secondary/90" onClick={() => handleSubmitToPlanning(project.project_id)}>
                               <Send className="h-3 w-3 mr-1" /> Planning Team
                             </Button>
                           </div>
@@ -1041,14 +1041,14 @@ export default function CREBoard() {
                   ) : (
                     <div className="space-y-2">
                       {projects.map((project) => (
-                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-blue-200">
                           <div>
                             <p className="font-medium">{project.name}</p>
                             <p className="text-sm text-gray-500">{project.client_name}</p>
                           </div>
                           <div className="text-right">
-                            <p className="font-bold text-blue-600">{formatCurrency(project.total_value)}</p>
-                            <Badge className="bg-blue-100 text-blue-700">In Planning</Badge>
+                            <p className="font-bold text-amber-600">{formatCurrency(project.total_value)}</p>
+                            <Badge className="bg-amber-50 text-amber-700">In Planning</Badge>
                           </div>
                         </div>
                       ))}
@@ -1201,7 +1201,7 @@ export default function CREBoard() {
                 {packages.map((pkg) => (
                   <Card 
                     key={pkg.package_id}
-                    className={`cursor-pointer transition-all ${form.package_id === pkg.package_id ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:shadow-md'}`}
+                    className={`cursor-pointer transition-all ${form.package_id === pkg.package_id ? 'ring-2 ring-blue-500 bg-amber-50' : 'hover:shadow-md'}`}
                     onClick={() => handlePackageSelect(pkg.package_id)}
                     data-testid={`package-${pkg.code}`}
                   >
@@ -1301,7 +1301,7 @@ export default function CREBoard() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateDialog(false); resetForm(); }}>Cancel</Button>
-            <Button onClick={handleCreateProject} className="bg-blue-600 hover:bg-blue-700" data-testid="btn-create-project">
+            <Button onClick={handleCreateProject} className="bg-secondary hover:bg-secondary/90" data-testid="btn-create-project">
               <Plus className="h-4 w-4 mr-2" /> Create Project
             </Button>
           </DialogFooter>
@@ -1446,7 +1446,7 @@ export default function CREBoard() {
               {/* Project Details Section */}
               <div className="border rounded-lg p-4">
                 <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-blue-600" />
+                  <Building2 className="h-4 w-4 text-amber-600" />
                   Project Details
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
@@ -1649,7 +1649,7 @@ export default function CREBoard() {
                     </div>
                     <div className="flex justify-between font-semibold mt-2 pt-2 border-t">
                       <span>Balance Due</span>
-                      <span className="text-blue-700">₹{(selectedDealRE.estimated_total - parseFloat(advanceAmount)).toLocaleString()}</span>
+                      <span className="text-amber-700">₹{(selectedDealRE.estimated_total - parseFloat(advanceAmount)).toLocaleString()}</span>
                     </div>
                   </div>
                 )}
@@ -1698,7 +1698,7 @@ export default function CREBoard() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5 text-blue-600" />
+              <Eye className="h-5 w-5 text-amber-600" />
               Project Details
             </DialogTitle>
             <DialogDescription>

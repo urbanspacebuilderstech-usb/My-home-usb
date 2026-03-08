@@ -36,7 +36,7 @@ const API = process.env.REACT_APP_BACKEND_URL;
 
 // Source colors for badges
 const SOURCE_COLORS = {
-  meta: 'bg-blue-100 text-blue-700',
+  meta: 'bg-amber-50 text-amber-700',
   seo: 'bg-green-100 text-green-700',
   referral: 'bg-purple-100 text-purple-700',
   walk_in: 'bg-yellow-100 text-yellow-700',
@@ -60,12 +60,12 @@ const STANDARD_FIELDS = [
 
 // Stage colors
 const STAGE_COLORS = {
-  stg_new_lead: 'bg-blue-500',
+  stg_new_lead: 'bg-amber-500',
   stg_contacted: 'bg-yellow-500',
   stg_proposal: 'bg-purple-500',
   stg_followup: 'bg-orange-500',
   stg_appt_booked: 'bg-green-500',
-  stg_new_appointment: 'bg-blue-500',
+  stg_new_appointment: 'bg-amber-500',
   stg_discussion: 'bg-yellow-500',
   stg_site_visit: 'bg-purple-500',
   stg_re_requested: 'bg-orange-500',
@@ -727,7 +727,7 @@ export default function MarketingBoard() {
                 <FileSpreadsheet className="h-4 w-4 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Google</span> Sheets
               </Button>
               {sheetsConfig?.is_connected && (
-                <Button variant="outline" onClick={() => setShowExportDialog(true)} className="border-blue-500 text-blue-600 hover:bg-blue-50" data-testid="export-sheets-btn">
+                <Button variant="outline" onClick={() => setShowExportDialog(true)} className="border-amber-500 text-amber-600 hover:bg-amber-50" data-testid="export-sheets-btn">
                   <Download className="h-4 w-4 mr-1 sm:mr-2" /> Export
                 </Button>
               )}
@@ -775,7 +775,7 @@ export default function MarketingBoard() {
 
         {/* Stats Overview */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+          <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white">
             <CardContent className="p-4">
               <p className="text-blue-100 text-sm">Total Pre-Sales Leads</p>
               <p className="text-3xl font-bold">{dashboard?.total_pre_sales_leads || 0}</p>
@@ -823,7 +823,7 @@ export default function MarketingBoard() {
               {/* Pre-Sales Team Summary */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-blue-700">
+                  <CardTitle className="flex items-center gap-2 text-amber-700">
                     <Users className="h-5 w-5" /> Pre-Sales Team
                   </CardTitle>
                   <CardDescription>Lead qualification and appointment booking</CardDescription>
@@ -838,7 +838,7 @@ export default function MarketingBoard() {
                       >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold">
                               {member.name?.charAt(0) || 'U'}
                             </div>
                             <div>
@@ -850,7 +850,7 @@ export default function MarketingBoard() {
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-3">
                           <div className="text-center bg-white rounded p-2">
-                            <p className="text-xl font-bold text-blue-600">{member.total_leads}</p>
+                            <p className="text-xl font-bold text-amber-600">{member.total_leads}</p>
                             <p className="text-xs text-gray-500">Leads</p>
                           </div>
                           <div className="text-center bg-white rounded p-2">
@@ -905,7 +905,7 @@ export default function MarketingBoard() {
                             <p className="text-xs text-gray-500">Appointments</p>
                           </div>
                           <div className="text-center bg-white rounded p-2">
-                            <p className="text-xl font-bold text-blue-600">{member.deals_closed}</p>
+                            <p className="text-xl font-bold text-amber-600">{member.deals_closed}</p>
                             <p className="text-xs text-gray-500">Deals Closed</p>
                           </div>
                           <div className="text-center bg-white rounded p-2">
@@ -935,7 +935,7 @@ export default function MarketingBoard() {
                   {dashboard?.recent_leads?.slice(0, 10).map(lead => (
                     <div key={lead.lead_id} className="flex items-center justify-between py-2 border-b last:border-0">
                       <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${lead.stage_type === 'pre_sales' ? 'bg-blue-500' : 'bg-green-500'}`}></div>
+                        <div className={`w-2 h-2 rounded-full ${lead.stage_type === 'pre_sales' ? 'bg-amber-500' : 'bg-green-500'}`}></div>
                         <span className="font-medium">{lead.name}</span>
                         <Badge className={SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}>
                           {lead.source?.replace('_', ' ')}
@@ -960,7 +960,7 @@ export default function MarketingBoard() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle className="flex items-center gap-2 text-blue-700">
+                      <CardTitle className="flex items-center gap-2 text-amber-700">
                         <Users className="h-5 w-5" /> Pre-Sales Team
                       </CardTitle>
                       <CardDescription>Lead qualification and appointment booking team</CardDescription>
@@ -988,7 +988,7 @@ export default function MarketingBoard() {
                           <tr key={member.user_id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-sm">
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm">
                                   {member.name?.charAt(0)}
                                 </div>
                                 <span className="font-medium">{member.name}</span>
@@ -998,7 +998,7 @@ export default function MarketingBoard() {
                               <p className="text-xs text-gray-600">{member.email}</p>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <span className="text-lg font-bold text-blue-600">{member.total_leads}</span>
+                              <span className="text-lg font-bold text-amber-600">{member.total_leads}</span>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <span className="text-lg font-bold text-green-600">{member.converted}</span>
@@ -1067,7 +1067,7 @@ export default function MarketingBoard() {
                               <span className="text-lg font-bold text-green-600">{member.total_appointments}</span>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <span className="text-lg font-bold text-blue-600">{member.deals_closed}</span>
+                              <span className="text-lg font-bold text-amber-600">{member.deals_closed}</span>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <Badge className={member.close_rate >= 15 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
@@ -1193,7 +1193,7 @@ export default function MarketingBoard() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <Badge className={`text-[10px] px-1.5 ${lead.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                            <Badge className={`text-[10px] px-1.5 ${lead.stage_type === 'pre_sales' ? 'bg-amber-50 text-amber-700' : 'bg-green-100 text-green-700'}`}>
                               {lead.stage_type === 'pre_sales' ? 'PS' : 'S'}
                             </Badge>
                           </td>
@@ -1236,7 +1236,7 @@ export default function MarketingBoard() {
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-center gap-0">
                               <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openLeadDetail(lead)} title="View">
-                                <Eye className="h-3.5 w-3.5 text-blue-600" />
+                                <Eye className="h-3.5 w-3.5 text-amber-600" />
                               </Button>
                               <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEditLead(lead)} title="Edit">
                                 <Edit2 className="h-3.5 w-3.5 text-amber-600" />
@@ -1292,7 +1292,7 @@ export default function MarketingBoard() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${selectedPerson?.type === 'pre_sales' ? 'bg-gradient-to-br from-blue-400 to-blue-600' : 'bg-gradient-to-br from-green-400 to-green-600'}`}>
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${selectedPerson?.type === 'pre_sales' ? 'bg-gradient-to-br from-amber-400 to-amber-600' : 'bg-gradient-to-br from-green-400 to-green-600'}`}>
                 {selectedPerson?.name?.charAt(0)}
               </div>
               <div>
@@ -1306,12 +1306,12 @@ export default function MarketingBoard() {
             <div className="space-y-6 mt-4">
               {/* Summary Stats */}
               <div className="grid grid-cols-4 gap-4">
-                <Card className="bg-blue-50 border-blue-200">
+                <Card className="bg-amber-50 border-blue-200">
                   <CardContent className="p-4 text-center">
-                    <p className="text-3xl font-bold text-blue-700">
+                    <p className="text-3xl font-bold text-amber-700">
                       {selectedPerson.type === 'pre_sales' ? selectedPerson.total_leads : selectedPerson.total_appointments}
                     </p>
-                    <p className="text-xs text-blue-600">Total {selectedPerson.type === 'pre_sales' ? 'Leads' : 'Appointments'}</p>
+                    <p className="text-xs text-amber-600">Total {selectedPerson.type === 'pre_sales' ? 'Leads' : 'Appointments'}</p>
                   </CardContent>
                 </Card>
                 <Card className="bg-green-50 border-green-200">
@@ -1616,7 +1616,7 @@ export default function MarketingBoard() {
                       {selectedLead?.source_display || selectedLead?.source}
                     </Badge>
                     <Badge variant="outline">{selectedLead?.current_stage_id?.replace('stg_', '').replace(/_/g, ' ')}</Badge>
-                    <Badge className={selectedLead?.stage_type === 'pre_sales' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
+                    <Badge className={selectedLead?.stage_type === 'pre_sales' ? 'bg-amber-50 text-amber-700' : 'bg-green-100 text-green-700'}>
                       {selectedLead?.stage_type === 'pre_sales' ? 'Pre-Sales' : 'Sales'}
                     </Badge>
                   </div>
@@ -1627,7 +1627,7 @@ export default function MarketingBoard() {
                   variant="outline" 
                   size="sm" 
                   onClick={() => { setShowLeadDetail(false); openEditLead(selectedLead); }}
-                  className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                  className="text-amber-600 border-blue-200 hover:bg-amber-50"
                 >
                   <Edit2 className="h-4 w-4 mr-1" /> Edit
                 </Button>
@@ -1786,7 +1786,7 @@ export default function MarketingBoard() {
                               {dashboard?.pre_sales_team?.map(m => (
                                 <SelectItem key={m.user_id} value={m.user_id}>
                                   <div className="flex items-center gap-2">
-                                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                                    <div className="w-6 h-6 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 text-xs font-bold">
                                       {m.name?.charAt(0)}
                                     </div>
                                     {m.name} - {m.stats?.leads_count || 0} leads
@@ -2073,13 +2073,13 @@ export default function MarketingBoard() {
                         <div className="flex flex-col gap-4">
                           {/* Info about importing all tabs */}
                           {sheetPreview.sheets?.length > 1 && (
-                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="p-3 bg-amber-50 border border-blue-200 rounded-lg">
                               <div className="flex items-start gap-2">
-                                <Layers className="h-5 w-5 text-blue-600 mt-0.5" />
+                                <Layers className="h-5 w-5 text-amber-600 mt-0.5" />
                                 <div>
-                                  <p className="font-medium text-blue-800">Multiple Sheets Detected</p>
-                                  <p className="text-sm text-blue-700">Found {sheetPreview.sheets.length} tabs: {sheetPreview.sheets.join(', ')}</p>
-                                  <p className="text-sm text-blue-600 mt-1">Click "Import All Tabs" to import leads from all sheets. Each tab name will become the lead source.</p>
+                                  <p className="font-medium text-amber-800">Multiple Sheets Detected</p>
+                                  <p className="text-sm text-amber-700">Found {sheetPreview.sheets.length} tabs: {sheetPreview.sheets.join(', ')}</p>
+                                  <p className="text-sm text-amber-600 mt-1">Click "Import All Tabs" to import leads from all sheets. Each tab name will become the lead source.</p>
                                 </div>
                               </div>
                             </div>
@@ -2356,7 +2356,7 @@ export default function MarketingBoard() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5 text-blue-600" />
+              <Download className="h-5 w-5 text-amber-600" />
               Export Leads to Google Sheets
             </DialogTitle>
             <DialogDescription>Export your CRM leads to a new or existing Google Sheet</DialogDescription>
@@ -2425,7 +2425,7 @@ export default function MarketingBoard() {
             <Button 
               onClick={handleExport} 
               disabled={isExporting}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-secondary hover:bg-secondary/90"
               data-testid="export-submit-btn"
             >
               {isExporting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}

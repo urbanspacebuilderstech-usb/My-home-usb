@@ -171,7 +171,7 @@ export default function IndirectCostManagement() {
   const getStatusBadge = (status) => {
     const config = {
       pending: { label: 'Pending Approval', class: 'bg-yellow-100 text-yellow-700', icon: Clock },
-      approved: { label: 'Approved', class: 'bg-blue-100 text-blue-700', icon: ThumbsUp },
+      approved: { label: 'Approved', class: 'bg-amber-50 text-amber-700', icon: ThumbsUp },
       rejected: { label: 'Rejected', class: 'bg-red-100 text-red-700', icon: XCircle },
       confirmed: { label: 'Confirmed', class: 'bg-green-100 text-green-700', icon: Lock }
     };
@@ -226,9 +226,7 @@ export default function IndirectCostManagement() {
             <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-2 rounded-lg">
-              <Building2 className="h-5 w-5 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
               <h1 className="text-lg font-bold">Indirect Costs (Overheads)</h1>
               <p className="text-xs text-gray-500">Office Rent, Salary, Utilities, etc.</p>
@@ -259,11 +257,11 @@ export default function IndirectCostManagement() {
             </CardContent>
           </Card>
           
-          <Card className="bg-blue-50 border-blue-200 cursor-pointer" onClick={() => setActiveTab('approved')}>
+          <Card className="bg-amber-50 border-blue-200 cursor-pointer" onClick={() => setActiveTab('approved')}>
             <CardContent className="p-4 text-center">
-              <ThumbsUp className="h-6 w-6 mx-auto mb-1 text-blue-600" />
-              <p className="text-2xl font-bold text-blue-700">{stats.approved}</p>
-              <p className="text-xs text-blue-600">Approved</p>
+              <ThumbsUp className="h-6 w-6 mx-auto mb-1 text-amber-600" />
+              <p className="text-2xl font-bold text-amber-700">{stats.approved}</p>
+              <p className="text-xs text-amber-600">Approved</p>
             </CardContent>
           </Card>
           

@@ -1,6 +1,6 @@
 {
-  "name": "ConstructionOS",
-  "short_name": "ConstructionOS",
+  "name": "My Home USB",
+  "short_name": "My Home USB",
   "description": "Construction Accounting CRM & Project Operations System",
   "start_url": "/",
   "display": "standalone",

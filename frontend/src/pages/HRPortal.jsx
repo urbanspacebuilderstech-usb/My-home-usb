@@ -270,7 +270,7 @@ export default function HRPortal() {
       terminated: { label: 'Terminated', class: 'bg-red-100 text-red-700' },
       draft: { label: 'Draft', class: 'bg-gray-100 text-gray-700' },
       pending_approval: { label: 'Pending', class: 'bg-yellow-100 text-yellow-700' },
-      approved: { label: 'Approved', class: 'bg-blue-100 text-blue-700' },
+      approved: { label: 'Approved', class: 'bg-amber-50 text-amber-700' },
       paid: { label: 'Paid', class: 'bg-green-100 text-green-700' }
     };
     const c = config[status] || { label: status, class: 'bg-gray-100 text-gray-700' };

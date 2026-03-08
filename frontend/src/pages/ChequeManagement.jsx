@@ -21,7 +21,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const CHEQUE_STATUSES = [
-  { value: 'issued', label: 'Issued', color: 'bg-blue-100 text-blue-700' },
+  { value: 'issued', label: 'Issued', color: 'bg-amber-50 text-amber-700' },
   { value: 'deposited', label: 'Deposited', color: 'bg-yellow-100 text-yellow-700' },
   { value: 'cleared', label: 'Cleared', color: 'bg-green-100 text-green-700' },
   { value: 'bounced', label: 'Bounced', color: 'bg-red-100 text-red-700' },
@@ -221,7 +221,7 @@ export default function ChequeManagement() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+        <RefreshCw className="h-6 w-6 animate-spin text-amber-600" />
       </div>
     );
   }
@@ -296,10 +296,10 @@ export default function ChequeManagement() {
             </CardContent>
           </Card>
           
-          <Card className="cursor-pointer hover:shadow-md bg-blue-50" onClick={() => setActiveTab('outgoing')}>
+          <Card className="cursor-pointer hover:shadow-md bg-amber-50" onClick={() => setActiveTab('outgoing')}>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-blue-700">{stats.outgoing}</p>
-              <p className="text-xs text-blue-600">Outgoing</p>
+              <p className="text-2xl font-bold text-amber-700">{stats.outgoing}</p>
+              <p className="text-xs text-amber-600">Outgoing</p>
             </CardContent>
           </Card>
           
@@ -402,12 +402,12 @@ export default function ChequeManagement() {
                           {cheque.project_name || '-'}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <Badge className={cheque.cheque_type === 'incoming' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}>
+                          <Badge className={cheque.cheque_type === 'incoming' ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-700'}>
                             {cheque.cheque_type === 'incoming' ? 'IN' : 'OUT'}
                           </Badge>
                         </td>
                         <td className="px-4 py-3 text-right font-bold">
-                          <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-blue-600'}>
+                          <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'}>
                             {formatCurrency(cheque.amount)}
                           </span>
                         </td>
@@ -437,7 +437,7 @@ export default function ChequeManagement() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-600" /> Add New Cheque
+              <FileText className="h-5 w-5 text-amber-600" /> Add New Cheque
             </DialogTitle>
           </DialogHeader>
           
@@ -608,7 +608,7 @@ export default function ChequeManagement() {
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddDialog(false)}>Cancel</Button>
-            <Button onClick={handleAddCheque} className="bg-blue-600 hover:bg-blue-700" data-testid="save-cheque-btn">
+            <Button onClick={handleAddCheque} className="bg-secondary hover:bg-secondary/90" data-testid="save-cheque-btn">
               <CheckCircle className="h-4 w-4 mr-1" /> Save Cheque
             </Button>
           </DialogFooter>
@@ -708,7 +708,7 @@ export default function ChequeManagement() {
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setStatusDialog(false)}>Cancel</Button>
-            <Button onClick={handleUpdateStatus} className="bg-blue-600 hover:bg-blue-700" data-testid="update-status-btn">
+            <Button onClick={handleUpdateStatus} className="bg-secondary hover:bg-secondary/90" data-testid="update-status-btn">
               <CheckCircle className="h-4 w-4 mr-1" /> Update Status
             </Button>
           </DialogFooter>

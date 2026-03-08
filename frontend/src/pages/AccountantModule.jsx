@@ -24,7 +24,7 @@ const API = `${BACKEND_URL}/api`;
 // 10 Expense Categories
 const EXPENSE_CATEGORIES = [
   { value: 'salary', label: 'Salary & Wages', icon: Users, color: 'bg-violet-100 text-violet-700' },
-  { value: 'material', label: 'Material Purchase', icon: Package, color: 'bg-blue-100 text-blue-700' },
+  { value: 'material', label: 'Material Purchase', icon: Package, color: 'bg-amber-50 text-amber-700' },
   { value: 'labour', label: 'Labour Payment', icon: Users, color: 'bg-green-100 text-green-700' },
   { value: 'transport', label: 'Transport & Logistics', icon: Truck, color: 'bg-orange-100 text-orange-700' },
   { value: 'utility', label: 'Utilities (Power/Water)', icon: Building2, color: 'bg-cyan-100 text-cyan-700' },
@@ -491,7 +491,7 @@ export default function AccountantModule() {
                 <div className="grid grid-cols-4 gap-2 p-4 border-b bg-gray-50">
                   <Card className={`cursor-pointer ${requestFilter === 'cre' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setRequestFilter('cre')}>
                     <CardContent className="p-3 text-center">
-                      <DollarSign className="h-5 w-5 mx-auto text-blue-600" />
+                      <DollarSign className="h-5 w-5 mx-auto text-amber-600" />
                       <p className="text-lg font-bold">{counts.cre}</p>
                       <p className="text-xs text-gray-600">CRE Advance</p>
                     </CardContent>
@@ -522,7 +522,7 @@ export default function AccountantModule() {
                 {/* CRE Requests */}
                 {(requestFilter === 'all' || requestFilter === 'cre') && creRequests.filter(r => r.status === 'pending_payment').length > 0 && (
                   <div className="p-4 border-b">
-                    <h3 className="text-sm font-semibold text-blue-700 mb-3 flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2">
                       <DollarSign className="h-4 w-4" /> CRE Advance Payment Verification
                     </h3>
                     <div className="space-y-3">
@@ -532,7 +532,7 @@ export default function AccountantModule() {
                             <div>
                               <p className="font-semibold">{req.name}</p>
                               <p className="text-sm text-gray-600">{req.client_name} • {req.location}</p>
-                              <p className="text-lg font-bold text-blue-600">{formatCurrency(req.advance_amount)}</p>
+                              <p className="text-lg font-bold text-amber-600">{formatCurrency(req.advance_amount)}</p>
                               <p className="text-xs text-gray-500">Mode: {req.advance_payment_mode}</p>
                             </div>
                             <div className="flex gap-2">
@@ -695,7 +695,7 @@ export default function AccountantModule() {
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-gray-600">Cheque</p>
-                    <p className="font-bold text-blue-600">{formatCurrency(incomeSummary.cheque || 0)}</p>
+                    <p className="font-bold text-amber-600">{formatCurrency(incomeSummary.cheque || 0)}</p>
                   </div>
                   <div className="text-center">
                     <p className="text-xs text-gray-600">Bank Transfer</p>

@@ -178,11 +178,9 @@ export default function Procurement() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -220,7 +218,7 @@ export default function Procurement() {
               <CardTitle className="text-sm font-medium text-gray-600">Total Vendors</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-blue-700">{vendors.length}</div>
+              <div className="text-3xl font-bold text-amber-700">{vendors.length}</div>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
@@ -264,7 +262,7 @@ export default function Procurement() {
                     {activeTab === 'vendors' && (
                       <Dialog open={vendorDialogOpen} onOpenChange={(open) => { setVendorDialogOpen(open); if (!open) resetVendorForm(); }}>
                         <DialogTrigger asChild>
-                          <Button data-testid="add-vendor-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                          <Button data-testid="add-vendor-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                             <Plus className="h-4 w-4" />Add Vendor
                           </Button>
                         </DialogTrigger>
@@ -328,7 +326,7 @@ export default function Procurement() {
                     {activeTab === 'purchase-orders' && workOrders.length > 0 && (
                       <Dialog open={poDialogOpen} onOpenChange={setPODialogOpen}>
                         <DialogTrigger asChild>
-                          <Button data-testid="create-po-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                          <Button data-testid="create-po-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                             <Plus className="h-4 w-4" />Create PO
                           </Button>
                         </DialogTrigger>
@@ -456,7 +454,7 @@ export default function Procurement() {
                                   size="icon"
                                   onClick={() => openEditVendor(vendor)}
                                 >
-                                  <Edit className="h-4 w-4 text-blue-600" />
+                                  <Edit className="h-4 w-4 text-amber-600" />
                                 </Button>
                                 <Button
                                   data-testid={`delete-vendor-${vendor.vendor_id}`}
@@ -511,7 +509,7 @@ export default function Procurement() {
                     ) : (
                       purchaseOrders.map((po) => (
                         <tr key={po.po_id} data-testid={`po-row-${po.po_id}`} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 font-semibold text-blue-600">{po.po_id}</td>
+                          <td className="px-6 py-4 font-semibold text-amber-600">{po.po_id}</td>
                           <td className="px-6 py-4">{getVendorName(po.vendor_id)}</td>
                           <td className="px-6 py-4">{po.item_name}</td>
                           <td className="px-6 py-4">{po.quantity}</td>
@@ -564,7 +562,7 @@ export default function Procurement() {
               <div className="flex gap-2">
                 <Button
                   data-testid="confirm-link-btn"
-                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  className="flex-1 bg-secondary hover:bg-secondary/90"
                   onClick={handleLinkVendor}
                 >
                   Link Vendor

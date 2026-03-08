@@ -161,11 +161,9 @@ export default function SiteReceipt() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -199,7 +197,7 @@ export default function SiteReceipt() {
           {canSubmit && purchaseOrders.length > 0 && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="new-receipt-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                <Button data-testid="new-receipt-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                   <Upload className="h-4 w-4" />New Receipt
                 </Button>
               </DialogTrigger>
@@ -341,7 +339,7 @@ export default function SiteReceipt() {
               <CardTitle className="text-sm font-medium text-gray-600">Your Role</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-lg font-bold text-blue-700">
+              <div className="text-lg font-bold text-amber-700">
                 {user.role.replace('_', ' ').toUpperCase()}
               </div>
             </CardContent>
@@ -375,7 +373,7 @@ export default function SiteReceipt() {
                   ) : (
                     purchaseOrders.map((po) => (
                       <tr key={po.po_id} data-testid={`po-row-${po.po_id}`} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-semibold text-blue-600">{po.po_id}</td>
+                        <td className="px-6 py-4 font-semibold text-amber-600">{po.po_id}</td>
                         <td className="px-6 py-4">{po.item_name}</td>
                         <td className="px-6 py-4">{po.quantity}</td>
                         <td className="px-6 py-4">{new Date(po.expected_delivery).toLocaleDateString()}</td>

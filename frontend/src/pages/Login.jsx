@@ -83,7 +83,7 @@ export default function Login() {
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[-120px] left-[-80px] w-[400px] h-[400px] rounded-full bg-amber-100/60 blur-3xl" />
         <div className="absolute bottom-[-100px] right-[-60px] w-[350px] h-[350px] rounded-full bg-slate-200/70 blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-blue-50/40 blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full bg-amber-50/40 blur-3xl" />
       </div>
 
       {/* Glassmorphism Card */}

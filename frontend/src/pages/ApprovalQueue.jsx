@@ -105,11 +105,9 @@ export default function ApprovalQueue() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -168,7 +166,7 @@ export default function ApprovalQueue() {
               <CardTitle className="text-sm font-medium text-gray-600">Total Value</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-blue-700">
+              <div className="text-3xl font-bold text-amber-700">
                 ₹{(workOrders.reduce((sum, wo) => sum + (wo.estimated_cost || 0), 0) / 100000).toFixed(2)}L
               </div>
             </CardContent>
@@ -217,7 +215,7 @@ export default function ApprovalQueue() {
                       return (
                         <tr key={wo.work_order_id} data-testid={`approval-row-${wo.work_order_id}`} className="hover:bg-gray-50">
                           <td className="px-6 py-4">
-                            <span className="font-semibold text-blue-600">{wo.work_order_id}</span>
+                            <span className="font-semibold text-amber-600">{wo.work_order_id}</span>
                           </td>
                           <td className="px-6 py-4">{getProjectName(wo.project_id)}</td>
                           <td className="px-6 py-4">
@@ -227,7 +225,7 @@ export default function ApprovalQueue() {
                             </div>
                           </td>
                           <td className="px-6 py-4 font-medium">{wo.requested_quantity} {boqItem?.unit}</td>
-                          <td className="px-6 py-4 font-semibold text-blue-600">₹{wo.estimated_cost?.toLocaleString() || 0}</td>
+                          <td className="px-6 py-4 font-semibold text-amber-600">₹{wo.estimated_cost?.toLocaleString() || 0}</td>
                           <td className="px-6 py-4 text-gray-600 max-w-xs truncate">{wo.purpose}</td>
                           {canApprove && (
                             <td className="px-6 py-4">

@@ -97,7 +97,7 @@ export default function WorkOrders() {
       case 'rejected': return 'bg-red-100 text-red-800';
       case 'submitted': return 'bg-yellow-100 text-yellow-800';
       case 'draft': return 'bg-gray-100 text-gray-800';
-      case 'closed': return 'bg-blue-100 text-blue-800';
+      case 'closed': return 'bg-amber-50 text-amber-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -113,11 +113,9 @@ export default function WorkOrders() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -164,7 +162,7 @@ export default function WorkOrders() {
           {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="create-wo-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                <Button data-testid="create-wo-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                   <Plus className="h-4 w-4" />Create Work Order
                 </Button>
               </DialogTrigger>
@@ -312,7 +310,7 @@ export default function WorkOrders() {
                     workOrders.map((wo) => (
                       <tr key={wo.work_order_id} data-testid={`wo-row-${wo.work_order_id}`} className="hover:bg-gray-50">
                         <td className="px-6 py-4">
-                          <span className="font-semibold text-blue-600">{wo.work_order_id}</span>
+                          <span className="font-semibold text-amber-600">{wo.work_order_id}</span>
                         </td>
                         <td className="px-6 py-4 text-gray-900">{getProjectName(wo.project_id)}</td>
                         <td className="px-6 py-4 text-gray-600 max-w-xs truncate">{wo.purpose}</td>

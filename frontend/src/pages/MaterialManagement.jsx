@@ -27,7 +27,7 @@ const CATEGORY_COLORS = {
   steel: 'bg-slate-100 text-slate-800',
   bricks: 'bg-red-100 text-red-800',
   aggregate: 'bg-stone-100 text-stone-800',
-  tiles: 'bg-blue-100 text-blue-800',
+  tiles: 'bg-amber-50 text-amber-800',
   electrical: 'bg-amber-100 text-amber-800',
   plumbing: 'bg-cyan-100 text-cyan-800',
   paint: 'bg-purple-100 text-purple-800',
@@ -172,11 +172,9 @@ export default function MaterialManagement() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Material Management</p>
             </div>
           </div>
@@ -318,7 +316,7 @@ export default function MaterialManagement() {
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Active</CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <span className="text-lg sm:text-2xl font-bold text-blue-700">{activeMaterials.length}</span>
+              <span className="text-lg sm:text-2xl font-bold text-amber-700">{activeMaterials.length}</span>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200">

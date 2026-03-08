@@ -152,7 +152,7 @@ export default function ProjectMaterials() {
             </Button>
             <div>
               <h1 className="text-xl font-bold flex items-center gap-2">
-                <Package className="h-5 w-5 text-blue-600" />
+                <Package className="h-5 w-5 text-amber-600" />
                 Material Specifications
               </h1>
               <p className="text-sm text-gray-600">{projectName}</p>
@@ -240,7 +240,7 @@ export default function ProjectMaterials() {
                           onClick={() => openEditDialog(material)}
                           data-testid={`edit-material-${material.material_id}`}
                         >
-                          <Edit className="h-4 w-4 text-blue-600" />
+                          <Edit className="h-4 w-4 text-amber-600" />
                         </Button>
                         <Button 
                           variant="ghost" 

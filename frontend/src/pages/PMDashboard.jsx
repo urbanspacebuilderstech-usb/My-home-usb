@@ -120,7 +120,7 @@ export default function PMDashboard() {
   const getRoleBadge = (role) => {
     const config = {
       associate_pm: { label: 'Associate PM', className: 'bg-purple-100 text-purple-700' },
-      sr_site_engineer: { label: 'Sr. Site Engineer', className: 'bg-blue-100 text-blue-700' },
+      sr_site_engineer: { label: 'Sr. Site Engineer', className: 'bg-amber-50 text-amber-700' },
       site_engineer: { label: 'Site Engineer', className: 'bg-orange-100 text-orange-700' }
     };
     const c = config[role] || { label: role, className: 'bg-gray-100' };
@@ -130,7 +130,7 @@ export default function PMDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
       </div>
     );
   }
@@ -141,7 +141,7 @@ export default function PMDashboard() {
       <header className="bg-white border-b sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <Briefcase className="h-8 w-8 text-blue-600" />
+            <Briefcase className="h-8 w-8 text-amber-600" />
             <div>
               <h1 className="text-xl font-bold">Project Manager</h1>
               <p className="text-sm text-gray-500">Team & Request Management</p>
@@ -159,11 +159,11 @@ export default function PMDashboard() {
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <Card className="bg-blue-50 border-blue-200">
+          <Card className="bg-amber-50 border-blue-200">
             <CardContent className="p-4">
-              <Building2 className="h-6 w-6 text-blue-600 mb-2" />
-              <p className="text-2xl font-bold text-blue-700">{dashboard.total_projects}</p>
-              <p className="text-sm text-blue-600">Total Projects</p>
+              <Building2 className="h-6 w-6 text-amber-600 mb-2" />
+              <p className="text-2xl font-bold text-amber-700">{dashboard.total_projects}</p>
+              <p className="text-sm text-amber-600">Total Projects</p>
             </CardContent>
           </Card>
           <Card className="bg-green-50 border-green-200">
@@ -482,7 +482,7 @@ export default function PMDashboard() {
                         )}
                       </div>
                       <div className="text-right">
-                        <p className="text-2xl font-bold text-blue-600">{member.active_projects}</p>
+                        <p className="text-2xl font-bold text-amber-600">{member.active_projects}</p>
                         <p className="text-sm text-gray-500">Active Projects</p>
                       </div>
                     </div>

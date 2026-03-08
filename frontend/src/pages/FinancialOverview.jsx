@@ -19,7 +19,7 @@ const STATUS_CONFIG = {
   planning: { label: 'Planning', color: 'bg-gray-500', bgLight: 'bg-gray-100' },
   documentation: { label: 'Documentation', color: 'bg-orange-500', bgLight: 'bg-orange-50' },
   sub_structure: { label: 'Sub-Structure', color: 'bg-yellow-500', bgLight: 'bg-yellow-50' },
-  super_structure: { label: 'Super-Structure', color: 'bg-blue-500', bgLight: 'bg-blue-50' },
+  super_structure: { label: 'Super-Structure', color: 'bg-amber-500', bgLight: 'bg-amber-50' },
   finishing: { label: 'Finishing', color: 'bg-purple-500', bgLight: 'bg-purple-50' },
   handover: { label: 'Handover', color: 'bg-teal-500', bgLight: 'bg-teal-50' },
   active: { label: 'Active', color: 'bg-green-500', bgLight: 'bg-green-50' },
@@ -124,11 +124,9 @@ export default function FinancialOverview() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-2.5 rounded-xl shadow-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Financial Overview</p>
             </div>
           </div>
@@ -165,7 +163,7 @@ export default function FinancialOverview() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg">
+          <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white border-0 shadow-lg">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-blue-100 flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
@@ -271,7 +269,7 @@ export default function FinancialOverview() {
                       variant="ghost" 
                       size="icon"
                       onClick={() => openEditDialog(project)}
-                      className="text-gray-400 hover:text-blue-600"
+                      className="text-gray-400 hover:text-amber-600"
                     >
                       <Edit2 className="h-4 w-4" />
                     </Button>
@@ -315,12 +313,12 @@ export default function FinancialOverview() {
                         Project: {formatCurrency(project.income_project)} + Add: {formatCurrency(project.income_additional)}
                       </p>
                     </div>
-                    <div className="p-3 bg-blue-50 rounded-lg">
+                    <div className="p-3 bg-amber-50 rounded-lg">
                       <div className="flex items-center gap-2 mb-1">
-                        <Receipt className="h-4 w-4 text-blue-600" />
+                        <Receipt className="h-4 w-4 text-amber-600" />
                         <span className="text-xs text-gray-500">Balance Due</span>
                       </div>
-                      <p className="font-bold text-blue-700">{formatCurrency(calc.balanceTotal)}</p>
+                      <p className="font-bold text-amber-700">{formatCurrency(calc.balanceTotal)}</p>
                       <p className="text-xs text-gray-500 mt-1">Pending collection</p>
                     </div>
                   </div>
@@ -430,7 +428,7 @@ export default function FinancialOverview() {
             </div>
 
             <div className="flex gap-2 pt-4">
-              <Button onClick={handleSave} className="flex-1 gap-2 bg-blue-600 hover:bg-blue-700">
+              <Button onClick={handleSave} className="flex-1 gap-2 bg-secondary hover:bg-secondary/90">
                 <Save className="h-4 w-4" />
                 Save Changes
               </Button>

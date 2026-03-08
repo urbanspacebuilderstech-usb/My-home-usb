@@ -190,11 +190,9 @@ export default function Dashboard() {
         <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 sm:gap-3">
-              <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-                <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-              </div>
+              <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
               <div>
-                <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+                <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
                 <p className="text-xs text-gray-500 hidden sm:block">Project Management System</p>
               </div>
             </div>
@@ -219,7 +217,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             <Card className="cursor-pointer hover:shadow-lg transition-shadow active:bg-gray-50" onClick={() => window.location.href = '/projects'}>
               <CardContent className="p-4 sm:p-6 text-center">
-                <FileText className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-2 sm:mb-4 text-blue-600" />
+                <FileText className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-2 sm:mb-4 text-amber-600" />
                 <h3 className="font-semibold text-sm sm:text-base">Projects</h3>
               </CardContent>
             </Card>
@@ -251,11 +249,9 @@ export default function Dashboard() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Super Admin Dashboard</p>
             </div>
           </div>
@@ -263,7 +259,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-1 sm:gap-4">
             {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center gap-1">
-              <Button variant="ghost" size="sm" className="text-blue-600 font-semibold">Dashboard</Button>
+              <Button variant="ghost" size="sm" className="text-amber-600 font-semibold">Dashboard</Button>
               <Button variant="ghost" size="sm" onClick={() => window.location.href = '/projects'}>Projects</Button>
               <Button variant="ghost" size="sm" onClick={() => window.location.href = '/income'}>Income</Button>
               <Button variant="ghost" size="sm" onClick={() => window.location.href = '/expense-management'}>Expenses</Button>
@@ -311,7 +307,7 @@ export default function Dashboard() {
           </div>
           <Dialog open={createProjectDialog} onOpenChange={setCreateProjectDialog}>
             <DialogTrigger asChild>
-              <Button data-testid="create-project-btn" className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
+              <Button data-testid="create-project-btn" className="gap-2 bg-secondary hover:bg-secondary/90 w-full sm:w-auto">
                 <Plus className="h-4 w-4" />
                 <span className="sm:inline">Create Project</span>
               </Button>
@@ -413,24 +409,24 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-4 sm:mb-8">
           {/* Project Value Card */}
           <Card className="border-2 border-blue-200">
-            <CardHeader className="bg-blue-50 border-b pb-2 sm:pb-3 p-3 sm:p-6">
+            <CardHeader className="bg-amber-50 border-b pb-2 sm:pb-3 p-3 sm:p-6">
               <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
+                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                 Project Value
               </CardTitle>
             </CardHeader>
             <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
               <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
                 <span className="text-xs sm:text-sm text-gray-600">Project Total</span>
-                <span className="font-semibold text-sm sm:text-base text-blue-700">{formatCurrency(totals.project_total_value)}</span>
+                <span className="font-semibold text-sm sm:text-base text-amber-700">{formatCurrency(totals.project_total_value)}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
                 <span className="text-xs sm:text-sm text-gray-600">Addition Cost</span>
                 <span className="font-semibold text-sm sm:text-base text-cyan-700">{formatCurrency(totals.project_addition_cost)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 bg-blue-50 px-2 rounded">
+              <div className="flex justify-between items-center py-1.5 sm:py-2 bg-amber-50 px-2 rounded">
                 <span className="font-bold text-xs sm:text-sm text-gray-800">Total</span>
-                <span className="font-bold text-sm sm:text-base text-blue-700">{formatCurrency(totals.project_value_total)}</span>
+                <span className="font-bold text-sm sm:text-base text-amber-700">{formatCurrency(totals.project_value_total)}</span>
               </div>
             </CardContent>
           </Card>
@@ -534,8 +530,8 @@ export default function Dashboard() {
                 onClick={() => window.location.href = '/crm-pre-sales'}
               >
                 <CardContent className="p-3 sm:p-4 text-center">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-2">
-                    <Users className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-2">
+                    <Users className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
                   </div>
                   <p className="text-xs sm:text-sm font-semibold">Pre-Sales CRM</p>
                   <p className="text-xs text-gray-500 hidden sm:block">Lead Management</p>
@@ -604,7 +600,7 @@ export default function Dashboard() {
                     <div className="grid grid-cols-3 gap-2 mt-3">
                       <div>
                         <p className="text-xs text-gray-500">Value</p>
-                        <p className="text-sm font-semibold text-blue-600">{formatCurrency(project.total_value)}</p>
+                        <p className="text-sm font-semibold text-amber-600">{formatCurrency(project.total_value)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Income</p>
@@ -656,7 +652,7 @@ export default function Dashboard() {
                           <p className="text-xs text-gray-500">{project.location}</p>
                         </td>
                         <td className="px-4 py-4 text-sm">{project.client_name}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-blue-600">
+                        <td className="px-4 py-4 text-right font-semibold text-amber-600">
                           {formatCurrency(project.total_value)}
                         </td>
                         <td className="px-4 py-4 text-right font-semibold text-green-600">

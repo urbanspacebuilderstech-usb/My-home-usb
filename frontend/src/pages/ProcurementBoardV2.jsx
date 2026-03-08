@@ -24,7 +24,7 @@ const API = `${BACKEND_URL}/api`;
 // Status flow for display
 const STATUS_FLOW = [
   { id: 'requested', label: 'Requested', color: 'bg-gray-100 text-gray-700' },
-  { id: 'planning_approved', label: 'Planning Approved', color: 'bg-blue-100 text-blue-700' },
+  { id: 'planning_approved', label: 'Planning Approved', color: 'bg-amber-50 text-amber-700' },
   { id: 'vendor_selected', label: 'Vendor Selected', color: 'bg-purple-100 text-purple-700' },
   { id: 'waiting_payment', label: 'Waiting Payment', color: 'bg-yellow-100 text-yellow-700' },
   { id: 'payment_approved', label: 'Payment Approved', color: 'bg-green-100 text-green-700' },
@@ -339,7 +339,7 @@ export default function ProcurementBoardV2() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
       </div>
     );
   }
@@ -350,11 +350,9 @@ export default function ProcurementBoardV2() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-yellow-500 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Procurement Board</p>
             </div>
           </div>
@@ -379,11 +377,11 @@ export default function ProcurementBoardV2() {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-2">
+              <div className="flex items-center gap-2 text-amber-600 mb-2">
                 <Clock className="h-5 w-5" />
                 <span className="text-sm font-medium">Pending</span>
               </div>
-              <p className="text-2xl font-bold text-blue-700">{dashboard.pending_requests || 0}</p>
+              <p className="text-2xl font-bold text-amber-700">{dashboard.pending_requests || 0}</p>
             </CardContent>
           </Card>
           
@@ -1040,9 +1038,9 @@ export default function ProcurementBoardV2() {
               </div>
             </div>
             
-            <div className="p-3 bg-blue-50 rounded-lg">
+            <div className="p-3 bg-amber-50 rounded-lg">
               <p className="text-sm text-gray-600">Total Amount</p>
-              <p className="text-2xl font-bold text-blue-700">₹{calculateTotal().toLocaleString()}</p>
+              <p className="text-2xl font-bold text-amber-700">₹{calculateTotal().toLocaleString()}</p>
             </div>
             
             <div>

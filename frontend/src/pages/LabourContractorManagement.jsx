@@ -173,7 +173,7 @@ export default function LabourContractorManagement() {
             <Button variant="ghost" size="icon" onClick={() => window.location.href = '/planning-board'}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div className="bg-blue-600 p-2 rounded-lg">
+            <div className="bg-secondary p-2 rounded-lg">
               <Users className="h-5 w-5 text-white" />
             </div>
             <div>
@@ -181,7 +181,7 @@ export default function LabourContractorManagement() {
               <p className="text-xs text-gray-500 hidden sm:block">Manage labour contractors and rates</p>
             </div>
           </div>
-          <Button onClick={openCreateDialog} className="gap-2 bg-blue-600 hover:bg-blue-700">
+          <Button onClick={openCreateDialog} className="gap-2 bg-secondary hover:bg-secondary/90">
             <Plus className="h-4 w-4" /> Add Contractor
           </Button>
         </div>
@@ -192,7 +192,7 @@ export default function LabourContractorManagement() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{contractors.length}</p>
+              <p className="text-2xl font-bold text-amber-600">{contractors.length}</p>
               <p className="text-sm text-gray-500">Total Contractors</p>
             </CardContent>
           </Card>
@@ -405,7 +405,7 @@ export default function LabourContractorManagement() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialog(false)}>Cancel</Button>
-            <Button onClick={handleSave} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={handleSave} className="bg-secondary hover:bg-secondary/90">
               {editingContractor ? 'Update' : 'Add'} Contractor
             </Button>
           </DialogFooter>

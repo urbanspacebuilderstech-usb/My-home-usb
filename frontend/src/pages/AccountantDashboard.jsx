@@ -250,12 +250,12 @@ export default function AccountantDashboard() {
                 <p className="text-lg font-bold text-green-800">{formatLargeNumber(incomeByMethod.cash || 0)}</p>
               </div>
               
-              <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+              <div className="bg-amber-50 rounded-lg p-3 border border-blue-100">
                 <div className="flex items-center gap-2 mb-1">
-                  <FileText className="h-4 w-4 text-blue-600" />
-                  <span className="text-xs text-blue-700 font-medium">Cheque</span>
+                  <FileText className="h-4 w-4 text-amber-600" />
+                  <span className="text-xs text-amber-700 font-medium">Cheque</span>
                 </div>
-                <p className="text-lg font-bold text-blue-800">{formatLargeNumber(incomeByMethod.cheque || 0)}</p>
+                <p className="text-lg font-bold text-amber-800">{formatLargeNumber(incomeByMethod.cheque || 0)}</p>
               </div>
               
               <div className="bg-purple-50 rounded-lg p-3 border border-purple-100">
@@ -320,15 +320,15 @@ export default function AccountantDashboard() {
           <Card className="bg-gradient-to-br from-blue-50 to-cyan-50 border-blue-200" data-testid="cheque-summary-card">
             <CardHeader className="pb-2">
               <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-5 w-5 text-blue-600" />
+                <FileText className="h-5 w-5 text-amber-600" />
                 Cheque Management
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-3xl font-bold text-blue-700">{chequeSummary.pending_cheques || 0}</p>
-                  <p className="text-sm text-blue-600">Pending Cheques</p>
+                  <p className="text-3xl font-bold text-amber-700">{chequeSummary.pending_cheques || 0}</p>
+                  <p className="text-sm text-amber-600">Pending Cheques</p>
                 </div>
                 <div className="text-right">
                   <p className="text-2xl font-bold text-red-600">{chequeSummary.bounced_cheques || 0}</p>
@@ -336,7 +336,7 @@ export default function AccountantDashboard() {
                 </div>
                 <Button 
                   size="sm" 
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-secondary hover:bg-secondary/90"
                   onClick={() => window.location.href = '/cheque-management'}
                 >
                   <FileText className="h-4 w-4 mr-1" /> View All
@@ -476,7 +476,7 @@ export default function AccountantDashboard() {
           </Button>
           
           <Button 
-            className="bg-blue-600 hover:bg-blue-700 h-auto py-4 flex-col gap-2"
+            className="bg-secondary hover:bg-secondary/90 h-auto py-4 flex-col gap-2"
             onClick={() => window.location.href = '/expense-management'}
             data-testid="quick-expense-btn"
           >
@@ -565,9 +565,9 @@ export default function AccountantDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-blue-50 p-3 rounded-lg">
-                      <p className="text-xs text-blue-600">Material</p>
-                      <p className="text-lg font-bold text-blue-700">{formatCurrency(projectFinancials.expenses?.material?.total || 0)}</p>
+                    <div className="bg-amber-50 p-3 rounded-lg">
+                      <p className="text-xs text-amber-600">Material</p>
+                      <p className="text-lg font-bold text-amber-700">{formatCurrency(projectFinancials.expenses?.material?.total || 0)}</p>
                     </div>
                     <div className="bg-green-50 p-3 rounded-lg">
                       <p className="text-xs text-green-600">Labour</p>

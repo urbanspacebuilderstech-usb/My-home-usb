@@ -19,7 +19,7 @@ const ROLES = [
   { value: 'super_admin', label: 'Super Admin', color: 'bg-red-100 text-red-800', description: 'Full system access' },
   { value: 'general_manager', label: 'General Manager', color: 'bg-indigo-100 text-indigo-800', description: 'Overall management' },
   { value: 'cre', label: 'CRE', color: 'bg-pink-100 text-pink-800', description: 'Client relations & payments' },
-  { value: 'accountant', label: 'Accountant', color: 'bg-blue-100 text-blue-800', description: 'Approvals & expenses' },
+  { value: 'accountant', label: 'Accountant', color: 'bg-amber-50 text-amber-800', description: 'Approvals & expenses' },
   { value: 'project_manager', label: 'Project Manager', color: 'bg-green-100 text-green-800', description: 'Projects & work orders' },
   { value: 'planning', label: 'Planning', color: 'bg-yellow-100 text-yellow-800', description: 'BOQ & planning' },
   { value: 'procurement', label: 'Procurement', color: 'bg-purple-100 text-purple-800', description: 'Vendors & POs' },
@@ -191,11 +191,9 @@ export default function UserManagement() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">User Management</p>
             </div>
           </div>
@@ -229,7 +227,7 @@ export default function UserManagement() {
           {canManageUsers && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="add-user-btn" className="gap-2 bg-blue-600 hover:bg-blue-700 w-full sm:w-auto" onClick={() => handleOpenDialog()}>
+                <Button data-testid="add-user-btn" className="gap-2 bg-secondary hover:bg-secondary/90 w-full sm:w-auto" onClick={() => handleOpenDialog()}>
                   <Plus className="h-4 w-4" />Add User
                 </Button>
               </DialogTrigger>
@@ -332,8 +330,8 @@ export default function UserManagement() {
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
-                <Users className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
-                <span className="text-lg sm:text-2xl font-bold text-blue-700">{users.length}</span>
+                <Users className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
+                <span className="text-lg sm:text-2xl font-bold text-amber-700">{users.length}</span>
               </div>
             </CardContent>
           </Card>
@@ -416,8 +414,8 @@ export default function UserManagement() {
                     <div key={u.user_id} data-testid={`user-card-mobile-${u.user_id}`} className="p-4">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <span className="text-blue-600 font-semibold">
+                          <div className="h-10 w-10 rounded-full bg-amber-50 flex items-center justify-center flex-shrink-0">
+                            <span className="text-amber-600 font-semibold">
                               {u.name?.charAt(0).toUpperCase() || '?'}
                             </span>
                           </div>
@@ -499,8 +497,8 @@ export default function UserManagement() {
                         <tr key={u.user_id} data-testid={`user-row-${u.user_id}`} className="hover:bg-gray-50">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                                <span className="text-blue-600 font-semibold">
+                              <div className="h-10 w-10 rounded-full bg-amber-50 flex items-center justify-center">
+                                <span className="text-amber-600 font-semibold">
                                   {u.name?.charAt(0).toUpperCase() || '?'}
                                 </span>
                               </div>

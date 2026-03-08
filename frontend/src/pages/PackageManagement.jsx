@@ -260,7 +260,7 @@ export default function PackageManagement() {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{packages.reduce((sum, p) => sum + (p.scope_items?.length || 0), 0)}</p>
+              <p className="text-2xl font-bold text-amber-600">{packages.reduce((sum, p) => sum + (p.scope_items?.length || 0), 0)}</p>
               <p className="text-sm text-gray-500">Scope Items</p>
             </CardContent>
           </Card>
@@ -534,7 +534,7 @@ export default function PackageManagement() {
                       <div className="pt-2 border-t flex items-center gap-2">
                         <Badge variant="outline" className="bg-white">{item.name}</Badge>
                         <span className="text-gray-400">→</span>
-                        <Badge className="bg-blue-100 text-blue-700">{item.brand}</Badge>
+                        <Badge className="bg-amber-50 text-amber-700">{item.brand}</Badge>
                         {item.specification && (
                           <Badge variant="secondary">{item.specification}</Badge>
                         )}
@@ -544,8 +544,8 @@ export default function PackageManagement() {
                 ))}
                 
                 {form.material_items.length > 0 && (
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm font-medium text-blue-800">Package Material Summary</p>
+                  <div className="p-3 bg-amber-50 rounded-lg">
+                    <p className="text-sm font-medium text-amber-800">Package Material Summary</p>
                     <div className="flex flex-wrap gap-2 mt-2">
                       {form.material_items.filter(m => m.name && m.brand).map((item, idx) => (
                         <span key={idx} className="text-xs bg-white px-2 py-1 rounded border">

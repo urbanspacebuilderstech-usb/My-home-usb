@@ -330,14 +330,14 @@ export default function ProcurementDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer active:bg-blue-100" onClick={() => handleTabChange('pricing_in_progress')}>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer active:bg-amber-50" onClick={() => handleTabChange('pricing_in_progress')}>
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600 flex items-center gap-1">
                 <DollarSign className="h-3 w-3 sm:h-4 sm:w-4" />Pricing
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-lg sm:text-2xl font-bold text-blue-700">{dashboard.pricing_in_progress || 0}</div>
+              <div className="text-lg sm:text-2xl font-bold text-amber-700">{dashboard.pricing_in_progress || 0}</div>
             </CardContent>
           </Card>
 
@@ -382,7 +382,7 @@ export default function ProcurementDashboard() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs sm:text-sm text-gray-600">Value in Pricing</p>
-                  <p className="text-base sm:text-xl font-bold text-blue-700">{formatCurrency(dashboard.total_in_pricing)}</p>
+                  <p className="text-base sm:text-xl font-bold text-amber-700">{formatCurrency(dashboard.total_in_pricing)}</p>
                 </div>
                 <TrendingUp className="h-6 w-6 sm:h-8 sm:w-8 text-blue-300" />
               </div>
@@ -424,7 +424,7 @@ export default function ProcurementDashboard() {
                 <TabsTrigger value="pending" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Pending
                 </TabsTrigger>
-                <TabsTrigger value="pricing_in_progress" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                <TabsTrigger value="pricing_in_progress" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Pricing
                 </TabsTrigger>
                 <TabsTrigger value="waiting_accounts" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">

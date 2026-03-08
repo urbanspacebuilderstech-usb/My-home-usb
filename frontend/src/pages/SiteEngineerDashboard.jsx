@@ -136,7 +136,7 @@ export default function SiteEngineerDashboard() {
     const config = {
       requested: { label: 'Requested', className: 'bg-yellow-100 text-yellow-700' },
       issued: { label: 'Issued', className: 'bg-green-100 text-green-700' },
-      partially_spent: { label: 'In Use', className: 'bg-blue-100 text-blue-700' },
+      partially_spent: { label: 'In Use', className: 'bg-amber-50 text-amber-700' },
       pending_settlement: { label: 'Pending Settlement', className: 'bg-orange-100 text-orange-700' },
       settled: { label: 'Settled', className: 'bg-gray-100 text-gray-700' },
       rejected: { label: 'Rejected', className: 'bg-red-100 text-red-700' }
@@ -204,7 +204,7 @@ export default function SiteEngineerDashboard() {
   const getStageStatusBadge = (status) => {
     const config = {
       pending: { label: 'Pending', className: 'bg-gray-100 text-gray-600' },
-      in_progress: { label: 'In Progress', className: 'bg-blue-100 text-blue-700' },
+      in_progress: { label: 'In Progress', className: 'bg-amber-50 text-amber-700' },
       completed: { label: 'Completed', className: 'bg-green-100 text-green-700' },
       payment_requested: { label: 'Payment Requested', className: 'bg-orange-100 text-orange-700' },
       payment_approved: { label: 'Approved', className: 'bg-purple-100 text-purple-700' },
@@ -303,8 +303,8 @@ export default function SiteEngineerDashboard() {
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
-                <Package className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
-                <span className="text-lg sm:text-2xl font-bold text-blue-700">
+                <Package className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
+                <span className="text-lg sm:text-2xl font-bold text-amber-700">
                   {projects.reduce((acc, p) => acc + (p.active_orders || 0), 0)}
                 </span>
               </div>
@@ -431,7 +431,7 @@ export default function SiteEngineerDashboard() {
                         <div>
                           <div className="flex items-center gap-2 mb-1">
                             {wo.order_type === 'labour' ? (
-                              <Users className="h-4 w-4 text-blue-600" />
+                              <Users className="h-4 w-4 text-amber-600" />
                             ) : (
                               <Package className="h-4 w-4 text-green-600" />
                             )}

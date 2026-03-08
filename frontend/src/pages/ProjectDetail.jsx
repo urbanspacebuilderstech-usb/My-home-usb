@@ -51,7 +51,7 @@ const WorkflowBadge = ({ status }) => {
   const config = {
     draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700', icon: Clock },
     pending_verification: { label: 'Pending Verification', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle },
-    pending_approval: { label: 'Pending Approval', color: 'bg-blue-100 text-blue-700', icon: ShieldCheck },
+    pending_approval: { label: 'Pending Approval', color: 'bg-amber-50 text-amber-700', icon: ShieldCheck },
     approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: Check },
     rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: XCircle }
   };
@@ -743,7 +743,7 @@ export default function ProjectDetail() {
       pending: { label: 'Pending', color: 'bg-gray-100 text-gray-700' },
       partial: { label: 'Partial', color: 'bg-yellow-100 text-yellow-700' },
       paid: { label: 'Paid', color: 'bg-green-100 text-green-700' },
-      collected: { label: 'Collected', color: 'bg-blue-100 text-blue-700' }
+      collected: { label: 'Collected', color: 'bg-amber-50 text-amber-700' }
     };
     const c = config[status] || config.pending;
     return <span className={`px-2 py-1 rounded-full text-xs font-medium ${c.color}`}>{c.label}</span>;
@@ -801,11 +801,9 @@ export default function ProjectDetail() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Project View</p>
             </div>
           </div>
@@ -926,7 +924,7 @@ export default function ProjectDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-blue-700">{formatCurrency(summary.project_value)}</div>
+              <div className="text-sm sm:text-lg font-bold text-amber-700">{formatCurrency(summary.project_value)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">Scope Total</p>
             </CardContent>
           </Card>
@@ -964,7 +962,7 @@ export default function ProjectDetail() {
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
               <div className="text-sm sm:text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">
-                <span className="text-blue-600 cursor-pointer hover:underline" onClick={() => window.location.href = '/income'}>
+                <span className="text-amber-600 cursor-pointer hover:underline" onClick={() => window.location.href = '/income'}>
                   View Income
                 </span>
               </p>
@@ -1007,16 +1005,16 @@ export default function ProjectDetail() {
                   <FileText className="h-3 w-3 mr-1" />
                   Rough Estimate
                 </TabsTrigger>
-                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftScopeItems.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Payment Schedule {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftPaymentItems.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Additional {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftAdditions.length}</Badge>}
                 </TabsTrigger>
-                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Deduction {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
                 </TabsTrigger>
                 <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
@@ -1089,7 +1087,7 @@ export default function ProjectDetail() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Status</p>
-                        <Badge className={reProject.status === 'converted' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}>
+                        <Badge className={reProject.status === 'converted' ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-700'}>
                           {reProject.status}
                         </Badge>
                       </div>
@@ -1212,7 +1210,7 @@ export default function ProjectDetail() {
                   {canManage && (
                     <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
                       <DialogTrigger asChild>
-                        <Button data-testid="add-scope-btn" size="sm" className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm">
+                        <Button data-testid="add-scope-btn" size="sm" className="gap-1 sm:gap-2 bg-secondary hover:bg-secondary/90 text-xs sm:text-sm">
                           <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Scope
                         </Button>
                       </DialogTrigger>
@@ -1286,7 +1284,7 @@ export default function ProjectDetail() {
                                       className="h-8"
                                     />
                                   </td>
-                                  <td className="px-2 py-1 text-blue-600 font-medium">
+                                  <td className="px-2 py-1 text-amber-600 font-medium">
                                     ₹{((parseFloat(row.quantity) || 0) * (parseFloat(row.unit_rate) || 0)).toLocaleString()}
                                   </td>
                                   <td className="px-2 py-1">
@@ -1430,7 +1428,7 @@ export default function ProjectDetail() {
                                 `₹${item.unit_rate?.toLocaleString()}`
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right font-semibold text-blue-600">
+                            <td className="px-4 py-3 text-right font-semibold text-amber-600">
                               {isEditing ? (
                                 `₹${((parseFloat(editScopeForm.quantity) || 0) * (parseFloat(editScopeForm.unit_rate) || 0)).toLocaleString()}`
                               ) : (
@@ -1486,7 +1484,7 @@ export default function ProjectDetail() {
                                         onClick={() => openScopeEdit(item)}
                                         className="h-8 w-8"
                                       >
-                                        <Edit className="h-4 w-4 text-blue-500" />
+                                        <Edit className="h-4 w-4 text-amber-600" />
                                       </Button>
                                       <Button 
                                         data-testid={`delete-scope-${item.scope_id}`}
@@ -1508,10 +1506,10 @@ export default function ProjectDetail() {
                     )}
                   </tbody>
                   {scope_items.length > 0 && (
-                    <tfoot className="bg-blue-50 border-t-2">
+                    <tfoot className="bg-amber-50 border-t-2">
                       <tr>
                         <td colSpan="5" className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
-                        <td className="px-4 py-3 text-right font-bold text-blue-700">₹{summary.scope_total?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-amber-700">₹{summary.scope_total?.toLocaleString()}</td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
                     </tfoot>
@@ -1548,9 +1546,9 @@ export default function ProjectDetail() {
                           </DialogDescription>
                         </DialogHeader>
                         <div className="py-4">
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <p className="text-sm text-blue-700 font-medium">Summary:</p>
-                            <ul className="mt-2 text-sm text-blue-600 space-y-1">
+                          <div className="bg-amber-50 border border-blue-200 rounded-lg p-4">
+                            <p className="text-sm text-amber-700 font-medium">Summary:</p>
+                            <ul className="mt-2 text-sm text-amber-600 space-y-1">
                               <li>• {draftPaymentItems.length} payment stages will be submitted</li>
                               <li>• Total amount: ₹{draftPaymentItems.reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString()}</li>
                             </ul>
@@ -1589,7 +1587,7 @@ export default function ProjectDetail() {
                   {canManage && (
                     <Dialog open={bulkPaymentDialog} onOpenChange={setBulkPaymentDialog}>
                       <DialogTrigger asChild>
-                        <Button data-testid="add-payment-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                        <Button data-testid="add-payment-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                           <Plus className="h-4 w-4" />Add Payments
                         </Button>
                       </DialogTrigger>
@@ -1840,7 +1838,7 @@ export default function ProjectDetail() {
                         } else if (isPartial) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partially Collected</span>;
                         } else if (isRequested) {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Requested</span>;
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Requested</span>;
                         } else {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Draft</span>;
                         }
@@ -1875,7 +1873,7 @@ export default function ProjectDetail() {
                                     data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
                                     size="sm"
-                                    className="text-blue-600 border-blue-300 hover:bg-blue-50"
+                                    className="text-amber-600 border-blue-300 hover:bg-amber-50"
                                     onClick={() => handleRequestPayment(stage.stage_id)}
                                   >
                                     <Send className="h-3 w-3 mr-1" />
@@ -1904,7 +1902,7 @@ export default function ProjectDetail() {
                                     onClick={() => openEditPaymentDialog(stage)}
                                     title="Edit payment stage"
                                   >
-                                    <Edit className="h-4 w-4 text-blue-500" />
+                                    <Edit className="h-4 w-4 text-amber-600" />
                                   </Button>
                                 )}
                                 {/* Delete button - only for draft items that are not paid */}
@@ -1982,7 +1980,7 @@ export default function ProjectDetail() {
                   {canManage && (
                     <Dialog open={bulkAdditionDialog} onOpenChange={setBulkAdditionDialog}>
                       <DialogTrigger asChild>
-                        <Button data-testid="add-addition-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                        <Button data-testid="add-addition-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                           <Plus className="h-4 w-4" />Add Additions
                         </Button>
                       </DialogTrigger>
@@ -2107,7 +2105,7 @@ export default function ProjectDetail() {
                                     size="icon"
                                     onClick={() => setEditingAddition(isEditing ? null : cost.cost_id)}
                                   >
-                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-amber-600" />}
                                   </Button>
                                   <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)}>
                                     <Trash2 className="h-4 w-4 text-red-500" />
@@ -2337,8 +2335,8 @@ export default function ProjectDetail() {
                   </Card>
                   <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
                     <CardContent className="p-3">
-                      <p className="text-xs text-blue-600 font-medium">Stages Scheduled</p>
-                      <p className="text-lg font-bold text-blue-700">{formatCurrency(paymentSummary.summary?.total_scheduled || 0)}</p>
+                      <p className="text-xs text-amber-600 font-medium">Stages Scheduled</p>
+                      <p className="text-lg font-bold text-amber-700">{formatCurrency(paymentSummary.summary?.total_scheduled || 0)}</p>
                     </CardContent>
                   </Card>
                   <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
@@ -2567,7 +2565,7 @@ export default function ProjectDetail() {
                                     : 'N/A'}
                                 </td>
                                 <td className="px-4 py-3">
-                                  <Badge className={stage.status === 'paid' ? 'bg-blue-600 text-white' : 'bg-yellow-500 text-white'}>
+                                  <Badge className={stage.status === 'paid' ? 'bg-secondary text-white' : 'bg-yellow-500 text-white'}>
                                     {stage.status === 'paid' ? 'Stage Payment' : 'Partial'}
                                   </Badge>
                                 </td>
@@ -2696,7 +2694,7 @@ export default function ProjectDetail() {
             </div>
             <div>
               <Label className="text-sm font-medium">
-                Type <span className="font-bold text-blue-600">VERIFY</span> to confirm
+                Type <span className="font-bold text-amber-600">VERIFY</span> to confirm
               </Label>
               <Input
                 data-testid="verify-code-input"

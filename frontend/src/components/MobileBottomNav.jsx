@@ -122,15 +122,15 @@ export default function MobileBottomNav({ user }) {
                 onClick={() => handleClick(item)}
                 className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
                   active 
-                    ? 'text-blue-600' 
+                    ? 'text-amber-600' 
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <Icon className={`h-5 w-5 ${active ? 'text-blue-600' : ''}`} />
-                <span className={`text-[10px] mt-0.5 font-medium ${active ? 'text-blue-600' : ''}`}>
+                <Icon className={`h-5 w-5 ${active ? 'text-amber-600' : ''}`} />
+                <span className={`text-[10px] mt-0.5 font-medium ${active ? 'text-amber-600' : ''}`}>
                   {item.label}
                 </span>
-                {active && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-blue-600 rounded-b" />}
+                {active && <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-secondary rounded-b" />}
               </button>
             );
           })}

@@ -26,7 +26,7 @@ const STAGE_CONFIG = {
   basement: { icon: Building2, color: 'from-stone-50 to-stone-100', border: 'border-stone-200', text: 'text-stone-700', bg: 'bg-stone-600' },
   brick_work: { icon: HardHat, color: 'from-orange-50 to-orange-100', border: 'border-orange-200', text: 'text-orange-700', bg: 'bg-orange-600' },
   plastering: { icon: PaintBucket, color: 'from-cyan-50 to-cyan-100', border: 'border-cyan-200', text: 'text-cyan-700', bg: 'bg-cyan-600' },
-  finishing: { icon: Hammer, color: 'from-blue-50 to-blue-100', border: 'border-blue-200', text: 'text-blue-700', bg: 'bg-blue-600' },
+  finishing: { icon: Hammer, color: 'from-blue-50 to-blue-100', border: 'border-blue-200', text: 'text-amber-700', bg: 'bg-secondary' },
   handover: { icon: KeyRound, color: 'from-green-50 to-green-100', border: 'border-green-200', text: 'text-green-700', bg: 'bg-green-600' }
 };
 
@@ -337,11 +337,11 @@ export default function PlanningBoard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleMainTabChange('new')}>
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-1">
+              <div className="flex items-center gap-2 text-amber-600 mb-1">
                 <FileText className="h-4 w-4" />
                 <span className="text-xs sm:text-sm">New Projects</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.new_projects || 0}</p>
+              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.new_projects || 0}</p>
             </CardContent>
           </Card>
           
@@ -535,7 +535,7 @@ export default function PlanningBoard() {
                   <HardHat className="h-4 w-4 mr-1" />
                   By Stage ({totalStageProjects})
                 </TabsTrigger>
-                <TabsTrigger value="new" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-xs sm:text-sm">
+                <TabsTrigger value="new" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm">
                   New Projects
                 </TabsTrigger>
                 <TabsTrigger value="awaiting" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none text-xs sm:text-sm">
@@ -885,7 +885,7 @@ export default function PlanningBoard() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600 mt-2">
                         <div>
                           <p className="text-xs text-gray-500">Advance Received</p>
-                          <p className="font-medium text-blue-600">₹{(project.advance_amount || 0).toLocaleString()}</p>
+                          <p className="font-medium text-amber-600">₹{(project.advance_amount || 0).toLocaleString()}</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-500">Building Type</p>
@@ -901,15 +901,15 @@ export default function PlanningBoard() {
                         </div>
                       </div>
                       {project.re_project_id && (
-                        <div className="mt-3 p-2 bg-blue-50 rounded-lg">
-                          <p className="text-xs text-blue-600 font-medium">Has linked Rough Estimate</p>
+                        <div className="mt-3 p-2 bg-amber-50 rounded-lg">
+                          <p className="text-xs text-amber-600 font-medium">Has linked Rough Estimate</p>
                         </div>
                       )}
                     </div>
                     <div className="ml-4 flex flex-col gap-2">
                       <Button 
                         size="sm" 
-                        className="bg-blue-600 hover:bg-blue-700"
+                        className="bg-secondary hover:bg-secondary/90"
                         onClick={() => window.location.href = `/projects/${project.project_id}`}
                         data-testid={`view-project-btn-${project.project_id}`}
                       >

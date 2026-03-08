@@ -79,7 +79,7 @@ export default function VendorPortal() {
   const getStatusColor = (status) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'dispatched': return 'bg-blue-100 text-blue-800';
+      case 'dispatched': return 'bg-amber-50 text-amber-800';
       case 'completed': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -94,7 +94,7 @@ export default function VendorPortal() {
               <Package className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Vendor Portal</p>
             </div>
           </div>
@@ -144,8 +144,8 @@ export default function VendorPortal() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-2">
-                    <Package className="h-6 w-6 text-blue-600" />
-                    <span className="text-2xl font-bold text-blue-700">{stats.total_orders}</span>
+                    <Package className="h-6 w-6 text-amber-600" />
+                    <span className="text-2xl font-bold text-amber-700">{stats.total_orders}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -239,7 +239,7 @@ export default function VendorPortal() {
                                 </Button>
                               )}
                               {po.status === 'dispatched' && (
-                                <span className="text-sm text-blue-600">In Transit</span>
+                                <span className="text-sm text-amber-600">In Transit</span>
                               )}
                               {po.status === 'completed' && (
                                 <span className="text-sm text-green-600">Delivered</span>

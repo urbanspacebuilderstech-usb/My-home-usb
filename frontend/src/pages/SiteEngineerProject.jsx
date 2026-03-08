@@ -22,7 +22,7 @@ const API = `${BACKEND_URL}/api`;
 
 const STATUS_CONFIG = {
   requested: { label: 'Requested', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  planning_approved: { label: 'Planning OK', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
+  planning_approved: { label: 'Planning OK', color: 'bg-amber-50 text-amber-800', icon: CheckCircle },
   procurement_approved: { label: 'Procurement OK', color: 'bg-purple-100 text-purple-800', icon: CheckCircle },
   accountant_approved: { label: 'Accounts OK', color: 'bg-green-100 text-green-800', icon: CheckCircle },
   ready_for_delivery: { label: 'Ready', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
@@ -492,7 +492,7 @@ export default function SiteEngineerProject() {
                 </div>
                 <Dialog open={labourRequestDialog} onOpenChange={setLabourRequestDialog}>
                   <DialogTrigger asChild>
-                    <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm whitespace-nowrap">
+                    <Button size="sm" className="gap-1 bg-secondary hover:bg-secondary/90 text-xs sm:text-sm whitespace-nowrap">
                       <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Request</span> Order
                     </Button>
@@ -548,8 +548,8 @@ export default function SiteEngineerProject() {
                           />
                         </div>
                       </div>
-                      <div className="bg-blue-50 p-2 rounded-lg">
-                        <p className="text-xs sm:text-sm font-medium text-blue-700">
+                      <div className="bg-amber-50 p-2 rounded-lg">
+                        <p className="text-xs sm:text-sm font-medium text-amber-700">
                           Total: {formatCurrency((parseInt(labourForm.num_workers) || 0) * (parseInt(labourForm.num_days) || 0) * (parseFloat(labourForm.rate_per_day) || 0))}
                         </p>
                       </div>
@@ -720,8 +720,8 @@ export default function SiteEngineerProject() {
               className="text-center text-2xl tracking-widest font-mono"
             />
             {otpDialog.receipt?.test_otp && (
-              <div className="bg-blue-50 p-2 rounded-lg text-center">
-                <p className="text-xs text-blue-700">
+              <div className="bg-amber-50 p-2 rounded-lg text-center">
+                <p className="text-xs text-amber-700">
                   <strong>Demo OTP:</strong> {otpDialog.receipt.test_otp}
                 </p>
               </div>

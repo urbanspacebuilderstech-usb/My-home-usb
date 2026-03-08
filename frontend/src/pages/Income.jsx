@@ -173,7 +173,7 @@ export default function Income() {
   const getPaymentModeIcon = (mode) => {
     switch (mode) {
       case 'cash': return <Banknote className="h-4 w-4 text-green-600" />;
-      case 'cheque': return <CreditCard className="h-4 w-4 text-blue-600" />;
+      case 'cheque': return <CreditCard className="h-4 w-4 text-amber-600" />;
       case 'bank_transfer': return <ArrowUpCircle className="h-4 w-4 text-purple-600" />;
       case 'upi': return <Wallet className="h-4 w-4 text-orange-600" />;
       case 'petty_cash': return <PiggyBank className="h-4 w-4 text-cyan-600" />;
@@ -205,11 +205,9 @@ export default function Income() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Income Module</p>
             </div>
           </div>
@@ -401,7 +399,7 @@ export default function Income() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-xl font-bold text-blue-700">{formatCurrency(summary?.cheque)}</div>
+              <div className="text-xl font-bold text-amber-700">{formatCurrency(summary?.cheque)}</div>
             </CardContent>
           </Card>
 
@@ -539,7 +537,7 @@ export default function Income() {
                         <td className="px-4 py-4 text-sm">{index + 1}</td>
                         <td className="px-4 py-4">
                           <span 
-                            className="font-medium text-blue-600 cursor-pointer hover:underline"
+                            className="font-medium text-amber-600 cursor-pointer hover:underline"
                             onClick={() => window.location.href = `/projects/${entry.project_id}`}
                           >
                             {entry.project_name}

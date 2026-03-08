@@ -902,7 +902,18 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
-### Login Page Glassmorphism Redesign (DONE)
+### Branding & Theme Update (March 8, 2026) - LATEST
+- [x] **"ConstructionOS" → "My Home USB"** across all 50 screens, PWA manifest, service worker, HTML title
+- [x] **USB logo** (Urban Space Builders) replaced Building2 icon in all nav bars (23 files updated)
+- [x] **Color theme overhaul**: Blue (#2563EB) → Charcoal (#3D3D3D) + Amber (#F5A623) matching USB logo palette
+  - 169 blue color references replaced with charcoal/amber equivalents
+  - CSS variables updated: `--primary: 40 91% 55%`, `--secondary: 0 0% 24%`
+- [x] **Dashboard API optimized**: `/api/admin/dashboard-summary` from 16s → 2.4s (bulk queries instead of N+1)
+- [x] **Demo users auto-seed on startup**: 13 users with `Demo@1234` password auto-created when DB is empty
+- [x] **Missing demo users added**: raj@client.com, mohan@client.com, vendor@balaji.com
+- [x] **CORS updated**: Added myhomeusb.com and www.myhomeusb.com to allowed origins
+
+### Login Page Glassmorphism Redesign (March 7, 2026)
 - [x] **Glassmorphism/Polymorphism Card**: Frosted glass card with `backdrop-filter: blur(20px)`, semi-transparent background, and soft shadow
 - [x] **Branding**: Logo generated (navy/gold house icon), title "My Home USB", subtitle "Powered by Urban Space Builders"
 - [x] **Subtle Background**: Amber and slate blur orbs behind the card for depth

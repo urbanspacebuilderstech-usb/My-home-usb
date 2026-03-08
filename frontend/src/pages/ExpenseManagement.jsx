@@ -260,7 +260,7 @@ export default function ExpenseManagement() {
 
   const getStatusBadge = (status) => {
     const statusConfig = {
-      'requested': { variant: 'outline', color: 'text-blue-600', label: 'Requested' },
+      'requested': { variant: 'outline', color: 'text-amber-600', label: 'Requested' },
       'planning_approved': { variant: 'secondary', color: 'text-purple-600', label: 'Planning Approved' },
       'planning_rejected': { variant: 'destructive', color: 'text-red-600', label: 'Planning Rejected' },
       'procurement_priced': { variant: 'secondary', color: 'text-orange-600', label: 'Pricing Done' },
@@ -302,11 +302,9 @@ export default function ExpenseManagement() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">Expense Management</p>
             </div>
           </div>
@@ -365,7 +363,7 @@ export default function ExpenseManagement() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-base sm:text-xl font-bold text-blue-700">{formatCurrency(summary?.labour?.total_amount)}</div>
+              <div className="text-base sm:text-xl font-bold text-amber-700">{formatCurrency(summary?.labour?.total_amount)}</div>
               <p className="text-xs text-gray-500">{summary?.labour?.count || 0} entries</p>
             </CardContent>
           </Card>
@@ -404,7 +402,7 @@ export default function ExpenseManagement() {
                   <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                     <Package className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />Material
                   </TabsTrigger>
-                  <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                  <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                     <Users className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />Labour
                   </TabsTrigger>
                   <TabsTrigger value="vendor" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
@@ -473,7 +471,7 @@ export default function ExpenseManagement() {
                     {activeTab === 'labour' && (
                       <Dialog open={labourDialog} onOpenChange={setLabourDialog}>
                         <DialogTrigger asChild>
-                          <Button data-testid="add-labour-btn" className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 flex-1 sm:flex-none text-xs sm:text-sm">
+                          <Button data-testid="add-labour-btn" className="gap-1 sm:gap-2 bg-secondary hover:bg-secondary/90 flex-1 sm:flex-none text-xs sm:text-sm">
                             <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Labour
                           </Button>
                         </DialogTrigger>
@@ -532,7 +530,7 @@ export default function ExpenseManagement() {
                               <Label>Remarks</Label>
                               <Textarea value={labourForm.remarks} onChange={(e) => setLabourForm({...labourForm, remarks: e.target.value})} />
                             </div>
-                            <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700">Submit Expense</Button>
+                            <Button type="submit" className="w-full bg-secondary hover:bg-secondary/90">Submit Expense</Button>
                           </form>
                         </DialogContent>
                       </Dialog>
@@ -693,7 +691,7 @@ export default function ExpenseManagement() {
                           <td className="px-4 py-4 text-right">{exp.num_workers}</td>
                           <td className="px-4 py-4 text-right">{exp.days_worked}</td>
                           <td className="px-4 py-4 text-right">₹{exp.rate_per_day?.toLocaleString()}</td>
-                          <td className="px-4 py-4 text-right font-semibold text-blue-600">₹{exp.total_amount?.toLocaleString()}</td>
+                          <td className="px-4 py-4 text-right font-semibold text-amber-600">₹{exp.total_amount?.toLocaleString()}</td>
                           <td className="px-4 py-4 text-center">{getStatusBadge(exp.status)}</td>
                           <td className="px-4 py-4 text-center">
                             <div className="flex items-center justify-center gap-1">

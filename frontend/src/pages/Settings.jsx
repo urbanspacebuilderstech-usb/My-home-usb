@@ -130,11 +130,9 @@ export default function Settings() {
       <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-blue-600 p-1.5 sm:p-2 rounded-lg">
-              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500 hidden sm:block">System Settings</p>
             </div>
           </div>
@@ -170,14 +168,14 @@ export default function Settings() {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer hover:shadow-md transition-shadow active:bg-blue-100" onClick={() => setActiveTab('company')}>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 cursor-pointer hover:shadow-md transition-shadow active:bg-amber-50" onClick={() => setActiveTab('company')}>
             <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Company Profile</CardTitle>
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
-                <Building className="h-4 w-4 sm:h-6 sm:w-6 text-blue-600" />
-                <span className="text-xs sm:text-lg font-bold text-blue-700 truncate">{summary?.company_name || 'Not Set'}</span>
+                <Building className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
+                <span className="text-xs sm:text-lg font-bold text-amber-700 truncate">{summary?.company_name || 'Not Set'}</span>
               </div>
             </CardContent>
           </Card>

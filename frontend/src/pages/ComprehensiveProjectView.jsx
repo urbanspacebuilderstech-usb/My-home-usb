@@ -191,11 +191,9 @@ export default function ComprehensiveProjectView() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Comprehensive Project View</p>
             </div>
           </div>
@@ -264,7 +262,7 @@ export default function ComprehensiveProjectView() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-lg font-bold text-blue-700">{formatCurrency(summary.project_value)}</div>
+              <div className="text-lg font-bold text-amber-700">{formatCurrency(summary.project_value)}</div>
             </CardContent>
           </Card>
 
@@ -333,25 +331,25 @@ export default function ComprehensiveProjectView() {
               <TabsList className="bg-transparent border-0 p-0 h-auto flex-wrap gap-2">
                 <TabsTrigger 
                   value="overview" 
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4"
                 >
                   Overview
                 </TabsTrigger>
                 <TabsTrigger 
                   value="boq"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4"
                 >
                   BOQ / Project Value
                 </TabsTrigger>
                 <TabsTrigger 
                   value="payment-schedule"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4"
                 >
                   Payment Schedule
                 </TabsTrigger>
                 <TabsTrigger 
                   value="additional-costs"
-                  className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4"
                 >
                   Additional Costs
                 </TabsTrigger>
@@ -363,9 +361,9 @@ export default function ComprehensiveProjectView() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Project Value Summary */}
                 <Card className="border-2 border-blue-100">
-                  <CardHeader className="bg-blue-50 border-b">
+                  <CardHeader className="bg-amber-50 border-b">
                     <CardTitle className="text-lg flex items-center gap-2">
-                      <DollarSign className="h-5 w-5 text-blue-600" />
+                      <DollarSign className="h-5 w-5 text-amber-600" />
                       Project Value Summary
                     </CardTitle>
                   </CardHeader>
@@ -384,7 +382,7 @@ export default function ComprehensiveProjectView() {
                     </div>
                     <div className="flex justify-between items-center py-2 bg-gray-50 px-2 rounded">
                       <span className="font-semibold text-gray-800">Total Project Scope</span>
-                      <span className="font-bold text-blue-600">{formatCurrency(summary.project_value + summary.additional_estimated)}</span>
+                      <span className="font-bold text-amber-600">{formatCurrency(summary.project_value + summary.additional_estimated)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -522,10 +520,10 @@ export default function ComprehensiveProjectView() {
                     )}
                   </tbody>
                   {boq_items.length > 0 && (
-                    <tfoot className="bg-blue-50 border-t-2">
+                    <tfoot className="bg-amber-50 border-t-2">
                       <tr>
                         <td colSpan="6" className="px-4 py-3 text-right font-bold">Total BOQ Value:</td>
-                        <td className="px-4 py-3 text-right font-bold text-blue-600">₹{summary.boq_total?.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-amber-600">₹{summary.boq_total?.toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   )}
@@ -543,7 +541,7 @@ export default function ComprehensiveProjectView() {
                 {canManage && (
                   <Dialog open={paymentStageDialog} onOpenChange={setPaymentStageDialog}>
                     <DialogTrigger asChild>
-                      <Button data-testid="add-payment-stage-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                      <Button data-testid="add-payment-stage-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                         <Plus className="h-4 w-4" />Add Stage
                       </Button>
                     </DialogTrigger>
@@ -680,7 +678,7 @@ export default function ComprehensiveProjectView() {
                                     size="icon"
                                     onClick={() => setEditingStage(isEditing ? null : stage.stage_id)}
                                   >
-                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-amber-600" />}
                                   </Button>
                                   <Button
                                     variant="ghost"
@@ -722,7 +720,7 @@ export default function ComprehensiveProjectView() {
                 {canManage && (
                   <Dialog open={additionalCostDialog} onOpenChange={setAdditionalCostDialog}>
                     <DialogTrigger asChild>
-                      <Button data-testid="add-additional-cost-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                      <Button data-testid="add-additional-cost-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                         <Plus className="h-4 w-4" />Add Cost Item
                       </Button>
                     </DialogTrigger>
@@ -835,7 +833,7 @@ export default function ComprehensiveProjectView() {
                                     size="icon"
                                     onClick={() => setEditingCost(isEditing ? null : cost.cost_id)}
                                   >
-                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-blue-500" />}
+                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-amber-600" />}
                                   </Button>
                                   <Button
                                     variant="ghost"

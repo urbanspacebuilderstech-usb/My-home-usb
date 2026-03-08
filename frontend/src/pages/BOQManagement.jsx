@@ -152,11 +152,9 @@ export default function BOQManagement() {
       <nav className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
+            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
             <div>
-              <h1 className="text-xl font-bold text-gray-900">ConstructionOS</h1>
+              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
               <p className="text-xs text-gray-500">Project Management System</p>
             </div>
           </div>
@@ -203,7 +201,7 @@ export default function BOQManagement() {
               <CardTitle className="text-sm font-medium text-gray-600">Total Budget</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-700">₹{(totalBudget / 100000).toFixed(2)}L</div>
+              <div className="text-2xl font-bold text-amber-700">₹{(totalBudget / 100000).toFixed(2)}L</div>
             </CardContent>
           </Card>
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
@@ -239,7 +237,7 @@ export default function BOQManagement() {
             {canEdit && (
               <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
                 <DialogTrigger asChild>
-                  <Button data-testid="add-boq-btn" className="gap-2 bg-blue-600 hover:bg-blue-700">
+                  <Button data-testid="add-boq-btn" className="gap-2 bg-secondary hover:bg-secondary/90">
                     <Plus className="h-4 w-4" />Add BOQ Item
                   </Button>
                 </DialogTrigger>
@@ -311,9 +309,9 @@ export default function BOQManagement() {
                       </div>
                     </div>
                     {formData.quantity && formData.unit_rate && (
-                      <div className="p-3 bg-blue-50 rounded-lg">
+                      <div className="p-3 bg-amber-50 rounded-lg">
                         <p className="text-sm text-gray-600">Total Cost:</p>
-                        <p className="text-xl font-bold text-blue-600">
+                        <p className="text-xl font-bold text-amber-600">
                           ₹{(parseFloat(formData.quantity) * parseFloat(formData.unit_rate)).toLocaleString()}
                         </p>
                       </div>
@@ -360,7 +358,7 @@ export default function BOQManagement() {
                         <td className="px-6 py-4">{item.unit}</td>
                         <td className="px-6 py-4">{item.quantity}</td>
                         <td className="px-6 py-4">₹{item.unit_rate.toLocaleString()}</td>
-                        <td className="px-6 py-4 font-semibold text-blue-600">₹{item.total_cost.toLocaleString()}</td>
+                        <td className="px-6 py-4 font-semibold text-amber-600">₹{item.total_cost.toLocaleString()}</td>
                         <td className="px-6 py-4">
                           {item.locked ? (
                             <span className="flex items-center gap-1 text-red-600">
@@ -382,7 +380,7 @@ export default function BOQManagement() {
                                 onClick={() => openEditDialog(item)}
                                 disabled={item.locked}
                               >
-                                <Edit className={`h-4 w-4 ${item.locked ? 'text-gray-300' : 'text-blue-600'}`} />
+                                <Edit className={`h-4 w-4 ${item.locked ? 'text-gray-300' : 'text-amber-600'}`} />
                               </Button>
                               <Button
                                 data-testid={`delete-boq-${item.boq_id}`}
@@ -416,7 +414,7 @@ export default function BOQManagement() {
                   <tfoot className="bg-gray-50 border-t-2">
                     <tr>
                       <td colSpan="5" className="px-6 py-3 text-right font-semibold">Total BOQ Budget:</td>
-                      <td className="px-6 py-3 font-bold text-blue-700">₹{totalBudget.toLocaleString()}</td>
+                      <td className="px-6 py-3 font-bold text-amber-700">₹{totalBudget.toLocaleString()}</td>
                       <td colSpan={canEdit ? 2 : 1}></td>
                     </tr>
                   </tfoot>

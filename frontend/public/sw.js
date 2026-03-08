@@ -1,4 +1,4 @@
-const CACHE_NAME = 'constructionos-v1';
+const CACHE_NAME = 'myhomeusb-v1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

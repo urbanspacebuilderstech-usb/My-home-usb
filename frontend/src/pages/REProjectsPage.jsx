@@ -34,7 +34,7 @@ const COMPANY_INFO = {
 };
 
 const RE_STATUS_CONFIG = {
-  re_requested: { label: 'New Request', color: 'bg-blue-100 text-blue-700 border-blue-300', icon: Clock },
+  re_requested: { label: 'New Request', color: 'bg-amber-50 text-amber-700 border-blue-300', icon: Clock },
   re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: RefreshCw },
   re_submitted: { label: 'Submitted for Approval', color: 'bg-purple-100 text-purple-700 border-purple-300', icon: FileText },
   re_approved: { label: 'Approved', color: 'bg-green-100 text-green-700 border-green-300', icon: CheckCircle },
@@ -444,9 +444,9 @@ export default function REProjectsPage() {
             onClick={() => setActiveTab('new')}
           >
             <CardContent className="p-4 text-center">
-              <Clock className="h-6 w-6 mx-auto mb-1 text-blue-600" />
-              <p className="text-2xl font-bold text-blue-700">{dashboard?.status_counts?.re_requested || 0}</p>
-              <p className="text-xs text-blue-600">New Requests</p>
+              <Clock className="h-6 w-6 mx-auto mb-1 text-amber-600" />
+              <p className="text-2xl font-bold text-amber-700">{dashboard?.status_counts?.re_requested || 0}</p>
+              <p className="text-xs text-amber-600">New Requests</p>
             </CardContent>
           </Card>
           

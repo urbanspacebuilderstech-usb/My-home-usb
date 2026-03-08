@@ -392,8 +392,8 @@ export default function MaterialReceipt() {
             </div>
 
             {/* Email OTP Section */}
-            <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
-              <Label className="text-blue-700 font-semibold flex items-center gap-2">
+            <div className="border-2 border-blue-200 rounded-lg p-4 bg-amber-50">
+              <Label className="text-amber-700 font-semibold flex items-center gap-2">
                 <QrCode className="h-4 w-4" /> OTP Verification *
               </Label>
               
@@ -404,7 +404,7 @@ export default function MaterialReceipt() {
                   size="sm" 
                   onClick={requestOtpEmail} 
                   disabled={otpSending}
-                  className="gap-1 border-blue-300 text-blue-700 hover:bg-blue-100"
+                  className="gap-1 border-blue-300 text-amber-700 hover:bg-amber-50"
                   data-testid="send-otp-email-btn"
                 >
                   {otpSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
@@ -424,7 +424,7 @@ export default function MaterialReceipt() {
                 placeholder="Enter 6-digit OTP"
                 className="mt-3 text-center text-2xl tracking-widest font-mono"
               />
-              <p className="text-xs text-blue-600 mt-2">
+              <p className="text-xs text-amber-600 mt-2">
                 {otpStatus === 'sent' 
                   ? 'Check your email for the OTP code' 
                   : otpStatus === 'fallback'

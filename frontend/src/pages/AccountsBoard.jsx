@@ -198,7 +198,7 @@ export default function AccountsBoard() {
 
   const getTypeBadge = (type) => {
     const config = {
-      material: { label: 'Material', color: 'bg-blue-100 text-blue-700' },
+      material: { label: 'Material', color: 'bg-amber-50 text-amber-700' },
       labour: { label: 'Labour', color: 'bg-green-100 text-green-700' },
       procurement: { label: 'Procurement', color: 'bg-purple-100 text-purple-700' },
       stage: { label: 'Stage Payment', color: 'bg-orange-100 text-orange-700' }
@@ -261,12 +261,12 @@ export default function AccountsBoard() {
           
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleTabChange('material')}>
             <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-1">
+              <div className="flex items-center gap-2 text-amber-600 mb-1">
                 <Package className="h-4 w-4" />
                 <span className="text-xs sm:text-sm">Material</span>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-blue-700">{dashboard.pending_material || 0}</p>
-              <p className="text-xs text-blue-600">{formatCurrency(dashboard.material_total)}</p>
+              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.pending_material || 0}</p>
+              <p className="text-xs text-amber-600">{formatCurrency(dashboard.material_total)}</p>
             </CardContent>
           </Card>
           
@@ -330,7 +330,7 @@ export default function AccountsBoard() {
                   <TabsTrigger value="all" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm">
                     All
                   </TabsTrigger>
-                  <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none text-xs sm:text-sm">
+                  <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm">
                     Material
                   </TabsTrigger>
                   <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm">

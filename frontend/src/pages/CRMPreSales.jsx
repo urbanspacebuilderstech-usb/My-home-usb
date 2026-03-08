@@ -22,7 +22,7 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const SOURCE_COLORS = {
-  meta: 'bg-blue-100 text-blue-700',
+  meta: 'bg-amber-50 text-amber-700',
   seo: 'bg-green-100 text-green-700',
   other: 'bg-gray-100 text-gray-700',
   referral: 'bg-purple-100 text-purple-700',
@@ -1099,7 +1099,7 @@ export default function CRMPreSales() {
                 variant="outline" 
                 size="sm" 
                 onClick={() => { setLeadDetailDialog(false); openEditLead(selectedLead); }}
-                className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                className="text-amber-600 border-blue-200 hover:bg-amber-50"
               >
                 <Edit2 className="h-4 w-4 mr-1" /> Edit
               </Button>
@@ -1387,7 +1387,7 @@ export default function CRMPreSales() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Edit2 className="h-5 w-5 text-blue-600" />
+              <Edit2 className="h-5 w-5 text-amber-600" />
               Edit Lead
             </DialogTitle>
             <DialogDescription>Update lead contact information and details</DialogDescription>

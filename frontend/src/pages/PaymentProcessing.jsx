@@ -196,7 +196,7 @@ export default function PaymentProcessing() {
     const config = {
       pending: { label: 'Pending', class: 'bg-gray-100 text-gray-700' },
       otp_sent: { label: 'OTP Sent', class: 'bg-yellow-100 text-yellow-700' },
-      otp_verified: { label: 'Verified', class: 'bg-blue-100 text-blue-700' },
+      otp_verified: { label: 'Verified', class: 'bg-amber-50 text-amber-700' },
       approved: { label: 'Approved', class: 'bg-green-100 text-green-700' },
       rejected: { label: 'Rejected', class: 'bg-red-100 text-red-700' },
       completed: { label: 'Completed', class: 'bg-emerald-100 text-emerald-700' }
@@ -447,7 +447,7 @@ export default function PaymentProcessing() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-blue-600" />
+              <Lock className="h-5 w-5 text-amber-600" />
               Enter OTP
             </DialogTitle>
             <DialogDescription>
@@ -457,11 +457,11 @@ export default function PaymentProcessing() {
           
           {selectedRequest && (
             <div className="space-y-4">
-              <Card className="bg-blue-50 border-blue-200">
+              <Card className="bg-amber-50 border-blue-200">
                 <CardContent className="p-4 text-center">
-                  <p className="text-sm text-blue-600">Payment Amount</p>
-                  <p className="text-2xl font-bold text-blue-700">{formatCurrency(selectedRequest.amount)}</p>
-                  <p className="text-sm text-blue-600 mt-1">To: {selectedRequest.party_name}</p>
+                  <p className="text-sm text-amber-600">Payment Amount</p>
+                  <p className="text-2xl font-bold text-amber-700">{formatCurrency(selectedRequest.amount)}</p>
+                  <p className="text-sm text-amber-600 mt-1">To: {selectedRequest.party_name}</p>
                 </CardContent>
               </Card>
               
@@ -488,7 +488,7 @@ export default function PaymentProcessing() {
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setVerifyDialog(false)}>Cancel</Button>
-            <Button onClick={handleVerifyOTP} className="bg-blue-600 hover:bg-blue-700" data-testid="verify-otp-btn">
+            <Button onClick={handleVerifyOTP} className="bg-secondary hover:bg-secondary/90" data-testid="verify-otp-btn">
               <Key className="h-4 w-4 mr-1" /> Verify
             </Button>
           </DialogFooter>
