@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Building2, LogOut, Plus, Bell, TrendingUp, TrendingDown, DollarSign, 
-  Wallet, Users, FileText, Eye, MinusCircle, CheckCircle, AlertTriangle
+  Plus, TrendingUp, DollarSign, Wallet, FileText, Eye, 
+  Landmark, BookOpen, CreditCard, Banknote, Receipt
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,30 +12,34 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const formatCurrency = (amount) => {
+  if (!amount && amount !== 0) return '₹0';
+  const num = Number(amount);
+  if (num >= 10000000) return `₹${(num / 10000000).toFixed(2)}Cr`;
+  if (num >= 100000) return `₹${(num / 100000).toFixed(2)}L`;
+  if (num >= 1000) return `₹${(num / 1000).toFixed(2)}K`;
+  return `₹${num.toLocaleString('en-IN')}`;
+};
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState(null);
-  const [notifications, setNotifications] = useState([]);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
   const [createProjectDialog, setCreateProjectDialog] = useState(false);
-  
   const [projectForm, setProjectForm] = useState({
-    name: '',
-    client_name: '',
-    location: '',
-    total_value: '',
+    name: '', client_name: '', location: '', total_value: '',
     start_date: new Date().toISOString().split('T')[0],
     expected_completion: new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0],
     status: 'planning'
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
@@ -43,29 +47,10 @@ export default function Dashboard() {
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
-      // Redirect Site Engineers to their dedicated board
-      if (userRes.data.role === 'site_engineer') {
-        window.location.href = '/site-engineer';
-        return;
-      }
-      
-      // Redirect Pre-Sales users to CRM Pre-Sales
-      if (userRes.data.role === 'pre_sales') {
-        window.location.href = '/crm-pre-sales';
-        return;
-      }
-      
-      // Redirect Sales users to CRM Sales
-      if (userRes.data.role === 'sales') {
-        window.location.href = '/crm-sales';
-        return;
-      }
-      
-      // Redirect GM users to GM Command Center
-      if (userRes.data.role === 'general_manager') {
-        window.location.href = '/gm-dashboard';
-        return;
-      }
+      if (userRes.data.role === 'site_engineer') { window.location.href = '/site-engineer'; return; }
+      if (userRes.data.role === 'pre_sales') { window.location.href = '/crm-pre-sales'; return; }
+      if (userRes.data.role === 'sales') { window.location.href = '/crm-sales'; return; }
+      if (userRes.data.role === 'general_manager') { window.location.href = '/gm-dashboard'; return; }
       
       const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),
@@ -73,24 +58,12 @@ export default function Dashboard() {
       ]);
       
       setDashboardData(dashboardRes.data);
-      setNotifications(notifsRes.data || []);
+      const notifs = notifsRes.data || [];
+      setUnreadNotifs(notifs.filter(n => !n.read).length);
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      // Redirect to login if not authenticated
-      if (error.response?.status === 401) {
-        window.location.href = '/login';
-      }
+      if (error.response?.status === 401) window.location.href = '/login';
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await axios.post(`${API}/auth/logout`);
-      window.location.href = '/login';
-    } catch (error) {
-      console.error('Logout failed');
     }
   };
 
@@ -98,297 +71,76 @@ export default function Dashboard() {
     e.preventDefault();
     try {
       await axios.post(`${API}/projects`, {
-        name: projectForm.name,
-        client_name: projectForm.client_name,
-        location: projectForm.location,
-        total_value: parseFloat(projectForm.total_value) || 0,
-        start_date: projectForm.start_date,
-        expected_completion: projectForm.expected_completion,
-        status: projectForm.status
+        ...projectForm,
+        total_value: Number(projectForm.total_value) || 0
       });
-      toast.success('Project/Client created successfully');
+      toast.success('Project created successfully');
       setCreateProjectDialog(false);
-      setProjectForm({ 
-        name: '', 
-        client_name: '', 
-        location: '', 
-        total_value: '', 
+      setProjectForm({ name: '', client_name: '', location: '', total_value: '',
         start_date: new Date().toISOString().split('T')[0],
         expected_completion: new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0],
-        status: 'planning' 
+        status: 'planning'
       });
       fetchData();
     } catch (error) {
-      toast.error('Failed to create project');
+      toast.error(error.response?.data?.detail || 'Failed to create project');
     }
   };
 
-  const formatCurrency = (amount) => {
-    if (!amount && amount !== 0) return '₹0';
-    if (amount >= 100000) {
-      return `₹${(amount / 100000).toFixed(2)}L`;
-    }
-    return `₹${amount?.toLocaleString() || 0}`;
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-lg font-semibold text-gray-600">Loading dashboard...</div>
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-center">
+        <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+        <p className="text-sm text-gray-500 font-medium">Loading dashboard...</p>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-lg font-semibold text-red-600">Please login to continue</div>
-      </div>
-    );
-  }
-
-  // If not super admin, show basic dashboard
-  if (user.role !== 'super_admin') {
-    // Procurement role gets redirected to Procurement Board
-    if (user.role === 'procurement') {
-      window.location.href = '/procurement-board';
-      return null;
-    }
-    
-    // Site Engineer gets redirected to Site Engineer Dashboard
-    if (user.role === 'site_engineer') {
-      window.location.href = '/site-engineer';
-      return null;
-    }
-    
-    // CRE gets redirected to CRE Board
-    if (user.role === 'cre') {
-      window.location.href = '/cre-board';
-      return null;
-    }
-    
-    // Planning gets redirected to Planning Board
-    if (user.role === 'planning') {
-      window.location.href = '/planning-board';
-      return null;
-    }
-    
-    // Accountant gets redirected to Accountant Dashboard
-    if (user.role === 'accountant') {
-      window.location.href = '/accountant-dashboard';
-      return null;
-    }
-    
-    // General Manager gets redirected to GM Command Center
-    if (user.role === 'general_manager') {
-      window.location.href = '/gm-dashboard';
-      return null;
-    }
-    
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-              <div>
-                <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
-                <p className="text-xs text-gray-500 hidden sm:block">Project Management System</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-4">
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/projects'}>Projects</Button>
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/work-orders'}>Work Orders</Button>
-              <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-                <div className="text-right hidden sm:block">
-                  <p className="text-sm font-semibold text-gray-900">{user.name}</p>
-                  <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
-                </div>
-                <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
-                  <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </nav>
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-          <h2 className="text-xl sm:text-3xl font-bold text-gray-900 mb-2 sm:mb-4">Welcome, {user.name}</h2>
-          <p className="text-sm sm:text-base text-gray-600 mb-4 sm:mb-8">Access your assigned tasks from the navigation above.</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            <Card className="cursor-pointer hover:shadow-lg transition-shadow active:bg-gray-50" onClick={() => window.location.href = '/projects'}>
-              <CardContent className="p-4 sm:p-6 text-center">
-                <FileText className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-2 sm:mb-4 text-amber-600" />
-                <h3 className="font-semibold text-sm sm:text-base">Projects</h3>
-              </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:shadow-lg transition-shadow active:bg-gray-50" onClick={() => window.location.href = '/work-orders'}>
-              <CardContent className="p-4 sm:p-6 text-center">
-                <CheckCircle className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-2 sm:mb-4 text-green-600" />
-                <h3 className="font-semibold text-sm sm:text-base">Work Orders</h3>
-              </CardContent>
-            </Card>
-            <Card className="cursor-pointer hover:shadow-lg transition-shadow active:bg-gray-50" onClick={() => window.location.href = '/notifications'}>
-              <CardContent className="p-4 sm:p-6 text-center">
-                <Bell className="h-8 w-8 sm:h-12 sm:w-12 mx-auto mb-2 sm:mb-4 text-orange-600" />
-                <h3 className="font-semibold text-sm sm:text-base">Notifications</h3>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (!user) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <p className="text-gray-500">Please <a href="/login" className="text-amber-600 underline">login</a></p>
+    </div>
+  );
 
   const totals = dashboardData?.totals || {};
   const projects = dashboardData?.projects || [];
-  const unreadNotifs = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Super Admin Dashboard</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-1 sm:gap-4">
-            {/* Desktop Navigation */}
-            <div className="hidden lg:flex items-center gap-1">
-              <Button variant="ghost" size="sm" className="text-amber-600 font-semibold">Dashboard</Button>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/projects'}>Projects</Button>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/income'}>Income</Button>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/expense-management'}>Expenses</Button>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/users'}>Users</Button>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/settings'}>Settings</Button>
-            </div>
-            
-            {/* Notification & Profile */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => window.location.href = '/notifications'}
-              className="relative h-8 w-8 sm:h-10 sm:w-10"
-            >
-              <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
-              {unreadNotifs > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 sm:h-5 sm:w-5 flex items-center justify-center text-[10px] sm:text-xs">
-                  {unreadNotifs}
-                </span>
-              )}
-            </Button>
-            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">SUPER ADMIN</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
-                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        
-        {/* Mobile Navigation Links - handled by MobileBottomNav */}
-      </nav>
+    <div className="min-h-screen bg-gray-50" data-testid="super-admin-dashboard">
+      <AppHeader user={user} unreadNotifs={unreadNotifs} />
 
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Header with Create Button */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">
+      <div className="max-w-7xl mx-auto px-4 py-5 sm:px-6 sm:py-6">
+        {/* Page Title + Create */}
+        <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 data-testid="super-admin-title" className="text-xl sm:text-3xl font-bold text-gray-900">
-              Super Admin View
+            <h2 data-testid="dashboard-title" className="text-xl sm:text-2xl font-bold text-gray-900">
+              Project Finance Board
             </h2>
-            <p className="text-sm sm:text-base text-gray-600">Complete overview of all projects and finances</p>
+            <p className="text-sm text-gray-500 mt-0.5">Overview of all projects and finances</p>
           </div>
           <Dialog open={createProjectDialog} onOpenChange={setCreateProjectDialog}>
             <DialogTrigger asChild>
-              <Button data-testid="create-project-btn" className="gap-2 bg-secondary hover:bg-secondary/90 w-full sm:w-auto">
-                <Plus className="h-4 w-4" />
-                <span className="sm:inline">Create Project</span>
+              <Button data-testid="create-project-btn" className="gap-1.5 bg-secondary hover:bg-secondary/90">
+                <Plus className="h-4 w-4" /><span className="hidden sm:inline">New Project</span>
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Project / Client</DialogTitle>
+                <DialogTitle>Create New Project</DialogTitle>
                 <DialogDescription>Add a new project to the system</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleCreateProject} className="space-y-4">
-                <div>
-                  <Label>Project Name</Label>
-                  <Input
-                    data-testid="project-name-input"
-                    value={projectForm.name}
-                    onChange={(e) => setProjectForm({...projectForm, name: e.target.value})}
-                    placeholder="e.g., Vinoth Residence"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Client Name</Label>
-                  <Input
-                    data-testid="client-name-input"
-                    value={projectForm.client_name}
-                    onChange={(e) => setProjectForm({...projectForm, client_name: e.target.value})}
-                    placeholder="e.g., Mr. Vinoth Kumar"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Location</Label>
-                  <Input
-                    data-testid="location-input"
-                    value={projectForm.location}
-                    onChange={(e) => setProjectForm({...projectForm, location: e.target.value})}
-                    placeholder="e.g., Chennai, Tamil Nadu"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Initial Project Value (₹)</Label>
-                  <Input
-                    data-testid="value-input"
-                    type="number"
-                    value={projectForm.total_value}
-                    onChange={(e) => setProjectForm({...projectForm, total_value: e.target.value})}
-                    placeholder="e.g., 5000000"
-                  />
-                </div>
+                <div><Label>Project Name</Label><Input data-testid="project-name-input" value={projectForm.name} onChange={(e) => setProjectForm({...projectForm, name: e.target.value})} placeholder="e.g., Vinoth Residence" required /></div>
+                <div><Label>Client Name</Label><Input data-testid="client-name-input" value={projectForm.client_name} onChange={(e) => setProjectForm({...projectForm, client_name: e.target.value})} placeholder="e.g., Mr. Vinoth Kumar" required /></div>
+                <div><Label>Location</Label><Input data-testid="location-input" value={projectForm.location} onChange={(e) => setProjectForm({...projectForm, location: e.target.value})} placeholder="e.g., Chennai" required /></div>
+                <div><Label>Initial Project Value (₹)</Label><Input data-testid="value-input" type="number" value={projectForm.total_value} onChange={(e) => setProjectForm({...projectForm, total_value: e.target.value})} placeholder="e.g., 5000000" /></div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Start Date</Label>
-                    <Input
-                      data-testid="start-date-input"
-                      type="date"
-                      value={projectForm.start_date}
-                      onChange={(e) => setProjectForm({...projectForm, start_date: e.target.value})}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label>Expected Completion</Label>
-                    <Input
-                      data-testid="completion-date-input"
-                      type="date"
-                      value={projectForm.expected_completion}
-                      onChange={(e) => setProjectForm({...projectForm, expected_completion: e.target.value})}
-                      required
-                    />
-                  </div>
+                  <div><Label>Start Date</Label><Input data-testid="start-date-input" type="date" value={projectForm.start_date} onChange={(e) => setProjectForm({...projectForm, start_date: e.target.value})} required /></div>
+                  <div><Label>Expected Completion</Label><Input data-testid="completion-date-input" type="date" value={projectForm.expected_completion} onChange={(e) => setProjectForm({...projectForm, expected_completion: e.target.value})} required /></div>
                 </div>
-                <div>
-                  <Label>Status</Label>
-                  <Select
-                    value={projectForm.status}
-                    onValueChange={(value) => setProjectForm({...projectForm, status: value})}
-                  >
-                    <SelectTrigger data-testid="status-select">
-                      <SelectValue />
-                    </SelectTrigger>
+                <div><Label>Status</Label>
+                  <Select value={projectForm.status} onValueChange={(v) => setProjectForm({...projectForm, status: v})}>
+                    <SelectTrigger data-testid="status-select"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="planning">Planning</SelectItem>
                       <SelectItem value="active">Active</SelectItem>
@@ -397,313 +149,226 @@ export default function Dashboard() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button data-testid="submit-project-btn" type="submit" className="w-full">
-                  Create Project
-                </Button>
+                <Button data-testid="submit-project-btn" type="submit" className="w-full">Create Project</Button>
               </form>
             </DialogContent>
           </Dialog>
         </div>
 
-        {/* Summary Section - 3 Card Groups */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6 mb-4 sm:mb-8">
-          {/* Project Value Card */}
-          <Card className="border-2 border-blue-200">
-            <CardHeader className="bg-amber-50 border-b pb-2 sm:pb-3 p-3 sm:p-6">
-              <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-                <DollarSign className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
-                Project Value
+        {/* ═══ Finance Summary Cards ═══ */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+          {/* Project Value */}
+          <Card data-testid="card-project-value" className="border-l-4 border-l-amber-500">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-gray-500 flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-amber-500" /> Project Value
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Project Total</span>
-                <span className="font-semibold text-sm sm:text-base text-amber-700">{formatCurrency(totals.project_total_value)}</span>
+            <CardContent className="px-4 pb-4 space-y-2">
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Project Total</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.project_total_value)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Addition Cost</span>
-                <span className="font-semibold text-sm sm:text-base text-cyan-700">{formatCurrency(totals.project_addition_cost)}</span>
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Addition Cost</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.project_addition_cost)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 bg-amber-50 px-2 rounded">
-                <span className="font-bold text-xs sm:text-sm text-gray-800">Total</span>
-                <span className="font-bold text-sm sm:text-base text-amber-700">{formatCurrency(totals.project_value_total)}</span>
+              <div className="flex justify-between py-1.5 bg-amber-50 px-2 -mx-2 rounded">
+                <span className="text-xs font-bold text-amber-800">Total Value</span>
+                <span className="text-sm font-extrabold text-amber-700">{formatCurrency(totals.project_value_total)}</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Income Card */}
-          <Card className="border-2 border-green-200">
-            <CardHeader className="bg-green-50 border-b pb-2 sm:pb-3 p-3 sm:p-6">
-              <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 sm:h-5 sm:w-5 text-green-600" />
-                Income
+          {/* Income */}
+          <Card data-testid="card-income" className="border-l-4 border-l-green-500">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-gray-500 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-green-500" /> Income
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Project Amount</span>
-                <span className="font-semibold text-sm sm:text-base text-green-700">{formatCurrency(totals.income_project)}</span>
+            <CardContent className="px-4 pb-4 space-y-2">
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Project Income</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.income_project)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Additional</span>
-                <span className="font-semibold text-sm sm:text-base text-green-700">{formatCurrency(totals.income_additional)}</span>
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Additional Income</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.income_additional)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 bg-green-50 px-2 rounded">
-                <span className="font-bold text-xs sm:text-sm text-gray-800">Total</span>
-                <span className="font-bold text-sm sm:text-base text-green-700">{formatCurrency(totals.income_total)}</span>
+              <div className="flex justify-between py-1.5 bg-green-50 px-2 -mx-2 rounded">
+                <span className="text-xs font-bold text-green-800">Total Income</span>
+                <span className="text-sm font-extrabold text-green-700">{formatCurrency(totals.income_total)}</span>
               </div>
             </CardContent>
           </Card>
 
-          {/* Balance Card */}
-          <Card className="border-2 border-red-200 md:col-span-2 lg:col-span-1">
-            <CardHeader className="bg-red-50 border-b pb-2 sm:pb-3 p-3 sm:p-6">
-              <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-                <Wallet className="h-4 w-4 sm:h-5 sm:w-5 text-red-600" />
-                Balance
+          {/* Balance */}
+          <Card data-testid="card-balance" className="border-l-4 border-l-red-500">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-gray-500 flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-red-500" /> Balance
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 sm:p-4 space-y-2 sm:space-y-3">
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Project Balance</span>
-                <span className="font-semibold text-sm sm:text-base text-red-700">{formatCurrency(totals.balance_project)}</span>
+            <CardContent className="px-4 pb-4 space-y-2">
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Project Balance</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.balance_project)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 border-b">
-                <span className="text-xs sm:text-sm text-gray-600">Additional</span>
-                <span className="font-semibold text-sm sm:text-base text-red-700">{formatCurrency(totals.balance_additional)}</span>
+              <div className="flex justify-between py-1.5 border-b border-dashed border-gray-100">
+                <span className="text-xs text-gray-500">Additional Balance</span>
+                <span className="text-sm font-bold text-gray-800">{formatCurrency(totals.balance_additional)}</span>
               </div>
-              <div className="flex justify-between items-center py-1.5 sm:py-2 bg-red-50 px-2 rounded">
-                <span className="font-bold text-xs sm:text-sm text-gray-800">Grand Total</span>
-                <span className="font-bold text-sm sm:text-base text-red-700">{formatCurrency(totals.balance_grand_total)}</span>
+              <div className="flex justify-between py-1.5 bg-red-50 px-2 -mx-2 rounded">
+                <span className="text-xs font-bold text-red-800">Grand Total</span>
+                <span className="text-sm font-extrabold text-red-700">{formatCurrency(totals.balance_grand_total)}</span>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Expense & Cash Bar */}
-        <Card className="mb-4 sm:mb-8 border-2 border-orange-200">
-          <CardContent className="p-3 sm:p-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-              <div className="bg-orange-50 p-2 sm:p-4 rounded-lg text-center">
-                <p className="text-xs sm:text-sm text-gray-600 mb-1">Total Expense</p>
-                <p className="text-base sm:text-xl font-bold text-orange-700">{formatCurrency(totals.total_expense)}</p>
-              </div>
-              <div className="bg-gray-100 p-2 sm:p-4 rounded-lg text-center">
-                <p className="text-xs sm:text-sm text-gray-600 mb-1">X Amount</p>
-                <p className="text-base sm:text-xl font-bold text-gray-700">-</p>
-              </div>
-              <div className="bg-purple-50 p-2 sm:p-4 rounded-lg text-center">
-                <p className="text-xs sm:text-sm text-gray-600 mb-1">Cash in Book</p>
-                <p className={`text-base sm:text-xl font-bold ${totals.cash_in_book >= 0 ? 'text-purple-700' : 'text-red-700'}`}>
-                  {formatCurrency(totals.cash_in_book)}
-                </p>
-              </div>
-              <div className="bg-gray-100 p-2 sm:p-4 rounded-lg text-center">
-                <p className="text-xs sm:text-sm text-gray-600 mb-1">Y Amount</p>
-                <p className="text-base sm:text-xl font-bold text-gray-700">-</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Quick Actions for Super Admin */}
-        <Card className="mb-4 sm:mb-6 bg-gradient-to-r from-indigo-50 to-purple-50 border-indigo-200">
-          <CardHeader className="pb-2 p-3 sm:p-6">
-            <CardTitle className="text-sm sm:text-lg">Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-              <Card 
-                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
-                onClick={() => window.location.href = '/marketing-board'}
-              >
-                <CardContent className="p-3 sm:p-4 text-center">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-2">
-                    <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-indigo-600" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold">Marketing Board</p>
-                  <p className="text-xs text-gray-500 hidden sm:block">Lead Distribution</p>
-                </CardContent>
-              </Card>
-              <Card 
-                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
-                onClick={() => window.location.href = '/crm-pre-sales'}
-              >
-                <CardContent className="p-3 sm:p-4 text-center">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-2">
-                    <Users className="h-5 w-5 sm:h-6 sm:w-6 text-amber-600" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold">Pre-Sales CRM</p>
-                  <p className="text-xs text-gray-500 hidden sm:block">Lead Management</p>
-                </CardContent>
-              </Card>
-              <Card 
-                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
-                onClick={() => window.location.href = '/crm-sales'}
-              >
-                <CardContent className="p-3 sm:p-4 text-center">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-2">
-                    <DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold">Sales CRM</p>
-                  <p className="text-xs text-gray-500 hidden sm:block">Deal Conversion</p>
-                </CardContent>
-              </Card>
-              <Card 
-                className="cursor-pointer hover:shadow-md transition-shadow bg-white"
-                onClick={() => window.location.href = '/gm-dashboard'}
-              >
-                <CardContent className="p-3 sm:p-4 text-center">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-yellow-100 flex items-center justify-center mx-auto mb-2">
-                    <Eye className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-600" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold">GM Dashboard</p>
-                  <p className="text-xs text-gray-500 hidden sm:block">Command Center</p>
-                </CardContent>
-              </Card>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Projects List */}
-        <Card>
-          <CardHeader className="border-b flex flex-row items-center justify-between p-3 sm:p-6">
-            <CardTitle className="text-sm sm:text-lg flex items-center gap-2">
-              <FileText className="h-4 w-4 sm:h-5 sm:w-5" />
-              All Projects ({projects.length})
+        {/* ═══ Account View — Finance Summary ═══ */}
+        <Card data-testid="card-account-view" className="mb-5">
+          <CardHeader className="pb-2 pt-4 px-4 sm:px-5">
+            <CardTitle className="text-sm sm:text-base font-bold text-gray-800 flex items-center gap-2">
+              <Landmark className="h-4 w-4 text-gray-500" /> Account View
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            {/* Mobile Card View */}
-            <div className="block sm:hidden divide-y divide-gray-200">
-              {projects.length === 0 ? (
-                <div className="px-4 py-8 text-center text-gray-500 text-sm">
-                  No projects yet. Click "Create Project" to add one.
-                </div>
-              ) : (
-                projects.map((project, index) => (
-                  <div 
-                    key={project.project_id}
-                    data-testid={`project-card-mobile-${project.project_id}`}
-                    className="p-4 active:bg-gray-50 cursor-pointer"
-                    onClick={() => window.location.href = `/projects/${project.project_id}`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-semibold text-gray-900">{project.name}</p>
-                        <p className="text-xs text-gray-500">{project.client_name} • {project.location}</p>
-                      </div>
-                      <Badge variant={project.status === 'active' ? 'default' : 'secondary'} className="text-xs">
-                        {project.status}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 mt-3">
-                      <div>
-                        <p className="text-xs text-gray-500">Value</p>
-                        <p className="text-sm font-semibold text-amber-600">{formatCurrency(project.total_value)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Income</p>
-                        <p className="text-sm font-semibold text-green-600">{formatCurrency(project.income_received)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Balance</p>
-                        <p className="text-sm font-semibold text-red-600">{formatCurrency(project.balance)}</p>
-                      </div>
-                    </div>
+          <CardContent className="px-4 sm:px-5 pb-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Total Income */}
+              <div className="bg-green-50 border border-green-100 rounded-xl p-3 sm:p-4" data-testid="account-total-income">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="w-7 h-7 rounded-full bg-green-100 flex items-center justify-center">
+                    <TrendingUp className="h-3.5 w-3.5 text-green-600" />
                   </div>
-                ))
-              )}
+                  <span className="text-xs font-semibold text-green-700">Total Income</span>
+                </div>
+                <p className="text-lg sm:text-xl font-extrabold text-green-800">{formatCurrency(totals.income_total)}</p>
+              </div>
+
+              {/* Total Expense */}
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 sm:p-4" data-testid="account-total-expense">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center">
+                    <Receipt className="h-3.5 w-3.5 text-orange-600" />
+                  </div>
+                  <span className="text-xs font-semibold text-orange-700">Total Expense</span>
+                </div>
+                <p className="text-lg sm:text-xl font-extrabold text-orange-800">{formatCurrency(totals.total_expense)}</p>
+              </div>
+
+              {/* Cash in Book */}
+              <div className={`border rounded-xl p-3 sm:p-4 ${totals.cash_in_book >= 0 ? 'bg-blue-50 border-blue-100' : 'bg-red-50 border-red-100'}`} data-testid="account-cash-in-book">
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center ${totals.cash_in_book >= 0 ? 'bg-blue-100' : 'bg-red-100'}`}>
+                    <BookOpen className={`h-3.5 w-3.5 ${totals.cash_in_book >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
+                  </div>
+                  <span className={`text-xs font-semibold ${totals.cash_in_book >= 0 ? 'text-blue-700' : 'text-red-700'}`}>Cash in Book</span>
+                </div>
+                <p className={`text-lg sm:text-xl font-extrabold ${totals.cash_in_book >= 0 ? 'text-blue-800' : 'text-red-800'}`}>{formatCurrency(totals.cash_in_book)}</p>
+              </div>
+
+              {/* Mode of Amounts */}
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 sm:p-4" data-testid="account-modes">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center">
+                    <Banknote className="h-3.5 w-3.5 text-gray-600" />
+                  </div>
+                  <span className="text-xs font-semibold text-gray-700">Amount Modes</span>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between"><span className="text-gray-500">Cash</span><span className="font-bold text-gray-700">-</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Bank</span><span className="font-bold text-gray-700">-</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">UPI</span><span className="font-bold text-gray-700">-</span></div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ═══ All Projects ═══ */}
+        <Card data-testid="card-all-projects">
+          <CardHeader className="border-b flex flex-row items-center justify-between py-3 px-4 sm:px-5">
+            <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2">
+              <FileText className="h-4 w-4 text-gray-500" />
+              All Projects ({projects.length})
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => window.location.href = '/projects'} data-testid="view-all-projects-btn">
+              View All
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            {/* Mobile Cards */}
+            <div className="block sm:hidden divide-y">
+              {projects.length === 0 ? (
+                <div className="px-4 py-8 text-center text-gray-400 text-sm">No projects yet.</div>
+              ) : projects.map((p) => (
+                <div key={p.project_id} data-testid={`project-card-mobile-${p.project_id}`}
+                  className="p-4 active:bg-gray-50 cursor-pointer"
+                  onClick={() => window.location.href = `/projects/${p.project_id}`}>
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{p.name}</p>
+                      <p className="text-xs text-gray-400">{p.client_name}</p>
+                    </div>
+                    <Badge variant={p.status === 'active' || p.status === 'in_progress' ? 'default' : 'secondary'} className="text-[10px]">{p.status}</Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><p className="text-[10px] text-gray-400">Value</p><p className="text-xs font-bold text-amber-600">{formatCurrency(p.total_value)}</p></div>
+                    <div><p className="text-[10px] text-gray-400">Income</p><p className="text-xs font-bold text-green-600">{formatCurrency(p.income_received)}</p></div>
+                    <div><p className="text-[10px] text-gray-400">Balance</p><p className="text-xs font-bold text-red-600">{formatCurrency(p.balance)}</p></div>
+                  </div>
+                </div>
+              ))}
             </div>
             
-            {/* Desktop Table View */}
+            {/* Desktop Table */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Project</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Client</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Value</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Income</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">#</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Project</th>
+                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Client</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Value</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Income</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Expense</th>
+                    <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Balance</th>
+                    <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-500 uppercase">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y">
                   {projects.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
-                        No projects yet. Click "Create Project" to add one.
+                    <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-400 text-sm">No projects yet.</td></tr>
+                  ) : projects.map((p, i) => (
+                    <tr key={p.project_id} data-testid={`project-row-${p.project_id}`}
+                      className="hover:bg-gray-50/50 cursor-pointer" onClick={() => window.location.href = `/projects/${p.project_id}`}>
+                      <td className="px-4 py-3 text-sm text-gray-400">{i + 1}</td>
+                      <td className="px-4 py-3"><span className="font-medium text-sm">{p.name}</span><p className="text-xs text-gray-400">{p.location}</p></td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{p.client_name}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-amber-600">{formatCurrency(p.total_value)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-green-600">{formatCurrency(p.income_received)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-orange-600">{formatCurrency(p.expenses)}</td>
+                      <td className="px-4 py-3 text-right text-sm font-semibold text-red-600">{formatCurrency(p.balance)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <Badge variant={p.status === 'active' || p.status === 'in_progress' ? 'default' : p.status === 'completed' ? 'secondary' : 'outline'} className="text-[10px]">{p.status}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); window.location.href = `/projects/${p.project_id}`; }}>
+                          <Eye className="h-3.5 w-3.5 mr-1" />View
+                        </Button>
                       </td>
                     </tr>
-                  ) : (
-                    projects.map((project, index) => (
-                      <tr 
-                        key={project.project_id} 
-                        data-testid={`project-row-${project.project_id}`}
-                        className="hover:bg-gray-50 cursor-pointer"
-                        onClick={() => window.location.href = `/projects/${project.project_id}`}
-                      >
-                        <td className="px-4 py-4 text-sm">{index + 1}</td>
-                        <td className="px-4 py-4">
-                          <span className="font-medium">{project.name}</span>
-                          <p className="text-xs text-gray-500">{project.location}</p>
-                        </td>
-                        <td className="px-4 py-4 text-sm">{project.client_name}</td>
-                        <td className="px-4 py-4 text-right font-semibold text-amber-600">
-                          {formatCurrency(project.total_value)}
-                        </td>
-                        <td className="px-4 py-4 text-right font-semibold text-green-600">
-                          {formatCurrency(project.income_received)}
-                        </td>
-                        <td className="px-4 py-4 text-right font-semibold text-red-600">
-                          {formatCurrency(project.balance)}
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <Badge variant={
-                            project.status === 'active' ? 'default' :
-                            project.status === 'completed' ? 'secondary' :
-                            'outline'
-                          }>
-                            {project.status}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4 text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              window.location.href = `/projects/${project.project_id}`;
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
-            </div>
-            
-            {/* View All Projects Button */}
-            <div className="p-3 sm:p-4 border-t text-center">
-              <Button 
-                data-testid="view-all-projects-btn"
-                variant="outline"
-                onClick={() => window.location.href = '/projects'}
-                className="w-full sm:w-auto"
-              >
-                View All Projects
-              </Button>
             </div>
           </CardContent>
         </Card>
       </div>
+
       <MobileBottomNav user={user} />
     </div>
   );
