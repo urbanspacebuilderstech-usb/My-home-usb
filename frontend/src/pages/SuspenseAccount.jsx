@@ -1,519 +1,316 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
-import { Input } from '../components/ui/input';
-import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Wallet, Users, Package, Banknote, Plus, CheckCircle, ArrowRight, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
-import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  HelpCircle, LogOut, Plus, CheckCircle, Clock, AlertTriangle, XCircle,
-  ArrowLeft, RefreshCw, DollarSign, Lock, ArrowUpRight, ArrowDownRight
-} from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import MobileBottomNav from '../components/MobileBottomNav';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+const fmt = (n) => {
+  if (!n && n !== 0) return '₹0';
+  const num = Number(n);
+  if (num >= 10000000) return `₹${(num / 10000000).toFixed(2)}Cr`;
+  if (num >= 100000) return `₹${(num / 100000).toFixed(2)}L`;
+  if (num >= 1000) return `₹${(num / 1000).toFixed(1)}K`;
+  return `₹${num.toLocaleString('en-IN')}`;
+};
 
-const PAYMENT_METHODS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'cheque', label: 'Cheque' },
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'upi', label: 'UPI' }
-];
-
-export default function SuspenseAccount() {
+export default function SuspenseAccountPage() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [entries, setEntries] = useState([]);
-  const [projects, setProjects] = useState([]);
-  
-  const [createDialog, setCreateDialog] = useState(false);
-  const [allocateDialog, setAllocateDialog] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState(null);
-  
-  const [createForm, setCreateForm] = useState({
-    amount: '',
-    transaction_type: 'income',
-    description: '',
-    source: '',
-    reference_number: '',
-    payment_method: 'bank_transfer',
-    remarks: ''
-  });
-  
-  const [allocateForm, setAllocateForm] = useState({
-    approved: true,
-    allocated_to: '',
-    allocation_category: '',
-    allocation_reason: '',
-    rejection_reason: ''
+  const [data, setData] = useState(null);
+  const [activeTab, setActiveTab] = useState('petty_cash');
+  const [paymentDialog, setPaymentDialog] = useState(false);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
+  const [payForm, setPayForm] = useState({
+    payment_type: 'labour', vendor_or_contractor: '', requested_amount: '',
+    cheque_amount: '', payment_method: 'cheque', remarks: '',
+    allocations: [{ project_id: '', amount: '' }]
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, entriesRes, projectsRes] = await Promise.all([
+      const [userRes, susRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/financial/suspense`),
-        axios.get(`${API}/projects`)
+        axios.get(`${API}/suspense/overview`).catch(() => ({ data: null })),
+        axios.get(`${API}/notifications`).catch(() => ({ data: [] })),
       ]);
-      
-      if (!['accountant', 'super_admin', 'general_manager'].includes(userRes.data.role)) {
-        toast.error('Access denied.');
-        window.location.href = '/dashboard';
-        return;
-      }
-      
       setUser(userRes.data);
-      setEntries(entriesRes.data);
-      setProjects(projectsRes.data);
+      setData(susRes.data);
+      setUnreadNotifs((notifsRes.data || []).filter(n => !n.read).length);
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      if (error.response?.status === 401) {
-        window.location.href = '/login';
-      }
+      if (error.response?.status === 401) window.location.href = '/login';
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    try { await axios.post(`${API}/auth/logout`); } catch (e) {}
-    window.location.href = '/login';
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
-  };
-
-  const handleCreateEntry = async () => {
-    if (!createForm.amount || !createForm.description) {
-      toast.error('Amount and description are required');
-      return;
-    }
-
+  const handleSettlePettyCash = async (pcId) => {
     try {
-      await axios.post(`${API}/financial/suspense`, {
-        ...createForm,
-        amount: parseFloat(createForm.amount)
-      });
-      toast.success('Suspense entry created. Requires Super Admin approval for allocation.');
-      setCreateDialog(false);
-      setCreateForm({
-        amount: '',
-        transaction_type: 'income',
-        description: '',
-        source: '',
-        reference_number: '',
-        payment_method: 'bank_transfer',
-        remarks: ''
-      });
+      await axios.post(`${API}/suspense/petty-cash/${pcId}/settle`);
+      toast.success('Petty cash settled');
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create entry');
+      toast.error(error.response?.data?.detail || 'Failed to settle');
     }
   };
 
-  const handleAllocate = async () => {
-    if (allocateForm.approved && !allocateForm.allocated_to) {
-      toast.error('Allocation target is required');
-      return;
-    }
-    if (!allocateForm.approved && !allocateForm.rejection_reason) {
-      toast.error('Rejection reason is required');
-      return;
-    }
-
+  const handlePayment = async (e) => {
+    e.preventDefault();
     try {
-      await axios.patch(`${API}/financial/suspense/${selectedEntry.suspense_id}/allocate`, allocateForm);
-      toast.success(allocateForm.approved ? 'Entry allocated successfully' : 'Entry rejected');
-      setAllocateDialog(false);
-      setSelectedEntry(null);
-      setAllocateForm({
-        approved: true,
-        allocated_to: '',
-        allocation_category: '',
-        allocation_reason: '',
-        rejection_reason: ''
+      const projects = data?.projects || [];
+      const allocations = payForm.allocations.filter(a => a.project_id && a.amount).map(a => ({
+        project_id: a.project_id,
+        project_name: projects.find(p => p.project_id === a.project_id)?.name || '',
+        amount: Number(a.amount)
+      }));
+      
+      await axios.post(`${API}/suspense/payment`, {
+        payment_type: payForm.payment_type,
+        vendor_or_contractor: payForm.vendor_or_contractor,
+        requested_amount: Number(payForm.requested_amount),
+        cheque_amount: Number(payForm.cheque_amount),
+        payment_method: payForm.payment_method,
+        site_allocations: allocations,
+        remarks: payForm.remarks,
       });
+      toast.success('Payment processed with suspense tracking');
+      setPaymentDialog(false);
+      setPayForm({ payment_type: 'labour', vendor_or_contractor: '', requested_amount: '', cheque_amount: '', payment_method: 'cheque', remarks: '', allocations: [{ project_id: '', amount: '' }] });
       fetchData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process');
+      toast.error(error.response?.data?.detail || 'Failed');
     }
   };
 
-  const getStatusBadge = (status) => {
-    const config = {
-      pending: { label: 'Pending Allocation', class: 'bg-yellow-100 text-yellow-700', icon: Clock },
-      allocated: { label: 'Allocated', class: 'bg-green-100 text-green-700', icon: CheckCircle },
-      rejected: { label: 'Rejected', class: 'bg-red-100 text-red-700', icon: XCircle }
-    };
-    const c = config[status] || { label: status, class: 'bg-gray-100 text-gray-700', icon: Clock };
-    const Icon = c.icon;
-    return (
-      <Badge className={`${c.class} flex items-center gap-1`}>
-        <Icon className="h-3 w-3" /> {c.label}
-      </Badge>
-    );
+  const addAllocation = () => setPayForm({ ...payForm, allocations: [...payForm.allocations, { project_id: '', amount: '' }] });
+  const updateAllocation = (idx, field, val) => {
+    const allocs = [...payForm.allocations];
+    allocs[idx] = { ...allocs[idx], [field]: val };
+    setPayForm({ ...payForm, allocations: allocs });
   };
 
-  const pendingEntries = entries.filter(e => e.status === 'pending');
-  const allocatedEntries = entries.filter(e => e.status === 'allocated');
-  const rejectedEntries = entries.filter(e => e.status === 'rejected');
-  
-  const pendingTotal = pendingEntries.reduce((sum, e) => sum + (e.amount || 0), 0);
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+  if (!user) return null;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <RefreshCw className="h-6 w-6 animate-spin text-orange-600" />
-      </div>
-    );
-  }
-
-  const canCreate = user?.role === 'accountant';
-  const canAllocate = user?.role === 'super_admin';
+  const petty = data?.petty_cash || {};
+  const matSus = data?.material_suspense || {};
+  const labSus = data?.labour_suspense || {};
+  const projects = data?.projects || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <AppHeader user={user} />
+    <div className="min-h-screen bg-gray-50" data-testid="suspense-page">
+      <AppHeader user={user} unreadNotifs={unreadNotifs} />
+      <div className="max-w-7xl mx-auto px-4 py-5 sm:px-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900" data-testid="suspense-title">Suspense Account</h2>
+          <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
+            <DialogTrigger asChild>
+              <Button className="gap-1.5 bg-secondary hover:bg-secondary/90" data-testid="process-payment-btn">
+                <Plus className="h-4 w-4" /><span className="hidden sm:inline">Process Payment</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Process Payment with Suspense</DialogTitle></DialogHeader>
+              <form onSubmit={handlePayment} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Payment Type</Label>
+                    <Select value={payForm.payment_type} onValueChange={(v) => setPayForm({...payForm, payment_type: v})}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="material">Material</SelectItem>
+                        <SelectItem value="labour">Labour</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Payment Method</Label>
+                    <Select value={payForm.payment_method} onValueChange={(v) => setPayForm({...payForm, payment_method: v})}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="upi">UPI</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div><Label>Vendor / Contractor Name</Label><Input data-testid="pay-vendor-input" value={payForm.vendor_or_contractor} onChange={(e) => setPayForm({...payForm, vendor_or_contractor: e.target.value})} required /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Requested Amount (₹)</Label><Input data-testid="pay-requested-input" type="number" value={payForm.requested_amount} onChange={(e) => setPayForm({...payForm, requested_amount: e.target.value})} required /></div>
+                  <div><Label>Cheque/Payment Amount (₹)</Label><Input data-testid="pay-cheque-input" type="number" value={payForm.cheque_amount} onChange={(e) => setPayForm({...payForm, cheque_amount: e.target.value})} required /></div>
+                </div>
+                
+                {payForm.requested_amount && payForm.cheque_amount && Number(payForm.cheque_amount) > Number(payForm.requested_amount) && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600 inline mr-1" />
+                    <strong>Excess: {fmt(Number(payForm.cheque_amount) - Number(payForm.requested_amount))}</strong> will go to suspense account for {payForm.vendor_or_contractor || 'this vendor'}
+                  </div>
+                )}
 
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
-        {/* Info Banner */}
-        <Card className="mb-6 bg-gradient-to-r from-orange-50 to-amber-50 border-orange-200">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
-              <div>
-                <p className="font-semibold text-orange-800">Suspense Account Rules</p>
-                <ul className="text-sm text-orange-700 mt-1 list-disc list-inside">
-                  <li>Used for unclear transactions that cannot be immediately categorized</li>
-                  <li>Requires Super Admin approval before allocation to proper account</li>
-                  <li>Entries are locked after allocation</li>
-                </ul>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label>Site Allocation</Label>
+                    <Button type="button" variant="ghost" size="sm" onClick={addAllocation} className="text-xs">+ Add Site</Button>
+                  </div>
+                  {payForm.allocations.map((alloc, idx) => (
+                    <div key={idx} className="grid grid-cols-2 gap-2 mb-2">
+                      <Select value={alloc.project_id} onValueChange={(v) => updateAllocation(idx, 'project_id', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
+                        <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                      <Input type="number" placeholder="Amount (₹)" value={alloc.amount} onChange={(e) => updateAllocation(idx, 'amount', e.target.value)} />
+                    </div>
+                  ))}
+                </div>
+                <div><Label>Remarks</Label><Input value={payForm.remarks} onChange={(e) => setPayForm({...payForm, remarks: e.target.value})} /></div>
+                <Button type="submit" className="w-full" data-testid="submit-payment-btn">Process Payment</Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {/* Summary */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+          <Card data-testid="petty-summary" className="border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2"><Banknote className="h-4 w-4 text-amber-500" /><span className="text-sm font-bold text-gray-700">Petty Cash</span></div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-[10px] text-gray-400">Issued</p><p className="text-sm font-bold text-amber-600">{fmt(petty.total_issued)}</p></div>
+                <div><p className="text-[10px] text-gray-400">Spent</p><p className="text-sm font-bold text-red-600">{fmt(petty.total_spent)}</p></div>
+                <div><p className="text-[10px] text-gray-400">Balance</p><p className="text-sm font-bold text-green-600">{fmt(petty.balance)}</p></div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card className="bg-yellow-50 border-yellow-200">
-            <CardContent className="p-4 text-center">
-              <Clock className="h-6 w-6 mx-auto mb-1 text-yellow-600" />
-              <p className="text-2xl font-bold text-yellow-700">{pendingEntries.length}</p>
-              <p className="text-xs text-yellow-600">Pending</p>
             </CardContent>
           </Card>
-          
-          <Card className="bg-orange-50 border-orange-200">
-            <CardContent className="p-4 text-center">
-              <DollarSign className="h-6 w-6 mx-auto mb-1 text-orange-600" />
-              <p className="text-xl font-bold text-orange-700">{formatCurrency(pendingTotal)}</p>
-              <p className="text-xs text-orange-600">Pending Amount</p>
+          <Card data-testid="material-summary" className="border-l-4 border-l-blue-500 cursor-pointer" onClick={() => setActiveTab('materials')}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2"><Package className="h-4 w-4 text-blue-500" /><span className="text-sm font-bold text-gray-700">Material Suspense</span></div>
+              <p className="text-2xl font-extrabold text-blue-700">{fmt(matSus.total)}</p>
+              <p className="text-xs text-gray-400">{(matSus.balances || []).length} vendors with balance</p>
             </CardContent>
           </Card>
-          
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="p-4 text-center">
-              <CheckCircle className="h-6 w-6 mx-auto mb-1 text-green-600" />
-              <p className="text-2xl font-bold text-green-700">{allocatedEntries.length}</p>
-              <p className="text-xs text-green-600">Allocated</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-red-50 border-red-200">
-            <CardContent className="p-4 text-center">
-              <XCircle className="h-6 w-6 mx-auto mb-1 text-red-600" />
-              <p className="text-2xl font-bold text-red-700">{rejectedEntries.length}</p>
-              <p className="text-xs text-red-600">Rejected</p>
+          <Card data-testid="labour-summary" className="border-l-4 border-l-purple-500 cursor-pointer" onClick={() => setActiveTab('labour')}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2"><Users className="h-4 w-4 text-purple-500" /><span className="text-sm font-bold text-gray-700">Labour Suspense</span></div>
+              <p className="text-2xl font-extrabold text-purple-700">{fmt(labSus.total)}</p>
+              <p className="text-xs text-gray-400">{(labSus.balances || []).length} contractors with balance</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Entries Table */}
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <HelpCircle className="h-5 w-5 text-orange-600" />
-              Suspense Entries
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TYPE</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESCRIPTION</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">SOURCE</th>
-                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">AMOUNT</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CREATED BY</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTION</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {entries.length === 0 ? (
-                    <tr>
-                      <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
-                        No suspense entries
-                      </td>
-                    </tr>
-                  ) : (
-                    entries.map((entry) => (
-                      <tr key={entry.suspense_id} className="hover:bg-gray-50" data-testid={`suspense-row-${entry.suspense_id}`}>
-                        <td className="px-4 py-3">
-                          <Badge className={entry.transaction_type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                            {entry.transaction_type === 'income' ? (
-                              <><ArrowUpRight className="h-3 w-3 mr-1" /> Income</>
-                            ) : (
-                              <><ArrowDownRight className="h-3 w-3 mr-1" /> Expense</>
-                            )}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-sm">{entry.description}</p>
-                          {entry.reference_number && (
-                            <p className="text-xs text-gray-500">Ref: {entry.reference_number}</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm">{entry.source || '-'}</td>
-                        <td className="px-4 py-3 text-right font-bold text-orange-600">{formatCurrency(entry.amount)}</td>
-                        <td className="px-4 py-3 text-center">{getStatusBadge(entry.status)}</td>
-                        <td className="px-4 py-3 text-sm">{entry.created_by_name}</td>
-                        <td className="px-4 py-3 text-center">
-                          {entry.status === 'pending' && canAllocate && (
-                            <Button 
-                              size="sm"
-                              onClick={() => { setSelectedEntry(entry); setAllocateDialog(true); }}
-                              data-testid={`allocate-btn-${entry.suspense_id}`}
-                            >
-                              Allocate
-                            </Button>
-                          )}
-                          {entry.status === 'allocated' && (
-                            <span className="text-xs text-green-600">
-                              → {entry.allocated_to === 'indirect_cost' ? 'Indirect Cost' : projects.find(p => p.project_id === entry.allocated_to)?.name || entry.allocated_to}
-                            </span>
-                          )}
-                          {entry.status === 'rejected' && (
-                            <span className="text-xs text-red-600">{entry.rejection_reason}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList data-testid="suspense-tabs">
+            <TabsTrigger value="petty_cash">Petty Cash ({(petty.all_requests || []).length})</TabsTrigger>
+            <TabsTrigger value="materials">Materials ({(matSus.balances || []).length})</TabsTrigger>
+            <TabsTrigger value="labour">Labour ({(labSus.balances || []).length})</TabsTrigger>
+          </TabsList>
 
-      {/* Create Suspense Entry Dialog */}
-      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Add Suspense Entry</DialogTitle>
-            <DialogDescription>
-              Create an entry for unclear transactions. Requires Super Admin approval for allocation.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Transaction Type *</Label>
-                <Select value={createForm.transaction_type} onValueChange={(v) => setCreateForm({...createForm, transaction_type: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="income">Income (Received)</SelectItem>
-                    <SelectItem value="expense">Expense (Paid)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Amount *</Label>
-                <Input 
-                  type="number"
-                  value={createForm.amount}
-                  onChange={(e) => setCreateForm({...createForm, amount: e.target.value})}
-                  placeholder="Enter amount"
-                  data-testid="input-amount"
-                />
-              </div>
-            </div>
-            
-            <div>
-              <Label>Description *</Label>
-              <Input 
-                value={createForm.description}
-                onChange={(e) => setCreateForm({...createForm, description: e.target.value})}
-                placeholder="Describe the unclear transaction"
-                data-testid="input-description"
-              />
-            </div>
-            
-            <div>
-              <Label>Source (Where did this come from?)</Label>
-              <Input 
-                value={createForm.source}
-                onChange={(e) => setCreateForm({...createForm, source: e.target.value})}
-                placeholder="E.g., Unknown bank deposit"
-              />
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Reference Number</Label>
-                <Input 
-                  value={createForm.reference_number}
-                  onChange={(e) => setCreateForm({...createForm, reference_number: e.target.value})}
-                  placeholder="Transaction ref"
-                />
-              </div>
-              <div>
-                <Label>Payment Method</Label>
-                <Select value={createForm.payment_method} onValueChange={(v) => setCreateForm({...createForm, payment_method: v})}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_METHODS.map(m => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            
-            <div>
-              <Label>Remarks</Label>
-              <Textarea 
-                value={createForm.remarks}
-                onChange={(e) => setCreateForm({...createForm, remarks: e.target.value})}
-                placeholder="Additional notes..."
-                rows={2}
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateDialog(false)}>Cancel</Button>
-            <Button onClick={handleCreateEntry} className="bg-orange-600 hover:bg-orange-700" data-testid="submit-suspense">
-              <Plus className="h-4 w-4 mr-1" /> Create Entry
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Allocate Dialog */}
-      <Dialog open={allocateDialog} onOpenChange={setAllocateDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Allocate Suspense Entry</DialogTitle>
-            <DialogDescription>
-              Approve and allocate to proper account, or reject if invalid.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedEntry && (
-            <div className="space-y-4">
-              <Card className="bg-orange-50 border-orange-200">
+          <TabsContent value="petty_cash" className="mt-4 space-y-3">
+            {(petty.all_requests || []).length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No petty cash requests</CardContent></Card>
+            ) : (petty.all_requests || []).map((pc) => (
+              <Card key={pc.petty_cash_id} data-testid={`petty-${pc.petty_cash_id}`}>
                 <CardContent className="p-4">
-                  <Badge className={selectedEntry.transaction_type === 'income' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                    {selectedEntry.transaction_type}
-                  </Badge>
-                  <p className="font-medium mt-2">{selectedEntry.description}</p>
-                  <p className="text-2xl font-bold text-orange-700 mt-2">{formatCurrency(selectedEntry.amount)}</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm">{pc.project_name}</p>
+                        <Badge className={pc.status === 'settled' ? 'bg-green-100 text-green-800' : pc.status === 'issued' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'} data-testid={`petty-status-${pc.petty_cash_id}`}>{pc.status}</Badge>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">{pc.purpose} | By: {pc.requested_by_name}</p>
+                      <div className="flex gap-4 mt-1 text-xs">
+                        <span>Requested: <strong>{fmt(pc.amount_requested)}</strong></span>
+                        <span>Issued: <strong className="text-amber-600">{fmt(pc.amount_issued)}</strong></span>
+                        <span>Spent: <strong className="text-red-600">{fmt(pc.amount_spent)}</strong></span>
+                      </div>
+                      {pc.expenses && pc.expenses.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {pc.expenses.map((exp, i) => (
+                            <div key={i} className="text-xs text-gray-500 flex justify-between bg-gray-50 px-2 py-1 rounded">
+                              <span>{exp.description}</span><span className="font-medium">{fmt(exp.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {(pc.status === 'submitted' || pc.status === 'partially_settled') && (
+                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleSettlePettyCash(pc.petty_cash_id)} data-testid={`settle-${pc.petty_cash_id}`}>
+                        <CheckCircle className="h-3.5 w-3.5 mr-1" />Settle
+                      </Button>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
-              
-              <div className="flex gap-2">
-                <Button 
-                  variant={allocateForm.approved ? 'default' : 'outline'}
-                  onClick={() => setAllocateForm({...allocateForm, approved: true})}
-                  className={allocateForm.approved ? 'bg-green-600 hover:bg-green-700' : ''}
-                >
-                  Approve & Allocate
-                </Button>
-                <Button 
-                  variant={!allocateForm.approved ? 'destructive' : 'outline'}
-                  onClick={() => setAllocateForm({...allocateForm, approved: false})}
-                >
-                  Reject
-                </Button>
-              </div>
-              
-              {allocateForm.approved ? (
-                <>
-                  <div>
-                    <Label>Allocate To *</Label>
-                    <Select value={allocateForm.allocated_to} onValueChange={(v) => setAllocateForm({...allocateForm, allocated_to: v})}>
-                      <SelectTrigger><SelectValue placeholder="Select target" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="indirect_cost">Indirect Cost (Overhead)</SelectItem>
-                        {projects.map(p => (
-                          <SelectItem key={p.project_id} value={p.project_id}>Project: {p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div>
-                    <Label>Allocation Category</Label>
-                    <Input 
-                      value={allocateForm.allocation_category}
-                      onChange={(e) => setAllocateForm({...allocateForm, allocation_category: e.target.value})}
-                      placeholder="E.g., Material, Labour, Misc"
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label>Reason for Allocation</Label>
-                    <Textarea 
-                      value={allocateForm.allocation_reason}
-                      onChange={(e) => setAllocateForm({...allocateForm, allocation_reason: e.target.value})}
-                      placeholder="Explain why this is allocated here..."
-                      rows={2}
-                    />
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <Label>Rejection Reason *</Label>
-                  <Textarea 
-                    value={allocateForm.rejection_reason}
-                    onChange={(e) => setAllocateForm({...allocateForm, rejection_reason: e.target.value})}
-                    placeholder="Why is this being rejected?"
-                    rows={2}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAllocateDialog(false)}>Cancel</Button>
-            <Button 
-              onClick={handleAllocate} 
-              className={allocateForm.approved ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}
-              data-testid="confirm-allocation"
-            >
-              <Lock className="h-4 w-4 mr-1" /> {allocateForm.approved ? 'Allocate & Lock' : 'Reject'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            ))}
+          </TabsContent>
+
+          <TabsContent value="materials" className="mt-4">
+            {(matSus.balances || []).length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No material suspense balances</CardContent></Card>
+            ) : (
+              <Card><CardContent className="p-0">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Vendor</th>
+                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(matSus.balances || []).map((b) => (
+                      <tr key={b.name} data-testid={`mat-balance-${b.name}`}>
+                        <td className="px-4 py-3 text-sm font-medium">{b.name}</td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-blue-600">{fmt(b.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent></Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="labour" className="mt-4">
+            {(labSus.balances || []).length === 0 ? (
+              <Card><CardContent className="py-8 text-center text-gray-400 text-sm">No labour suspense balances</CardContent></Card>
+            ) : (
+              <Card><CardContent className="p-0">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-500 uppercase">Contractor</th>
+                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-500 uppercase">Suspense Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(labSus.balances || []).map((b) => (
+                      <tr key={b.name} data-testid={`lab-balance-${b.name}`}>
+                        <td className="px-4 py-3 text-sm font-medium">{b.name}</td>
+                        <td className="px-4 py-3 text-right text-sm font-bold text-purple-600">{fmt(b.balance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent></Card>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
       <MobileBottomNav user={user} />
     </div>
   );

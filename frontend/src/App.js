@@ -37,8 +37,8 @@ import PackageManagement from '@/pages/PackageManagement';
 import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
-import AccountantDashboard from '@/pages/AccountantDashboard';
-import AccountantModule from '@/pages/AccountantModule';
+import ProjectFinance from '@/pages/ProjectFinance';
+import Cashbook from '@/pages/Cashbook';
 import HRPortal from '@/pages/HRPortal';
 import ChequeManagement from '@/pages/ChequeManagement';
 import PaymentProcessing from '@/pages/PaymentProcessing';
@@ -102,8 +102,8 @@ function AppRouter() {
       <Route path="/cro-board" element={<ProtectedRoute><CREBoard /></ProtectedRoute>} />
       <Route path="/planning-board" element={<ProtectedRoute><PlanningBoard /></ProtectedRoute>} />
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
-      <Route path="/accountant-module" element={<ProtectedRoute><AccountantModule /></ProtectedRoute>} />
-      <Route path="/accountant-dashboard" element={<ProtectedRoute><AccountantDashboard /></ProtectedRoute>} />
+      <Route path="/accountant-module" element={<ProtectedRoute><Cashbook /></ProtectedRoute>} />
+      <Route path="/accountant-dashboard" element={<ProtectedRoute><ProjectFinance /></ProtectedRoute>} />
       <Route path="/hr-portal" element={<ProtectedRoute><HRPortal /></ProtectedRoute>} />
       <Route path="/cheque-management" element={<ProtectedRoute><ChequeManagement /></ProtectedRoute>} />
       <Route path="/payment-processing" element={<ProtectedRoute><PaymentProcessing /></ProtectedRoute>} />

@@ -60,7 +60,7 @@ async def get_all_income(
     # IDOR Fix: Only financial/management roles can access income data
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
@@ -104,7 +104,7 @@ async def get_income_summary(user: User = Depends(get_current_user)):
     # IDOR Fix: Only financial/management roles can access income summary
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
@@ -136,7 +136,7 @@ async def get_project_income(project_id: str, user: User = Depends(get_current_u
     # IDOR Fix: Only financial/management roles can access project income
     income_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
-        UserRole.PROJECT_MANAGER, UserRole.CRE
+        UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING
     ]
     if user.role not in income_access_roles:
         raise HTTPException(status_code=403, detail="Access denied to financial data")
@@ -365,6 +365,381 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
     await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason})
     return {"message": "Income rejected"}
 
+
+
+
+# ==================== CASHBOOK ENDPOINTS ====================
+
+@router.get("/cashbook")
+async def get_cashbook(
+    project_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get cashbook - all income and expense records"""
+    allowed = [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    income_q = {"status": {"$in": ["approved", "verified"]}} if not project_id else {"status": {"$in": ["approved", "verified"]}, "project_id": project_id}
+    expense_q = {} if not project_id else {"project_id": project_id}
+    
+    (incomes, recorded_exps, labour_exps, material_reqs, projects_list) = await asyncio.gather(
+        db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        db.recorded_expenses.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        db.labour_expenses.find({**expense_q, "status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        db.material_requests.find({**expense_q, "status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
+    )
+    
+    total_income = sum(i.get("amount", 0) for i in incomes)
+    total_expense = sum(e.get("amount", 0) for e in recorded_exps) + sum(l.get("total_amount", 0) for l in labour_exps) + sum(m.get("estimated_price", 0) for m in material_reqs)
+    
+    # Income by payment mode
+    mode_totals = {"cash": 0, "cheque": 0, "bank_transfer": 0, "upi": 0}
+    for i in incomes:
+        mode = i.get("payment_mode", "cash")
+        mode_totals[mode] = mode_totals.get(mode, 0) + i.get("amount", 0)
+    
+    return {
+        "income": incomes,
+        "expenses": recorded_exps,
+        "labour_expenses": labour_exps,
+        "material_expenses": material_reqs,
+        "projects": projects_list,
+        "summary": {
+            "total_income": total_income,
+            "total_expense": total_expense,
+            "balance": total_income - total_expense,
+            "income_by_mode": mode_totals,
+        }
+    }
+
+
+class ManualExpenseCreate(BaseModel):
+    project_id: str
+    category: str  # material, labour, vendor, petty_cash, other
+    description: str
+    amount: float
+    payment_method: str = "cash"  # cash, cheque, bank_transfer, upi
+    vendor_name: Optional[str] = None
+    remarks: Optional[str] = None
+    site_allocation: Optional[List[Dict[str, Any]]] = None  # [{project_id, amount}]
+
+
+@router.post("/cashbook/manual-expense")
+async def create_manual_expense(data: ManualExpenseCreate, user: User = Depends(get_current_user)):
+    """Record a manual expense entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can record expenses")
+    
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    
+    expense = {
+        "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+        "project_id": data.project_id,
+        "project_name": project.get("name") if project else "Unknown",
+        "category": data.category,
+        "description": data.description,
+        "amount": data.amount,
+        "payment_method": data.payment_method,
+        "vendor_name": data.vendor_name,
+        "remarks": data.remarks,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "status": "recorded",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    await db.recorded_expenses.insert_one(expense)
+    del expense["_id"]
+    
+    await create_audit_log(user.user_id, "create", "expense", expense["expense_id"], {"amount": data.amount, "category": data.category})
+    return expense
+
+
+# ==================== SUSPENSE ACCOUNT ENDPOINTS ====================
+
+@router.get("/suspense/overview")
+async def get_suspense_overview(user: User = Depends(get_current_user)):
+    """Get suspense account overview - petty cash, materials, labour balances"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    (petty_cash, suspense_entries, projects_list) = await asyncio.gather(
+        db.petty_cash_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(500),
+        db.suspense_entries.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
+    )
+    
+    project_map = {p["project_id"]: p["name"] for p in projects_list}
+    
+    # Calculate petty cash summary
+    petty_active = [p for p in petty_cash if p.get("status") in ["issued", "partially_settled"]]
+    petty_total_issued = sum(p.get("amount_issued", 0) for p in petty_active)
+    petty_total_spent = sum(p.get("amount_spent", 0) for p in petty_active)
+    
+    # Group suspense by type and vendor/contractor
+    material_suspense = {}
+    labour_suspense = {}
+    for entry in suspense_entries:
+        etype = entry.get("type")
+        key = entry.get("vendor_name") or entry.get("contractor_name") or "Unknown"
+        amt = entry.get("amount", 0)
+        if etype == "material":
+            material_suspense[key] = material_suspense.get(key, 0) + amt
+        elif etype == "labour":
+            labour_suspense[key] = labour_suspense.get(key, 0) + amt
+    
+    return {
+        "petty_cash": {
+            "active_requests": petty_active,
+            "total_issued": petty_total_issued,
+            "total_spent": petty_total_spent,
+            "balance": petty_total_issued - petty_total_spent,
+            "all_requests": petty_cash,
+        },
+        "material_suspense": {
+            "balances": [{"name": k, "balance": v} for k, v in material_suspense.items()],
+            "total": sum(material_suspense.values()),
+        },
+        "labour_suspense": {
+            "balances": [{"name": k, "balance": v} for k, v in labour_suspense.items()],
+            "total": sum(labour_suspense.values()),
+        },
+        "entries": suspense_entries,
+        "projects": projects_list,
+    }
+
+
+class PaymentWithSuspense(BaseModel):
+    payment_type: str  # material, labour
+    vendor_or_contractor: str
+    requested_amount: float
+    cheque_amount: float
+    payment_method: str = "cheque"
+    site_allocations: List[Dict[str, Any]]  # [{project_id, project_name, amount}]
+    remarks: Optional[str] = None
+
+
+@router.post("/suspense/payment")
+async def process_payment_with_suspense(data: PaymentWithSuspense, user: User = Depends(get_current_user)):
+    """Process payment with smart suspense balance deduction.
+    
+    Example: Labour asks 80K, Finance pays 1L cheque.
+    80K goes to labour expense, 20K goes to suspense.
+    Next time same labour asks 60K, only 40K needs to be sent (20K deducted from suspense).
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can process payments")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+    
+    # Check existing suspense balance for this vendor/contractor
+    existing_suspense = await db.suspense_entries.aggregate([
+        {"$match": {"type": data.payment_type, "$or": [
+            {"vendor_name": data.vendor_or_contractor},
+            {"contractor_name": data.vendor_or_contractor}
+        ]}},
+        {"$group": {"_id": None, "total": {"$sum": "$amount"}}}
+    ]).to_list(1)
+    
+    current_balance = existing_suspense[0]["total"] if existing_suspense else 0
+    
+    # Calculate actual payment needed
+    actual_needed = max(0, data.requested_amount - current_balance)
+    suspense_used = min(current_balance, data.requested_amount)
+    excess = data.cheque_amount - data.requested_amount  # Excess goes to suspense
+    
+    # Record the payment
+    payment_record = {
+        "payment_id": payment_id,
+        "payment_type": data.payment_type,
+        "vendor_or_contractor": data.vendor_or_contractor,
+        "requested_amount": data.requested_amount,
+        "cheque_amount": data.cheque_amount,
+        "suspense_used": suspense_used,
+        "actual_paid": actual_needed,
+        "excess_to_suspense": excess if excess > 0 else 0,
+        "payment_method": data.payment_method,
+        "site_allocations": data.site_allocations,
+        "remarks": data.remarks,
+        "processed_by": user.user_id,
+        "processed_by_name": user.name,
+        "created_at": now,
+    }
+    await db.payment_records.insert_one({**payment_record})
+    
+    # If suspense was used, record a deduction entry
+    if suspense_used > 0:
+        await db.suspense_entries.insert_one({
+            "entry_id": f"sus_{uuid.uuid4().hex[:12]}",
+            "type": data.payment_type,
+            "vendor_name": data.vendor_or_contractor if data.payment_type == "material" else None,
+            "contractor_name": data.vendor_or_contractor if data.payment_type == "labour" else None,
+            "amount": -suspense_used,
+            "description": f"Deducted from suspense for payment {payment_id}",
+            "payment_id": payment_id,
+            "created_at": now,
+        })
+    
+    # If excess, add to suspense
+    if excess > 0:
+        await db.suspense_entries.insert_one({
+            "entry_id": f"sus_{uuid.uuid4().hex[:12]}",
+            "type": data.payment_type,
+            "vendor_name": data.vendor_or_contractor if data.payment_type == "material" else None,
+            "contractor_name": data.vendor_or_contractor if data.payment_type == "labour" else None,
+            "amount": excess,
+            "description": f"Excess from cheque payment {payment_id} (Cheque: {data.cheque_amount}, Requested: {data.requested_amount})",
+            "payment_id": payment_id,
+            "created_at": now,
+        })
+    
+    # Record expenses per site allocation
+    for alloc in data.site_allocations:
+        project = await db.projects.find_one({"project_id": alloc["project_id"]}, {"_id": 0, "name": 1})
+        expense_entry = {
+            "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+            "project_id": alloc["project_id"],
+            "project_name": project.get("name") if project else alloc.get("project_name", "Unknown"),
+            "category": data.payment_type,
+            "description": f"Payment to {data.vendor_or_contractor}",
+            "amount": alloc["amount"],
+            "payment_method": data.payment_method,
+            "vendor_name": data.vendor_or_contractor,
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "recorded",
+            "payment_id": payment_id,
+            "created_at": now,
+        }
+        await db.recorded_expenses.insert_one(expense_entry)
+    
+    # Notify site managers for each site
+    for alloc in data.site_allocations:
+        await create_notification(
+            None,
+            f"Payment of ₹{alloc['amount']:,.0f} recorded for {data.vendor_or_contractor} on site {alloc.get('project_name', '')}"
+        )
+    
+    new_balance = current_balance - suspense_used + (excess if excess > 0 else 0)
+    
+    await create_audit_log(user.user_id, "payment", "suspense", payment_id, {
+        "type": data.payment_type, "vendor": data.vendor_or_contractor,
+        "requested": data.requested_amount, "cheque": data.cheque_amount,
+        "suspense_used": suspense_used, "new_balance": new_balance
+    })
+    
+    return {
+        "payment_id": payment_id,
+        "requested_amount": data.requested_amount,
+        "cheque_amount": data.cheque_amount,
+        "suspense_used": suspense_used,
+        "actual_paid": actual_needed,
+        "excess_to_suspense": excess if excess > 0 else 0,
+        "new_suspense_balance": new_balance,
+        "message": f"Payment processed. Suspense balance for {data.vendor_or_contractor}: ₹{new_balance:,.0f}"
+    }
+
+
+@router.post("/suspense/petty-cash/{petty_cash_id}/settle")
+async def settle_petty_cash(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """Approve petty cash settlement - moves from suspense to real expense"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can settle petty cash")
+    
+    pc = await db.petty_cash_requests.find_one({"petty_cash_id": petty_cash_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+    
+    if pc.get("status") not in ["submitted", "partially_settled"]:
+        raise HTTPException(status_code=400, detail=f"Cannot settle - current status: {pc.get('status')}")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    amount_spent = pc.get("amount_spent", 0)
+    
+    # Record each expense line as a real expense
+    for exp in pc.get("expenses", []):
+        await db.recorded_expenses.insert_one({
+            "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+            "project_id": pc.get("project_id"),
+            "project_name": pc.get("project_name"),
+            "category": "petty_cash",
+            "description": exp.get("description", "Petty cash expense"),
+            "amount": exp.get("amount", 0),
+            "payment_method": "cash",
+            "vendor_name": exp.get("vendor_name", ""),
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "recorded",
+            "petty_cash_id": petty_cash_id,
+            "created_at": now,
+        })
+    
+    # Update petty cash status
+    refund = pc.get("amount_issued", 0) - amount_spent
+    await db.petty_cash_requests.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {"status": "settled", "settled_by": user.user_id, "settled_at": now, "refund_amount": refund}}
+    )
+    
+    await create_audit_log(user.user_id, "settle", "petty_cash", petty_cash_id, {"amount_spent": amount_spent, "refund": refund})
+    return {"message": f"Petty cash settled. Amount spent: ₹{amount_spent:,.0f}, Refund: ₹{refund:,.0f}"}
+
+
+@router.get("/project-finance")
+async def get_project_finance_view(user: User = Depends(get_current_user)):
+    """Project-wise income and expense breakdown for accountant"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    (projects, incomes, recorded_exps, labour_exps, material_reqs) = await asyncio.gather(
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1, "status": 1}).to_list(1000),
+        db.income.find({"status": {"$in": ["approved", "verified"]}}, {"_id": 0, "project_id": 1, "amount": 1, "payment_mode": 1}).to_list(5000),
+        db.recorded_expenses.find({}, {"_id": 0, "project_id": 1, "amount": 1, "category": 1}).to_list(5000),
+        db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0, "project_id": 1, "total_amount": 1}).to_list(1000),
+        db.material_requests.find({"status": "accounts_approved"}, {"_id": 0, "project_id": 1, "estimated_price": 1}).to_list(1000),
+    )
+    
+    from collections import defaultdict
+    inc_by_proj = defaultdict(float)
+    for i in incomes:
+        inc_by_proj[i.get("project_id")] += i.get("amount", 0)
+    
+    exp_by_proj = defaultdict(lambda: {"material": 0, "labour": 0, "vendor": 0, "petty_cash": 0, "other": 0, "total": 0})
+    for e in recorded_exps:
+        pid = e.get("project_id")
+        cat = e.get("category", "other")
+        amt = e.get("amount", 0)
+        if cat in exp_by_proj[pid]:
+            exp_by_proj[pid][cat] += amt
+        else:
+            exp_by_proj[pid]["other"] += amt
+        exp_by_proj[pid]["total"] += amt
+    for l in labour_exps:
+        pid = l.get("project_id")
+        exp_by_proj[pid]["labour"] += l.get("total_amount", 0)
+        exp_by_proj[pid]["total"] += l.get("total_amount", 0)
+    for m in material_reqs:
+        pid = m.get("project_id")
+        exp_by_proj[pid]["material"] += m.get("estimated_price", 0)
+        exp_by_proj[pid]["total"] += m.get("estimated_price", 0)
+    
+    result = []
+    for p in projects:
+        pid = p["project_id"]
+        income = inc_by_proj.get(pid, 0)
+        expenses = dict(exp_by_proj.get(pid, {"material": 0, "labour": 0, "vendor": 0, "petty_cash": 0, "other": 0, "total": 0}))
+        result.append({
+            "project_id": pid, "name": p["name"], "client_name": p.get("client_name"),
+            "total_value": p.get("total_value", 0), "status": p.get("status"),
+            "income": income, "expenses": expenses,
+            "profit": income - expenses["total"],
+        })
+    
+    result.sort(key=lambda x: x["income"], reverse=True)
+    return {"projects": result}
 
 
 # ==================== ENHANCED PROJECT VIEW ENDPOINT ====================
