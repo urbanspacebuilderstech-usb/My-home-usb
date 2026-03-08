@@ -1,6 +1,5 @@
-import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, LogOut, Menu, X } from 'lucide-react';
+import { Bell, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 
@@ -84,7 +83,6 @@ function getModuleKey(pathname) {
 export function AppHeader({ user, unreadNotifs = 0 }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); } catch {}
@@ -145,7 +143,7 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
                 <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadNotifs}</span>
               )}
             </Button>
-            <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-gray-200">
+            <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">
                 <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{user?.name}</p>
                 <p className="text-[10px] uppercase tracking-wide text-gray-400">{user?.role?.replace(/_/g, ' ')}</p>
@@ -154,36 +152,8 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
-            <Button variant="ghost" size="icon" className="lg:hidden h-9 w-9" onClick={() => setMobileOpen(!mobileOpen)} data-testid="header-mobile-toggle">
-              {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </Button>
           </div>
         </div>
-
-        {/* Mobile dropdown */}
-        {mobileOpen && (
-          <div className="lg:hidden border-t border-gray-100 bg-white shadow-lg" data-testid="header-mobile-menu">
-            <div className="py-2 px-3 space-y-0.5">
-              {SUPER_ADMIN_NAV.map((item) => (
-                <button key={item.path} onClick={() => { navigate(item.path); setMobileOpen(false); }}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isMainActive(item.path) ? 'bg-amber-50 text-amber-700' : 'text-gray-600 hover:bg-gray-50'
-                  }`}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <div className="border-t px-3 py-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
-                <p className="text-xs text-gray-400">{user?.role?.replace(/_/g, ' ')}</p>
-              </div>
-              <Button variant="outline" size="sm" onClick={handleLogout} className="text-red-500 border-red-200 hover:bg-red-50">
-                <LogOut className="h-3.5 w-3.5 mr-1.5" />Logout
-              </Button>
-            </div>
-          </div>
-        )}
       </header>
 
       {/* Sub-navigation bar */}
