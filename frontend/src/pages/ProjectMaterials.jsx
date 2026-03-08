@@ -13,6 +13,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   ArrowLeft, Plus, Edit, Trash2, Lock, Unlock, Package, AlertTriangle
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -144,33 +145,7 @@ export default function ProjectMaterials() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} data-testid="back-btn">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <h1 className="text-xl font-bold flex items-center gap-2">
-                <Package className="h-5 w-5 text-amber-600" />
-                Material Specifications
-              </h1>
-              <p className="text-sm text-gray-600">{projectName}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {materialsLocked ? (
-              <Badge variant="destructive" className="flex items-center gap-1">
-                <Lock className="h-3 w-3" /> Locked
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="flex items-center gap-1 text-green-600">
-                <Unlock className="h-3 w-3" /> Editable
-              </Badge>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Locked Alert */}

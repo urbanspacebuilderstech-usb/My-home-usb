@@ -14,6 +14,7 @@ import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
   Pencil, Hammer, Home, PaintBucket, Layers, HardHat, KeyRound, Play, Calculator
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -297,40 +298,7 @@ export default function PlanningBoard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2 rounded-lg">
-              <ClipboardList className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold">Planning Board</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Project Planning & Execution Management</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/vendor-management'}>
-              Vendors
-            </Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/materials'}>
-              Materials
-            </Button>
-            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold">{user?.name}</p>
-                <p className="text-xs text-gray-500">PLANNING</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Dashboard Metrics */}

@@ -14,6 +14,7 @@ import {
   HelpCircle, LogOut, Plus, CheckCircle, Clock, AlertTriangle, XCircle,
   ArrowLeft, RefreshCw, DollarSign, Lock, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -185,33 +186,7 @@ export default function SuspenseAccount() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-gradient-to-br from-orange-500 to-amber-600 p-2 rounded-lg">
-              <HelpCircle className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">Suspense Account</h1>
-              <p className="text-xs text-gray-500">Unclear Transactions</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {canCreate && (
-              <Button onClick={() => setCreateDialog(true)} className="bg-orange-600 hover:bg-orange-700" data-testid="create-suspense-btn">
-                <Plus className="h-4 w-4 mr-1" /> Add Entry
-              </Button>
-            )}
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Info Banner */}

@@ -17,6 +17,7 @@ import {
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
   LayoutGrid, List, MoreVertical
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -417,40 +418,7 @@ export default function CRMPreSales() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-full mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-2.5 rounded-xl shadow-lg">
-              <Users className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">CRM - Pre Sales</h1>
-              <p className="text-xs text-gray-500">Lead Qualification & Management</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Button variant="outline" size="sm" onClick={() => setImportDialog(true)} data-testid="import-btn">
-              <Upload className="h-4 w-4 mr-1" /> Import
-            </Button>
-            <Button size="sm" onClick={() => setCreateLeadDialog(true)} data-testid="create-lead-btn">
-              <Plus className="h-4 w-4 mr-1" /> Add Lead
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setCreateStageDialog(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Stage
-            </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold">{user?.name}</p>
-                <p className="text-xs text-gray-500 uppercase">{user?.role?.replace('_', ' ')}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
         {/* Stats Cards */}

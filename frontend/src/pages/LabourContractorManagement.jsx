@@ -12,6 +12,7 @@ import {
   Users, ArrowLeft, Plus, Trash2, Edit, Phone, Mail, Building2, 
   Banknote, X
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -167,25 +168,7 @@ export default function LabourContractorManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/planning-board'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-secondary p-2 rounded-lg">
-              <Users className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold">Labour Contractors</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Manage labour contractors and rates</p>
-            </div>
-          </div>
-          <Button onClick={openCreateDialog} className="gap-2 bg-secondary hover:bg-secondary/90">
-            <Plus className="h-4 w-4" /> Add Contractor
-          </Button>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-6xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Stats */}

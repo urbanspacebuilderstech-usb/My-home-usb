@@ -17,6 +17,7 @@ import {
   ArrowRight, CreditCard, TrendingUp, Send, MapPin, Phone, User,
   Wallet, Building, Receipt, BarChart3, Users
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -347,30 +348,7 @@ export default function ProcurementBoardV2() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
-              <p className="text-xs text-gray-500">Procurement Board</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Button variant="outline" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-            <div className="text-right">
-              <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
-              <p className="text-xs text-gray-500 uppercase">{user?.role}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Dashboard Metrics */}

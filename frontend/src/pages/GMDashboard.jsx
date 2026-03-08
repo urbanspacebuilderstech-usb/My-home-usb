@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { AppHeader } from '../components/AppHeader';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -450,28 +451,7 @@ const GMDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-amber-500 p-2 rounded-lg">
-              <Shield className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">GM Command Center</h1>
-              <p className="text-sm text-gray-500">Comprehensive Project & Approval Management</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="font-medium text-gray-900">{user?.name}</p>
-              <p className="text-xs text-amber-600 uppercase">{user?.role?.replace('_', ' ')}</p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats Overview */}

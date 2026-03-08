@@ -15,6 +15,7 @@ import {
   Building2, LogOut, Plus, CheckCircle, Clock, AlertTriangle, XCircle,
   ArrowLeft, RefreshCw, DollarSign, FileText, Lock, ThumbsUp, ThumbsDown
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -220,31 +221,7 @@ export default function IndirectCostManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-lg font-bold">Indirect Costs (Overheads)</h1>
-              <p className="text-xs text-gray-500">Office Rent, Salary, Utilities, etc.</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {canCreate && (
-              <Button onClick={() => setCreateDialog(true)} data-testid="create-indirect-cost-btn">
-                <Plus className="h-4 w-4 mr-1" /> Add Overhead
-              </Button>
-            )}
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Summary Cards */}

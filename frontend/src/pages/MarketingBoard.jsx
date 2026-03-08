@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { AppHeader } from '../components/AppHeader';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -710,42 +711,7 @@ export default function MarketingBoard() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-indigo-50">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                <Zap className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Marketing Board</h1>
-                <p className="text-sm text-gray-500">Lead Distribution & Team Management</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-              <Button variant="outline" onClick={() => setShowSheetsDialog(true)} className="border-emerald-500 text-emerald-600 hover:bg-emerald-50" data-testid="connect-sheets-btn">
-                <FileSpreadsheet className="h-4 w-4 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Google</span> Sheets
-              </Button>
-              {sheetsConfig?.is_connected && (
-                <Button variant="outline" onClick={() => setShowExportDialog(true)} className="border-amber-500 text-amber-600 hover:bg-amber-50" data-testid="export-sheets-btn">
-                  <Download className="h-4 w-4 mr-1 sm:mr-2" /> Export
-                </Button>
-              )}
-              {sheetsConfig?.is_connected && autoSyncConfig?.enabled && (
-                <Button variant="outline" onClick={runManualSync} disabled={isSyncing} className="border-amber-500 text-amber-600 hover:bg-amber-50" data-testid="sync-now-btn">
-                  <RefreshCw className={`h-4 w-4 mr-1 sm:mr-2 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Now
-                </Button>
-              )}
-              <Button variant="outline" onClick={fetchDashboard}>
-                <RefreshCw className="h-4 w-4 mr-1 sm:mr-2" /> Refresh
-              </Button>
-              <Button onClick={() => setShowAddMember(true)} className="bg-indigo-600 hover:bg-indigo-700">
-                <UserPlus className="h-4 w-4 mr-1 sm:mr-2" /> <span className="hidden sm:inline">Add</span> Team
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Distribution Engine Settings */}

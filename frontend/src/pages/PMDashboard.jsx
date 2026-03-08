@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -138,23 +139,7 @@ export default function PMDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Briefcase className="h-8 w-8 text-amber-600" />
-            <div>
-              <h1 className="text-xl font-bold">Project Manager</h1>
-              <p className="text-sm text-gray-500">Team & Request Management</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user?.name}</span>
-            <Button variant="outline" size="sm" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-          </div>
-        </div>
-      </header>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats Cards */}

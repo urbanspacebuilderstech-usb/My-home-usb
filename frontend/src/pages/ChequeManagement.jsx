@@ -16,6 +16,7 @@ import {
   Building2, Calendar, DollarSign, ArrowLeft, RefreshCw, Search,
   XCircle, AlertCircle, Bell, Landmark
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -229,31 +230,7 @@ export default function ChequeManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-gradient-to-br from-blue-500 to-cyan-600 p-2 rounded-lg">
-              <FileText className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">Cheque Management</h1>
-              <p className="text-xs text-gray-500">Track & Manage Cheques</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button onClick={openAddDialog} data-testid="add-cheque-btn">
-              <Plus className="h-4 w-4 mr-1" /> Add Cheque
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Reminders Alert */}

@@ -17,6 +17,7 @@ import {
   Building2, Phone, Mail, CreditCard, Banknote, FileText,
   ArrowLeft, Plus, RefreshCw, Search, Calculator
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -293,32 +294,7 @@ export default function HRPortal() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-gradient-to-br from-violet-500 to-purple-600 p-2 rounded-lg">
-              <Briefcase className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">HR Portal</h1>
-              <p className="text-xs text-gray-500">Staff Management & Payroll</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold">{user?.name}</p>
-              <p className="text-xs text-gray-500 uppercase">{user?.role?.replace('_', ' ')}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Summary Cards */}

@@ -15,6 +15,7 @@ import {
   Package, Plus, Trash2, Edit, ArrowLeft, Building2, Layers, Users, 
   DollarSign, Save, X
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -223,25 +224,7 @@ export default function PackageManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/settings'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-purple-600 p-2 rounded-lg">
-              <Package className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold">Package Management</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Define project packages with scope, materials & labour</p>
-            </div>
-          </div>
-          <Button onClick={openCreateDialog} className="gap-2 bg-purple-600 hover:bg-purple-700">
-            <Plus className="h-4 w-4" /> Create Package
-          </Button>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Stats */}

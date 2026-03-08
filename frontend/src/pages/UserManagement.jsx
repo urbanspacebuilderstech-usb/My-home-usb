@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -188,35 +189,7 @@ export default function UserManagement() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">User Management</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/settings'}>
-              Settings
-            </Button>
-            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">{user.role.replace('_', ' ').toUpperCase()}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
-                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-0 mb-4 sm:mb-8">

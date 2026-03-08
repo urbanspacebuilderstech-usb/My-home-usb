@@ -16,6 +16,7 @@ import {
   DollarSign, Plus, Trash2, Check, AlertCircle, History, Eye,
   ArrowRight, CreditCard, TrendingUp
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -284,37 +285,7 @@ export default function ProcurementDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-purple-600 p-1.5 sm:p-2 rounded-lg">
-              <Truck className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">Procurement Board</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Material Order Management</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/vendor-management'}>
-              Vendors
-            </Button>
-            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
-                <p className="text-xs text-gray-500">PROCUREMENT</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
-                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Dashboard Metrics */}

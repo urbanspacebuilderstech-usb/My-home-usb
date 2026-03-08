@@ -15,6 +15,7 @@ import {
   ClipboardList, ArrowLeft, Plus, Users, Package, Truck, X,
   CheckCircle, Clock, DollarSign, Play, AlertCircle
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -252,25 +253,7 @@ export default function WorkOrderManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <nav className="bg-white border-b px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/planning-board'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-indigo-600 p-2 rounded-lg">
-              <ClipboardList className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg sm:text-xl font-bold">Work Orders</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Create & manage work orders for projects</p>
-            </div>
-          </div>
-          <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
-            <Plus className="h-4 w-4" /> Create Work Order
-          </Button>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Stats */}

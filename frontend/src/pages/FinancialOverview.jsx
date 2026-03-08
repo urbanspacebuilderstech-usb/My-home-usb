@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -121,38 +122,7 @@ export default function FinancialOverview() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4 shadow-sm">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">My Home USB</h1>
-              <p className="text-xs text-gray-500">Financial Overview</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => window.location.href = '/dashboard'}>
-              Dashboard
-            </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/projects'}>
-              Projects
-            </Button>
-            <Button variant="ghost" onClick={() => window.location.href = '/expenses'}>
-              Expenses
-            </Button>
-            <div className="flex items-center gap-2 pl-4 border-l">
-              <div className="text-right">
-                <p className="text-sm font-semibold text-gray-900">{user.name}</p>
-                <p className="text-xs text-gray-500">SUPER ADMIN</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout}>
-                <LogOut className="h-5 w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Page Header */}

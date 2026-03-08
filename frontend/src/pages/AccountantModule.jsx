@@ -17,6 +17,7 @@ import {
   ArrowLeft, RefreshCw, Plus, Truck, Briefcase, TrendingUp, TrendingDown,
   Receipt, CheckCircle2, XCircle, Search, Filter, Coins, HelpCircle
 } from 'lucide-react';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -363,36 +364,7 @@ export default function AccountantModule() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b shadow-sm px-4 py-3 sm:px-6 sticky top-0 z-50">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = '/accountant-dashboard'}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 p-2 rounded-lg shadow">
-              <Calculator className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold">Accountant Module</h1>
-              <p className="text-xs text-gray-500">Verify Requests | Income | Expenses | Suspense</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => { setExpenseForm({ project_id: '', category: '', description: '', amount: '', payment_method: 'bank_transfer', reference: '', vendor_name: '', remarks: '' }); setExpenseDialog(true); }}
-              data-testid="record-expense-btn"
-            >
-              <Plus className="h-4 w-4 mr-1" /> Record Expense
-            </Button>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
         {/* Summary Cards */}

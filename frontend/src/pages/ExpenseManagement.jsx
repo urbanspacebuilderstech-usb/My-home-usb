@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -299,39 +300,7 @@ export default function ExpenseManagement() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6 sm:py-4 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <img src="/logo.webp" alt="My Home USB" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{mixBlendMode: "multiply"}} />
-            <div>
-              <h1 className="text-base sm:text-xl font-bold text-gray-900">My Home USB</h1>
-              <p className="text-xs text-gray-500 hidden sm:block">Expense Management</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-1 sm:gap-4">
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/dashboard'}>Dashboard</Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/income'}>Income</Button>
-            <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => window.location.href = '/projects'}>Projects</Button>
-            <div className="flex items-center gap-2 pl-2 sm:pl-4 border-l">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900">{user?.name}</p>
-                <p className="text-xs text-gray-500">{user?.role?.replace('_', ' ').toUpperCase()}</p>
-              </div>
-              <Button variant="ghost" size="icon" onClick={handleLogout} className="h-8 w-8 sm:h-10 sm:w-10">
-                <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-              </Button>
-            </div>
-          </div>
-        </div>
-        
-        {/* Mobile Navigation */}
-        <div className="sm:hidden flex items-center gap-1 mt-3 pt-3 border-t overflow-x-auto pb-1 -mx-2 px-2">
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/dashboard'} className="flex-shrink-0 text-xs h-8">Dashboard</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/income'} className="flex-shrink-0 text-xs h-8">Income</Button>
-          <Button variant="ghost" size="sm" onClick={() => window.location.href = '/projects'} className="flex-shrink-0 text-xs h-8">Projects</Button>
-        </div>
-      </nav>
+      <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
