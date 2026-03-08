@@ -902,7 +902,21 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
-### Branding & Theme Update (March 8, 2026) - LATEST
+### Shared Sticky Header + Sub-Menus (March 8, 2026) - LATEST
+- [x] **AppHeader component** (`/app/frontend/src/components/AppHeader.jsx`) — shared sticky header for all super admin pages
+  - Main nav: My Dashboard | All Projects | Accounts | Planning | Marketing Board | GM | Users | Settings
+  - Auto-detects active page and highlights in amber
+  - Sub-navigation menus auto-appear based on current route:
+    - Accounts: Accounts Board, Accountant Module, Cheque Mgmt, Payment Processing, Indirect Costs, Suspense Account, HR Portal, Income, Expenses
+    - Marketing: Marketing Board, CRE Board, Pre-Sales CRM, Sales CRM, RE Projects, Custom Fields, CSV Import
+    - GM: GM Command Center, PM Dashboard, Approvals, Financial Overview, Procurement, Work Orders
+    - Settings: Settings, Materials, Vendors
+  - Logo click → Dashboard, Notifications bell, User name + Logout
+  - Mobile-responsive with hamburger menu
+- [x] **Replaced old navs in 40 pages** with shared AppHeader
+- [x] **Testing**: 12/12 tests passed (navigation, sub-menus, highlighting, logout)
+
+### Branding & Theme Update (March 8, 2026)
 - [x] **"ConstructionOS" → "My Home USB"** across all 50 screens, PWA manifest, service worker, HTML title
 - [x] **USB logo** (Urban Space Builders) replaced Building2 icon in all nav bars (23 files updated)
 - [x] **Color theme overhaul**: Blue (#2563EB) → Charcoal (#3D3D3D) + Amber (#F5A623) matching USB logo palette
