@@ -47,10 +47,18 @@ export default function Dashboard() {
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
-      if (userRes.data.role === 'site_engineer') { window.location.href = '/site-engineer'; return; }
+      if (userRes.data.role === 'site_engineer' || userRes.data.role === 'sr_site_engineer') { window.location.href = '/site-engineer'; return; }
       if (userRes.data.role === 'pre_sales') { window.location.href = '/crm-pre-sales'; return; }
       if (userRes.data.role === 'sales') { window.location.href = '/crm-sales'; return; }
       if (userRes.data.role === 'general_manager') { window.location.href = '/gm-dashboard'; return; }
+      if (userRes.data.role === 'accountant') { window.location.href = '/accounts-board'; return; }
+      if (userRes.data.role === 'planning') { window.location.href = '/planning-board'; return; }
+      if (userRes.data.role === 'procurement') { window.location.href = '/procurement-board-v2'; return; }
+      if (userRes.data.role === 'cre') { window.location.href = '/cre-board'; return; }
+      if (userRes.data.role === 'project_manager' || userRes.data.role === 'associate_pm') { window.location.href = '/pm-dashboard'; return; }
+      if (userRes.data.role === 'client') { window.location.href = '/client-portal'; return; }
+      if (userRes.data.role === 'vendor') { window.location.href = '/vendor-portal'; return; }
+      if (userRes.data.role === 'marketing_head') { window.location.href = '/marketing-board'; return; }
       
       const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),
