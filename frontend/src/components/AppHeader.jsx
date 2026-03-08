@@ -5,75 +5,129 @@ import axios from 'axios';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-const SUPER_ADMIN_NAV = [
-  { label: 'My Dashboard', path: '/dashboard' },
-  { label: 'All Projects', path: '/projects' },
-  { label: 'Accounts', path: '/accounts-board' },
-  { label: 'Planning', path: '/planning-board' },
-  { label: 'Marketing Board', path: '/marketing-board' },
-  { label: 'GM', path: '/gm-dashboard' },
-  { label: 'Users', path: '/users' },
-  { label: 'Settings', path: '/settings' },
-];
+// ═══ ROLE-BASED NAVIGATION ═══
 
-// Sub-navigation menus per module
-const SUB_MENUS = {
-  '/projects': [
+const ROLE_NAV = {
+  super_admin: [
+    { label: 'My Dashboard', path: '/dashboard' },
     { label: 'All Projects', path: '/projects' },
+    { label: 'Accounts', path: '/accounts-board' },
+    { label: 'Planning', path: '/planning-board' },
+    { label: 'Marketing Board', path: '/marketing-board' },
+    { label: 'GM', path: '/gm-dashboard' },
+    { label: 'Users', path: '/users' },
+    { label: 'Settings', path: '/settings' },
   ],
-  '/accounts-board': [
-    { label: 'Accounts Board', path: '/accounts-board' },
+  accountant: [
+    { label: 'Dashboard', path: '/accounts-board' },
     { label: 'Approvals', path: '/approvals' },
     { label: 'Cashbook', path: '/accountant-module' },
     { label: 'Suspense Account', path: '/suspense-account' },
-    { label: 'Cheque Management', path: '/cheque-management' },
+    { label: 'Cheque Mgmt', path: '/cheque-management' },
     { label: 'Project Finance', path: '/accountant-dashboard' },
     { label: 'HR Portal', path: '/hr-portal' },
   ],
-  '/planning-board': [
-    { label: 'Planning Board', path: '/planning-board' },
+  general_manager: [
+    { label: 'Command Center', path: '/gm-dashboard' },
+    { label: 'Projects', path: '/projects' },
+    { label: 'Financial', path: '/financial-overview' },
+    { label: 'Approvals', path: '/approvals' },
+    { label: 'Procurement', path: '/procurement-board-v2' },
   ],
-  '/marketing-board': [
-    { label: 'Marketing Board', path: '/marketing-board' },
+  project_manager: [
+    { label: 'Dashboard', path: '/pm-dashboard' },
+    { label: 'Projects', path: '/projects' },
+    { label: 'Work Orders', path: '/work-order-management' },
+    { label: 'Procurement', path: '/procurement-board-v2' },
+  ],
+  planning: [
+    { label: 'Planning Board', path: '/planning-board' },
+    { label: 'Projects', path: '/projects' },
+    { label: 'BOQ', path: '/planning-board' },
+  ],
+  procurement: [
+    { label: 'Procurement', path: '/procurement-board-v2' },
+    { label: 'Projects', path: '/projects' },
+    { label: 'Packages', path: '/packages' },
+    { label: 'Vendors', path: '/vendor-management' },
+  ],
+  cre: [
     { label: 'CRE Board', path: '/cre-board' },
+    { label: 'Projects', path: '/projects' },
+    { label: 'Income', path: '/income' },
+  ],
+  pre_sales: [
     { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
+    { label: 'RE Projects', path: '/crm/re-projects' },
+  ],
+  sales: [
     { label: 'Sales CRM', path: '/crm-sales' },
     { label: 'RE Projects', path: '/crm/re-projects' },
-    { label: 'Custom Fields', path: '/crm/custom-fields' },
-    { label: 'CSV Import', path: '/crm/import-csv' },
   ],
-  '/gm-dashboard': [
-    { label: 'GM Command Center', path: '/gm-dashboard' },
-    { label: 'PM Dashboard', path: '/pm-dashboard' },
-    { label: 'Financial Overview', path: '/financial-overview' },
-    { label: 'Procurement', path: '/procurement-board-v2' },
-    { label: 'Work Orders', path: '/work-order-management' },
-  ],
-  '/users': [
-    { label: 'User Management', path: '/users' },
-  ],
-  '/settings': [
-    { label: 'Settings', path: '/settings' },
-    { label: 'Materials', path: '/materials' },
-    { label: 'Vendors', path: '/vendor-management' },
+  site_engineer: [
+    { label: 'Dashboard', path: '/site-engineer' },
+    { label: 'Material Receipt', path: '/site-engineer/material-receipt' },
   ],
 };
 
-// Map any child path back to its parent module for sub-menu lookup
-const PATH_TO_MODULE = {};
-Object.entries(SUB_MENUS).forEach(([moduleKey, items]) => {
-  items.forEach(item => { PATH_TO_MODULE[item.path] = moduleKey; });
-});
-// Also map project detail pages
-['/projects/'].forEach(prefix => { PATH_TO_MODULE[prefix] = '/projects'; });
+// ═══ SUB-MENUS (used by super_admin and accountant) ═══
 
-function getModuleKey(pathname) {
-  // Exact match first
-  if (PATH_TO_MODULE[pathname]) return PATH_TO_MODULE[pathname];
-  // Prefix match for dynamic routes like /projects/:id
+const ROLE_SUB_MENUS = {
+  super_admin: {
+    '/projects': [{ label: 'All Projects', path: '/projects' }],
+    '/accounts-board': [
+      { label: 'Accounts Board', path: '/accounts-board' },
+      { label: 'Approvals', path: '/approvals' },
+      { label: 'Cashbook', path: '/accountant-module' },
+      { label: 'Suspense Account', path: '/suspense-account' },
+      { label: 'Cheque Management', path: '/cheque-management' },
+      { label: 'Project Finance', path: '/accountant-dashboard' },
+      { label: 'HR Portal', path: '/hr-portal' },
+    ],
+    '/planning-board': [{ label: 'Planning Board', path: '/planning-board' }],
+    '/marketing-board': [
+      { label: 'Marketing Board', path: '/marketing-board' },
+      { label: 'CRE Board', path: '/cre-board' },
+      { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
+      { label: 'Sales CRM', path: '/crm-sales' },
+      { label: 'RE Projects', path: '/crm/re-projects' },
+      { label: 'Custom Fields', path: '/crm/custom-fields' },
+      { label: 'CSV Import', path: '/crm/import-csv' },
+    ],
+    '/gm-dashboard': [
+      { label: 'GM Command Center', path: '/gm-dashboard' },
+      { label: 'PM Dashboard', path: '/pm-dashboard' },
+      { label: 'Financial Overview', path: '/financial-overview' },
+      { label: 'Procurement', path: '/procurement-board-v2' },
+      { label: 'Work Orders', path: '/work-order-management' },
+    ],
+    '/users': [{ label: 'User Management', path: '/users' }],
+    '/settings': [
+      { label: 'Settings', path: '/settings' },
+      { label: 'Materials', path: '/materials' },
+      { label: 'Vendors', path: '/vendor-management' },
+    ],
+  },
+  // Accountant has no sub-menus (all items are in the main nav)
+};
+
+// Build path-to-module maps per role
+function buildPathMap(subMenus) {
+  const map = {};
+  if (!subMenus) return map;
+  Object.entries(subMenus).forEach(([moduleKey, items]) => {
+    items.forEach(item => { map[item.path] = moduleKey; });
+  });
+  return map;
+}
+
+function getModuleKey(pathname, role) {
+  const subMenus = ROLE_SUB_MENUS[role];
+  if (!subMenus) return null;
+  const pathMap = buildPathMap(subMenus);
+  if (pathMap[pathname]) return pathMap[pathname];
   if (pathname.startsWith('/projects/')) return '/projects';
   if (pathname.startsWith('/boq/')) return '/planning-board';
-  if (pathname.startsWith('/site-engineer')) return null;
   return null;
 }
 
@@ -86,14 +140,21 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
     navigate('/login', { replace: true });
   };
 
+  const role = user?.role || 'super_admin';
+  const navItems = ROLE_NAV[role] || ROLE_NAV.super_admin;
   const currentPath = location.pathname;
-  const moduleKey = getModuleKey(currentPath);
-  const subItems = moduleKey ? SUB_MENUS[moduleKey] : null;
+  const moduleKey = getModuleKey(currentPath, role);
+  const subMenus = ROLE_SUB_MENUS[role];
+  const subItems = moduleKey && subMenus ? subMenus[moduleKey] : null;
 
   const isMainActive = (path) => {
-    if (path === '/dashboard') return currentPath === '/dashboard';
-    const mk = getModuleKey(currentPath);
-    return mk === path;
+    if (subMenus) {
+      const mk = getModuleKey(currentPath, role);
+      return mk === path;
+    }
+    if (path === currentPath) return true;
+    if (path !== '/' && currentPath.startsWith(path)) return true;
+    return false;
   };
 
   const isSubActive = (path) => currentPath === path || currentPath.startsWith(path + '/');
@@ -104,19 +165,19 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
       <header data-testid="app-header" className="bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center justify-between px-4 lg:px-6 h-14">
           {/* Left: Logo + Brand */}
-          <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate('/dashboard')} data-testid="header-brand">
+          <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => navigate(navItems[0]?.path || '/dashboard')} data-testid="header-brand">
             <img src="/logo.webp" alt="My Home USB" className="h-9 w-9 object-contain" style={{ mixBlendMode: 'multiply' }} />
             <div className="leading-tight">
               <span className="font-bold text-base text-gray-900 block">My Home USB</span>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
-                {user?.role?.replace(/_/g, ' ') || 'Dashboard'}
+                {role.replace(/_/g, ' ')}
               </span>
             </div>
           </div>
 
           {/* Center: Desktop Nav */}
-          <nav className="hidden lg:flex items-center gap-0.5 mx-4" data-testid="header-nav">
-            {SUPER_ADMIN_NAV.map((item) => (
+          <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
+            {navItems.map((item) => (
               <button
                 key={item.path}
                 data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
@@ -143,7 +204,7 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
             <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">
                 <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{user?.name}</p>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">{user?.role?.replace(/_/g, ' ')}</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">{role.replace(/_/g, ' ')}</p>
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">
                 <LogOut className="h-4 w-4" />
@@ -153,7 +214,7 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
         </div>
       </header>
 
-      {/* Sub-navigation bar */}
+      {/* Sub-navigation bar (only for roles with sub-menus) */}
       {subItems && subItems.length > 1 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
           <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">

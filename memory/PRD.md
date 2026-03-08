@@ -1906,7 +1906,7 @@ Complete end-to-end payment flow for work order stages:
 ```env
 GOOGLE_SHEETS_CLIENT_ID=<your-google-client-id>
 GOOGLE_SHEETS_CLIENT_SECRET=<your-google-client-secret>
-GOOGLE_SHEETS_REDIRECT_URI=https://site-accounting-2.preview.emergentagent.com/api/oauth/sheets/callback
+GOOGLE_SHEETS_REDIRECT_URI=https://finance-ops-6.preview.emergentagent.com/api/oauth/sheets/callback
 ```
 
 #### Google Cloud Setup Required

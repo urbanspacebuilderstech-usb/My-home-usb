@@ -30,6 +30,13 @@ const SA_MORE_ITEMS = [
 ];
 
 const OTHER_ROLES = {
+  accountant: [
+    { label: 'Dashboard', icon: Landmark, path: '/accounts-board' },
+    { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
+    { label: 'Cashbook', icon: DollarSign, path: '/accountant-module' },
+    { label: 'Suspense', icon: Calculator, path: '/suspense-account' },
+    { label: 'More', icon: Menu, action: 'more' },
+  ],
   general_manager: [
     { label: 'Command', icon: Shield, path: '/gm-dashboard' },
     { label: 'Projects', icon: FolderKanban, path: '/projects' },
@@ -80,6 +87,13 @@ const OTHER_ROLES = {
   ],
 };
 
+const ACCOUNTANT_MORE = [
+  { label: 'Cheque Mgmt', icon: CreditCard, path: '/cheque-management' },
+  { label: 'Project Finance', icon: TrendingUp, path: '/accountant-dashboard' },
+  { label: 'HR Portal', icon: Users, path: '/hr-portal' },
+  { label: 'Notifications', icon: Bell, path: '/notifications' },
+];
+
 export default function MobileBottomNav({ user }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -88,7 +102,10 @@ export default function MobileBottomNav({ user }) {
   if (!user) return null;
 
   const isSuperAdmin = user.role === 'super_admin';
+  const isAccountant = user.role === 'accountant';
+  const hasMore = isSuperAdmin || isAccountant;
   const navItems = isSuperAdmin ? SA_BOTTOM : (OTHER_ROLES[user.role] || SA_BOTTOM);
+  const moreItems = isSuperAdmin ? SA_MORE_ITEMS : isAccountant ? ACCOUNTANT_MORE : [];
   
   const isActive = (path) => {
     if (path === '/dashboard' && location.pathname === '/dashboard') return true;
