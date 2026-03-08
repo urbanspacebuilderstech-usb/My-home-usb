@@ -247,6 +247,10 @@ export default function MarketingBoard() {
     if (user && activeTab === 'leads') {
       fetchAllLeads();
     }
+    if (user && activeTab === 'google_sheets') {
+      fetchSheetsConfig();
+      fetchAutoSyncConfig();
+    }
   }, [user, activeTab, leadsFilter, selectedSource]);
 
   useEffect(() => {
@@ -781,6 +785,9 @@ export default function MarketingBoard() {
             <TabsTrigger value="sources" className="data-[state=active]:bg-indigo-100">
               <TrendingUp className="h-4 w-4 mr-2" /> Lead Sources
             </TabsTrigger>
+            <TabsTrigger value="google_sheets" className="data-[state=active]:bg-emerald-100" data-testid="google-sheets-tab">
+              <FileSpreadsheet className="h-4 w-4 mr-2" /> Google Sheets
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -1232,8 +1239,32 @@ export default function MarketingBoard() {
           <TabsContent value="sources">
             <Card>
               <CardHeader>
-                <CardTitle>Lead Sources Breakdown</CardTitle>
-                <CardDescription>Where your leads are coming from</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Lead Sources Breakdown</CardTitle>
+                    <CardDescription>Where your leads are coming from</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowSheetsDialog(true)}
+                      className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      data-testid="open-google-sheets-btn"
+                    >
+                      <FileSpreadsheet className="h-4 w-4" /> Google Sheets
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setShowExportDialog(true)}
+                      className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
+                      data-testid="export-sheets-btn"
+                    >
+                      <Download className="h-4 w-4" /> Export to Sheets
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -1249,6 +1280,154 @@ export default function MarketingBoard() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Google Sheets Tab */}
+          <TabsContent value="google_sheets">
+            <div className="space-y-6">
+              {/* Connection Status */}
+              <Card className="border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
+                      <div>
+                        <CardTitle>Google Sheets Integration</CardTitle>
+                        <CardDescription>Import leads from Google Sheets and export CRM data</CardDescription>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {sheetsConfig?.is_connected ? (
+                        <>
+                          <Badge className="bg-emerald-100 text-emerald-700 gap-1"><Check className="h-3 w-3" /> Connected</Badge>
+                          <Button variant="outline" size="sm" onClick={disconnectGoogleSheets} className="text-red-600 border-red-300 hover:bg-red-50 gap-1">
+                            <Unlink className="h-3.5 w-3.5" /> Disconnect
+                          </Button>
+                        </>
+                      ) : (
+                        <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
+                          <Link className="h-4 w-4" /> Connect Google Sheets
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {/* Actions Grid */}
+              <div className="grid md:grid-cols-3 gap-4">
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-emerald-100" onClick={() => setShowSheetsDialog(true)} data-testid="import-from-sheets-card">
+                  <CardContent className="p-6 text-center">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                      <Table className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Import from Sheets</h3>
+                    <p className="text-sm text-gray-500 mt-1">Pull leads from a Google Sheet into CRM</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-blue-100" onClick={() => setShowExportDialog(true)} data-testid="export-to-sheets-card">
+                  <CardContent className="p-6 text-center">
+                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                      <Download className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Export to Sheets</h3>
+                    <p className="text-sm text-gray-500 mt-1">Export CRM leads to a Google Sheet</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-purple-100" onClick={() => { fetchAutoSyncConfig(); }} data-testid="auto-sync-card">
+                  <CardContent className="p-6 text-center">
+                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                      <RefreshCw className="h-6 w-6 text-purple-600" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900">Auto-Sync</h3>
+                    <p className="text-sm text-gray-500 mt-1">{autoSyncConfig?.enabled ? 'Enabled' : 'Configure'} auto-import schedule</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Connected Sources */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Connected Sheet Sources</CardTitle>
+                  <CardDescription>Sheets currently linked for lead import</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {sheetSources.length > 0 ? (
+                    <div className="space-y-3">
+                      {sheetSources.map((source, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border">
+                          <div className="flex items-center gap-3">
+                            <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
+                            <div>
+                              <p className="font-medium">{source.source_name || source.sheet_name || 'Unnamed'}</p>
+                              <p className="text-xs text-gray-500">{source.spreadsheet_url || source.spreadsheet_id}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-emerald-100 text-emerald-700">{source.imported_count || 0} leads</Badge>
+                            <Button variant="ghost" size="sm" onClick={() => deleteSheetSource(source.source_id)} className="text-red-500 hover:text-red-700 hover:bg-red-50">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileSpreadsheet className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                      <p>No sheets connected yet</p>
+                      <p className="text-sm mt-1">Click "Import from Sheets" to get started</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Auto-Sync Config */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base">Auto-Sync Settings</CardTitle>
+                      <CardDescription>Automatically import new leads at set intervals</CardDescription>
+                    </div>
+                    <Switch
+                      checked={autoSyncConfig?.enabled}
+                      onCheckedChange={(checked) => {
+                        const newConfig = { ...autoSyncConfig, enabled: checked };
+                        setAutoSyncConfig(newConfig);
+                        saveAutoSyncConfig(newConfig);
+                      }}
+                    />
+                  </div>
+                </CardHeader>
+                {autoSyncConfig?.enabled && (
+                  <CardContent>
+                    <div className="flex items-center gap-4">
+                      <Label className="text-sm whitespace-nowrap">Sync every</Label>
+                      <Select value={String(autoSyncConfig?.interval_hours || 1)} onValueChange={(val) => {
+                        const newConfig = { ...autoSyncConfig, interval_hours: parseInt(val) };
+                        setAutoSyncConfig(newConfig);
+                        saveAutoSyncConfig(newConfig);
+                      }}>
+                        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1">1 hour</SelectItem>
+                          <SelectItem value="2">2 hours</SelectItem>
+                          <SelectItem value="6">6 hours</SelectItem>
+                          <SelectItem value="12">12 hours</SelectItem>
+                          <SelectItem value="24">24 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button variant="outline" size="sm" onClick={runManualSync} disabled={isSyncing} className="gap-1.5">
+                        <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Now
+                      </Button>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </main>
