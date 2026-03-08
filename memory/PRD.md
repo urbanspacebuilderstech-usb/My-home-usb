@@ -902,6 +902,23 @@ Build a Construction Accounting CRM with:
 
 ## Recently Completed (March 7, 2026)
 
+### Accounts & Finance Module - Phase 2: Cashbook & Suspense (March 8, 2026) - LATEST
+- [x] **Cashbook** (`/accountant-module`): Income tab (approved records from CRM) + Expenses tab (approved + manual entries)
+  - Manual Expense form: Project, Category (material/labour/vendor/petty_cash/other), Amount, Payment Method, Vendor
+  - Summary: Total Income, Total Expense, Balance, Income by Mode (Cash/Cheque/Bank/UPI)
+  - Project filter
+- [x] **Suspense Account** (`/suspense-account`): 3-part system
+  - Petty Cash: Site engineer submits → Finance approves → real expense
+  - Material Suspense: Balance tracking per vendor
+  - Labour Suspense: Balance tracking per contractor
+- [x] **Smart Payment with Suspense** (`POST /api/suspense/payment`):
+  - Labour asks ₹80K → Finance pays ₹1L cheque → ₹80K expense, ₹20K to suspense
+  - Next time same labour asks ₹60K → Only ₹40K sent (₹20K auto-deducted from suspense)
+  - Multi-site allocation with auto-notification to site managers
+- [x] **Project Finance View** (`/accountant-dashboard`): Project-wise income, expense breakdown (material/labour/vendor/other), profit
+- [x] **Visibility Rules**: Income endpoints → CRE, Planning, PM, GM, Accountant, Super Admin; Expense endpoints → Accountant + Super Admin only
+- [x] **Testing**: 12/12 tests passed (backend 8/8, frontend 4/4 pages + 2 dialogs)
+
 ### Accounts & Finance Module - Phase 1 (March 8, 2026) - LATEST
 - [x] **API Optimization**: `accounts/dashboard` and `accountant/comprehensive-dashboard` parallelized (3.4s → 2.0s)
 - [x] **Unified Approvals Page** (`/approvals`): 4-tab layout for Income, Materials, Labour, Suppliers approvals
