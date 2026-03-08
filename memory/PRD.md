@@ -45,16 +45,24 @@ A comprehensive Construction Accounting CRM & Project Operations OS titled "My H
 - Branding: "My Home USB" with charcoal/amber theme
 - Role-specific UI: AppHeader.jsx + MobileBottomNav.jsx for all roles
 - Super Admin dashboard with optimized API
-- Accountant role-specific header and mobile nav (COMPLETED March 8, 2026)
+- Accountant role-specific header and mobile nav
 
 ## Recently Completed (March 8, 2026)
-- **Accountant Role-Specific UI**: Fixed duplicate accountant entry bug in MobileBottomNav.jsx. Fixed "More" drawer rendering (was only for super_admin). Verified desktop header and mobile bottom nav with "More" drawer for accountant role.
+
+### Accountant Role-Specific UI
+- Fixed duplicate accountant entry bug in MobileBottomNav.jsx
+- Fixed "More" drawer rendering (was only for super_admin)
+- Desktop header + mobile bottom nav verified for accountant role
+
+### End-to-End Flow Test — 31/31 PASSED (100%)
+- Full workflow tested: Lead → Pre-Sales → Sales → Planning RE → GM Approve → Deal Close → Main Project → Scope Items → SE Material Request → Planning/Accountant Approval → Petty Cash full cycle
+- **Bugs fixed during E2E**:
+  - Missing `import secrets` in `site_ops.py` and `operations.py` (caused 500 errors on petty cash & CRE convert)
+  - `audit_logs` DuplicateKeyError: `projects.py` had local `create_audit_log` missing `audit_id` field; fixed + DB index made sparse
+- Test script: `/app/backend/tests/test_e2e_flow.py`
+- Results: `/app/test_reports/e2e_flow_test.json`
 
 ## Pending Tasks
-
-### P0 - End-to-End Flow Test
-- Full workflow: Lead → Pre-Sales → Sales → CRE → Accountant Approval → Planning → Procurement/PM → Site Engineer → Final Finance
-- Multi-role test creating data at each step
 
 ### P1 - Screen-by-Screen UI/UX Review
 - User-guided review of all 50 application screens

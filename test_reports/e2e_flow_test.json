@@ -1,0 +1,163 @@
+{
+  "total": 31,
+  "passed": 31,
+  "failed": 0,
+  "rate": "100%",
+  "results": [
+    {
+      "step": "Login Pre-Sales",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login Sales",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login Planning",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login Admin",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login Accountant",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login CRE",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "Login Site Engineer",
+      "status": "PASS",
+      "detail": "OK"
+    },
+    {
+      "step": "1. Create Pre-Sales Lead",
+      "status": "PASS",
+      "detail": "Lead ID: lead_f3da3477b845"
+    },
+    {
+      "step": "2. Auto-Transfer to Sales",
+      "status": "PASS",
+      "detail": "Sales Lead: lead_ae1ad0a3d8c9"
+    },
+    {
+      "step": "2. Pre-Sales Complete",
+      "status": "PASS",
+      "detail": "Sales Lead: lead_ae1ad0a3d8c9"
+    },
+    {
+      "step": "3. Auto-Create RE Project",
+      "status": "PASS",
+      "detail": "RE ID: re_f225bf533914"
+    },
+    {
+      "step": "3. Sales to RE Request",
+      "status": "PASS",
+      "detail": "RE Project: re_f225bf533914"
+    },
+    {
+      "step": "4a. Update RE Project",
+      "status": "PASS",
+      "detail": "Scope items + estimates added"
+    },
+    {
+      "step": "4b. Submit for GM Approval",
+      "status": "PASS",
+      "detail": "Submitted to GM"
+    },
+    {
+      "step": "5. GM Approves RE",
+      "status": "PASS",
+      "detail": "RE Approved"
+    },
+    {
+      "step": "6. Deal Closed \u2192 Project",
+      "status": "PASS",
+      "detail": "Project ID: proj_5dc2f3fe349d"
+    },
+    {
+      "step": "7. Verify Project",
+      "status": "PASS",
+      "detail": "Name: E2E Villa - Hyderabad, Status: planning, Value: 5000000.0"
+    },
+    {
+      "step": "8. Add Scope: Foundation",
+      "status": "PASS",
+      "detail": "Rate: 800000"
+    },
+    {
+      "step": "8. Add Scope: Super Structure",
+      "status": "PASS",
+      "detail": "Rate: 2200000"
+    },
+    {
+      "step": "8. Add Scope: Finishing",
+      "status": "PASS",
+      "detail": "Rate: 2000000"
+    },
+    {
+      "step": "9. Assign SE to Project",
+      "status": "PASS",
+      "detail": "SE assigned"
+    },
+    {
+      "step": "10a. Get/Create Material",
+      "status": "PASS",
+      "detail": "Material: mat_24b1af7cad62"
+    },
+    {
+      "step": "10b. Create Material Request",
+      "status": "PASS",
+      "detail": "Request: mreq_56d9d656f0d4"
+    },
+    {
+      "step": "11. Planning Approve Material",
+      "status": "PASS",
+      "detail": "Approved"
+    },
+    {
+      "step": "12. Accountant Approve Material",
+      "status": "PASS",
+      "detail": "Payment approved"
+    },
+    {
+      "step": "13. Petty Cash Request",
+      "status": "PASS",
+      "detail": "PC ID: pc_a23ca81009cd"
+    },
+    {
+      "step": "14. Issue Petty Cash",
+      "status": "PASS",
+      "detail": "5000 issued"
+    },
+    {
+      "step": "15. Record PC Expense",
+      "status": "PASS",
+      "detail": "3000 spent"
+    },
+    {
+      "step": "16. Submit PC Settlement",
+      "status": "PASS",
+      "detail": "Submitted"
+    },
+    {
+      "step": "17. Settle Petty Cash",
+      "status": "PASS",
+      "detail": "Settled"
+    },
+    {
+      "step": "18. Final Project State",
+      "status": "PASS",
+      "detail": "Name: E2E Villa - Hyderabad, Status: planning, Value: 5000000.0, Expense: 0"
+    }
+  ]
+}

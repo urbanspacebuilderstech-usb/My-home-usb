@@ -776,6 +776,7 @@ async def create_audit_log(user_id: str, action: str, entity_type: str, entity_i
     )
     log_dict = log.model_dump()
     log_dict["created_at"] = log_dict["created_at"].isoformat()
+    log_dict["audit_id"] = log_dict.get("log_id", f"aud_{uuid.uuid4().hex[:8]}")
     await db.audit_logs.insert_one(log_dict)
 
 
