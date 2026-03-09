@@ -17,6 +17,14 @@ import logging
 import secrets
 from bson import ObjectId
 
+try:
+    import resend
+    resend.api_key = os.environ.get("RESEND_API_KEY", "")
+except ImportError:
+    resend = None
+
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "noreply@myhomeusb.com")
+
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
@@ -671,7 +679,7 @@ async def approve_material_request(
             raise HTTPException(status_code=400, detail="Vendor ID is required")
         
         # Get vendor details
-        vendor = await db.vendors.find_one({"vendor_id": vendor_id}, {"_id": 0})
+        vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
         if not vendor:
             raise HTTPException(status_code=404, detail="Vendor not found")
         
@@ -925,7 +933,7 @@ async def initiate_material_receipt(
     if request["site_engineer_id"] != user.user_id:
         raise HTTPException(status_code=403, detail="You can only receive materials for your own requests")
     
-    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial"]:
+    if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "in_transit", "order_placed"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
     
     # Generate OTP
@@ -959,7 +967,7 @@ async def initiate_material_receipt(
     
     # Send OTP via Resend
     otp_sent = False
-    if resend.api_key and user_email:
+    if resend and resend.api_key and user_email:
         try:
             params = {
                 "from": SENDER_EMAIL,

@@ -485,7 +485,7 @@ class BOQItem(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class WorkOrder(BaseModel):
+class BOQWorkOrder(BaseModel):
     work_order_id: str = Field(default_factory=lambda: f"wo_{uuid.uuid4().hex[:12]}")
     project_id: str
     boq_id: str
@@ -500,7 +500,7 @@ class WorkOrder(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
-class WorkOrderCreate(BaseModel):
+class BOQWorkOrderCreate(BaseModel):
     project_id: str
     boq_id: str
     requested_quantity: float
