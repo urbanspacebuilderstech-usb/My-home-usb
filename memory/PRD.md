@@ -26,21 +26,16 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] Income/Expense Approval System (Mar 9, 2026)
 - [x] Super Admin auto-creation for urbanspacebuilderstech@gmail.com (Mar 9, 2026)
 - [x] Forgot Password flow (Mar 9, 2026)
-- [x] **RNR Stage** added to Pre-Sales pipeline (Mar 9, 2026)
-- [x] **Pipeline Stage Management** - Full CRUD for Pre-Sales & Sales stages (Mar 9, 2026)
-  - StageManagement page at /settings/stages
-  - Add, edit, delete, reorder stages with color picker & is_final flag
-  - Settings Quick Links for Pre-Sales & Sales Stages
-  - "Manage Stages" button in CRMPreSales & CRMSales (Super Admin only)
-- [x] **Pre-Sales → Sales transfer fix** (Mar 9, 2026)
-  - Removed hardcoded `stage["name"] == "Appointment Booked"` check
-  - Now triggers on any `is_final` pre-sales stage
-  - Added double-transfer prevention
-  - Added 'sem', 'social_media', 'direct' to LeadSource enum
-- [x] **CRE Payment Collection → Accountant Approval fix** (Mar 9, 2026)
-  - Payment collections now create income with `status: "pending_approval"`
-  - Deal conversion advance payments now also create income records for approval
-  - Full approve/reject flow working in Accountant's Approvals tab
+- [x] RNR Stage in Pre-Sales pipeline (Mar 9, 2026)
+- [x] Pipeline Stage Management - CRUD for Pre-Sales & Sales stages (Mar 9, 2026)
+- [x] Pre-Sales → Sales transfer fix (Mar 9, 2026)
+- [x] CRE Payment Collection → Accountant Approval fix (Mar 9, 2026)
+- [x] **Masked Financial Values** (Mar 9, 2026)
+  - MaskedValue component using React Context (MaskContext)
+  - **Super Admin**: All values always visible (no masking)
+  - **Accountant**: All values masked as ₹*****, click to reveal for 10 seconds
+  - Applied to: Overview cards, mode cards, expense categories, income table, expense table, project summary, approvals tab, cheque management, petty cash, SE cashbook, vendor suspense
+- [x] Deal conversion advance creates income approval record (Mar 9, 2026)
 
 ## Credentials
 - All demo users: password `Demo@1234`
@@ -48,14 +43,6 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - Accountant: `accountant@constructionos.com`
 - CRE: `cre@constructionos.com`
 - Production Super Admin: `urbanspacebuilderstech@gmail.com` (use Forgot Password)
-
-## Key API Endpoints
-- `GET /api/approvals/unified` - All pending approvals
-- `POST /api/approvals/income/{id}/approve` - Approve income
-- `POST /api/approvals/income/{id}/reject` - Reject income
-- `POST /api/payment-stages/{id}/collect` - CRE collects payment (creates pending_approval income)
-- `GET /api/crm/stages/with-counts` - Stages with lead counts (Super Admin)
-- `POST/PATCH/DELETE /api/crm/stages` - Stage CRUD
 
 ## Backlog
 - [ ] Gantt Chart for project timelines (P1)
