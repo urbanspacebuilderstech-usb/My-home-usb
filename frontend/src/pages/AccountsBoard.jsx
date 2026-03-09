@@ -200,7 +200,15 @@ export default function AccountsBoard() {
   });
 
   const filteredExpenses = (overview?.expense_entries || []).filter(e => {
-    if (expenseSubTab !== 'all' && e.expense_type !== expenseSubTab) return false;
+    if (expenseSubTab !== 'all') {
+      if (expenseSubTab === 'other') {
+        if (['material', 'labour'].includes(e.expense_type)) return false;
+      } else if (expenseSubTab === 'suspense') {
+        // show all for suspense tab
+      } else {
+        if (e.expense_type !== expenseSubTab) return false;
+      }
+    }
     if (expenseFilter.project && e.project_id !== expenseFilter.project) return false;
     if (expenseFilter.type && e.expense_type !== expenseFilter.type) return false;
     if (expenseFilter.way === 'manual' && e.auto_synced !== false) return false;
@@ -209,6 +217,26 @@ export default function AccountsBoard() {
   });
 
   const projects = overview?.project_wise || [];
+
+  // Compute expense by category
+  const allExpenses = overview?.expense_entries || [];
+  const expByCategory = {
+    overall: allExpenses.reduce((s, e) => s + (e.amount || 0), 0),
+    material: allExpenses.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
+    labour: allExpenses.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
+    petty_cash: overview?.petty_cash?.spent || 0,
+    suspense: overview?.suspense_balance || 0,
+    other: allExpenses.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
+  };
+
+  const EXP_CATEGORIES = [
+    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
+    { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+    { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
+    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+  ];
 
   if (loading) {
     return (
@@ -442,37 +470,25 @@ export default function AccountsBoard() {
 
           {/* ========= EXPENSE TAB ========= */}
           <TabsContent value="expense">
-            {/* Expense Mode Breakdown */}
-            <div className="grid grid-cols-4 md:grid-cols-9 gap-2 mb-4">
-              {Object.keys(MODE_LABELS).map(mode => (
-                <Card key={mode} className={`cursor-pointer hover:shadow-md transition-shadow border ${MODE_COLORS[mode]}`}
-                  onClick={() => openModeDetail(mode, 'expense')}>
-                  <CardContent className="p-2.5 text-center">
-                    {React.createElement(MODE_ICONS[mode], { className: "h-4 w-4 mx-auto mb-1 opacity-60" })}
-                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                    <p className="text-sm font-bold">{fmtFull(exp[mode] || 0)}</p>
-                  </CardContent>
-                </Card>
-              ))}
-              <Card className="border-gray-900 bg-gray-900 text-white">
-                <CardContent className="p-2.5 text-center">
-                  <DollarSign className="h-4 w-4 mx-auto mb-1" />
-                  <p className="text-[10px]">Total</p>
-                  <p className="text-sm font-bold">{fmtFull(exp.total || 0)}</p>
-                </CardContent>
-              </Card>
+            {/* Expense Category Breakdown */}
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+              {EXP_CATEGORIES.map(cat => {
+                const Icon = cat.icon;
+                const isActive = expenseSubTab === cat.key || (cat.key === 'overall' && expenseSubTab === 'all');
+                return (
+                  <Card key={cat.key}
+                    className={`cursor-pointer hover:shadow-md transition-all border-2 ${isActive ? 'ring-2 ring-offset-1 ring-red-400 shadow-md' : ''} ${cat.color}`}
+                    onClick={() => setExpenseSubTab(cat.key === 'overall' ? 'all' : cat.key)}
+                    data-testid={`exp-cat-${cat.key}`}>
+                    <CardContent className="p-4 text-center">
+                      <Icon className="h-5 w-5 mx-auto mb-1.5 opacity-70" />
+                      <p className="text-xs font-semibold">{cat.label}</p>
+                      <p className="text-lg font-bold mt-1">{fmtFull(expByCategory[cat.key] || 0)}</p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
-
-            {/* Expense Sub-tabs */}
-            <Tabs value={expenseSubTab} onValueChange={setExpenseSubTab} className="mb-3">
-              <TabsList>
-                <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
-                <TabsTrigger value="material" className="text-xs">Materials</TabsTrigger>
-                <TabsTrigger value="labour" className="text-xs">Labour</TabsTrigger>
-                <TabsTrigger value="petty_cash" className="text-xs">Petty Cash</TabsTrigger>
-                <TabsTrigger value="indirect" className="text-xs">Indirect Expense</TabsTrigger>
-              </TabsList>
-            </Tabs>
 
             {/* Expense Filters */}
             <Card className="mb-3">
