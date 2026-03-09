@@ -1,99 +1,54 @@
 # Construction Accounting CRM & Project Operations OS - PRD
 
 ## Overview
-A comprehensive Construction Accounting CRM & Project Operations OS titled "My Home USB" (Urban Space Builders). Replaces Excel, WhatsApp, and manual approvals with a single, project-centric, role-based system.
+A comprehensive Construction Accounting CRM & Project Operations OS titled "My Home USB" (Urban Space Builders).
 
 ## Tech Stack
 - **Backend**: FastAPI (Python) on port 8001
 - **Frontend**: React with TailwindCSS + Shadcn UI on port 3000
 - **Database**: MongoDB
-- **Authentication**: Custom JWT + Demo Login + Google OAuth (invited users only)
-
-## User Roles
-1. Super Admin, 2. General Manager, 3. CRE, 4. Accountant, 5. Project Manager, 6. Associate PM, 7. Sr. Site Engineer, 8. Planning, 9. Procurement, 10. Site Engineer, 11. Pre-Sales, 12. Sales, 13. Vendor, 14. Client
-
-## Demo Credentials
-- All demo users password: `Demo@1234`
-- Super Admin: admin@constructionos.com
-- Accountant: accountant@constructionos.com (Priya Sharma)
-- GM: gm@constructionos.com
-- PM: pm@constructionos.com
-- Planning: planning@constructionos.com
-- Procurement: procurement@constructionos.com
-- Site Engineer: engineer@constructionos.com
-- CRE: cre@constructionos.com
-- Pre-Sales: presales@constructionos.com
-- Sales: sales@constructionos.com
-- Client: mohan@client.com
 
 ## What's Been Implemented (Complete)
-- Full project management (CRUD, scope items, payment schedule, deductions, additions)
-- BOQ, Work Orders, Approval Workflows
+- Full project management, BOQ, Work Orders, Approval Workflows
 - CRM (Pre-Sales → Sales → RE Projects → Deal Close → CRE → Project)
 - Procurement Board V2 with 8-step material flow
 - Site Engineer + PM workflows (material/labour requests, petty cash)
-- Accountant Module (cashbook, suspense account, smart payments, cheque mgmt, HR/payroll, payment processing)
-- Finance Module (approvals, cashbook, suspense, project finance view)
-- Client Portal with Share as PDF
-- Vendor Portal
-- Email notifications (Resend), File uploads (Emergent Object Storage)
-- Maps (Leaflet/OpenStreetMap), Material Receipt OTP
-- Mobile responsiveness + PWA
-- Security hardening (CORS, RBAC, CSRF, DB indexes)
-- Real auth (password login, forgot/reset, invitations)
-- Server refactoring (16K line monolith → modular routes)
-- Branding: "My Home USB" with charcoal/amber theme
-- Role-specific UI: AppHeader.jsx + MobileBottomNav.jsx for all roles
-- Super Admin dashboard with optimized API
-- Accountant role-specific header and mobile nav
+- Finance Module (approvals, cashbook, suspense, project finance)
+- Client Portal, Vendor Portal, HR Portal
+- Google Sheets Zapier-style integration (auto-sync, tab=source, custom fields)
+- Role-specific UI for all 14 roles
+- E2E flow tested (31/31 passed)
 
-## Recently Completed (March 8, 2026)
+## Recently Completed (March 9, 2026)
 
-### Accountant Role-Specific UI
-- Fixed duplicate accountant entry bug in MobileBottomNav.jsx
-- Fixed "More" drawer rendering (was only for super_admin)
-- Desktop header + mobile bottom nav verified for accountant role
+### Accountant Dashboard Complete Redesign
+- **Financial Overview row**: 9 payment mode columns (Cash, Current A/c, Savings, Cheque, Petty Cash, Misc, DT, Suspense, Total) showing income/expense
+- **Project-wise View**: Collapsible table with all projects, Income/Expense/Balance per project
+- **Income Tab**: Mode breakdown cards (clickable for details), filters (Project, Mode, Stage), Payment Summary table with S.No, Date/Time, Project, Stage, Mode, Status (Partly/Fully Paid), Txn ID, Amount, View + Print Receipt (PDF)
+- **Expense Tab**: Mode breakdown + sub-tabs (All/Materials/Labour/Petty Cash/Indirect), filters (Project, Manual/Approval), records with Type, Way (auto-detected Manual/Approval), Date, Mode, Amount, Txn ID, Vendor, Project, View + Receipt
+- **Receipt system**: Printable payment receipts with "My Home USB" branding, downloadable as PDF
+- **Backend**: New `GET /api/accountant/overview` endpoint with parallel queries
 
-### End-to-End Flow Test — 31/31 PASSED (100%)
-- Full workflow tested: Lead → Pre-Sales → Sales → Planning RE → GM Approve → Deal Close → Main Project → Scope Items → SE Material Request → Planning/Accountant Approval → Petty Cash full cycle
-- **Bugs fixed during E2E**:
-  - Missing `import secrets` in `site_ops.py` and `operations.py` (caused 500 errors on petty cash & CRE convert)
-  - `audit_logs` DuplicateKeyError: `projects.py` had local `create_audit_log` missing `audit_id` field; fixed + DB index made sparse
-- Test script: `/app/backend/tests/test_e2e_flow.py`
-- Results: `/app/test_reports/e2e_flow_test.json`
+### Google Sheets Auto-Sync
+- Background auto-sync every 5 min for new rows
+- Connected sheets tracking with row counts
+- Manual "Sync Sheets" button on Pre-Sales board
+- Zapier-style import flow with per-tab column mapping
 
 ## Pending Tasks
 
-### P1 - Screen-by-Screen UI/UX Review
-- User-guided review of all 50 application screens
+### P1 - Cashbook Page Enhancement
+- Update to match new accountant dashboard design
+- Income/Expense tabs with same mode breakdown
 
 ### P2 - Future/Backlog
+- Screen-by-Screen UI/UX Review
 - Gantt Chart for project timelines
-- Aadhar Document Upload with encrypted storage
-- Database Security & Production Readiness
-- Live deployment guidance
-- Google Sheets Integration enhancements
-- Unified Approval Dashboard for GM/Admin
+- Aadhar Document Upload
+- Deployment
 
-## Architecture
-```
-/app/backend/
-├── main.py (bootstrap, 67 lines)
-├── core/ (database.py, models.py, deps.py)
-├── routes/ (auth, projects, site_ops, financial, procurement, operations, crm)
-├── security.py
-
-/app/frontend/src/
-├── components/
-│   ├── AppHeader.jsx (role-aware sticky header)
-│   └── MobileBottomNav.jsx (role-aware mobile bottom nav)
-├── pages/ (~50 pages)
-├── App.js (routes)
-```
-
-## 3rd Party Integrations
-- MongoDB Atlas
-- Resend (email)
-- Emergent Object Storage (file uploads)
-- Google Sheets API
-- Leaflet/OpenStreetMap
+## Demo Credentials
+- All: `Demo@1234`
+- Super Admin: admin@constructionos.com
+- Accountant: accountant@constructionos.com
+- Others: see /app/backend/seed_data.py

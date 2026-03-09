@@ -1,697 +1,623 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Wallet, LogOut, Package, Users, Truck, DollarSign, 
-  CreditCard, CheckCircle, Clock, Eye, Building2, AlertCircle, X, FileText
+import {
+  Wallet, DollarSign, CreditCard, Building2, Eye, FileText,
+  Download, ArrowUpRight, ArrowDownRight, TrendingUp, Banknote,
+  Landmark, PiggyBank, CircleDollarSign, RefreshCw, Filter, Printer,
+  ChevronDown, ChevronUp, X, Plus
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const MODE_LABELS = {
+  cash: 'Cash',
+  current_account: 'Current A/c',
+  savings_account: 'Savings A/c',
+  cheque: 'Cheque',
+  petty_cash: 'Petty Cash',
+  miscellaneous: 'Miscellaneous',
+  direct_transfer: 'Cash DT',
+  suspense_account: 'Suspense A/c'
+};
+
+const MODE_ICONS = {
+  cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
+  cheque: FileText, petty_cash: Wallet, miscellaneous: CircleDollarSign,
+  direct_transfer: ArrowUpRight, suspense_account: RefreshCw
+};
+
+const MODE_COLORS = {
+  cash: 'bg-green-50 text-green-700 border-green-200',
+  current_account: 'bg-blue-50 text-blue-700 border-blue-200',
+  savings_account: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  cheque: 'bg-purple-50 text-purple-700 border-purple-200',
+  petty_cash: 'bg-amber-50 text-amber-700 border-amber-200',
+  miscellaneous: 'bg-gray-50 text-gray-700 border-gray-200',
+  direct_transfer: 'bg-orange-50 text-orange-700 border-orange-200',
+  suspense_account: 'bg-red-50 text-red-700 border-red-200'
+};
+
+const fmt = (n) => {
+  if (n === undefined || n === null) return '0';
+  if (n >= 10000000) return `${(n / 10000000).toFixed(2)} Cr`;
+  if (n >= 100000) return `${(n / 100000).toFixed(2)} L`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)} K`;
+  return n.toLocaleString('en-IN');
+};
+
+const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 
 export default function AccountsBoard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dashboard, setDashboard] = useState({});
-  const [pendingPayments, setPendingPayments] = useState([]);
-  const [advancePayments, setAdvancePayments] = useState([]);
-  const [activeTab, setActiveTab] = useState('advance');
-  
-  const [paymentDialog, setPaymentDialog] = useState(false);
-  const [verifyDialog, setVerifyDialog] = useState(false);
-  const [rejectDialog, setRejectDialog] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [selectedAdvance, setSelectedAdvance] = useState(null);
-  
-  const [paymentForm, setPaymentForm] = useState({
-    payment_type: 'full',
-    amount: '',
-    remarks: ''
-  });
-  
-  const [verifyForm, setVerifyForm] = useState({
-    transaction_id: '',
-    bank_name: '',
-    remarks: ''
-  });
-  
-  const [rejectReason, setRejectReason] = useState('');
+  const [overview, setOverview] = useState(null);
+  const [mainTab, setMainTab] = useState('income');
+  const [expenseSubTab, setExpenseSubTab] = useState('all');
+  const [modeDetailDialog, setModeDetailDialog] = useState(false);
+  const [selectedMode, setSelectedMode] = useState(null);
+  const [selectedModeEntries, setSelectedModeEntries] = useState([]);
+  const [viewDialog, setViewDialog] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState(null);
+  const [projectExpanded, setProjectExpanded] = useState(false);
+
+  // Filters
+  const [incomeFilter, setIncomeFilter] = useState({ project: '', mode: '', stage: '' });
+  const [expenseFilter, setExpenseFilter] = useState({ project: '', type: '', way: '' });
 
   useEffect(() => {
-    fetchData();
+    fetchAll();
   }, []);
 
-  const fetchData = async () => {
+  const fetchAll = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes, paymentsRes, advanceRes] = await Promise.all([
+      const [userRes, overviewRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/accounts/dashboard`),
-        axios.get(`${API}/accounts/pending-payments`),
-        axios.get(`${API}/accounts/pending-advance-payments`)
+        axios.get(`${API}/accountant/overview`)
       ]);
-      
       if (!['accountant', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied. Only Accounts can access this page.');
+        toast.error('Access denied');
         window.location.href = '/dashboard';
         return;
       }
-      
       setUser(userRes.data);
-      setDashboard(dashboardRes.data);
-      setPendingPayments(paymentsRes.data);
-      setAdvancePayments(advanceRes.data);
+      setOverview(overviewRes.data);
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      if (error.response?.status === 401) {
-        window.location.href = '/login';
-      }
+      if (error.response?.status === 401) window.location.href = '/login';
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTabChange = async (tab) => {
-    setActiveTab(tab);
-    if (tab === 'advance') {
-      const res = await axios.get(`${API}/accounts/pending-advance-payments`);
-      setAdvancePayments(res.data);
-    } else if (tab === 'all') {
-      const res = await axios.get(`${API}/accounts/pending-payments`);
-      setPendingPayments(res.data);
-    } else {
-      const res = await axios.get(`${API}/accounts/pending-payments?payment_type=${tab}`);
-      setPendingPayments(res.data);
-    }
+  const openModeDetail = (mode, type) => {
+    setSelectedMode({ mode, type, label: MODE_LABELS[mode] || mode });
+    const entries = type === 'income'
+      ? (overview?.income_entries || []).filter(e => classifyMode(e.payment_mode) === mode)
+      : (overview?.expense_entries || []).filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
+    setSelectedModeEntries(entries);
+    setModeDetailDialog(true);
   };
 
-  const openPaymentDialog = (item) => {
-    setSelectedItem(item);
-    setPaymentForm({ payment_type: 'full', amount: '', remarks: '' });
-    setPaymentDialog(true);
-  };
-
-  const openVerifyDialog = (project) => {
-    setSelectedAdvance(project);
-    setVerifyForm({ transaction_id: '', bank_name: '', remarks: '' });
-    setVerifyDialog(true);
-  };
-
-  const openRejectDialog = (project) => {
-    setSelectedAdvance(project);
-    setRejectReason('');
-    setRejectDialog(true);
-  };
-
-  const handleProcessPayment = async () => {
-    if (!selectedItem) return;
-
-    try {
-      if (selectedItem.payment_type === 'stage') {
-        await axios.patch(
-          `${API}/work-orders/${selectedItem.work_order_id}/stages/${selectedItem.stage_id}/process-payment`
-        );
-        toast.success('Stage payment processed');
-      } else {
-        const itemId = selectedItem.pricing_id || selectedItem.expense_id || selectedItem.request_id;
-        
-        await axios.patch(`${API}/accounts/process-payment/${selectedItem.payment_type}/${itemId}`, {
-          payment_type: paymentForm.payment_type,
-          amount: paymentForm.payment_type === 'partial' ? parseFloat(paymentForm.amount) : null,
-          remarks: paymentForm.remarks
-        });
-        
-        toast.success(`Payment processed as ${paymentForm.payment_type}`);
-      }
-      
-      setPaymentDialog(false);
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process payment');
-    }
-  };
-
-  const handleVerifyAdvancePayment = async () => {
-    if (!selectedAdvance || !verifyForm.transaction_id) {
-      toast.error('Transaction ID is required');
-      return;
-    }
-
-    try {
-      await axios.patch(`${API}/accounts/verify-advance-payment/${selectedAdvance.project_id}`, verifyForm);
-      toast.success('Advance payment verified successfully');
-      setVerifyDialog(false);
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to verify payment');
-    }
-  };
-
-  const handleRejectAdvancePayment = async () => {
-    if (!selectedAdvance || !rejectReason) {
-      toast.error('Rejection reason is required');
-      return;
-    }
-
-    try {
-      await axios.patch(`${API}/accounts/reject-advance-payment/${selectedAdvance.project_id}`, { reason: rejectReason });
-      toast.success('Payment rejected');
-      setRejectDialog(false);
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to reject payment');
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await axios.post(`${API}/auth/logout`);
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-    window.location.href = '/login';
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
-  };
-
-  const getTypeIcon = (type) => {
-    switch (type) {
-      case 'material': return <Package className="h-4 w-4" />;
-      case 'labour': return <Users className="h-4 w-4" />;
-      case 'procurement': return <Truck className="h-4 w-4" />;
-      case 'stage': return <CheckCircle className="h-4 w-4" />;
-      default: return <DollarSign className="h-4 w-4" />;
-    }
-  };
-
-  const getTypeBadge = (type) => {
-    const config = {
-      material: { label: 'Material', color: 'bg-amber-50 text-amber-700' },
-      labour: { label: 'Labour', color: 'bg-green-100 text-green-700' },
-      procurement: { label: 'Procurement', color: 'bg-purple-100 text-purple-700' },
-      stage: { label: 'Stage Payment', color: 'bg-orange-100 text-orange-700' }
+  const classifyMode = (mode) => {
+    if (!mode) return 'cash';
+    const m = mode.toLowerCase().replace(/\s+/g, '_');
+    const map = {
+      cash: 'cash', bank_transfer: 'current_account', neft: 'current_account',
+      rtgs: 'current_account', imps: 'current_account', upi: 'current_account',
+      cheque: 'cheque', petty_cash: 'petty_cash', savings: 'savings_account',
+      savings_account: 'savings_account', current_account: 'current_account',
+      miscellaneous: 'miscellaneous', direct_transfer: 'direct_transfer',
+      dt: 'direct_transfer', suspense: 'suspense_account', suspense_account: 'suspense_account'
     };
-    const c = config[type] || { label: type, color: 'bg-gray-100 text-gray-700' };
-    return <span className={`px-2 py-1 rounded text-xs font-medium ${c.color}`}>{c.label}</span>;
+    return map[m] || 'miscellaneous';
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  const handlePrintReceipt = (entry) => {
+    const w = window.open('', '_blank');
+    w.document.write(`
+      <html><head><title>Payment Receipt</title>
+      <style>body{font-family:Arial;padding:40px;max-width:600px;margin:auto}
+      h1{text-align:center;color:#333;border-bottom:2px solid #d97706;padding-bottom:10px}
+      .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
+      .label{color:#666;font-weight:500}.value{font-weight:600}
+      .amount{font-size:24px;text-align:center;color:#059669;margin:20px 0}
+      .footer{text-align:center;margin-top:30px;color:#999;font-size:12px}
+      @media print{button{display:none}}</style></head><body>
+      <h1>My Home USB</h1>
+      <p style="text-align:center;color:#666">Payment Receipt</p>
+      <div class="amount">${fmtFull(entry.amount)}</div>
+      <div class="row"><span class="label">Date</span><span class="value">${new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span></div>
+      <div class="row"><span class="label">Project</span><span class="value">${entry.project_name || 'N/A'}</span></div>
+      <div class="row"><span class="label">Stage</span><span class="value">${entry.stage || entry.description || 'N/A'}</span></div>
+      <div class="row"><span class="label">Mode</span><span class="value">${entry.payment_mode || entry.payment_method || 'Cash'}</span></div>
+      <div class="row"><span class="label">Status</span><span class="value">${entry.status || 'Recorded'}</span></div>
+      <div class="row"><span class="label">Transaction ID</span><span class="value">${entry.reference_number || entry.transaction_id || 'Cash'}</span></div>
+      ${entry.cheque_number ? `<div class="row"><span class="label">Cheque No</span><span class="value">${entry.cheque_number}</span></div>` : ''}
+      ${entry.remarks ? `<div class="row"><span class="label">Remarks</span><span class="value">${entry.remarks}</span></div>` : ''}
+      <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}<br>My Home USB - Urban Space Builders</div>
+      <div style="text-align:center;margin-top:20px">
+        <button onclick="window.print()" style="padding:8px 24px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer">Print / Download PDF</button>
+      </div>
+      </body></html>
+    `);
+    w.document.close();
+  };
+
+  // Filtered data
+  const filteredIncome = (overview?.income_entries || []).filter(e => {
+    if (incomeFilter.project && e.project_id !== incomeFilter.project) return false;
+    if (incomeFilter.mode && classifyMode(e.payment_mode) !== incomeFilter.mode) return false;
+    if (incomeFilter.stage && !(e.stage || '').toLowerCase().includes(incomeFilter.stage.toLowerCase())) return false;
+    return true;
+  });
+
+  const filteredExpenses = (overview?.expense_entries || []).filter(e => {
+    if (expenseSubTab !== 'all' && e.expense_type !== expenseSubTab) return false;
+    if (expenseFilter.project && e.project_id !== expenseFilter.project) return false;
+    if (expenseFilter.type && e.expense_type !== expenseFilter.type) return false;
+    if (expenseFilter.way === 'manual' && e.auto_synced !== false) return false;
+    if (expenseFilter.way === 'approval' && !e.approved_by) return false;
+    return true;
+  });
+
+  const projects = overview?.project_wise || [];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <AppHeader />
+        <div className="flex items-center justify-center h-[60vh]">
+          <RefreshCw className="h-8 w-8 animate-spin text-amber-600" />
+        </div>
+      </div>
+    );
+  }
+
+  const inc = overview?.income_by_mode || {};
+  const exp = overview?.expense_by_mode || {};
+  const totals = overview?.totals || {};
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <AppHeader user={user} />
+    <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
+      <AppHeader />
+      <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-4">
 
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Dashboard Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 sm:gap-4 mb-6">
-          {/* New: Advance Payments Card - Highlighted */}
-          <Card className="bg-gradient-to-br from-amber-50 to-amber-100 cursor-pointer ring-2 ring-amber-400" onClick={() => handleTabChange('advance')} data-testid="advance-payments-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-amber-600 mb-1">
-                <FileText className="h-4 w-4" />
-                <span className="text-xs sm:text-sm font-semibold">New Requests</span>
+        {/* Overview Financial Summary Row */}
+        <Card className="mb-4 border-l-4 border-l-amber-500">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
+              </CardTitle>
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
+                <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
+                <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                  Net: {fmtFull(totals.net_balance)}
+                </Badge>
               </div>
-              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.pending_advance_payments || 0}</p>
-              <p className="text-xs text-amber-600">{formatCurrency(dashboard.advance_payments_total)}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleTabChange('material')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-amber-600 mb-1">
-                <Package className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Material</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.pending_material || 0}</p>
-              <p className="text-xs text-amber-600">{formatCurrency(dashboard.material_total)}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer" onClick={() => handleTabChange('labour')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-green-600 mb-1">
-                <Users className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Labour</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-green-700">{dashboard.pending_labour || 0}</p>
-              <p className="text-xs text-green-600">{formatCurrency(dashboard.labour_total)}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 cursor-pointer" onClick={() => handleTabChange('procurement')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-purple-600 mb-1">
-                <Truck className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Procurement</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-purple-700">{dashboard.pending_procurement || 0}</p>
-              <p className="text-xs text-purple-600">{formatCurrency(dashboard.procurement_total)}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 cursor-pointer" onClick={() => handleTabChange('stage')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-orange-600 mb-1">
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Stage</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-orange-700">{dashboard.pending_stage_payments || 0}</p>
-              <p className="text-xs text-orange-600">{formatCurrency(dashboard.stage_payments_total)}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-red-50 to-red-100">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-red-600 mb-1">
-                <DollarSign className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Total</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-red-700">
-                {(dashboard.pending_advance_payments || 0) + (dashboard.pending_material || 0) + (dashboard.pending_labour || 0) + (dashboard.pending_procurement || 0) + (dashboard.pending_stage_payments || 0)}
-              </p>
-              <p className="text-xs text-red-600">{formatCurrency(dashboard.total_pending)}</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Pending Payments / Advance Payments */}
-        <Card>
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <CardHeader className="border-b p-3 sm:p-4">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:justify-between">
-                <CardTitle className="text-lg">Payment Requests</CardTitle>
-                <TabsList className="bg-transparent p-0 flex-wrap">
-                  <TabsTrigger value="advance" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none text-xs sm:text-sm" data-testid="tab-advance">
-                    New Requests
-                  </TabsTrigger>
-                  <TabsTrigger value="all" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm">
-                    All
-                  </TabsTrigger>
-                  <TabsTrigger value="material" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm">
-                    Material
-                  </TabsTrigger>
-                  <TabsTrigger value="labour" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm">
-                    Labour
-                  </TabsTrigger>
-                  <TabsTrigger value="procurement" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none text-xs sm:text-sm">
-                    Procurement
-                  </TabsTrigger>
-                  <TabsTrigger value="stage" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none text-xs sm:text-sm">
-                    Stage
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-            </CardHeader>
-
-            <CardContent className="p-0">
-              {/* Advance Payments Tab Content */}
-              {activeTab === 'advance' ? (
-                <div>
-                  {advancePayments.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">No pending advance payment verifications</div>
-                  ) : (
-                    <div className="divide-y">
-                      {advancePayments.map((project) => (
-                        <div key={project.project_id} className="p-4 hover:bg-gray-50" data-testid={`advance-card-${project.project_id}`}>
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Building2 className="h-4 w-4 text-amber-600" />
-                                <span className="font-semibold">{project.name}</span>
-                                <Badge variant="outline" className="text-xs">{project.project_code}</Badge>
-                              </div>
-                              <p className="text-sm text-gray-600">Client: {project.client_name}</p>
-                              <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-2">
-                                <span>Package: {project.package_name}</span>
-                                <span>Location: {project.location || 'N/A'}</span>
-                                <span>Payment Mode: {project.advance_payment_mode || 'N/A'}</span>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-2">
-                              <p className="text-2xl font-bold text-green-600">{formatCurrency(project.advance_amount)}</p>
-                              <p className="text-xs text-gray-500">Advance Received: {project.advance_date || 'N/A'}</p>
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm" 
-                                  variant="outline" 
-                                  className="text-red-600 border-red-300 hover:bg-red-50"
-                                  onClick={() => openRejectDialog(project)}
-                                  data-testid={`reject-btn-${project.project_id}`}
-                                >
-                                  <X className="h-3 w-3 mr-1" /> Reject
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  className="bg-emerald-600 hover:bg-emerald-700"
-                                  onClick={() => openVerifyDialog(project)}
-                                  data-testid={`verify-btn-${project.project_id}`}
-                                >
-                                  <CheckCircle className="h-3 w-3 mr-1" /> Verify & Confirm
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  {/* Mobile Card View for Other Payments */}
-                  <div className="block sm:hidden divide-y">
-                    {pendingPayments.length === 0 ? (
-                      <div className="p-8 text-center text-gray-500">No pending payments</div>
-                    ) : (
-                      pendingPayments.map((item, index) => (
-                        <div key={index} className="p-4">
-                          <div className="flex justify-between items-start mb-2">
-                            <div className="flex items-center gap-2">
-                              {getTypeIcon(item.payment_type)}
-                              <span className="font-semibold">
-                                {item.payment_type === 'stage' 
-                                  ? `${item.work_order_number} - ${item.stage_name}`
-                                  : (item.material_name || item.labour_type || 'Order')}
-                              </span>
-                            </div>
-                            {getTypeBadge(item.payment_type)}
-                          </div>
-                          <div className="text-sm text-gray-500 mb-2">
-                            <p>Project: {item.project_name}</p>
-                            {item.vendor_name && <p>Vendor: {item.vendor_name}</p>}
-                            {item.selected_vendor_name && <p>Vendor: {item.selected_vendor_name}</p>}
-                            {item.contractor_name && <p>Contractor: {item.contractor_name}</p>}
-                            {item.work_type && <p>Work: {item.work_type}</p>}
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-lg font-bold text-green-600">
-                              {formatCurrency(item.amount || item.final_amount || item.total_amount || item.estimated_cost)}
-                            </span>
-                            <Button size="sm" onClick={() => openPaymentDialog(item)}>
-                              <DollarSign className="h-3 w-3 mr-1" /> Process
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    )}
+            </div>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <div className="grid grid-cols-9 gap-2">
+              {Object.keys(MODE_LABELS).map(mode => {
+                const Icon = MODE_ICONS[mode];
+                return (
+                  <div key={mode} className={`rounded-lg border p-2 text-center ${MODE_COLORS[mode]}`}>
+                    <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
+                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                    <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
+                    <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
                   </div>
-
-                  {/* Desktop Table View for Other Payments */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TYPE</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESCRIPTION</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">VENDOR/CONTRACTOR</th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">AMOUNT</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTION</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {pendingPayments.length === 0 ? (
-                          <tr>
-                            <td colSpan="6" className="px-4 py-8 text-center text-gray-500">No pending payments</td>
-                          </tr>
-                        ) : (
-                          pendingPayments.map((item, index) => (
-                            <tr key={index} className="hover:bg-gray-50">
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  {getTypeIcon(item.payment_type)}
-                                  {getTypeBadge(item.payment_type)}
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                {item.payment_type === 'stage' ? (
-                                  <>
-                                    <p className="font-medium">{item.work_order_number}</p>
-                                    <p className="text-sm text-gray-600">Stage: {item.stage_name}</p>
-                                    <p className="text-xs text-gray-500">{item.work_type}</p>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="font-medium">{item.material_name || item.labour_type || 'Procurement Order'}</p>
-                                    {item.quantity && <p className="text-xs text-gray-500">Qty: {item.quantity} {item.unit}</p>}
-                                  </>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-sm">{item.project_name}</td>
-                              <td className="px-4 py-3 text-sm">
-                                {item.contractor_name || item.vendor_name || item.selected_vendor_name || '-'}
-                              </td>
-                              <td className="px-4 py-3 text-right font-bold text-green-600">
-                                {formatCurrency(item.amount || item.final_amount || item.total_amount || item.estimated_cost)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <Button size="sm" onClick={() => openPaymentDialog(item)}>
-                                  <DollarSign className="h-3 w-3 mr-1" /> Process
-                                </Button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Tabs>
+                );
+              })}
+              <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
+                <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
+                <p className="text-[10px] font-medium">Total</p>
+                <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
+                <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
+              </div>
+            </div>
+          </CardContent>
         </Card>
-      </div>
 
-      {/* Verify Advance Payment Dialog */}
-      <Dialog open={verifyDialog} onOpenChange={setVerifyDialog}>
-        <DialogContent className="max-w-md">
+        {/* Project-wise Collapsible */}
+        <Card className="mb-4">
+          <CardHeader className="pb-0 pt-3 px-4 cursor-pointer" onClick={() => setProjectExpanded(!projectExpanded)}>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-amber-600" /> Project-wise View
+                <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
+              </CardTitle>
+              {projectExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </div>
+          </CardHeader>
+          {projectExpanded && (
+            <CardContent className="px-4 pb-3 pt-2">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left px-2 py-1.5 font-medium text-gray-500">Project</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-green-600">Income</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-red-600">Expense</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-gray-700">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.map((p, i) => (
+                      <tr key={i} className="border-b hover:bg-gray-50">
+                        <td className="px-2 py-1.5 font-medium">{p.project_name}</td>
+                        <td className="px-2 py-1.5 text-right text-green-700">{fmtFull(p.income)}</td>
+                        <td className="px-2 py-1.5 text-right text-red-600">{fmtFull(p.expense)}</td>
+                        <td className={`px-2 py-1.5 text-right font-semibold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {fmtFull(p.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Main Tabs: Income | Expense */}
+        <Tabs value={mainTab} onValueChange={setMainTab}>
+          <TabsList className="w-full grid grid-cols-2 mb-3">
+            <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="income-tab">
+              <ArrowDownRight className="h-4 w-4" /> Income
+            </TabsTrigger>
+            <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="expense-tab">
+              <ArrowUpRight className="h-4 w-4" /> Expense
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ========= INCOME TAB ========= */}
+          <TabsContent value="income">
+            {/* Income Mode Breakdown */}
+            <div className="grid grid-cols-4 md:grid-cols-9 gap-2 mb-4">
+              {Object.keys(MODE_LABELS).map(mode => (
+                <Card key={mode} className={`cursor-pointer hover:shadow-md transition-shadow border ${MODE_COLORS[mode]}`}
+                  onClick={() => openModeDetail(mode, 'income')} data-testid={`income-mode-${mode}`}>
+                  <CardContent className="p-2.5 text-center">
+                    {React.createElement(MODE_ICONS[mode], { className: "h-4 w-4 mx-auto mb-1 opacity-60" })}
+                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                    <p className="text-sm font-bold">{fmtFull(inc[mode] || 0)}</p>
+                  </CardContent>
+                </Card>
+              ))}
+              <Card className="border-gray-900 bg-gray-900 text-white">
+                <CardContent className="p-2.5 text-center">
+                  <DollarSign className="h-4 w-4 mx-auto mb-1" />
+                  <p className="text-[10px]">Total</p>
+                  <p className="text-sm font-bold">{fmtFull(inc.total || 0)}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Income Filters */}
+            <Card className="mb-3">
+              <CardContent className="p-3 flex flex-wrap gap-2 items-center">
+                <Filter className="h-4 w-4 text-gray-400" />
+                <Select value={incomeFilter.project} onValueChange={v => setIncomeFilter(p => ({...p, project: v}))}>
+                  <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All Projects</SelectItem>
+                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={incomeFilter.mode} onValueChange={v => setIncomeFilter(p => ({...p, mode: v}))}>
+                  <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All Modes" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All Modes</SelectItem>
+                    {Object.entries(MODE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Input placeholder="Stage (Advance, Stage 01...)" className="w-48 h-8 text-xs"
+                  value={incomeFilter.stage} onChange={e => setIncomeFilter(p => ({...p, stage: e.target.value}))} />
+                {(incomeFilter.project || incomeFilter.mode || incomeFilter.stage) && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setIncomeFilter({ project: '', mode: '', stage: '' })}>
+                    <X className="h-3 w-3 mr-1" /> Clear
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Income Payment Summary List */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm">Payment Summary ({filteredIncome.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="px-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="income-table">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Stage</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Status</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID / Cash</th>
+                        <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                        <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredIncome.map((entry, i) => (
+                        <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                          <td className="px-3 py-2">
+                            {new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            {' '}
+                            <span className="text-gray-400">{new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </td>
+                          <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                          <td className="px-3 py-2">
+                            <Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
+                              {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge className={entry.status === 'verified' ? 'bg-green-100 text-green-700' : entry.status === 'approved' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>
+                              {entry.payment_type === 'partial' ? 'Partly Paid' : entry.status === 'verified' ? 'Fully Paid' : entry.status || 'Recorded'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-[10px]">{entry.reference_number || entry.cheque_number || 'Cash'}</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(entry.amount)}</td>
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
+                                <Printer className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredIncome.length === 0 && (
+                        <tr><td colSpan={9} className="text-center py-8 text-gray-400">No income entries found</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ========= EXPENSE TAB ========= */}
+          <TabsContent value="expense">
+            {/* Expense Mode Breakdown */}
+            <div className="grid grid-cols-4 md:grid-cols-9 gap-2 mb-4">
+              {Object.keys(MODE_LABELS).map(mode => (
+                <Card key={mode} className={`cursor-pointer hover:shadow-md transition-shadow border ${MODE_COLORS[mode]}`}
+                  onClick={() => openModeDetail(mode, 'expense')}>
+                  <CardContent className="p-2.5 text-center">
+                    {React.createElement(MODE_ICONS[mode], { className: "h-4 w-4 mx-auto mb-1 opacity-60" })}
+                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                    <p className="text-sm font-bold">{fmtFull(exp[mode] || 0)}</p>
+                  </CardContent>
+                </Card>
+              ))}
+              <Card className="border-gray-900 bg-gray-900 text-white">
+                <CardContent className="p-2.5 text-center">
+                  <DollarSign className="h-4 w-4 mx-auto mb-1" />
+                  <p className="text-[10px]">Total</p>
+                  <p className="text-sm font-bold">{fmtFull(exp.total || 0)}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Expense Sub-tabs */}
+            <Tabs value={expenseSubTab} onValueChange={setExpenseSubTab} className="mb-3">
+              <TabsList>
+                <TabsTrigger value="all" className="text-xs">All</TabsTrigger>
+                <TabsTrigger value="material" className="text-xs">Materials</TabsTrigger>
+                <TabsTrigger value="labour" className="text-xs">Labour</TabsTrigger>
+                <TabsTrigger value="petty_cash" className="text-xs">Petty Cash</TabsTrigger>
+                <TabsTrigger value="indirect" className="text-xs">Indirect Expense</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            {/* Expense Filters */}
+            <Card className="mb-3">
+              <CardContent className="p-3 flex flex-wrap gap-2 items-center">
+                <Filter className="h-4 w-4 text-gray-400" />
+                <Select value={expenseFilter.project} onValueChange={v => setExpenseFilter(p => ({...p, project: v}))}>
+                  <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All Projects</SelectItem>
+                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={expenseFilter.way} onValueChange={v => setExpenseFilter(p => ({...p, way: v}))}>
+                  <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Manual/Approval" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value=" ">All</SelectItem>
+                    <SelectItem value="manual">Manual</SelectItem>
+                    <SelectItem value="approval">Approval</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(expenseFilter.project || expenseFilter.type || expenseFilter.way) && (
+                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setExpenseFilter({ project: '', type: '', way: '' })}>
+                    <X className="h-3 w-3 mr-1" /> Clear
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Expense Payment Record */}
+            <Card>
+              <CardHeader className="pb-2 pt-3 px-4">
+                <CardTitle className="text-sm">Expense Records ({filteredExpenses.length})</CardTitle>
+              </CardHeader>
+              <CardContent className="px-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="expense-table">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Way</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                        <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                        <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredExpenses.map((entry, i) => (
+                        <tr key={entry.expense_id || entry.request_id || i} className="border-b hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                          <td className="px-3 py-2">
+                            <Badge className={
+                              entry.expense_type === 'material' ? 'bg-blue-100 text-blue-700' :
+                              entry.expense_type === 'labour' ? 'bg-purple-100 text-purple-700' :
+                              entry.expense_type === 'petty_cash' ? 'bg-amber-100 text-amber-700' :
+                              'bg-gray-100 text-gray-700'
+                            }>{entry.expense_type || entry.category || 'Other'}</Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge variant="outline" className={`text-[10px] ${entry.approved_by ? 'border-green-300 text-green-700' : 'border-gray-300 text-gray-600'}`}>
+                              {entry.approved_by ? 'Approval' : 'Manual'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2">
+                            {new Date(entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            {' '}
+                            <span className="text-gray-400">{new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_method || entry.payment_mode)]}`}>
+                              {MODE_LABELS[classifyMode(entry.payment_method || entry.payment_mode)] || 'Cash'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(entry.amount)}</td>
+                          <td className="px-3 py-2 font-mono text-[10px]">{entry.transaction_id || entry.reference_number || '—'}</td>
+                          <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '—'}</td>
+                          <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
+                                <Printer className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredExpenses.length === 0 && (
+                        <tr><td colSpan={10} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </main>
+
+      {/* Mode Detail Dialog */}
+      <Dialog open={modeDetailDialog} onOpenChange={setModeDetailDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-emerald-600" />
-              Verify Advance Payment
+              {selectedMode && React.createElement(MODE_ICONS[selectedMode.mode] || DollarSign, { className: "h-5 w-5" })}
+              {selectedMode?.label} — {selectedMode?.type === 'income' ? 'Income' : 'Expense'} Details
             </DialogTitle>
           </DialogHeader>
-
-          {selectedAdvance && (
-            <div className="space-y-4">
-              <Card className="bg-gray-50">
-                <CardContent className="p-4">
-                  <p className="font-semibold">{selectedAdvance.name}</p>
-                  <p className="text-sm text-gray-600">Client: {selectedAdvance.client_name}</p>
-                  <p className="text-sm text-gray-600">Package: {selectedAdvance.package_name}</p>
-                  <p className="text-xl font-bold text-green-600 mt-2">
-                    {formatCurrency(selectedAdvance.advance_amount)}
-                  </p>
-                  <p className="text-xs text-gray-500">Payment Mode: {selectedAdvance.advance_payment_mode || 'N/A'}</p>
-                </CardContent>
-              </Card>
-
-              <div>
-                <Label>Transaction ID / Reference Number *</Label>
-                <Input 
-                  value={verifyForm.transaction_id}
-                  onChange={(e) => setVerifyForm({ ...verifyForm, transaction_id: e.target.value })}
-                  placeholder="Enter transaction ID"
-                  data-testid="input-transaction-id"
-                />
-              </div>
-
-              <div>
-                <Label>Bank Name</Label>
-                <Input 
-                  value={verifyForm.bank_name}
-                  onChange={(e) => setVerifyForm({ ...verifyForm, bank_name: e.target.value })}
-                  placeholder="Enter bank name"
-                  data-testid="input-bank-name"
-                />
-              </div>
-
-              <div>
-                <Label>Remarks</Label>
-                <Textarea 
-                  value={verifyForm.remarks}
-                  onChange={(e) => setVerifyForm({ ...verifyForm, remarks: e.target.value })}
-                  placeholder="Any additional notes..."
-                  rows={2}
-                  data-testid="input-verify-remarks"
-                />
-              </div>
+          <div className="space-y-2">
+            <p className="text-sm text-gray-500">Total: {fmtFull(selectedModeEntries.reduce((s, e) => s + (e.amount || 0), 0))} ({selectedModeEntries.length} entries)</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="px-2 py-1.5 text-left">Date</th>
+                    <th className="px-2 py-1.5 text-left">Project</th>
+                    <th className="px-2 py-1.5 text-left">Description</th>
+                    <th className="px-2 py-1.5 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedModeEntries.map((e, i) => (
+                    <tr key={i} className="border-b">
+                      <td className="px-2 py-1.5">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
+                      <td className="px-2 py-1.5">{e.project_name || 'N/A'}</td>
+                      <td className="px-2 py-1.5">{e.stage || e.description || e.remarks || '—'}</td>
+                      <td className="px-2 py-1.5 text-right font-bold">{fmtFull(e.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setVerifyDialog(false)}>Cancel</Button>
-            <Button 
-              onClick={handleVerifyAdvancePayment} 
-              className="bg-emerald-600 hover:bg-emerald-700"
-              disabled={!verifyForm.transaction_id}
-              data-testid="btn-confirm-verify"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" /> Verify & Confirm
-            </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Reject Advance Payment Dialog */}
-      <Dialog open={rejectDialog} onOpenChange={setRejectDialog}>
-        <DialogContent className="max-w-md">
+      {/* View Entry Dialog */}
+      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertCircle className="h-5 w-5" />
-              Reject Payment
-            </DialogTitle>
+            <DialogTitle>Transaction Details</DialogTitle>
           </DialogHeader>
-
-          {selectedAdvance && (
-            <div className="space-y-4">
-              <Card className="bg-red-50 border-red-200">
-                <CardContent className="p-4">
-                  <p className="font-semibold">{selectedAdvance.name}</p>
-                  <p className="text-sm text-gray-600">Client: {selectedAdvance.client_name}</p>
-                  <p className="text-lg font-bold text-red-600 mt-2">
-                    {formatCurrency(selectedAdvance.advance_amount)}
-                  </p>
-                </CardContent>
-              </Card>
-
-              <div>
-                <Label>Rejection Reason *</Label>
-                <Textarea 
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Why is this payment being rejected?"
-                  rows={3}
-                  data-testid="input-reject-reason"
-                />
+          {selectedEntry && (
+            <div className="space-y-3">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-gray-900">{fmtFull(selectedEntry.amount)}</p>
+                <Badge className={selectedEntry.income_id ? 'bg-green-100 text-green-700 mt-1' : 'bg-red-100 text-red-700 mt-1'}>
+                  {selectedEntry.income_id ? 'Income' : 'Expense'}
+                </Badge>
               </div>
+              <div className="space-y-2 text-sm">
+                {[
+                  ['Project', selectedEntry.project_name],
+                  ['Stage/Description', selectedEntry.stage || selectedEntry.description],
+                  ['Date', new Date(selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
+                  ['Mode', selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
+                  ['Status', selectedEntry.status],
+                  ['Transaction ID', selectedEntry.reference_number || selectedEntry.transaction_id || 'Cash'],
+                  ['Vendor', selectedEntry.vendor_name],
+                  ['Remarks', selectedEntry.remarks],
+                ].filter(([, v]) => v).map(([label, value]) => (
+                  <div key={label} className="flex justify-between border-b pb-1">
+                    <span className="text-gray-500">{label}</span>
+                    <span className="font-medium">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
+                <Printer className="h-4 w-4 mr-2" /> Print Receipt / Download PDF
+              </Button>
             </div>
           )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialog(false)}>Cancel</Button>
-            <Button 
-              variant="destructive"
-              onClick={handleRejectAdvancePayment}
-              disabled={!rejectReason}
-              data-testid="btn-confirm-reject"
-            >
-              <X className="h-4 w-4 mr-2" /> Reject Payment
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Process Payment Dialog (for other payment types) */}
-      <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Process Payment</DialogTitle>
-          </DialogHeader>
-
-          {selectedItem && (
-            <div className="space-y-4">
-              <Card className="bg-gray-50">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    {getTypeIcon(selectedItem.payment_type)}
-                    {getTypeBadge(selectedItem.payment_type)}
-                  </div>
-                  {selectedItem.payment_type === 'stage' ? (
-                    <>
-                      <p className="font-semibold">{selectedItem.work_order_number}</p>
-                      <p className="text-sm font-medium">Stage: {selectedItem.stage_name}</p>
-                      <p className="text-sm text-gray-500">Work: {selectedItem.work_type}</p>
-                      {selectedItem.contractor_name && (
-                        <p className="text-sm text-gray-500">Contractor: {selectedItem.contractor_name}</p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-semibold">{selectedItem.material_name || selectedItem.labour_type || 'Procurement Order'}</p>
-                      {(selectedItem.vendor_name || selectedItem.selected_vendor_name) && (
-                        <p className="text-sm text-gray-500">Vendor: {selectedItem.vendor_name || selectedItem.selected_vendor_name}</p>
-                      )}
-                    </>
-                  )}
-                  <p className="text-sm text-gray-500">Project: {selectedItem.project_name}</p>
-                  <p className="text-xl font-bold text-green-600 mt-2">
-                    {formatCurrency(selectedItem.amount || selectedItem.final_amount || selectedItem.total_amount || selectedItem.estimated_cost)}
-                  </p>
-                </CardContent>
-              </Card>
-
-              {selectedItem.payment_type !== 'stage' && (
-                <>
-                  <div>
-                    <Label>Payment Type</Label>
-                    <Select value={paymentForm.payment_type} onValueChange={(v) => setPaymentForm({ ...paymentForm, payment_type: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="full">Full Payment</SelectItem>
-                        <SelectItem value="partial">Partial Payment</SelectItem>
-                        <SelectItem value="credit">Credit (No Payment)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {paymentForm.payment_type === 'partial' && (
-                    <div>
-                      <Label>Payment Amount</Label>
-                      <Input 
-                        type="number"
-                        value={paymentForm.amount}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
-                        placeholder="Enter amount"
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <Label>Remarks (Optional)</Label>
-                    <Textarea 
-                      value={paymentForm.remarks}
-                      onChange={(e) => setPaymentForm({ ...paymentForm, remarks: e.target.value })}
-                      placeholder="Add any notes..."
-                      rows={2}
-                    />
-                  </div>
-                </>
-              )}
-
-              {selectedItem.payment_type === 'stage' && (
-                <p className="text-sm text-gray-600">
-                  Click confirm to mark this stage payment as processed.
-                </p>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentDialog(false)}>Cancel</Button>
-            <Button onClick={handleProcessPayment} className="bg-emerald-600 hover:bg-emerald-700">
-              <CheckCircle className="h-4 w-4 mr-2" /> Confirm Payment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <MobileBottomNav user={user} />
+      <MobileBottomNav />
     </div>
   );
 }

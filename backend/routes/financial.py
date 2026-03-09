@@ -48,6 +48,124 @@ class IncomeUpdate(BaseModel):
     remarks: Optional[str] = None
 
 
+
+# ==================== ACCOUNTANT DASHBOARD OVERVIEW ====================
+
+@router.get("/accountant/overview")
+async def get_accountant_overview(user: User = Depends(get_current_user)):
+    """Comprehensive accountant overview: income/expense by payment mode, project-wise"""
+    allowed = [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns) = await asyncio.gather(
+        db.income.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.recorded_expenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.material_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "status": 1}).to_list(1000),
+        db.suspense_transactions.find({}, {"_id": 0}).to_list(5000),
+    )
+    
+    project_map = {p["project_id"]: p["name"] for p in projects_list}
+    
+    # Payment mode categories
+    mode_keys = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
+    
+    def classify_mode(mode):
+        if not mode:
+            return "cash"
+        mode = mode.lower().replace(" ", "_")
+        mapping = {
+            "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
+            "rtgs": "current_account", "imps": "current_account", "upi": "current_account",
+            "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
+            "savings_account": "savings_account", "current_account": "current_account",
+            "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
+            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account"
+        }
+        return mapping.get(mode, "miscellaneous")
+    
+    # Income by mode
+    income_by_mode = {k: 0 for k in mode_keys}
+    income_by_mode["total"] = 0
+    for i in incomes:
+        amt = i.get("amount", 0)
+        mode = classify_mode(i.get("payment_mode"))
+        income_by_mode[mode] = income_by_mode.get(mode, 0) + amt
+        income_by_mode["total"] += amt
+    
+    # Expense by mode
+    expense_by_mode = {k: 0 for k in mode_keys}
+    expense_by_mode["total"] = 0
+    all_expenses = []
+    
+    for e in recorded_exps:
+        amt = e.get("amount", 0)
+        mode = classify_mode(e.get("payment_method") or e.get("payment_mode"))
+        expense_by_mode[mode] = expense_by_mode.get(mode, 0) + amt
+        expense_by_mode["total"] += amt
+        all_expenses.append({**e, "expense_type": e.get("category", "other"), "project_name": project_map.get(e.get("project_id"), "")})
+    
+    for l in labour_exps:
+        amt = l.get("total_amount", 0)
+        mode = classify_mode(l.get("payment_method"))
+        expense_by_mode[mode] = expense_by_mode.get(mode, 0) + amt
+        expense_by_mode["total"] += amt
+        all_expenses.append({**l, "expense_type": "labour", "amount": amt, "project_name": project_map.get(l.get("project_id"), "")})
+    
+    for m in material_reqs:
+        amt = m.get("estimated_price", 0) or m.get("final_price", 0)
+        mode = classify_mode(m.get("payment_method"))
+        expense_by_mode[mode] = expense_by_mode.get(mode, 0) + amt
+        expense_by_mode["total"] += amt
+        all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), "")})
+    
+    # Petty cash totals
+    petty_total_issued = sum(pc.get("amount_issued", 0) for pc in petty_cash_list)
+    petty_total_spent = sum(pc.get("amount_spent", 0) for pc in petty_cash_list)
+    
+    # Suspense balance
+    suspense_total = sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "credit") - sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "debit")
+    
+    # Project-wise breakdown
+    project_wise = {}
+    for i in incomes:
+        pid = i.get("project_id")
+        if pid not in project_wise:
+            project_wise[pid] = {"project_id": pid, "project_name": project_map.get(pid, "Unknown"), "income": 0, "expense": 0}
+        project_wise[pid]["income"] += i.get("amount", 0)
+    
+    for e in all_expenses:
+        pid = e.get("project_id")
+        if pid and pid not in project_wise:
+            project_wise[pid] = {"project_id": pid, "project_name": project_map.get(pid, "Unknown"), "income": 0, "expense": 0}
+        if pid:
+            project_wise[pid]["expense"] += e.get("amount", 0)
+    
+    # Sort and add P&L
+    for pw in project_wise.values():
+        pw["balance"] = pw["income"] - pw["expense"]
+    
+    project_list_sorted = sorted(project_wise.values(), key=lambda x: x["income"], reverse=True)
+    
+    return {
+        "income_by_mode": income_by_mode,
+        "expense_by_mode": expense_by_mode,
+        "income_entries": incomes[:200],
+        "expense_entries": sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True)[:200],
+        "petty_cash": {"issued": petty_total_issued, "spent": petty_total_spent, "balance": petty_total_issued - petty_total_spent},
+        "suspense_balance": suspense_total,
+        "project_wise": project_list_sorted,
+        "totals": {
+            "total_income": income_by_mode["total"],
+            "total_expense": expense_by_mode["total"],
+            "net_balance": income_by_mode["total"] - expense_by_mode["total"]
+        }
+    }
+
+
 @router.get("/income")
 async def get_all_income(
     project_id: Optional[str] = None,
