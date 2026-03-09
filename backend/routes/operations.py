@@ -537,7 +537,7 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
     await db.projects.update_one(
         {"project_id": project_id},
         {"$set": {
-            "status": "payment_received",
+            "status": "payment_verified",
             "accountant_verified": True,
             "accountant_verified_by": user.user_id,
             "accountant_verified_at": now.isoformat(),
@@ -559,7 +559,7 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
     }
     await db.income_entries.insert_one(income_entry)
     
-    # Also record in main income collection for cashbook visibility
+    # Record in main income collection for cashbook visibility
     main_income = {
         "income_id": f"inc_{secrets.token_hex(6)}",
         "project_id": project_id,
@@ -572,11 +572,12 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
         "remarks": (data.remarks if data else None) or "Advance payment verified by accountant",
+        "source": "approval",
         "created_at": now.isoformat()
     }
     await db.income.insert_one(main_income)
     
-    return {"message": "Advance payment verified and recorded", "status": "payment_received", "transaction_id": txn_id}
+    return {"message": "Advance payment verified and recorded", "status": "payment_verified", "transaction_id": txn_id}
 
 
 @router.patch("/cre/projects/{project_id}/send-to-planning")
@@ -2208,16 +2209,39 @@ async def process_stage_payment(work_order_id: str, stage_id: str, user: User = 
     if stage.get("status") != "payment_approved":
         raise HTTPException(status_code=400, detail="Payment must be approved first")
     
+    now = datetime.now(timezone.utc).isoformat()
+    
     await db.work_orders.update_one(
         {"work_order_id": work_order_id, "stages.stage_id": stage_id},
         {
             "$set": {
                 "stages.$.status": "paid",
-                "stages.$.paid_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "stages.$.paid_at": now,
+                "updated_at": now
             }
         }
     )
+    
+    # Record expense in cashbook
+    category = "labour" if wo.get("order_type") == "labour" else "material"
+    expense_doc = {
+        "expense_id": f"exp_{secrets.token_hex(6)}",
+        "project_id": wo.get("project_id"),
+        "project_name": wo.get("project_name", ""),
+        "category": category,
+        "description": f"{wo.get('work_order_number','')} - {stage.get('stage_name','')} ({wo.get('material_name') or wo.get('work_type','')})",
+        "amount": stage.get("amount", 0),
+        "payment_method": "bank_transfer",
+        "vendor_name": wo.get("vendor_name", ""),
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "status": "recorded",
+        "source": "approval",
+        "work_order_id": work_order_id,
+        "stage_id": stage_id,
+        "created_at": now,
+    }
+    await db.recorded_expenses.insert_one(expense_doc)
     
     # Check if all stages are paid
     updated_wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})

@@ -98,7 +98,7 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'https://e2e-vinoth-test.preview.emergentagent.com').split(',') + [
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://expense-review-2.preview.emergentagent.com').split(',') + [
         f"https://construction-crm-6.cluster-{i}.preview.emergentcf.cloud" for i in range(10)
     ],
     allow_methods=["*"],
@@ -155,6 +155,28 @@ async def startup_init():
             logger.info(f"Auto-seeded {len(demo_users)} demo users (password: Demo@1234)")
         else:
             logger.info(f"Database has {existing} users, skipping seed")
+
+        # Always ensure production Super Admin exists
+        prod_admin_email = "urbanspacebuilderstech@gmail.com"
+        existing_admin = await startup_db.users.find_one({"email": prod_admin_email}, {"_id": 0})
+        if not existing_admin:
+            import uuid as _uuid
+            now = datetime.now(timezone.utc).isoformat()
+            await startup_db.users.insert_one({
+                "user_id": f"user_{_uuid.uuid4().hex[:12]}",
+                "email": prod_admin_email,
+                "name": "Urban Space Builders",
+                "role": "super_admin",
+                "is_active": True,
+                "status": "active",
+                "created_at": now,
+            })
+            logger.info(f"Created production Super Admin: {prod_admin_email} (use Forgot Password to set password)")
+        else:
+            # Ensure role is super_admin
+            if existing_admin.get("role") != "super_admin":
+                await startup_db.users.update_one({"email": prod_admin_email}, {"$set": {"role": "super_admin"}})
+                logger.info(f"Updated {prod_admin_email} to super_admin role")
     except Exception as e:
         logger.warning(f"Auto-seed failed (non-fatal): {e}")
 

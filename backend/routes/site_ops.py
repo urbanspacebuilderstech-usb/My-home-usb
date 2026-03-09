@@ -1329,6 +1329,7 @@ async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: 
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
         "status": "recorded",
+        "source": "approval",
         "petty_cash_id": petty_cash_id,
         "created_at": now,
     })
@@ -1579,7 +1580,8 @@ async def record_expense(data: RecordedExpenseCreate, user: User = Depends(get_c
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "status": "recorded"
+        "status": "recorded",
+        "source": "manual"
     }
     
     # Get project name if provided

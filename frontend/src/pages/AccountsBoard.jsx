@@ -17,7 +17,7 @@ import {
   TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
-  AlertCircle, BookOpen, ArrowLeft, BarChart3
+  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
@@ -847,6 +847,7 @@ function CashbookTab({ overview, projects }) {
                       <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
                       <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-500">Source</th>
                       <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
                     </tr>
                   </thead>
@@ -898,6 +899,7 @@ function CashbookTab({ overview, projects }) {
                             </SelectContent>
                           </Select>
                         </td>
+                        <td className="px-1 py-1.5 text-center text-[10px] text-gray-400">Manual</td>
                         <td className="px-1 py-1.5 text-center">
                           <div className="flex items-center gap-1 justify-center">
                             <Button size="sm" className="h-7 text-[11px] bg-red-600 hover:bg-red-700 px-2.5" onClick={handleExpenseSubmitClick} data-testid="submit-expense-row-btn">Submit</Button>
@@ -931,6 +933,11 @@ function CashbookTab({ overview, projects }) {
                         <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(entry.amount)}</td>
                         <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '-'}</td>
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                        <td className="px-3 py-2 text-center" data-testid={`expense-source-${i}`}>
+                          <Badge className={entry.source === 'approval' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}>
+                            {entry.source === 'approval' ? 'Approval' : 'Manual'}
+                          </Badge>
+                        </td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
@@ -940,7 +947,7 @@ function CashbookTab({ overview, projects }) {
                       </tr>
                     ))}
                     {filteredExpenses.length === 0 && (
-                      <tr><td colSpan={8} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
+                      <tr><td colSpan={9} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -1567,6 +1574,384 @@ function ChequeManagementTab({ projects }) {
   );
 }
 
+// ============ APPROVALS TAB ============
+function ApprovalsTab() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState({ income: [], materials: [], labour: [], vendor: [], summary: {} });
+  const [activeTab, setActiveTab] = useState('income');
+  const [rejectDialog, setRejectDialog] = useState({ open: false, type: '', id: '', reason: '' });
+  const [processing, setProcessing] = useState(null);
+
+  const fetchApprovals = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API}/approvals/unified`);
+      setData(res.data);
+    } catch {
+      toast.error('Failed to load approvals');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchApprovals(); }, [fetchApprovals]);
+
+  const handleApproveIncome = async (incomeId) => {
+    setProcessing(incomeId);
+    try {
+      await axios.post(`${API}/approvals/income/${incomeId}/approve`);
+      toast.success('Income approved');
+      fetchApprovals();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to approve');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleApproveExpense = async (type, id, action) => {
+    setProcessing(id);
+    try {
+      await axios.patch(`${API}/expenses/${type}/${id}/${action}`, { action: 'approved' });
+      toast.success('Expense approved');
+      fetchApprovals();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to approve');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const handleReject = async () => {
+    const { type, id, reason } = rejectDialog;
+    setProcessing(id);
+    try {
+      if (type === 'income') {
+        await axios.post(`${API}/approvals/income/${id}/reject?reason=${encodeURIComponent(reason)}`);
+      } else {
+        const actionMap = { material: 'accounts-approval', labour: 'accounts-approval', 'vendor-service': 'accounts-approval' };
+        await axios.patch(`${API}/expenses/${type}/${id}/${actionMap[type]}`, { action: 'rejected', reason });
+      }
+      toast.success('Rejected successfully');
+      setRejectDialog({ open: false, type: '', id: '', reason: '' });
+      fetchApprovals();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to reject');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
+  const getApprovalAction = (status, type) => {
+    if (status === 'requested') return 'planning-approval';
+    if (status === 'planning_approved') return type === 'material' ? 'procurement-pricing' : 'accounts-approval';
+    if (status === 'procurement_priced') return 'accounts-approval';
+    return null;
+  };
+
+  const s = data.summary || {};
+  const totalPending = (s.income_count || 0) + (s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <RefreshCw className="h-6 w-6 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="approvals-tab">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-purple-500" onClick={() => {}} data-testid="approvals-total-card">
+          <CardContent className="p-2 sm:p-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <ClipboardCheck className="h-3.5 w-3.5 text-purple-500" />
+              <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Total Pending</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-purple-700">{totalPending}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-green-500" onClick={() => setActiveTab('income')} data-testid="approvals-income-card">
+          <CardContent className="p-2 sm:p-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <DollarSign className="h-3.5 w-3.5 text-green-500" />
+              <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Income</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-green-700">{s.income_count || 0}</p>
+            <p className="text-[10px] sm:text-xs text-green-600 font-medium">{fmtFull(s.income_total)}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-amber-500" onClick={() => setActiveTab('materials')} data-testid="approvals-material-card">
+          <CardContent className="p-2 sm:p-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <Building2 className="h-3.5 w-3.5 text-amber-500" />
+              <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Materials</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-amber-700">{s.material_count || 0}</p>
+            <p className="text-[10px] sm:text-xs text-amber-600 font-medium">{fmtFull(s.material_total)}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-blue-500" onClick={() => setActiveTab('labour')} data-testid="approvals-labour-card">
+          <CardContent className="p-2 sm:p-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <Wallet className="h-3.5 w-3.5 text-blue-500" />
+              <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Labour</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-blue-700">{s.labour_count || 0}</p>
+            <p className="text-[10px] sm:text-xs text-blue-600 font-medium">{fmtFull(s.labour_total)}</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-orange-500" onClick={() => setActiveTab('vendor')} data-testid="approvals-vendor-card">
+          <CardContent className="p-2 sm:p-3">
+            <div className="flex items-center gap-2 mb-0.5">
+              <CreditCard className="h-3.5 w-3.5 text-orange-500" />
+              <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Suppliers</span>
+            </div>
+            <p className="text-lg sm:text-xl font-bold text-orange-700">{s.vendor_count || 0}</p>
+            <p className="text-[10px] sm:text-xs text-orange-600 font-medium">{fmtFull(s.vendor_total)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Approval Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="w-full grid grid-cols-4 mb-3" data-testid="approval-sub-tabs">
+          <TabsTrigger value="income" className="text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
+            <ArrowDownRight className="h-3.5 w-3.5" /> Income ({s.income_count || 0})
+          </TabsTrigger>
+          <TabsTrigger value="materials" className="text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 gap-1">
+            <Building2 className="h-3.5 w-3.5" /> Material ({s.material_count || 0})
+          </TabsTrigger>
+          <TabsTrigger value="labour" className="text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800 gap-1">
+            <Wallet className="h-3.5 w-3.5" /> Labour ({s.labour_count || 0})
+          </TabsTrigger>
+          <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
+            <CreditCard className="h-3.5 w-3.5" /> Supplier ({s.vendor_count || 0})
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Income Approvals */}
+        <TabsContent value="income">
+          {data.income.length === 0 ? (
+            <Card><CardContent className="py-10 text-center text-gray-400">
+              <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No pending income approvals
+            </CardContent></Card>
+          ) : (
+            <Card>
+              <CardContent className="px-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="approvals-income-table">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                        <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                        <th className="text-center px-3 py-2 font-medium text-gray-500">Status</th>
+                        <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.income.map((inc, i) => (
+                        <tr key={inc.income_id} className="border-b hover:bg-gray-50" data-testid={`approval-income-row-${inc.income_id}`}>
+                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                          <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
+                          <td className="px-3 py-2 font-medium">{inc.project_name || 'N/A'}</td>
+                          <td className="px-3 py-2">{inc.stage || inc.remarks || inc.description || 'Payment'}</td>
+                          <td className="px-3 py-2">
+                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(inc.payment_mode)]}`}>
+                              {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(inc.amount)}</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge className="bg-amber-100 text-amber-700">{inc.status?.replace(/_/g, ' ')}</Badge>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 gap-1 px-2"
+                                disabled={processing === inc.income_id}
+                                onClick={() => handleApproveIncome(inc.income_id)}
+                                data-testid={`approve-income-btn-${inc.income_id}`}>
+                                {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve
+                              </Button>
+                              <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-200 gap-1 px-2"
+                                onClick={() => setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' })}
+                                data-testid={`reject-income-btn-${inc.income_id}`}>
+                                <ThumbsDown className="h-3 w-3" /> Reject
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        {/* Material Approvals */}
+        <TabsContent value="materials">
+          <ApprovalExpenseTable
+            items={data.materials}
+            type="material"
+            idField="expense_id"
+            amountField="estimated_cost"
+            altAmountField="final_amount"
+            descField="material_name"
+            processing={processing}
+            getApprovalAction={getApprovalAction}
+            onApprove={handleApproveExpense}
+            onReject={(id) => setRejectDialog({ open: true, type: 'material', id, reason: '' })}
+          />
+        </TabsContent>
+
+        {/* Labour Approvals */}
+        <TabsContent value="labour">
+          <ApprovalExpenseTable
+            items={data.labour}
+            type="labour"
+            idField="labour_expense_id"
+            amountField="total_amount"
+            descField="contractor_name"
+            processing={processing}
+            getApprovalAction={getApprovalAction}
+            onApprove={handleApproveExpense}
+            onReject={(id) => setRejectDialog({ open: true, type: 'labour', id, reason: '' })}
+          />
+        </TabsContent>
+
+        {/* Vendor/Supplier Approvals */}
+        <TabsContent value="vendor">
+          <ApprovalExpenseTable
+            items={data.vendor}
+            type="vendor-service"
+            idField="expense_id"
+            amountField="amount"
+            descField="vendor_name"
+            processing={processing}
+            getApprovalAction={getApprovalAction}
+            onApprove={handleApproveExpense}
+            onReject={(id) => setRejectDialog({ open: true, type: 'vendor-service', id, reason: '' })}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {/* Reject Dialog */}
+      <Dialog open={rejectDialog.open} onOpenChange={(open) => { if (!open) setRejectDialog({ open: false, type: '', id: '', reason: '' }); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Reject {rejectDialog.type === 'income' ? 'Income' : 'Expense'}</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm">Reason for rejection</Label>
+              <Textarea data-testid="approval-reject-reason" value={rejectDialog.reason}
+                onChange={(e) => setRejectDialog({ ...rejectDialog, reason: e.target.value })}
+                placeholder="Enter rejection reason..." rows={3} />
+            </div>
+            <Button className="w-full bg-red-600 hover:bg-red-700" onClick={handleReject}
+              disabled={!rejectDialog.reason || processing}
+              data-testid="confirm-approval-reject-btn">
+              {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : null} Confirm Reject
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Refresh button */}
+      <div className="flex justify-center pt-2">
+        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={fetchApprovals} data-testid="refresh-approvals-btn">
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh Approvals
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// Reusable expense approval table within AccountsBoard
+function ApprovalExpenseTable({ items, type, idField, amountField, altAmountField, descField, processing, getApprovalAction, onApprove, onReject }) {
+  if (!items || items.length === 0) {
+    return (
+      <Card><CardContent className="py-10 text-center text-gray-400">
+        <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No pending {type} approvals
+      </CardContent></Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="px-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs" data-testid={`approvals-${type}-table`}>
+            <thead>
+              <tr className="border-b bg-gray-50">
+                <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                <th className="text-center px-3 py-2 font-medium text-gray-500">Status</th>
+                <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, i) => {
+                const id = item[idField] || item.expense_id;
+                const amount = item[amountField] || (altAmountField ? item[altAmountField] : 0) || 0;
+                const desc = item[descField] || item.description || 'Unknown';
+                const action = getApprovalAction(item.status, type);
+
+                return (
+                  <tr key={id} className="border-b hover:bg-gray-50" data-testid={`approval-${type}-row-${id}`}>
+                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '-'}</td>
+                    <td className="px-3 py-2 font-medium">{desc}</td>
+                    <td className="px-3 py-2">{item.project_name || 'N/A'}</td>
+                    <td className="px-3 py-2 text-right font-bold text-amber-700">{fmtFull(amount)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <Badge className={
+                        item.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
+                        item.status === 'planning_approved' ? 'bg-blue-100 text-blue-700' :
+                        item.status === 'procurement_priced' ? 'bg-purple-100 text-purple-700' :
+                        'bg-gray-100 text-gray-700'
+                      }>{item.status?.replace(/_/g, ' ')}</Badge>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {action ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 gap-1 px-2"
+                            disabled={processing === id}
+                            onClick={() => onApprove(type, id, action)}
+                            data-testid={`approve-${type}-btn-${id}`}>
+                            {processing === id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-200 gap-1 px-2"
+                            onClick={() => onReject(id)}
+                            data-testid={`reject-${type}-btn-${id}`}>
+                            <ThumbsDown className="h-3 w-3" /> Reject
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">No action available</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
 // ============ PROJECT SUMMARY TAB ============
 function ProjectSummaryTab({ overview }) {
   const navigate = useNavigate();
@@ -1679,7 +2064,7 @@ export default function AccountsBoard() {
         axios.get(`${API}/accountant/overview`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
       ]);
-      if (userRes.data.role !== 'accountant') {
+      if (!['accountant', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied - Accountant only');
         window.location.href = '/dashboard';
         return;
@@ -1711,9 +2096,12 @@ export default function AccountsBoard() {
       <div className="sticky top-14 z-40 bg-gray-50 border-b border-gray-100">
         <div className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-2">
           <Tabs value={mainTab} onValueChange={setMainTab}>
-            <TabsList className="w-full grid grid-cols-3" data-testid="accounts-main-tabs">
+            <TabsList className="w-full grid grid-cols-4" data-testid="accounts-main-tabs">
               <TabsTrigger value="cashbook" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
                 <BookOpen className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cashbook</span><span className="sm:hidden">Cash</span>
+              </TabsTrigger>
+              <TabsTrigger value="approvals" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-purple-100 data-[state=active]:text-purple-800" data-testid="tab-approvals">
+                <ClipboardCheck className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Approvals</span><span className="sm:hidden">Approve</span>
               </TabsTrigger>
               <TabsTrigger value="cheques" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
                 <FileText className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cheque Management</span><span className="sm:hidden">Cheques</span>
@@ -1729,6 +2117,10 @@ export default function AccountsBoard() {
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">
             <CashbookTab overview={overview} projects={projects} />
+          </TabsContent>
+
+          <TabsContent value="approvals">
+            <ApprovalsTab />
           </TabsContent>
 
           <TabsContent value="cheques">

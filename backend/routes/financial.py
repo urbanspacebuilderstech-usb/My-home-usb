@@ -309,6 +309,7 @@ async def create_income_entry(income_input: IncomeCreate, user: User = Depends(g
     income_dict["payment_mode"] = income_dict["payment_mode"].value
     income_dict["payment_date"] = income_dict["payment_date"].isoformat()
     income_dict["created_at"] = income_dict["created_at"].isoformat()
+    income_dict["source"] = "manual"
     
     await db.income.insert_one(income_dict)
     
@@ -565,6 +566,7 @@ async def create_manual_expense(data: ManualExpenseCreate, user: User = Depends(
         "recorded_by": user.user_id,
         "recorded_by_name": user.name,
         "status": "recorded",
+        "source": "manual",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     
@@ -2513,3 +2515,125 @@ async def get_uncleared_cheques(user: User = Depends(get_current_user)):
 
     return cheques
 
+
+
+# ==================== ACCOUNTANT APPROVAL SYSTEM ====================
+
+class ApprovalAction(BaseModel):
+    remarks: Optional[str] = None
+
+
+@router.get("/accountant/approvals")
+async def get_accountant_approvals(user: User = Depends(get_current_user)):
+    """Get all pending and recent approval requests for the accountant"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access approvals")
+
+    pending = await db.approval_requests.find(
+        {"status": "pending"}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+
+    recent = await db.approval_requests.find(
+        {"status": {"$in": ["approved", "rejected"]}}, {"_id": 0}
+    ).sort("updated_at", -1).to_list(50)
+
+    summary = {
+        "pending_count": len(pending),
+        "pending_income": sum(r["amount"] for r in pending if r["entry_type"] == "income"),
+        "pending_expense": sum(r["amount"] for r in pending if r["entry_type"] == "expense"),
+    }
+
+    return {"pending": pending, "recent": recent, "summary": summary}
+
+
+@router.patch("/accountant/approvals/{approval_id}/approve")
+async def approve_request(approval_id: str, data: ApprovalAction = None, user: User = Depends(get_current_user)):
+    """Accountant approves a pending income/expense entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+
+    req = await db.approval_requests.find_one({"approval_id": approval_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Already processed")
+
+    now = datetime.now(timezone.utc).isoformat()
+    remarks = (data.remarks if data else None) or ""
+
+    await db.approval_requests.update_one(
+        {"approval_id": approval_id},
+        {"$set": {"status": "approved", "approved_by": user.user_id, "approved_by_name": user.name, "approved_at": now, "remarks": remarks, "updated_at": now}}
+    )
+
+    # Record in the actual cashbook
+    if req["entry_type"] == "income":
+        income_doc = {
+            "income_id": f"inc_{uuid.uuid4().hex[:12]}",
+            "project_id": req.get("project_id"),
+            "stage": req.get("stage", ""),
+            "description": req.get("description", ""),
+            "amount": req["amount"],
+            "payment_mode": req.get("payment_mode", "cash"),
+            "reference_number": req.get("reference", ""),
+            "payment_date": req.get("payment_date", now),
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "remarks": f"[Approval] {req.get('description','')} - {remarks}",
+            "source": "approval",
+            "approval_id": approval_id,
+            "created_at": now,
+        }
+        await db.income.insert_one(income_doc)
+    else:
+        expense_doc = {
+            "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+            "project_id": req.get("project_id"),
+            "project_name": req.get("project_name", ""),
+            "category": req.get("category", "other"),
+            "description": req.get("description", ""),
+            "amount": req["amount"],
+            "payment_method": req.get("payment_mode", "cash"),
+            "vendor_name": req.get("vendor_name", ""),
+            "reference": req.get("reference", ""),
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "recorded",
+            "source": "approval",
+            "approval_id": approval_id,
+            "work_order_id": req.get("work_order_id"),
+            "created_at": now,
+        }
+        await db.recorded_expenses.insert_one(expense_doc)
+
+    # Notify requester
+    if req.get("requested_by"):
+        await create_notification(req["requested_by"], f"Your {req['entry_type']} request for ₹{req['amount']:,.0f} has been approved")
+
+    return {"message": f"{req['entry_type'].capitalize()} approved and recorded", "approval_id": approval_id}
+
+
+@router.patch("/accountant/approvals/{approval_id}/reject")
+async def reject_request(approval_id: str, data: ApprovalAction = None, user: User = Depends(get_current_user)):
+    """Accountant rejects a pending income/expense entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+
+    req = await db.approval_requests.find_one({"approval_id": approval_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    if req["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Already processed")
+
+    now = datetime.now(timezone.utc).isoformat()
+    remarks = (data.remarks if data else None) or ""
+
+    await db.approval_requests.update_one(
+        {"approval_id": approval_id},
+        {"$set": {"status": "rejected", "rejected_by": user.user_id, "rejected_by_name": user.name, "rejected_at": now, "remarks": remarks, "updated_at": now}}
+    )
+
+    if req.get("requested_by"):
+        await create_notification(req["requested_by"], f"Your {req['entry_type']} request for ₹{req['amount']:,.0f} was rejected. Reason: {remarks}")
+
+    return {"message": f"{req['entry_type'].capitalize()} rejected", "approval_id": approval_id}
