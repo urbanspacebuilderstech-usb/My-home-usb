@@ -55,6 +55,7 @@ export default function CRMPreSales() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
+  const [syncingSheets, setSyncingSheets] = useState(false);
   
   // Dialogs
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
@@ -152,6 +153,29 @@ export default function CRMPreSales() {
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch (e) {}
     window.location.href = '/login';
+  };
+
+  // ============ SYNC GOOGLE SHEETS ============
+  const handleSyncSheets = async () => {
+    setSyncingSheets(true);
+    try {
+      const res = await axios.post(`${API}/sheets/auto-sync/run`, {}, { withCredentials: true });
+      if (res.data.new_leads > 0) {
+        toast.success(`${res.data.new_leads} new lead(s) synced from Google Sheets!`);
+        fetchData();
+      } else {
+        toast.info('No new leads found in connected sheets');
+      }
+    } catch (error) {
+      const msg = error.response?.data?.detail || 'Sync failed';
+      if (msg.includes('No sheets connected')) {
+        toast.error('No Google Sheets connected. Ask admin to connect a sheet from Marketing Board.');
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSyncingSheets(false);
+    }
   };
 
   // ============ CREATE LEAD ============
@@ -483,7 +507,19 @@ export default function CRMPreSales() {
           </Button>
 
           {/* View Toggle */}
-          <div className="flex items-center border rounded-lg overflow-hidden bg-white ml-auto">
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncSheets}
+              disabled={syncingSheets}
+              className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              data-testid="sync-sheets-btn"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${syncingSheets ? 'animate-spin' : ''}`} />
+              {syncingSheets ? 'Syncing...' : 'Sync Sheets'}
+            </Button>
+            <div className="flex items-center border rounded-lg overflow-hidden bg-white">
             <Button
               variant={viewMode === 'kanban' ? 'default' : 'ghost'}
               size="sm"
@@ -504,6 +540,7 @@ export default function CRMPreSales() {
               <List className="h-4 w-4 mr-1" />
               <span className="text-xs">List</span>
             </Button>
+          </div>
           </div>
         </div>
 
