@@ -11,7 +11,7 @@ const ROLE_NAV = {
   super_admin: [
     { label: 'My Dashboard', path: '/dashboard' },
     { label: 'All Projects', path: '/projects' },
-    { label: 'Accounts', path: '/accounts-board' },
+    { label: 'Finance', path: '/financial-overview' },
     { label: 'Planning', path: '/planning-board' },
     { label: 'Marketing Board', path: '/marketing-board' },
     { label: 'GM', path: '/gm-dashboard' },
@@ -72,8 +72,8 @@ const ROLE_NAV = {
 const ROLE_SUB_MENUS = {
   super_admin: {
     '/projects': [{ label: 'All Projects', path: '/projects' }],
-    '/accounts-board': [
-      { label: 'Accounts Board', path: '/accounts-board' },
+    '/financial-overview': [
+      { label: 'Financial Overview', path: '/financial-overview' },
       { label: 'Approvals', path: '/approvals' },
       { label: 'Expenses', path: '/expenses' },
       { label: 'HR Portal', path: '/hr-portal' },

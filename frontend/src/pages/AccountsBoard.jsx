@@ -1221,8 +1221,8 @@ export default function AccountsBoard() {
         axios.get(`${API}/accountant/overview`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
       ]);
-      if (!['accountant', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied');
+      if (userRes.data.role !== 'accountant') {
+        toast.error('Access denied - Accountant only');
         window.location.href = '/dashboard';
         return;
       }
@@ -1239,7 +1239,7 @@ export default function AccountsBoard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <AppHeader />
+        <AppHeader user={user} />
         <div className="flex items-center justify-center h-[60vh]">
           <RefreshCw className="h-8 w-8 animate-spin text-amber-600" />
         </div>
@@ -1249,7 +1249,7 @@ export default function AccountsBoard() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
-      <AppHeader />
+      <AppHeader user={user} />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-4">
         {/* Main Section Tabs */}
         <Tabs value={mainTab} onValueChange={setMainTab}>
