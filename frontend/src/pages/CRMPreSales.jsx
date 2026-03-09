@@ -506,6 +506,14 @@ export default function CRMPreSales() {
             All Stages
           </Button>
 
+          {user?.role === 'super_admin' && (
+            <Button variant="outline" size="sm" className="gap-1.5 text-gray-600 hover:text-amber-700"
+              onClick={() => window.location.href = '/settings/stages?type=pre_sales'}
+              data-testid="manage-presales-stages-btn">
+              <Settings className="h-3.5 w-3.5" /> Manage Stages
+            </Button>
+          )}
+
           {/* View Toggle */}
           <div className="flex items-center gap-2 ml-auto">
             <Button

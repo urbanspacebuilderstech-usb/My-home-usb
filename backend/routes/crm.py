@@ -234,9 +234,10 @@ async def get_default_pre_sales_stages():
         default_stages = [
             {"stage_id": "stg_new_lead", "name": "New Lead", "stage_type": "pre_sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_contacted", "name": "Contacted", "stage_type": "pre_sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_proposal", "name": "Proposal", "stage_type": "pre_sales", "order": 3, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 5, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales", "order": 3, "color": "#ef4444", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_proposal", "name": "Proposal", "stage_type": "pre_sales", "order": 4, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 5, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 6, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -1103,6 +1104,32 @@ async def delete_stage(stage_id: str, user: User = Depends(get_current_user)):
     
     await db.lead_stages.update_one({"stage_id": stage_id}, {"$set": {"is_active": False}})
     return {"message": "Stage deleted"}
+
+
+@router.get("/crm/stages/with-counts")
+async def get_stages_with_counts(stage_type: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get all stages with lead counts - for management UI"""
+    if user.role not in [UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Super Admin can manage stages")
+    
+    query = {}
+    if stage_type:
+        query["stage_type"] = stage_type
+    
+    stages = await db.lead_stages.find(query, {"_id": 0}).sort([("stage_type", 1), ("order", 1)]).to_list(200)
+    
+    # Get lead counts per stage
+    pipeline = [
+        {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
+    ]
+    lead_counts_raw = await db.leads.aggregate(pipeline).to_list(200)
+    lead_counts = {item["_id"]: item["count"] for item in lead_counts_raw}
+    
+    for stage in stages:
+        stage["lead_count"] = lead_counts.get(stage.get("stage_id"), 0)
+    
+    return stages
+
 
 
 # ==================== CUSTOM FIELDS MANAGEMENT ====================

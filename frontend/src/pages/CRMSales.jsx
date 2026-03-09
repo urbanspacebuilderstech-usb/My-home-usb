@@ -13,7 +13,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List
+  Building2, Calculator, Download, LayoutGrid, List, Settings
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -434,6 +434,13 @@ export default function CRMSales() {
           </div>
 
           {/* View Toggle */}
+          {user?.role === 'super_admin' && (
+            <Button variant="outline" size="sm" className="gap-1.5 text-gray-600 hover:text-amber-700"
+              onClick={() => window.location.href = '/settings/stages?type=sales'}
+              data-testid="manage-sales-stages-btn">
+              <Settings className="h-3.5 w-3.5" /> Manage Stages
+            </Button>
+          )}
           <div className="flex items-center border rounded-lg overflow-hidden bg-white ml-auto">
             <Button
               variant={viewMode === 'kanban' ? 'default' : 'ghost'}

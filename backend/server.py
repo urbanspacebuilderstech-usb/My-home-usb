@@ -177,6 +177,18 @@ async def startup_init():
             if existing_admin.get("role") != "super_admin":
                 await startup_db.users.update_one({"email": prod_admin_email}, {"$set": {"role": "super_admin"}})
                 logger.info(f"Updated {prod_admin_email} to super_admin role")
+
+        # Ensure RNR stage exists in pre_sales
+        rnr_exists = await startup_db.lead_stages.find_one({"stage_id": "stg_rnr"})
+        if not rnr_exists:
+            pre_sales_stages = await startup_db.lead_stages.count_documents({"stage_type": "pre_sales"})
+            if pre_sales_stages > 0:
+                await startup_db.lead_stages.insert_one({
+                    "stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales",
+                    "order": 3, "color": "#ef4444", "is_final": False, "is_active": True,
+                    "created_by": "system", "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                logger.info("Added RNR stage to pre-sales pipeline")
     except Exception as e:
         logger.warning(f"Auto-seed failed (non-fatal): {e}")
 

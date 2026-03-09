@@ -26,6 +26,7 @@ import ComprehensiveProjectView from '@/pages/ComprehensiveProjectView';
 import Income from '@/pages/Income';
 import ExpenseManagement from '@/pages/ExpenseManagement';
 import Settings from '@/pages/Settings';
+import StageManagement from '@/pages/StageManagement';
 import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
@@ -89,6 +90,7 @@ function AppRouter() {
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+      <Route path="/settings/stages" element={<ProtectedRoute><StageManagement /></ProtectedRoute>} />
       <Route path="/materials" element={<ProtectedRoute><MaterialManagement /></ProtectedRoute>} />
       <Route path="/vendor-management" element={<ProtectedRoute><VendorMasterManagement /></ProtectedRoute>} />
       <Route path="/vendor-portal" element={<ProtectedRoute><VendorPortal /></ProtectedRoute>} />
