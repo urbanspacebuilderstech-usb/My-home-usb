@@ -274,24 +274,25 @@ function PettyCashManagement({ onBack }) {
           </Button>
           <h3 className="text-sm font-semibold">{seCashbook.user?.name}'s Mini Cashbook</h3>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <Card className="border-l-4 border-l-green-500"><CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Issued</p>
-            <p className="text-lg font-bold text-green-700">{fmtFull(seCashbook.summary?.total_issued)}</p>
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <Card className="border-l-4 border-l-green-500"><CardContent className="p-2 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Total Issued</p>
+            <p className="text-base sm:text-lg font-bold text-green-700">{fmtFull(seCashbook.summary?.total_issued)}</p>
           </CardContent></Card>
-          <Card className="border-l-4 border-l-red-500"><CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Spent</p>
-            <p className="text-lg font-bold text-red-600">{fmtFull(seCashbook.summary?.total_spent)}</p>
+          <Card className="border-l-4 border-l-red-500"><CardContent className="p-2 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Total Spent</p>
+            <p className="text-base sm:text-lg font-bold text-red-600">{fmtFull(seCashbook.summary?.total_spent)}</p>
           </CardContent></Card>
-          <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3">
-            <p className="text-xs text-gray-500">Balance</p>
-            <p className={`text-lg font-bold ${(seCashbook.summary?.balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+          <Card className="border-l-4 border-l-amber-500"><CardContent className="p-2 sm:p-3">
+            <p className="text-[10px] sm:text-xs text-gray-500">Balance</p>
+            <p className={`text-base sm:text-lg font-bold ${(seCashbook.summary?.balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
               {fmtFull(seCashbook.summary?.balance)}
             </p>
           </CardContent></Card>
         </div>
         <Card>
           <CardContent className="p-0">
+            <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b">
                 <tr>
@@ -308,9 +309,9 @@ function PettyCashManagement({ onBack }) {
               <tbody className="divide-y">
                 {(seCashbook.petty_cash || []).map((pc, i) => (
                   <tr key={pc.petty_cash_id || i} className="hover:bg-gray-50">
-                    <td className="px-3 py-2">{new Date(pc.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{new Date(pc.created_at).toLocaleDateString('en-IN')}</td>
                     <td className="px-3 py-2 font-medium">{pc.purpose || '-'}</td>
-                    <td className="px-3 py-2">{pc.project_name || '-'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{pc.project_name || '-'}</td>
                     <td className="px-3 py-2 text-center">
                       <Badge className={
                         pc.status === 'issued' ? 'bg-green-100 text-green-700' :
@@ -334,6 +335,7 @@ function PettyCashManagement({ onBack }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -355,24 +357,24 @@ function PettyCashManagement({ onBack }) {
         )}
       </div>
 
-      <div className="grid grid-cols-4 gap-3">
-        <Card className="border-l-4 border-l-green-500"><CardContent className="p-3">
-          <p className="text-xs text-gray-500">Total Issued</p>
-          <p className="text-lg font-bold text-green-700">{fmtFull(summary.total_issued)}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+        <Card className="border-l-4 border-l-green-500"><CardContent className="p-2 sm:p-3">
+          <p className="text-[10px] sm:text-xs text-gray-500">Total Issued</p>
+          <p className="text-base sm:text-lg font-bold text-green-700">{fmtFull(summary.total_issued)}</p>
         </CardContent></Card>
-        <Card className="border-l-4 border-l-red-500"><CardContent className="p-3">
-          <p className="text-xs text-gray-500">Total Spent</p>
-          <p className="text-lg font-bold text-red-600">{fmtFull(summary.total_spent)}</p>
+        <Card className="border-l-4 border-l-red-500"><CardContent className="p-2 sm:p-3">
+          <p className="text-[10px] sm:text-xs text-gray-500">Total Spent</p>
+          <p className="text-base sm:text-lg font-bold text-red-600">{fmtFull(summary.total_spent)}</p>
         </CardContent></Card>
-        <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3">
-          <p className="text-xs text-gray-500">Total Balance</p>
-          <p className={`text-lg font-bold ${(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+        <Card className="border-l-4 border-l-amber-500"><CardContent className="p-2 sm:p-3">
+          <p className="text-[10px] sm:text-xs text-gray-500">Total Balance</p>
+          <p className={`text-base sm:text-lg font-bold ${(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
             {fmtFull(summary.total_balance)}
           </p>
         </CardContent></Card>
-        <Card className="border-l-4 border-l-purple-500"><CardContent className="p-3">
-          <p className="text-xs text-gray-500">Pending Requests</p>
-          <p className="text-lg font-bold text-purple-700">{summary.pending_requests || 0}</p>
+        <Card className="border-l-4 border-l-purple-500"><CardContent className="p-2 sm:p-3">
+          <p className="text-[10px] sm:text-xs text-gray-500">Pending Requests</p>
+          <p className="text-base sm:text-lg font-bold text-purple-700">{summary.pending_requests || 0}</p>
         </CardContent></Card>
       </div>
 
@@ -381,6 +383,7 @@ function PettyCashManagement({ onBack }) {
       ) : (
         <Card>
           <CardContent className="p-0">
+            <div className="overflow-x-auto">
             <table className="w-full text-xs" data-testid="petty-cash-se-table">
               <thead className="bg-gray-50 border-b">
                 <tr>
@@ -413,6 +416,7 @@ function PettyCashManagement({ onBack }) {
                 ))}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -652,11 +656,11 @@ function CashbookTab({ overview, projects }) {
       {/* Financial Overview - Clickable Cards */}
       <Card className="border-l-4 border-l-amber-500">
         <CardHeader className="pb-2 pt-3 px-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
             <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
               <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
             </CardTitle>
-            <div className="flex items-center gap-3 text-xs">
+            <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs flex-wrap">
               <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
               <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
               <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
@@ -665,35 +669,35 @@ function CashbookTab({ overview, projects }) {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="px-4 pb-3">
-          <div className="grid grid-cols-9 gap-2">
+        <CardContent className="px-3 sm:px-4 pb-3">
+          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-1.5 sm:gap-2">
             {Object.keys(MODE_LABELS).map(mode => {
               const Icon = MODE_ICONS[mode];
               return (
                 <div key={mode}
-                  className={`rounded-lg border p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03] ${MODE_COLORS[mode]}`}
+                  className={`rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03] ${MODE_COLORS[mode]}`}
                   onClick={() => handleModeClick(mode)}
                   data-testid={`mode-card-${mode}`}
                 >
-                  <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
-                  <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                  <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
-                  <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
+                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" />
+                  <p className="text-[9px] sm:text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
                 </div>
               );
             })}
-            <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
-              <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
-              <p className="text-[10px] font-medium">Total</p>
-              <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
-              <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
+            <div className="rounded-lg border p-1.5 sm:p-2 text-center bg-gray-900 text-white col-span-3 sm:col-span-1">
+              <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
+              <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
+              <p className="text-[10px] sm:text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
+              <p className="text-[10px] sm:text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Expense Category Breakdown - Clickable */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
         {EXP_CATEGORIES.map(cat => {
           const Icon = cat.icon;
           return (
@@ -702,10 +706,10 @@ function CashbookTab({ overview, projects }) {
               onClick={() => handleCategoryClick(cat.key)}
               data-testid={`exp-cat-${cat.key}`}
             >
-              <CardContent className="p-3 text-center">
-                <Icon className="h-4 w-4 mx-auto mb-1 opacity-70" />
-                <p className="text-[11px] font-semibold">{cat.label}</p>
-                <p className="text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
+              <CardContent className="p-2 sm:p-3 text-center">
+                <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 mx-auto mb-0.5 opacity-70" />
+                <p className="text-[10px] sm:text-[11px] font-semibold truncate">{cat.label}</p>
+                <p className="text-sm sm:text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
               </CardContent>
             </Card>
           );
@@ -714,31 +718,37 @@ function CashbookTab({ overview, projects }) {
 
       {/* Date Range Filters */}
       <Card>
-        <CardContent className="p-3 flex flex-wrap gap-3 items-center">
-          <Calendar className="h-4 w-4 text-amber-600" />
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-gray-500 whitespace-nowrap">From</Label>
-            <Input type="date" className="h-8 w-40 text-xs" value={dateFrom}
-              onChange={e => setDateFrom(e.target.value)} data-testid="cashbook-date-from" />
+        <CardContent className="p-3">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
+              <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                <Label className="text-xs text-gray-500 whitespace-nowrap">From</Label>
+                <Input type="date" className="h-8 w-full sm:w-40 text-xs" value={dateFrom}
+                  onChange={e => setDateFrom(e.target.value)} data-testid="cashbook-date-from" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pl-6 sm:pl-0">
+              <Label className="text-xs text-gray-500 whitespace-nowrap">To</Label>
+              <Input type="date" className="h-8 w-full sm:w-40 text-xs" value={dateTo}
+                onChange={e => setDateTo(e.target.value)} data-testid="cashbook-date-to" />
+            </div>
+            <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
+              <SelectTrigger className="w-full sm:w-48 h-8 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Projects</SelectItem>
+                {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-2">
+              {(dateFrom || dateTo || filterProject) && (
+                <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setFilterProject(''); }}>
+                  <X className="h-3 w-3 mr-1" /> Clear
+                </Button>
+              )}
+              {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-gray-500 whitespace-nowrap">To</Label>
-            <Input type="date" className="h-8 w-40 text-xs" value={dateTo}
-              onChange={e => setDateTo(e.target.value)} data-testid="cashbook-date-to" />
-          </div>
-          <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
-            <SelectTrigger className="w-48 h-8 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Projects</SelectItem>
-              {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          {(dateFrom || dateTo || filterProject) && (
-            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setFilterProject(''); }}>
-              <X className="h-3 w-3 mr-1" /> Clear
-            </Button>
-          )}
-          {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
         </CardContent>
       </Card>
 
@@ -806,17 +816,17 @@ function CashbookTab({ overview, projects }) {
         </TabsContent>
 
         <TabsContent value="expense">
-          <div className="flex flex-wrap gap-2 mb-3">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3">
             {['all', 'material', 'labour', 'petty_cash', 'other'].map(tab => (
               <Button key={tab} size="sm" variant={expenseSubTab === tab ? 'default' : 'outline'}
-                className={`text-xs h-7 ${expenseSubTab === tab ? 'bg-red-600 hover:bg-red-700' : ''}`}
+                className={`text-[10px] sm:text-xs h-6 sm:h-7 px-2 sm:px-3 ${expenseSubTab === tab ? 'bg-red-600 hover:bg-red-700' : ''}`}
                 onClick={() => setExpenseSubTab(tab)} data-testid={`expense-filter-${tab}`}>
                 {tab === 'all' ? 'All' : tab === 'petty_cash' ? 'Petty Cash' : tab.charAt(0).toUpperCase() + tab.slice(1)}
               </Button>
             ))}
             <div className="ml-auto">
-              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1.5 h-7" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
-                <Plus className="h-3.5 w-3.5" /> Add Expense
+              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-6 sm:h-7 text-[10px] sm:text-xs" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
+                <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Add </span>Expense
               </Button>
             </div>
           </div>
@@ -1170,7 +1180,7 @@ function ChequeManagementTab({ projects }) {
         </Card>
       )}
 
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
         {[
           { key: 'all', label: 'Total', value: stats.total, icon: FileText, bg: '' },
           { key: 'incoming', label: 'Incoming', value: stats.incoming, color: 'text-green-700', bg: 'bg-green-50' },
@@ -1190,28 +1200,28 @@ function ChequeManagementTab({ projects }) {
       </div>
 
       <Card>
-        <CardHeader className="border-b py-3 px-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <CardHeader className="border-b py-3 px-3 sm:px-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
             <div className="flex flex-wrap gap-1">
               {['all', 'incoming', 'outgoing', 'pending', 'bounced'].map(tab => (
                 <Button key={tab} size="sm" variant={activeTab === tab ? 'default' : 'ghost'}
-                  className={`text-xs h-7 ${activeTab === tab ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
+                  className={`text-[10px] sm:text-xs h-6 sm:h-7 px-2 sm:px-3 ${activeTab === tab ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
                   onClick={() => setActiveTab(tab)} data-testid={`cheque-filter-${tab}`}>
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </Button>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              <div className="relative">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative flex-1 sm:flex-initial">
                 <Search className="h-4 w-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <Input placeholder="Search cheques..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                  className="pl-8 w-48 h-8 text-xs" data-testid="search-cheques" />
+                  className="pl-8 w-full sm:w-48 h-8 text-xs" data-testid="search-cheques" />
               </div>
-              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1 h-8" onClick={() => setAddDialog(true)} data-testid="add-cheque-btn">
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1 h-8 text-xs" onClick={() => setAddDialog(true)} data-testid="add-cheque-btn">
                 <Plus className="h-3.5 w-3.5" /> Add
               </Button>
-              <Button size="sm" variant="outline" className="gap-1 h-8 border-blue-300 text-blue-700" onClick={() => setSmartPayDialog(true)} data-testid="smart-pay-btn">
-                <CreditCard className="h-3.5 w-3.5" /> Smart Pay
+              <Button size="sm" variant="outline" className="gap-1 h-8 border-blue-300 text-blue-700 text-xs" onClick={() => setSmartPayDialog(true)} data-testid="smart-pay-btn">
+                <CreditCard className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Smart </span>Pay
               </Button>
             </div>
           </div>
@@ -1615,20 +1625,25 @@ export default function AccountsBoard() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
       <AppHeader user={user} />
-      <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-4">
+      <div className="sticky top-14 z-40 bg-gray-50 border-b border-gray-100">
+        <div className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-2">
+          <Tabs value={mainTab} onValueChange={setMainTab}>
+            <TabsList className="w-full grid grid-cols-3" data-testid="accounts-main-tabs">
+              <TabsTrigger value="cashbook" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
+                <BookOpen className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cashbook</span><span className="sm:hidden">Cash</span>
+              </TabsTrigger>
+              <TabsTrigger value="cheques" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
+                <FileText className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cheque Management</span><span className="sm:hidden">Cheques</span>
+              </TabsTrigger>
+              <TabsTrigger value="projects" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-projects">
+                <BarChart3 className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Project Summary</span><span className="sm:hidden">Projects</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      </div>
+      <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
-          <TabsList className="w-full grid grid-cols-3 mb-4" data-testid="accounts-main-tabs">
-            <TabsTrigger value="cashbook" className="gap-1.5 data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
-              <BookOpen className="h-4 w-4" /> Cashbook
-            </TabsTrigger>
-            <TabsTrigger value="cheques" className="gap-1.5 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
-              <FileText className="h-4 w-4" /> Cheque Management
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="gap-1.5 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-projects">
-              <BarChart3 className="h-4 w-4" /> Project Summary
-            </TabsTrigger>
-          </TabsList>
-
           <TabsContent value="cashbook">
             <CashbookTab overview={overview} projects={projects} />
           </TabsContent>
@@ -1642,7 +1657,7 @@ export default function AccountsBoard() {
           </TabsContent>
         </Tabs>
       </main>
-      <MobileBottomNav />
+      <MobileBottomNav user={user} />
     </div>
   );
 }
