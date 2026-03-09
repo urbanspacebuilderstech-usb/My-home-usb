@@ -27,12 +27,15 @@ router = APIRouter()
 class LeadSource(str, Enum):
     META = "meta"
     SEO = "seo"
+    SEM = "sem"
     OTHER = "other"
     REFERRAL = "referral"
     WALK_IN = "walk_in"
     WEBSITE = "website"
     CSV_IMPORT = "csv_import"
     GOOGLE_SHEETS = "google_sheets"
+    SOCIAL_MEDIA = "social_media"
+    DIRECT = "direct"
 
 
 class LeadStageType(str, Enum):
@@ -571,8 +574,8 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     # Check for special stage triggers
     result = {"message": "Lead stage updated", "new_stage": stage["name"]}
     
-    # TRIGGER: Pre-Sales "Appointment Booked" -> Transfer to CRM B
-    if lead["stage_type"] == "pre_sales" and stage.get("is_final") and stage["name"] == "Appointment Booked":
+    # TRIGGER: Pre-Sales final stage -> Transfer to Sales CRM
+    if lead["stage_type"] == "pre_sales" and stage.get("is_final") and not lead.get("transferred_to_lead_id"):
         # Auto-transfer to Sales
         sales_stages = await get_default_sales_stages()
         first_sales_stage = sales_stages[0] if sales_stages else {"stage_id": "stg_new_appt"}

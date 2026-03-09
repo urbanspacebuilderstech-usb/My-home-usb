@@ -179,7 +179,7 @@ async def startup_init():
                 logger.info(f"Updated {prod_admin_email} to super_admin role")
 
         # Ensure RNR stage exists in pre_sales
-        rnr_exists = await startup_db.lead_stages.find_one({"stage_id": "stg_rnr"})
+        rnr_exists = await startup_db.lead_stages.find_one({"$or": [{"stage_id": "stg_rnr"}, {"name": "RNR", "stage_type": "pre_sales"}]})
         if not rnr_exists:
             pre_sales_stages = await startup_db.lead_stages.count_documents({"stage_type": "pre_sales"})
             if pre_sales_stages > 0:
