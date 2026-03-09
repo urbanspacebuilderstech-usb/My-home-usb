@@ -992,7 +992,7 @@ export default function MarketingBoard() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-sm text-gray-500">{lead.assigned_to_name || 'Unassigned'}</span>
-                        <span className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString()}</span>
+                        <span className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                       </div>
                     </div>
                   ))}
@@ -1280,7 +1280,8 @@ export default function MarketingBoard() {
                             </Badge>
                           </td>
                           <td className="px-2 py-2 text-[10px] text-gray-500">
-                            {new Date(lead.created_at).toLocaleDateString()}
+                            {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}{' '}
+                            <span className="text-gray-400">{new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                           </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center justify-center gap-0">
@@ -1833,7 +1834,8 @@ export default function MarketingBoard() {
                               </Badge>
                             </td>
                             <td className="px-3 py-2 text-xs text-gray-500">
-                              {new Date(lead.created_at).toLocaleDateString()}
+                              {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}{' '}
+                              <span className="text-gray-400">{new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                             </td>
                             <td className="px-3 py-2 text-center">
                               <Button variant="ghost" size="sm" onClick={() => { setEditingLead(lead); setShowEditLead(true); }}>

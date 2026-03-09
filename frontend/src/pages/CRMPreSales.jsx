@@ -601,7 +601,7 @@ export default function CRMPreSales() {
                       </td>
                       <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
-                          {new Date(lead.created_at).toLocaleDateString()}
+                          {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
@@ -709,7 +709,7 @@ export default function CRMPreSales() {
                         
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
-                            {new Date(lead.created_at).toLocaleDateString()}
+                            {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                           <div className="flex gap-1">
                             <Button 
