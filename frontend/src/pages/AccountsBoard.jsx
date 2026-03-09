@@ -458,6 +458,7 @@ function CashbookTab({ overview, projects }) {
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [mobileExpenseDialog, setMobileExpenseDialog] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
   const [drilldown, setDrilldown] = useState(null); // { type: 'income'|'expense'|'suspense', mode?: string, category?: string }
@@ -618,6 +619,7 @@ function CashbookTab({ overview, projects }) {
       toast.success('Expense recorded');
       setShowSubmitConfirm(false);
       setAddExpenseOpen(false);
+      setMobileExpenseDialog(false);
       setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
       fetchCashbook();
     } catch (error) {
@@ -825,7 +827,9 @@ function CashbookTab({ overview, projects }) {
               </Button>
             ))}
             <div className="ml-auto">
-              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-6 sm:h-7 text-[10px] sm:text-xs" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
+              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-6 sm:h-7 text-[10px] sm:text-xs" onClick={() => {
+                if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
+              }} data-testid="add-expense-btn">
                 <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Add </span>Expense
               </Button>
             </div>
@@ -1004,8 +1008,8 @@ function CashbookTab({ overview, projects }) {
       </Dialog>
 
       {/* Mobile-only Add Expense Dialog */}
-      <Dialog open={addExpenseOpen} onOpenChange={(open) => { if (window.innerWidth < 768) { setAddExpenseOpen(open); if (!open) setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); } }}>
-        <DialogContent className="max-w-[95vw] md:hidden rounded-xl" data-testid="mobile-add-expense-dialog">
+      <Dialog open={mobileExpenseDialog} onOpenChange={(open) => { setMobileExpenseDialog(open); if (!open) setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
+        <DialogContent className="max-w-[95vw] rounded-xl" data-testid="mobile-add-expense-dialog">
           <DialogHeader>
             <DialogTitle className="text-base flex items-center gap-2">
               <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
@@ -1070,7 +1074,7 @@ function CashbookTab({ overview, projects }) {
             </div>
           </div>
           <DialogFooter className="gap-2 pt-1">
-            <Button variant="outline" className="flex-1" onClick={() => { setAddExpenseOpen(false); setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
+            <Button variant="outline" className="flex-1" onClick={() => { setMobileExpenseDialog(false); setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
               Cancel
             </Button>
             <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={handleExpenseSubmitClick} disabled={submittingExpense}
