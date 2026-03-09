@@ -2463,6 +2463,45 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
                 {}, {"$set": {"pre_sales_current_index": current_index}}
             )
         
+        # Save connected sheet config for auto-sync (track row counts per tab)
+        
+        # Upsert connected sheet
+        connected_doc = {
+            "spreadsheet_url": data.spreadsheet_url,
+            "spreadsheet_id": spreadsheet_id,
+            "spreadsheet_name": "",
+            "user_id": user.user_id,
+            "tab_configs": [{
+                "tab_name": tc.get("tab_name"),
+                "column_mapping": tc.get("column_mapping", {}),
+                "new_custom_fields": tc.get("new_custom_fields", [])
+            } for tc in data.tab_configs],
+            "tab_row_counts": {},
+            "last_synced": datetime.now(timezone.utc).isoformat(),
+            "connected_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Get actual row counts from the sheet
+        try:
+            for tab_config in data.tab_configs:
+                tn = tab_config.get("tab_name")
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id, range=f"'{tn}'"
+                ).execute()
+                rows = result.get('values', [])
+                connected_doc["tab_row_counts"][tn] = len(rows) - 1 if len(rows) > 1 else 0
+            
+            meta = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+            connected_doc["spreadsheet_name"] = meta.get("properties", {}).get("title", "")
+        except:
+            pass
+        
+        await db.connected_sheets.update_one(
+            {"spreadsheet_id": spreadsheet_id, "user_id": user.user_id},
+            {"$set": connected_doc},
+            upsert=True
+        )
+        
         return {
             "message": f"Imported {total_imported} leads from {len(sources_imported)} tabs",
             "imported": total_imported,
@@ -2979,30 +3018,171 @@ async def get_auto_sync_config(user: User = Depends(get_current_user)):
 
 @router.post("/sheets/auto-sync/run")
 async def run_auto_sync(user: User = Depends(get_current_user)):
-    """Manually trigger auto-sync (also called by background scheduler)"""
+    """Sync all connected sheets — only imports NEW rows added since last sync"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    config = await db.sheets_auto_sync.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not config or not config.get("spreadsheet_url"):
-        raise HTTPException(status_code=400, detail="Auto-sync not configured")
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
     
-    # Run import-all with saved config
-    result = await import_all_sheets(
-        ImportAllSheetsRequest(
-            spreadsheet_url=config["spreadsheet_url"],
-            column_mapping=config.get("column_mapping", {})
-        ),
-        user
-    )
+    # Get all connected sheets
+    connected = await db.connected_sheets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    if not connected:
+        raise HTTPException(status_code=400, detail="No sheets connected. Import a sheet first.")
     
-    # Update last sync time
+    service = build('sheets', 'v4', credentials=creds)
+    settings = await get_distribution_settings()
+    pre_sales_team = settings.get("pre_sales_team", [])
+    current_index = settings.get("pre_sales_current_index", 0)
+    
+    total_new = 0
+    total_skipped = 0
+    sync_details = []
+    
+    for sheet_doc in connected:
+        sid = sheet_doc.get("spreadsheet_id")
+        tab_configs = sheet_doc.get("tab_configs", [])
+        old_row_counts = sheet_doc.get("tab_row_counts", {})
+        new_row_counts = {}
+        
+        for tc in tab_configs:
+            tab_name = tc.get("tab_name")
+            col_mapping = tc.get("column_mapping", {})
+            old_count = old_row_counts.get(tab_name, 0)
+            
+            try:
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=sid, range=f"'{tab_name}'"
+                ).execute()
+            except Exception as e:
+                logger.error(f"Auto-sync: Failed to read tab {tab_name}: {e}")
+                new_row_counts[tab_name] = old_count
+                continue
+            
+            values = result.get('values', [])
+            if len(values) < 2:
+                new_row_counts[tab_name] = 0
+                continue
+            
+            headers = values[0]
+            all_data_rows = values[1:]
+            current_count = len(all_data_rows)
+            new_row_counts[tab_name] = current_count
+            
+            # Only process NEW rows (beyond old_count)
+            if current_count <= old_count:
+                continue
+            
+            new_rows = all_data_rows[old_count:]
+            source_name = tab_name.lower().replace(" ", "_").replace("-", "_")
+            tab_new = 0
+            tab_skipped = 0
+            
+            for row in new_rows:
+                lead_data = {
+                    "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                    "source": source_name,
+                    "source_display": tab_name,
+                    "stage_type": "pre_sales",
+                    "current_stage_id": "stg_new_lead",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "imported_from_sheet": sid,
+                    "auto_synced": True,
+                    "custom_fields": {}
+                }
+                
+                for col_letter, field_name in col_mapping.items():
+                    if not field_name or field_name == '_skip':
+                        continue
+                    col_idx = ord(col_letter[0]) - 65
+                    if len(col_letter) > 1:
+                        col_idx = 26 + ord(col_letter[1]) - 65
+                    
+                    if col_idx < len(row):
+                        value = str(row[col_idx]).strip() if row[col_idx] else ""
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
+                            lead_data[field_name] = value
+                        elif field_name == "sqft":
+                            try:
+                                lead_data["sqft"] = int(value.replace(",", "").replace(" ", ""))
+                            except:
+                                lead_data["sqft"] = value
+                        else:
+                            lead_data["custom_fields"][field_name] = value
+                
+                if not lead_data.get("name") and not lead_data.get("phone"):
+                    tab_skipped += 1
+                    continue
+                
+                if lead_data.get("phone"):
+                    existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                    if existing:
+                        tab_skipped += 1
+                        continue
+                
+                if settings.get("enabled") and pre_sales_team:
+                    assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
+                    assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+                    lead_data["assigned_to"] = assigned_user_id
+                    lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
+                    current_index = (current_index + 1) % len(pre_sales_team)
+                
+                await db.leads.insert_one(lead_data)
+                tab_new += 1
+            
+            if tab_new > 0 or tab_skipped > 0:
+                sync_details.append({"tab": tab_name, "new_leads": tab_new, "skipped": tab_skipped})
+            total_new += tab_new
+            total_skipped += tab_skipped
+        
+        # Update row counts
+        await db.connected_sheets.update_one(
+            {"spreadsheet_id": sid, "user_id": user.user_id},
+            {"$set": {
+                "tab_row_counts": new_row_counts,
+                "last_synced": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    
+    if settings.get("enabled") and pre_sales_team:
+        await db.lead_distribution_settings.update_one(
+            {}, {"$set": {"pre_sales_current_index": current_index}}
+        )
+    
+    # Update auto-sync last run time
     await db.sheets_auto_sync.update_one(
         {"user_id": user.user_id},
-        {"$set": {"last_synced": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"last_synced": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
     )
     
-    return result
+    return {
+        "message": f"Synced {total_new} new leads" if total_new > 0 else "No new leads found",
+        "new_leads": total_new,
+        "skipped": total_skipped,
+        "details": sync_details
+    }
+
+
+@router.get("/sheets/connected")
+async def get_connected_sheets(user: User = Depends(get_current_user)):
+    """Get all connected sheets with their sync status"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    sheets = await db.connected_sheets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    return {"sheets": sheets}
+
+
+@router.delete("/sheets/connected/{spreadsheet_id}")
+async def disconnect_sheet(spreadsheet_id: str, user: User = Depends(get_current_user)):
+    """Disconnect a sheet from auto-sync"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    await db.connected_sheets.delete_one({"spreadsheet_id": spreadsheet_id, "user_id": user.user_id})
+    return {"message": "Sheet disconnected"}
 
 
 @router.get("/sheets/sync/{spreadsheet_id}")

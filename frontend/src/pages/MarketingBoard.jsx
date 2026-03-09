@@ -166,6 +166,8 @@ export default function MarketingBoard() {
   const [zapTabMappings, setZapTabMappings] = useState({}); // {tabName: {colLetter: fieldName}}
   const [zapNewFields, setZapNewFields] = useState({}); // {tabName: [{header, field_name}]}
   const [zapImportResult, setZapImportResult] = useState(null);
+  const [connectedSheets, setConnectedSheets] = useState([]);
+  const [syncingSheet, setSyncingSheet] = useState(false);
 
   useEffect(() => {
     const checkAuthAndFetch = async () => {
@@ -259,6 +261,7 @@ export default function MarketingBoard() {
     if (user && activeTab === 'google_sheets') {
       fetchSheetsConfig();
       fetchAutoSyncConfig();
+      fetchConnectedSheets();
     }
   }, [user, activeTab, leadsFilter, selectedSource]);
 
@@ -570,10 +573,51 @@ export default function MarketingBoard() {
       setZapStep('done');
       toast.success(`Imported ${res.data.imported} leads from ${res.data.sources?.length || 0} tabs!`);
       fetchDashboard();
+      fetchConnectedSheets();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Import failed');
     } finally {
       setZapLoading(false);
+    }
+  };
+
+  // Fetch connected sheets
+  const fetchConnectedSheets = async () => {
+    try {
+      const res = await axios.get(`${API}/api/sheets/connected`, { withCredentials: true });
+      setConnectedSheets(res.data.sheets || []);
+    } catch (error) {
+      console.error('Failed to fetch connected sheets', error);
+    }
+  };
+
+  // Sync now - check for new rows
+  const syncConnectedSheets = async () => {
+    setSyncingSheet(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/auto-sync/run`, {}, { withCredentials: true });
+      if (res.data.new_leads > 0) {
+        toast.success(`${res.data.new_leads} new lead(s) synced!`);
+        fetchDashboard();
+      } else {
+        toast.info('No new leads found in connected sheets');
+      }
+      fetchConnectedSheets();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Sync failed');
+    } finally {
+      setSyncingSheet(false);
+    }
+  };
+
+  // Disconnect a sheet
+  const disconnectConnectedSheet = async (spreadsheetId) => {
+    try {
+      await axios.delete(`${API}/api/sheets/connected/${spreadsheetId}`, { withCredentials: true });
+      toast.success('Sheet disconnected');
+      fetchConnectedSheets();
+    } catch (error) {
+      toast.error('Failed to disconnect sheet');
     }
   };
 
@@ -1610,6 +1654,58 @@ export default function MarketingBoard() {
                   )}
 
                   {/* Export & Auto-Sync section */}
+                  {connectedSheets.length > 0 && (
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <FileSpreadsheet className="h-5 w-5 text-emerald-500" /> Connected Sheets
+                            </CardTitle>
+                            <CardDescription>New rows added to these sheets are auto-synced as leads</CardDescription>
+                          </div>
+                          <Button onClick={syncConnectedSheets} disabled={syncingSheet} variant="outline" size="sm" className="gap-1.5" data-testid="sync-now-btn">
+                            <RefreshCw className={`h-3.5 w-3.5 ${syncingSheet ? 'animate-spin' : ''}`} />
+                            {syncingSheet ? 'Syncing...' : 'Sync Now'}
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-3">
+                          {connectedSheets.map((sheet, idx) => (
+                            <div key={idx} className="bg-gray-50 rounded-lg p-3 border">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                                  <span className="font-medium text-sm">{sheet.spreadsheet_name || 'Sheet'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {sheet.last_synced && (
+                                    <span className="text-xs text-gray-400">
+                                      Last sync: {new Date(sheet.last_synced).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                                      {' '}{new Date(sheet.last_synced).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit' })}
+                                    </span>
+                                  )}
+                                  <Button variant="ghost" size="sm" onClick={() => disconnectConnectedSheet(sheet.spreadsheet_id)} className="h-7 text-red-500 hover:text-red-700 hover:bg-red-50">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {sheet.tab_configs?.map((tc, ti) => (
+                                  <Badge key={ti} variant="outline" className="text-xs gap-1">
+                                    {tc.tab_name}
+                                    <span className="text-gray-400">({sheet.tab_row_counts?.[tc.tab_name] || 0} rows)</span>
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                  
                   <div className="grid md:grid-cols-2 gap-4">
                     <Card className="hover:shadow-md transition-shadow cursor-pointer border-blue-100" onClick={() => setShowExportDialog(true)} data-testid="export-to-sheets-card">
                       <CardContent className="p-5 flex items-center gap-4">
