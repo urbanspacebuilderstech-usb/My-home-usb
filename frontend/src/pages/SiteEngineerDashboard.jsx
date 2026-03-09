@@ -15,9 +15,240 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { Label } from '@/components/ui/label';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
+
+const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
+
+// ============ MINI CASHBOOK SECTION ============
+function MiniCashbookSection({ projects }) {
+  const [cashbookData, setCashbookData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedProject, setSelectedProject] = useState('');
+  const [financeTab, setFinanceTab] = useState('income');
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [newExpense, setNewExpense] = useState({ project_id: '', category: 'material', amount: '', description: '', vendor_name: '' });
+
+  useEffect(() => {
+    fetchCashbook();
+  }, [selectedProject]);
+
+  const fetchCashbook = async () => {
+    try {
+      setLoading(true);
+      const params = selectedProject ? `?project_id=${selectedProject}` : '';
+      const res = await axios.get(`${API}/site-engineer/mini-cashbook${params}`);
+      setCashbookData(res.data);
+    } catch (err) {
+      console.error('Failed to load mini cashbook:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecordExpense = async () => {
+    if (!newExpense.project_id || !newExpense.amount || !newExpense.description) {
+      toast.error('Project, amount and description required'); return;
+    }
+    try {
+      await axios.post(`${API}/accountant/record-expense`, {
+        project_id: newExpense.project_id,
+        category: newExpense.category,
+        description: newExpense.description,
+        amount: parseFloat(newExpense.amount),
+        payment_method: 'petty_cash',
+        vendor_name: newExpense.vendor_name || null,
+      });
+      toast.success('Expense recorded');
+      setAddExpenseOpen(false);
+      setNewExpense({ project_id: '', category: 'material', amount: '', description: '', vendor_name: '' });
+      fetchCashbook();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record expense');
+    }
+  };
+
+  const cashbooks = cashbookData?.cashbooks || [];
+  const summary = cashbookData?.summary || {};
+
+  return (
+    <div className="space-y-4" data-testid="mini-cashbook-section">
+      {/* Summary */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Issued</p>
+            <p className="text-lg font-bold text-green-700">{fmtFull(summary.total_issued)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Spent</p>
+            <p className="text-lg font-bold text-red-600">{fmtFull(summary.total_spent)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Balance</p>
+            <p className={`text-lg font-bold ${(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+              {fmtFull(summary.total_balance)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Project Filter */}
+      <div className="flex gap-2 items-center">
+        <Select value={selectedProject || 'all'} onValueChange={v => setSelectedProject(v === 'all' ? '' : v)}>
+          <SelectTrigger className="w-48 h-8 text-xs" data-testid="cashbook-project-select">
+            <SelectValue placeholder="All Projects" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Projects</SelectItem>
+            {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 h-8 ml-auto" onClick={() => setAddExpenseOpen(true)} data-testid="se-add-expense">
+          <Plus className="h-3.5 w-3.5" /> Record Expense
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>
+      ) : cashbooks.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-gray-400">No cashbook entries yet. Request petty cash to get started.</CardContent></Card>
+      ) : (
+        cashbooks.map(cb => (
+          <Card key={cb.project_id} data-testid={`cashbook-project-${cb.project_id}`}>
+            <CardHeader className="py-2 px-4 border-b bg-gray-50">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">{cb.project_name}</CardTitle>
+                <div className="flex gap-3 text-xs">
+                  <span className="text-green-600 font-semibold">Issued: {fmtFull(cb.total_issued)}</span>
+                  <span className="text-red-600 font-semibold">Spent: {fmtFull(cb.total_spent)}</span>
+                  <Badge className={cb.balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                    Bal: {fmtFull(cb.balance)}
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Tabs defaultValue="petty_cash">
+                <TabsList className="grid grid-cols-2 w-full max-w-xs ml-3 mt-2">
+                  <TabsTrigger value="petty_cash" className="text-xs gap-1 data-[state=active]:bg-green-100">
+                    <ArrowDownRight className="h-3 w-3" /> Income ({cb.petty_cash_entries.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="expenses" className="text-xs gap-1 data-[state=active]:bg-red-100">
+                    <ArrowUpRight className="h-3 w-3" /> Expense ({cb.expense_entries.length})
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="petty_cash" className="mt-0">
+                  <table className="w-full text-xs">
+                    <thead className="bg-green-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Date</th>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Purpose</th>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Status</th>
+                        <th className="text-right px-3 py-1.5 font-medium text-gray-500">Requested</th>
+                        <th className="text-right px-3 py-1.5 font-medium text-gray-500">Issued</th>
+                        <th className="text-right px-3 py-1.5 font-medium text-gray-500">Spent</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {cb.petty_cash_entries.length === 0 ? (
+                        <tr><td colSpan={6} className="text-center py-4 text-gray-400">No petty cash entries</td></tr>
+                      ) : cb.petty_cash_entries.map((pc, i) => (
+                        <tr key={pc.petty_cash_id || i} className="hover:bg-gray-50">
+                          <td className="px-3 py-1.5">{new Date(pc.created_at).toLocaleDateString('en-IN')}</td>
+                          <td className="px-3 py-1.5 font-medium">{pc.purpose || '-'}</td>
+                          <td className="px-3 py-1.5">
+                            <Badge className={
+                              pc.status === 'issued' ? 'bg-green-100 text-green-700' :
+                              pc.status === 'requested' ? 'bg-amber-100 text-amber-700' :
+                              pc.status === 'settled' ? 'bg-blue-100 text-blue-700' :
+                              'bg-gray-100 text-gray-700'
+                            }>{pc.status}</Badge>
+                          </td>
+                          <td className="px-3 py-1.5 text-right">{fmtFull(pc.amount_requested)}</td>
+                          <td className="px-3 py-1.5 text-right text-green-700 font-semibold">{fmtFull(pc.amount_issued)}</td>
+                          <td className="px-3 py-1.5 text-right text-red-600">{fmtFull(pc.amount_spent)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TabsContent>
+                <TabsContent value="expenses" className="mt-0">
+                  <table className="w-full text-xs">
+                    <thead className="bg-red-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Date</th>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Category</th>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Description</th>
+                        <th className="text-left px-3 py-1.5 font-medium text-gray-500">Vendor</th>
+                        <th className="text-right px-3 py-1.5 font-medium text-gray-500">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {cb.expense_entries.length === 0 ? (
+                        <tr><td colSpan={5} className="text-center py-4 text-gray-400">No expenses recorded</td></tr>
+                      ) : cb.expense_entries.map((e, i) => (
+                        <tr key={e.expense_id || i} className="hover:bg-gray-50">
+                          <td className="px-3 py-1.5">{new Date(e.created_at).toLocaleDateString('en-IN')}</td>
+                          <td className="px-3 py-1.5"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{e.category}</Badge></td>
+                          <td className="px-3 py-1.5">{e.description || '-'}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{e.vendor_name || '-'}</td>
+                          <td className="px-3 py-1.5 text-right font-bold text-red-600">{fmtFull(e.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        ))
+      )}
+
+      {/* Record Expense Dialog */}
+      <Dialog open={addExpenseOpen} onOpenChange={setAddExpenseOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Record Expense</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Project *</Label>
+              <Select value={newExpense.project_id} onValueChange={v => setNewExpense(p => ({...p, project_id: v}))}>
+                <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Category</Label>
+              <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="material">Material</SelectItem>
+                  <SelectItem value="labour">Labour</SelectItem>
+                  <SelectItem value="transport">Transport</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Amount *</Label><Input type="number" value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} /></div>
+            <div><Label>Description *</Label><Input value={newExpense.description} onChange={e => setNewExpense(p => ({...p, description: e.target.value}))} /></div>
+            <div><Label>Vendor</Label><Input value={newExpense.vendor_name} onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddExpenseOpen(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleRecordExpense}>Submit</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 export default function SiteEngineerDashboard() {
   const [user, setUser] = useState(null);
@@ -325,9 +556,9 @@ export default function SiteEngineerDashboard() {
           </Card>
         </div>
 
-        {/* Tabs for Projects, Work Orders, and Petty Cash */}
+        {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="projects" className="gap-2">
               <Building2 className="h-4 w-4" /> Projects
             </TabsTrigger>
@@ -346,6 +577,9 @@ export default function SiteEngineerDashboard() {
                   {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
                 </Badge>
               )}
+            </TabsTrigger>
+            <TabsTrigger value="minicashbook" className="gap-2" data-testid="tab-mini-cashbook">
+              <Receipt className="h-4 w-4" /> Mini Cashbook
             </TabsTrigger>
           </TabsList>
 
@@ -624,10 +858,14 @@ export default function SiteEngineerDashboard() {
               </div>
             )}
           </TabsContent>
+
+          {/* Mini Cashbook Tab */}
+          <TabsContent value="minicashbook" className="mt-4">
+            <MiniCashbookSection projects={projects} />
+          </TabsContent>
         </Tabs>
       </div>
 
-      {/* Payment Request Dialog */}
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
         <DialogContent>
           <DialogHeader>

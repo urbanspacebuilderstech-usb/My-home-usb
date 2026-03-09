@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://smart-payment-4.preview.emergentagent.com
-- Backend API: https://smart-payment-4.preview.emergentagent.com/api
+- Frontend: https://e2e-vinoth-test.preview.emergentagent.com
+- Backend API: https://e2e-vinoth-test.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

@@ -1807,3 +1807,228 @@ async def get_team_members(user: User = Depends(get_current_user)):
     return team
 
 
+
+# ==================== SITE ENGINEER MINI CASHBOOK ====================
+
+@router.get("/site-engineer/mini-cashbook")
+async def get_mini_cashbook(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get mini cashbook for site engineer - per project income/expense tracking"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get assignments
+    se_user_id = user.user_id
+    if user.role in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        se_user_id = None  # Can view all
+
+    # Get assigned projects
+    assign_query = {"is_active": True}
+    if se_user_id:
+        assign_query["user_id"] = se_user_id
+    if project_id:
+        assign_query["project_id"] = project_id
+
+    assignments = await db.site_engineer_assignments.find(assign_query, {"_id": 0}).to_list(50)
+    project_ids = [a["project_id"] for a in assignments]
+
+    if not project_ids and project_id:
+        project_ids = [project_id]
+
+    # Get petty cash data for these projects
+    pc_query = {}
+    if se_user_id:
+        pc_query["requested_by"] = se_user_id
+    if project_ids:
+        pc_query["project_id"] = {"$in": project_ids}
+
+    petty_cash_list = await db.petty_cash.find(pc_query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    # Get recorded expenses by this SE
+    exp_query = {}
+    if se_user_id:
+        exp_query["recorded_by"] = se_user_id
+    if project_ids:
+        exp_query["project_id"] = {"$in": project_ids}
+
+    recorded_expenses = await db.recorded_expenses.find(exp_query, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    # Get projects info
+    projects = await db.projects.find(
+        {"project_id": {"$in": project_ids}} if project_ids else {},
+        {"_id": 0, "project_id": 1, "name": 1}
+    ).to_list(100)
+    project_map = {p["project_id"]: p["name"] for p in projects}
+
+    # Build mini cashbook per project
+    cashbooks = {}
+    for pid in project_ids:
+        pc_for_project = [pc for pc in petty_cash_list if pc.get("project_id") == pid]
+        exp_for_project = [e for e in recorded_expenses if e.get("project_id") == pid]
+
+        total_issued = sum(pc.get("amount_issued", 0) for pc in pc_for_project)
+        total_spent = sum(pc.get("amount_spent", 0) for pc in pc_for_project)
+        total_expense_recorded = sum(e.get("amount", 0) for e in exp_for_project)
+        balance = total_issued - total_spent
+
+        cashbooks[pid] = {
+            "project_id": pid,
+            "project_name": project_map.get(pid, "Unknown"),
+            "total_issued": total_issued,
+            "total_spent": total_spent,
+            "total_expense_recorded": total_expense_recorded,
+            "balance": balance,
+            "petty_cash_entries": pc_for_project,
+            "expense_entries": exp_for_project,
+        }
+
+    return {
+        "cashbooks": list(cashbooks.values()),
+        "summary": {
+            "total_issued": sum(c["total_issued"] for c in cashbooks.values()),
+            "total_spent": sum(c["total_spent"] for c in cashbooks.values()),
+            "total_balance": sum(c["balance"] for c in cashbooks.values()),
+            "project_count": len(cashbooks),
+        }
+    }
+
+
+@router.post("/site-engineer/mini-cashbook/record-expense")
+async def se_record_expense(user: User = Depends(get_current_user)):
+    """Site engineer records an expense in their mini cashbook"""
+    # This uses the existing record-expense but is here for reference
+    pass
+
+
+# ==================== ACCOUNTANT PETTY CASH MANAGEMENT ====================
+
+@router.get("/accountant/petty-cash-management")
+async def get_petty_cash_management(user: User = Depends(get_current_user)):
+    """Accountant: View all site engineer petty cash with balances"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all petty cash requests
+    all_pc = await db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+    # Group by site engineer
+    se_data = {}
+    for pc in all_pc:
+        se_id = pc.get("requested_by", "unknown")
+        se_name = pc.get("requested_by_name", "Unknown")
+        if se_id not in se_data:
+            se_data[se_id] = {
+                "user_id": se_id,
+                "name": se_name,
+                "total_issued": 0,
+                "total_spent": 0,
+                "total_requested": 0,
+                "balance": 0,
+                "pending_requests": 0,
+                "projects": {},
+                "requests": [],
+            }
+        se_data[se_id]["total_issued"] += pc.get("amount_issued", 0)
+        se_data[se_id]["total_spent"] += pc.get("amount_spent", 0)
+        se_data[se_id]["total_requested"] += pc.get("amount_requested", 0)
+        if pc.get("status") == "requested":
+            se_data[se_id]["pending_requests"] += 1
+
+        pid = pc.get("project_id")
+        if pid and pid not in se_data[se_id]["projects"]:
+            se_data[se_id]["projects"][pid] = pc.get("project_name", "Unknown")
+
+        se_data[se_id]["requests"].append(pc)
+
+    for se in se_data.values():
+        se["balance"] = se["total_issued"] - se["total_spent"]
+        se["projects"] = [{"project_id": k, "project_name": v} for k, v in se["projects"].items()]
+
+    return {
+        "site_engineers": list(se_data.values()),
+        "summary": {
+            "total_issued": sum(s["total_issued"] for s in se_data.values()),
+            "total_spent": sum(s["total_spent"] for s in se_data.values()),
+            "total_balance": sum(s["balance"] for s in se_data.values()),
+            "pending_requests": sum(s["pending_requests"] for s in se_data.values()),
+        }
+    }
+
+
+class PettyCashIssueInput(BaseModel):
+    amount: float
+    remarks: Optional[str] = None
+
+
+@router.patch("/accountant/petty-cash/{petty_cash_id}/issue")
+async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: User = Depends(get_current_user)):
+    """Accountant issues/releases petty cash to site engineer"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can issue petty cash")
+
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "amount_issued": data.amount,
+            "status": "issued",
+            "issued_by": user.user_id,
+            "issued_by_name": user.name,
+            "issued_at": now,
+            "issue_remarks": data.remarks,
+        }}
+    )
+
+    # Record as expense in recorded_expenses for the accountant's cashbook
+    await db.recorded_expenses.insert_one({
+        "expense_id": f"exp_{secrets.token_hex(6)}",
+        "project_id": pc.get("project_id"),
+        "project_name": pc.get("project_name", ""),
+        "category": "petty_cash",
+        "description": f"Petty cash issued to {pc.get('requested_by_name')} - {pc.get('purpose', '')}",
+        "amount": data.amount,
+        "payment_method": "cash",
+        "vendor_name": pc.get("requested_by_name"),
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "status": "recorded",
+        "petty_cash_id": petty_cash_id,
+        "created_at": now,
+    })
+
+    return {
+        "message": f"₹{data.amount:,.0f} issued to {pc.get('requested_by_name')}",
+        "petty_cash_id": petty_cash_id,
+        "amount_issued": data.amount,
+    }
+
+
+@router.get("/accountant/petty-cash/{user_id}/mini-cashbook")
+async def get_se_mini_cashbook_for_accountant(user_id: str, user: User = Depends(get_current_user)):
+    """Accountant views a specific site engineer's mini cashbook"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all petty cash for this SE
+    pc_list = await db.petty_cash.find({"requested_by": user_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    # Get SE info
+    se_user = await db.users.find_one({"user_id": user_id}, {"_id": 0, "name": 1, "email": 1, "role": 1})
+
+    total_issued = sum(pc.get("amount_issued", 0) for pc in pc_list)
+    total_spent = sum(pc.get("amount_spent", 0) for pc in pc_list)
+
+    return {
+        "user": se_user,
+        "petty_cash": pc_list,
+        "summary": {
+            "total_issued": total_issued,
+            "total_spent": total_spent,
+            "balance": total_issued - total_spent,
+            "request_count": len(pc_list),
+        }
+    }
+

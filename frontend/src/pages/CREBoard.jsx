@@ -93,6 +93,7 @@ export default function CREBoard() {
     advance_payment_mode: '',
     rough_estimate_url: ''
   });
+  const [chequeEntries, setChequeEntries] = useState([]);
   
   const [selectedPackage, setSelectedPackage] = useState(null);
 
@@ -233,7 +234,9 @@ export default function CREBoard() {
         advance_amount: parseFloat(advanceAmount),
         payment_mode: advanceMode,
         payment_reference: advanceRef,
-        accountant_confirmed: accountantConfirmed
+        accountant_confirmed: accountantConfirmed,
+        // Cheque details (auto-creates cheque records)
+        cheque_details: advanceMode === 'cheque' ? chequeEntries : null,
       });
       
       toast.success('Project created successfully!');
@@ -1609,6 +1612,53 @@ export default function CREBoard() {
                     />
                   </div>
                 </div>
+
+                {/* Cheque Details - shown when payment mode is cheque */}
+                {advanceMode === 'cheque' && (
+                  <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200" data-testid="cheque-details-section">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-purple-700 font-semibold text-sm">Cheque Details</Label>
+                      <Button size="sm" variant="outline" className="h-7 text-xs border-purple-300 text-purple-700"
+                        onClick={() => setChequeEntries([...chequeEntries, { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] }])}>
+                        + Add Cheque
+                      </Button>
+                    </div>
+                    {chequeEntries.map((chq, idx) => (
+                      <div key={idx} className="grid grid-cols-4 gap-2 mb-2 items-end">
+                        <div>
+                          <Label className="text-xs text-purple-600">Cheque No</Label>
+                          <Input className="h-8 text-xs" placeholder="CHQ001" value={chq.cheque_number}
+                            onChange={e => { const n = [...chequeEntries]; n[idx].cheque_number = e.target.value; setChequeEntries(n); }} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-purple-600">Bank</Label>
+                          <Input className="h-8 text-xs" placeholder="HDFC Bank" value={chq.bank_name}
+                            onChange={e => { const n = [...chequeEntries]; n[idx].bank_name = e.target.value; setChequeEntries(n); }} />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-purple-600">Amount</Label>
+                          <Input type="number" className="h-8 text-xs" placeholder="100000" value={chq.amount}
+                            onChange={e => { const n = [...chequeEntries]; n[idx].amount = e.target.value; setChequeEntries(n); }} />
+                        </div>
+                        <div className="flex gap-1">
+                          <div className="flex-1">
+                            <Label className="text-xs text-purple-600">Date</Label>
+                            <Input type="date" className="h-8 text-xs" value={chq.cheque_date}
+                              onChange={e => { const n = [...chequeEntries]; n[idx].cheque_date = e.target.value; setChequeEntries(n); }} />
+                          </div>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mt-4 text-red-400"
+                            onClick={() => setChequeEntries(chequeEntries.filter((_, i) => i !== idx))}>×</Button>
+                        </div>
+                      </div>
+                    ))}
+                    {chequeEntries.length > 0 && (
+                      <p className="text-xs text-purple-600 mt-1">
+                        Total: ₹{chequeEntries.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
+                        {' '}({chequeEntries.length} cheque{chequeEntries.length > 1 ? 's' : ''})
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Balance Summary */}
                 {advanceAmount && parseFloat(advanceAmount) > 0 && selectedDealRE?.estimated_total && (

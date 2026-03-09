@@ -215,6 +215,233 @@ function SuspenseDrilldown({ onBack }) {
   );
 }
 
+// ============ PETTY CASH MANAGEMENT DRILLDOWN ============
+function PettyCashManagement({ onBack }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedSE, setSelectedSE] = useState(null);
+  const [seCashbook, setSeCashbook] = useState(null);
+  const [issueDialog, setIssueDialog] = useState(false);
+  const [issuePC, setIssuePC] = useState(null);
+  const [issueAmount, setIssueAmount] = useState('');
+  const [issueRemarks, setIssueRemarks] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/accountant/petty-cash-management`);
+        setData(res.data);
+      } catch { /* ignore */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  const fetchSECashbook = async (userId) => {
+    try {
+      const res = await axios.get(`${API}/accountant/petty-cash/${userId}/mini-cashbook`);
+      setSeCashbook(res.data);
+      setSelectedSE(userId);
+    } catch { toast.error('Failed to load cashbook'); }
+  };
+
+  const handleIssue = async () => {
+    if (!issueAmount) { toast.error('Enter amount'); return; }
+    try {
+      await axios.patch(`${API}/accountant/petty-cash/${issuePC.petty_cash_id}/issue`, {
+        amount: parseFloat(issueAmount),
+        remarks: issueRemarks,
+      });
+      toast.success('Petty cash issued');
+      setIssueDialog(false);
+      // Refresh data
+      const res = await axios.get(`${API}/accountant/petty-cash-management`);
+      setData(res.data);
+      if (selectedSE) fetchSECashbook(selectedSE);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to issue');
+    }
+  };
+
+  if (loading) return <div className="flex justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
+
+  // If viewing a specific SE's cashbook
+  if (selectedSE && seCashbook) {
+    return (
+      <div className="space-y-3" data-testid="se-cashbook-detail">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={() => { setSelectedSE(null); setSeCashbook(null); }}>
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <h3 className="text-sm font-semibold">{seCashbook.user?.name}'s Mini Cashbook</h3>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Card className="border-l-4 border-l-green-500"><CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Issued</p>
+            <p className="text-lg font-bold text-green-700">{fmtFull(seCashbook.summary?.total_issued)}</p>
+          </CardContent></Card>
+          <Card className="border-l-4 border-l-red-500"><CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Spent</p>
+            <p className="text-lg font-bold text-red-600">{fmtFull(seCashbook.summary?.total_spent)}</p>
+          </CardContent></Card>
+          <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3">
+            <p className="text-xs text-gray-500">Balance</p>
+            <p className={`text-lg font-bold ${(seCashbook.summary?.balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+              {fmtFull(seCashbook.summary?.balance)}
+            </p>
+          </CardContent></Card>
+        </div>
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Purpose</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                  <th className="text-center px-3 py-2 font-medium text-gray-500">Status</th>
+                  <th className="text-right px-3 py-2 font-medium text-gray-500">Requested</th>
+                  <th className="text-right px-3 py-2 font-medium text-gray-500">Issued</th>
+                  <th className="text-right px-3 py-2 font-medium text-gray-500">Spent</th>
+                  <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(seCashbook.petty_cash || []).map((pc, i) => (
+                  <tr key={pc.petty_cash_id || i} className="hover:bg-gray-50">
+                    <td className="px-3 py-2">{new Date(pc.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="px-3 py-2 font-medium">{pc.purpose || '-'}</td>
+                    <td className="px-3 py-2">{pc.project_name || '-'}</td>
+                    <td className="px-3 py-2 text-center">
+                      <Badge className={
+                        pc.status === 'issued' ? 'bg-green-100 text-green-700' :
+                        pc.status === 'requested' ? 'bg-amber-100 text-amber-700' :
+                        pc.status === 'settled' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-700'
+                      }>{pc.status}</Badge>
+                    </td>
+                    <td className="px-3 py-2 text-right">{fmtFull(pc.amount_requested)}</td>
+                    <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(pc.amount_issued)}</td>
+                    <td className="px-3 py-2 text-right text-red-600">{fmtFull(pc.amount_spent)}</td>
+                    <td className="px-3 py-2 text-center">
+                      {pc.status === 'requested' && (
+                        <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700"
+                          onClick={() => { setIssuePC(pc); setIssueAmount(pc.amount_requested?.toString() || ''); setIssueDialog(true); }}>
+                          Issue
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const siteEngineers = data?.site_engineers || [];
+  const summary = data?.summary || {};
+
+  return (
+    <div className="space-y-3" data-testid="petty-cash-mgmt">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="petty-cash-back">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <h3 className="text-sm font-semibold text-gray-800">Petty Cash Management</h3>
+        {summary.pending_requests > 0 && (
+          <Badge className="bg-amber-100 text-amber-700">{summary.pending_requests} pending</Badge>
+        )}
+      </div>
+
+      <div className="grid grid-cols-4 gap-3">
+        <Card className="border-l-4 border-l-green-500"><CardContent className="p-3">
+          <p className="text-xs text-gray-500">Total Issued</p>
+          <p className="text-lg font-bold text-green-700">{fmtFull(summary.total_issued)}</p>
+        </CardContent></Card>
+        <Card className="border-l-4 border-l-red-500"><CardContent className="p-3">
+          <p className="text-xs text-gray-500">Total Spent</p>
+          <p className="text-lg font-bold text-red-600">{fmtFull(summary.total_spent)}</p>
+        </CardContent></Card>
+        <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3">
+          <p className="text-xs text-gray-500">Total Balance</p>
+          <p className={`text-lg font-bold ${(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+            {fmtFull(summary.total_balance)}
+          </p>
+        </CardContent></Card>
+        <Card className="border-l-4 border-l-purple-500"><CardContent className="p-3">
+          <p className="text-xs text-gray-500">Pending Requests</p>
+          <p className="text-lg font-bold text-purple-700">{summary.pending_requests || 0}</p>
+        </CardContent></Card>
+      </div>
+
+      {siteEngineers.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-gray-400">No petty cash records found</CardContent></Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-xs" data-testid="petty-cash-se-table">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Site Engineer</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Projects</th>
+                  <th className="text-right px-3 py-2 font-semibold text-green-600">Issued</th>
+                  <th className="text-right px-3 py-2 font-semibold text-red-600">Spent</th>
+                  <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
+                  <th className="text-center px-3 py-2 font-semibold text-gray-600">Pending</th>
+                  <th className="text-center px-3 py-2 font-semibold text-gray-600">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {siteEngineers.map(se => (
+                  <tr key={se.user_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => fetchSECashbook(se.user_id)}>
+                    <td className="px-3 py-2 font-medium text-blue-700">{se.name}</td>
+                    <td className="px-3 py-2">{se.projects.map(p => p.project_name).join(', ') || '-'}</td>
+                    <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(se.total_issued)}</td>
+                    <td className="px-3 py-2 text-right text-red-600 font-semibold">{fmtFull(se.total_spent)}</td>
+                    <td className={`px-3 py-2 text-right font-bold ${se.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(se.balance)}</td>
+                    <td className="px-3 py-2 text-center">
+                      {se.pending_requests > 0 && <Badge className="bg-amber-100 text-amber-700">{se.pending_requests}</Badge>}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <Button size="sm" variant="ghost" className="h-6 text-[10px] text-blue-600" onClick={(e) => { e.stopPropagation(); fetchSECashbook(se.user_id); }}>
+                        <Eye className="h-3 w-3 mr-1" /> View
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Issue Dialog */}
+      <Dialog open={issueDialog} onOpenChange={setIssueDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Issue Petty Cash</DialogTitle></DialogHeader>
+          {issuePC && (
+            <div className="space-y-3">
+              <Card className="bg-gray-50"><CardContent className="p-3 text-sm">
+                <p><span className="text-gray-500">Requested by:</span> <span className="font-medium">{issuePC.requested_by_name}</span></p>
+                <p><span className="text-gray-500">Purpose:</span> <span className="font-medium">{issuePC.purpose}</span></p>
+                <p><span className="text-gray-500">Requested:</span> <span className="font-bold text-amber-700">{fmtFull(issuePC.amount_requested)}</span></p>
+              </CardContent></Card>
+              <div><Label>Amount to Issue</Label><Input type="number" value={issueAmount} onChange={e => setIssueAmount(e.target.value)} /></div>
+              <div><Label>Remarks</Label><Textarea value={issueRemarks} onChange={e => setIssueRemarks(e.target.value)} rows={2} /></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIssueDialog(false)}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleIssue}>Issue Cash</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ============ CASHBOOK TAB ============
 function CashbookTab({ overview, projects }) {
   const [cashbookData, setCashbookData] = useState(null);
@@ -306,6 +533,10 @@ function CashbookTab({ overview, projects }) {
       setDrilldown({ type: 'suspense' });
       return;
     }
+    if (catKey === 'petty_cash') {
+      setDrilldown({ type: 'petty_cash_mgmt' });
+      return;
+    }
     if (catKey === 'overall') {
       setDrilldown(null);
       setSubTab('expense');
@@ -325,6 +556,9 @@ function CashbookTab({ overview, projects }) {
   // If in drilldown mode, show the drilldown
   if (drilldown?.type === 'suspense') {
     return <SuspenseDrilldown onBack={() => setDrilldown(null)} />;
+  }
+  if (drilldown?.type === 'petty_cash_mgmt') {
+    return <PettyCashManagement onBack={() => setDrilldown(null)} />;
   }
   if (drilldown?.type === 'category') {
     return <DrilldownView title={`${drilldown.label} Expenses`} entries={drilldown.entries} type="expense" onBack={() => setDrilldown(null)} />;

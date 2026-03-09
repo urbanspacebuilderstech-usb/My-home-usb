@@ -234,6 +234,8 @@ class ConvertDealInput(BaseModel):
     payment_mode: str
     payment_reference: Optional[str] = ""
     accountant_confirmed: bool = False
+    # Cheque details (for cheque payments)
+    cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount, cheque_date}]
 
 
 @router.post("/cre/convert-deal/{lead_id}")
@@ -328,6 +330,29 @@ async def convert_deal_to_project(
     }
     
     await db.projects.insert_one(main_project)
+    
+    # Auto-create cheque records if payment mode is cheque
+    if data.payment_mode == "cheque" and data.cheque_details:
+        for chq in data.cheque_details:
+            cheque_record = {
+                "cheque_id": f"chq_{secrets.token_hex(6)}",
+                "cheque_number": chq.get("cheque_number", ""),
+                "bank_name": chq.get("bank_name", ""),
+                "branch_name": chq.get("branch_name", ""),
+                "amount": chq.get("amount", 0),
+                "cheque_date": chq.get("cheque_date", now.isoformat()),
+                "cheque_type": "incoming",
+                "party_name": client_name,
+                "party_type": "client",
+                "project_id": project_id,
+                "project_name": project_name,
+                "status": "issued",
+                "is_post_dated": chq.get("is_post_dated", False),
+                "remarks": f"Advance cheque for project {project_name}",
+                "created_by": user.user_id,
+                "created_at": now.isoformat(),
+            }
+            await db.cheques.insert_one(cheque_record)
     
     # Update lead - use 'leads' collection
     await db.leads.update_one(
@@ -486,8 +511,14 @@ async def convert_re_project_to_project(
     }
 
 
+class AccountantVerifyInput(BaseModel):
+    transaction_id: Optional[str] = None
+    payment_type: Optional[str] = None  # cheque, bank_transfer, cash, upi
+    remarks: Optional[str] = None
+
+
 @router.patch("/cre/projects/{project_id}/accountant-verify")
-async def accountant_verify_advance(project_id: str, user: User = Depends(get_current_user)):
+async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput = None, user: User = Depends(get_current_user)):
     """Accountant verifies the advance payment - moves project to payment_received"""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can verify payments")
@@ -500,31 +531,52 @@ async def accountant_verify_advance(project_id: str, user: User = Depends(get_cu
         raise HTTPException(status_code=400, detail=f"Project must be in pending_payment status. Current: {project.get('status')}")
     
     now = datetime.now(timezone.utc)
+    txn_id = (data.transaction_id if data else None) or project.get("advance_payment_reference", "")
+    pay_type = (data.payment_type if data else None) or project.get("advance_payment_mode", "cash")
+    
     await db.projects.update_one(
         {"project_id": project_id},
         {"$set": {
             "status": "payment_received",
             "accountant_verified": True,
             "accountant_verified_by": user.user_id,
-            "accountant_verified_at": now.isoformat()
+            "accountant_verified_at": now.isoformat(),
+            "advance_transaction_id": txn_id,
         }}
     )
     
-    # Record income entry
+    # Record income entry in income_entries collection
     income_entry = {
         "income_id": f"inc_{secrets.token_hex(6)}",
         "project_id": project_id,
         "type": "advance",
         "amount": project.get("advance_amount", 0),
-        "payment_mode": project.get("advance_payment_mode"),
-        "payment_reference": project.get("advance_payment_reference"),
+        "payment_mode": pay_type,
+        "payment_reference": txn_id,
         "verified_by": user.user_id,
         "verified_at": now.isoformat(),
         "created_at": now.isoformat()
     }
     await db.income_entries.insert_one(income_entry)
     
-    return {"message": "Advance payment verified", "status": "payment_received"}
+    # Also record in main income collection for cashbook visibility
+    main_income = {
+        "income_id": f"inc_{secrets.token_hex(6)}",
+        "project_id": project_id,
+        "stage": "Advance Payment",
+        "description": f"Advance - {project.get('name', '')}",
+        "amount": project.get("advance_amount", 0),
+        "payment_mode": pay_type,
+        "reference_number": txn_id,
+        "payment_date": now.isoformat(),
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "remarks": (data.remarks if data else None) or "Advance payment verified by accountant",
+        "created_at": now.isoformat()
+    }
+    await db.income.insert_one(main_income)
+    
+    return {"message": "Advance payment verified and recorded", "status": "payment_received", "transaction_id": txn_id}
 
 
 @router.patch("/cre/projects/{project_id}/send-to-planning")
