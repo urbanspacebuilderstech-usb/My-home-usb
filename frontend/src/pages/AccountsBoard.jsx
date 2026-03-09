@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -1241,6 +1242,7 @@ function ChequeManagementTab({ projects }) {
 
 // ============ PROJECT SUMMARY TAB ============
 function ProjectSummaryTab({ overview }) {
+  const navigate = useNavigate();
   const projects = overview?.project_wise || [];
   const totals = overview?.totals || {};
 
@@ -1294,9 +1296,10 @@ function ProjectSummaryTab({ overview }) {
                   const pnl = (p.income || 0) - (p.expense || 0);
                   const pnlPct = p.income ? ((pnl / p.income) * 100).toFixed(1) : '0.0';
                   return (
-                    <tr key={i} className="hover:bg-gray-50" data-testid={`project-row-${i}`}>
+                    <tr key={i} className="hover:bg-amber-50 cursor-pointer transition-colors" data-testid={`project-row-${i}`}
+                      onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
                       <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                      <td className="px-3 py-2 font-medium">{p.project_name}</td>
+                      <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted">{p.project_name}</td>
                       <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(p.income)}</td>
                       <td className="px-3 py-2 text-right text-red-600 font-semibold">{fmtFull(p.expense)}</td>
                       <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(p.balance)}</td>

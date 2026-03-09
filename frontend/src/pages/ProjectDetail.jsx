@@ -4,7 +4,8 @@ import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
-  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder
+  AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
+  ArrowDownRight, ArrowUpRight, RefreshCw, Eye
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,6 +67,322 @@ const WorkflowBadge = ({ status }) => {
     </span>
   );
 };
+
+// ============ PAYMENT SUMMARY SECTION WITH INCOME/EXPENSE VIEWS ============
+const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
+
+function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, handleGenerateSchedule, getPaymentStatusBadge, openCollectDialog }) {
+  const [incomeData, setIncomeData] = useState(null);
+  const [expenseData, setExpenseData] = useState(null);
+  const [loadingFinance, setLoadingFinance] = useState(true);
+  const [financeTab, setFinanceTab] = useState('income');
+
+  const canSeeTotals = ['super_admin', 'accountant'].includes(user?.role);
+  const canSeePaymentDetails = ['super_admin', 'accountant', 'general_manager', 'planning'].includes(user?.role);
+
+  useEffect(() => {
+    if (canSeePaymentDetails) {
+      (async () => {
+        try {
+          const [incRes, expRes] = await Promise.all([
+            axios.get(`${API}/projects/${projectId}/income`).catch(() => null),
+            axios.get(`${API}/projects/${projectId}/expenses`).catch(() => null),
+          ]);
+          if (incRes) setIncomeData(incRes.data);
+          if (expRes) setExpenseData(expRes.data);
+        } catch { /* ignore */ }
+        setLoadingFinance(false);
+      })();
+    } else {
+      setLoadingFinance(false);
+    }
+  }, [projectId, canSeePaymentDetails]);
+
+  const incomeEntries = incomeData?.entries || [];
+  const incomeSummary = incomeData?.summary || {};
+  const expenseSummary = expenseData?.summary || {};
+  const materialExpenses = expenseData?.material || [];
+  const labourExpenses = expenseData?.labour || [];
+  const vendorExpenses = expenseData?.vendor_service || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base sm:text-lg font-bold">Payment Summary</h3>
+          <p className="text-xs sm:text-sm text-gray-500">Complete payment schedule from advance to handover</p>
+        </div>
+        {user?.role === 'planning' && (!paymentSummary || paymentSummary.payment_stages?.length === 0) && (
+          <Button onClick={handleGenerateSchedule} className="bg-green-600 hover:bg-green-700">
+            <Plus className="h-4 w-4 mr-2" /> Generate Payment Schedule
+          </Button>
+        )}
+      </div>
+
+      {/* Totals - Only for Super Admin & Accountant */}
+      {canSeeTotals && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="payment-summary-totals">
+          <Card className="border-l-4 border-l-green-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Total Income</p>
+              <p className="text-lg font-bold text-green-700">{fmtFull(incomeSummary.total_income)}</p>
+              <p className="text-[10px] text-gray-400">{incomeEntries.length} entries</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-red-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Total Expense</p>
+              <p className="text-lg font-bold text-red-600">{fmtFull(expenseSummary.total_expenses)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Total Paid</p>
+              <p className="text-lg font-bold text-blue-600">{fmtFull(expenseSummary.total_paid)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-amber-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Net Balance</p>
+              <p className={`text-lg font-bold ${(incomeSummary.total_income || 0) - (expenseSummary.total_expenses || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                {fmtFull((incomeSummary.total_income || 0) - (expenseSummary.total_expenses || 0))}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Summary Cards */}
+      {paymentSummary && (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
+            <CardContent className="p-3">
+              <p className="text-xs text-indigo-600 font-medium">Project Value</p>
+              <p className="text-lg font-bold text-indigo-700">{formatCurrency(paymentSummary.project_value || 0)}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
+            <CardContent className="p-3">
+              <p className="text-xs text-emerald-600 font-medium">Advance Paid</p>
+              <p className="text-lg font-bold text-emerald-700">{formatCurrency(paymentSummary.advance_payment?.amount || 0)}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+            <CardContent className="p-3">
+              <p className="text-xs text-amber-600 font-medium">Stages Scheduled</p>
+              <p className="text-lg font-bold text-amber-700">{formatCurrency(paymentSummary.summary?.total_scheduled || 0)}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+            <CardContent className="p-3">
+              <p className="text-xs text-green-600 font-medium">Total Received</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(paymentSummary.summary?.total_received || 0)}</p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+            <CardContent className="p-3">
+              <p className="text-xs text-orange-600 font-medium">Balance Due</p>
+              <p className="text-lg font-bold text-orange-700">{formatCurrency(paymentSummary.summary?.total_balance || 0)}</p>
+              <p className="text-[10px] text-orange-500">{paymentSummary.summary?.collection_percentage?.toFixed(1) || 0}% collected</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Income / Expense Mini Views - Visible to GM, Planning, Super Admin, Accountant */}
+      {canSeePaymentDetails && (
+        <Card data-testid="income-expense-section">
+          <CardHeader className="pb-0 pt-3 px-4 border-b">
+            <Tabs value={financeTab} onValueChange={setFinanceTab}>
+              <TabsList className="grid grid-cols-2 w-full max-w-xs">
+                <TabsTrigger value="income" className="gap-1.5 data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="project-income-tab">
+                  <ArrowDownRight className="h-3.5 w-3.5" /> Income ({incomeEntries.length})
+                </TabsTrigger>
+                <TabsTrigger value="expense" className="gap-1.5 data-[state=active]:bg-red-100 data-[state=active]:text-red-800" data-testid="project-expense-tab">
+                  <ArrowUpRight className="h-3.5 w-3.5" /> Expense
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </CardHeader>
+          <CardContent className="p-0">
+            {loadingFinance ? (
+              <div className="flex justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-amber-600" /></div>
+            ) : financeTab === 'income' ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="project-income-table">
+                  <thead className="bg-green-50 border-b">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Reference</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {incomeEntries.length === 0 ? (
+                      <tr><td colSpan={6} className="text-center py-6 text-gray-400">No income entries</td></tr>
+                    ) : incomeEntries.map((e, i) => (
+                      <tr key={e.income_id || i} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
+                        <td className="px-3 py-2 font-medium">{e.stage || e.description || 'Payment'}</td>
+                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px] capitalize">{e.payment_mode?.replace('_', ' ') || 'Cash'}</Badge></td>
+                        <td className="px-3 py-2 font-mono text-[10px]">{e.reference_number || e.cheque_number || '-'}</td>
+                        <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(e.amount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {canSeeTotals && incomeEntries.length > 0 && (
+                    <tfoot className="bg-green-50 border-t-2 font-semibold">
+                      <tr>
+                        <td colSpan={5} className="px-3 py-2 text-right text-gray-600">Total Income:</td>
+                        <td className="px-3 py-2 text-right text-green-700 text-sm">{fmtFull(incomeSummary.total_income)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="project-expense-table">
+                  <thead className="bg-red-50 border-b">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-500">Paid</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {materialExpenses.length === 0 && labourExpenses.length === 0 && vendorExpenses.length === 0 ? (
+                      <tr><td colSpan={6} className="text-center py-6 text-gray-400">No expense entries</td></tr>
+                    ) : (
+                      <>
+                        {materialExpenses.map((e, i) => (
+                          <tr key={e.expense_id || `m-${i}`} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                            <td className="px-3 py-2"><Badge className="bg-blue-100 text-blue-700 text-[10px]">Material</Badge></td>
+                            <td className="px-3 py-2 font-medium">{e.material_name || e.description || '-'}</td>
+                            <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>
+                            <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(e.final_amount || e.amount)}</td>
+                            <td className="px-3 py-2 text-right text-green-600">{fmtFull(e.total_paid)}</td>
+                          </tr>
+                        ))}
+                        {labourExpenses.map((e, i) => (
+                          <tr key={e.expense_id || `l-${i}`} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-gray-400">{materialExpenses.length + i + 1}</td>
+                            <td className="px-3 py-2"><Badge className="bg-purple-100 text-purple-700 text-[10px]">Labour</Badge></td>
+                            <td className="px-3 py-2 font-medium">{e.description || e.worker_name || '-'}</td>
+                            <td className="px-3 py-2 text-gray-600">{e.contractor_name || '-'}</td>
+                            <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(e.total_amount)}</td>
+                            <td className="px-3 py-2 text-right text-green-600">{fmtFull(e.total_paid)}</td>
+                          </tr>
+                        ))}
+                        {vendorExpenses.map((e, i) => (
+                          <tr key={e.expense_id || `v-${i}`} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-gray-400">{materialExpenses.length + labourExpenses.length + i + 1}</td>
+                            <td className="px-3 py-2"><Badge className="bg-amber-100 text-amber-700 text-[10px]">Vendor</Badge></td>
+                            <td className="px-3 py-2 font-medium">{e.service_name || e.description || '-'}</td>
+                            <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>
+                            <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(e.amount)}</td>
+                            <td className="px-3 py-2 text-right text-green-600">{fmtFull(e.total_paid)}</td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                  </tbody>
+                  {canSeeTotals && (materialExpenses.length > 0 || labourExpenses.length > 0 || vendorExpenses.length > 0) && (
+                    <tfoot className="bg-red-50 border-t-2 font-semibold">
+                      <tr>
+                        <td colSpan={4} className="px-3 py-2 text-right text-gray-600">Total Expense:</td>
+                        <td className="px-3 py-2 text-right text-red-600 text-sm">{fmtFull(expenseSummary.total_expenses)}</td>
+                        <td className="px-3 py-2 text-right text-green-600 text-sm">{fmtFull(expenseSummary.total_paid)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stage-wise Payment Schedule */}
+      <div>
+        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+          <FileText className="h-4 w-4" /> Stage-wise Payment Schedule
+        </h4>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b-2 border-gray-200">
+              <tr>
+                <th className="px-3 py-3 text-left font-semibold">S.No</th>
+                <th className="px-3 py-3 text-left font-semibold">Payment Stage</th>
+                <th className="px-3 py-3 text-right font-semibold">%</th>
+                <th className="px-3 py-3 text-right font-semibold">Amount</th>
+                <th className="px-3 py-3 text-right font-semibold">Received</th>
+                <th className="px-3 py-3 text-center font-semibold">Mode</th>
+                <th className="px-3 py-3 text-center font-semibold">Date</th>
+                <th className="px-3 py-3 text-center font-semibold">Status</th>
+                <th className="px-3 py-3 text-left font-semibold">Remarks</th>
+                {(user?.role === 'cre' || user?.role === 'super_admin') && (
+                  <th className="px-3 py-3 text-center font-semibold">Action</th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {(!paymentSummary?.payment_stages || paymentSummary.payment_stages.length === 0) ? (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-500">No payment schedule created yet.</td></tr>
+              ) : paymentSummary.payment_stages.map((stage, idx) => {
+                const isPaid = stage.status === 'paid';
+                return (
+                  <tr key={stage.stage_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
+                    <td className="px-3 py-3 font-medium">{stage.stage_label || idx + 1}</td>
+                    <td className="px-3 py-3 max-w-xs"><p className="font-medium truncate">{stage.stage_name}</p></td>
+                    <td className="px-3 py-3 text-right">{stage.percentage}%</td>
+                    <td className="px-3 py-3 text-right font-semibold">{formatCurrency(stage.amount)}</td>
+                    <td className="px-3 py-3 text-right font-semibold text-green-600">{formatCurrency(stage.amount_received || 0)}</td>
+                    <td className="px-3 py-3 text-center text-xs">
+                      {stage.payment_mode ? <Badge variant="outline" className="capitalize">{stage.payment_mode.replace('_', ' ')}</Badge> : '-'}
+                    </td>
+                    <td className="px-3 py-3 text-center text-xs">{stage.payment_date ? new Date(stage.payment_date).toLocaleDateString('en-IN') : '-'}</td>
+                    <td className="px-3 py-3 text-center">{getPaymentStatusBadge(stage.status)}</td>
+                    <td className="px-3 py-3 text-xs text-gray-500 max-w-xs truncate">{stage.remarks || '-'}</td>
+                    {(user?.role === 'cre' || user?.role === 'super_admin') && (
+                      <td className="px-3 py-3 text-center">
+                        {!isPaid ? (
+                          <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50"
+                            onClick={() => openCollectDialog(stage)}>
+                            <DollarSign className="h-3 w-3 mr-1" /> Collect
+                          </Button>
+                        ) : <CheckCircle2 className="h-5 w-5 text-green-600 mx-auto" />}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+            {paymentSummary?.payment_stages?.length > 0 && (
+              <tfoot className="bg-gray-100 font-semibold">
+                <tr>
+                  <td colSpan={2} className="px-3 py-3">Total</td>
+                  <td className="px-3 py-3 text-right">100%</td>
+                  <td className="px-3 py-3 text-right">{formatCurrency(paymentSummary.summary?.total_scheduled)}</td>
+                  <td className="px-3 py-3 text-right text-green-600">{formatCurrency(paymentSummary.summary?.total_received)}</td>
+                  <td colSpan={5}></td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ProjectDetail() {
   const { projectId } = useParams();
@@ -2279,346 +2596,17 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
-                <div>
-                  <h3 className="text-base sm:text-lg font-bold">Payment Summary</h3>
-                  <p className="text-xs sm:text-sm text-gray-500">Complete payment schedule from advance to handover</p>
-                </div>
-                {user?.role === 'planning' && (!paymentSummary || paymentSummary.payment_stages?.length === 0) && (
-                  <Button onClick={handleGenerateSchedule} className="bg-green-600 hover:bg-green-700">
-                    <Plus className="h-4 w-4 mr-2" /> Generate Payment Schedule
-                  </Button>
-                )}
-              </div>
-
-              {/* Summary Cards */}
-              {paymentSummary && (
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-                  <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-indigo-600 font-medium">Project Value</p>
-                      <p className="text-lg font-bold text-indigo-700">{formatCurrency(paymentSummary.project_value || 0)}</p>
-                      {paymentSummary.additional_cost > 0 && (
-                        <p className="text-[10px] text-indigo-500">+{formatCurrency(paymentSummary.additional_cost)} add.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-emerald-600 font-medium">Advance Paid</p>
-                      <p className="text-lg font-bold text-emerald-700">{formatCurrency(paymentSummary.advance_payment?.amount || 0)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-amber-600 font-medium">Stages Scheduled</p>
-                      <p className="text-lg font-bold text-amber-700">{formatCurrency(paymentSummary.summary?.total_scheduled || 0)}</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-green-600 font-medium">Total Received</p>
-                      <p className="text-lg font-bold text-green-700">{formatCurrency(paymentSummary.summary?.total_received || 0)}</p>
-                      <p className="text-[10px] text-green-500">incl. advance</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-orange-600 font-medium">Balance Due</p>
-                      <p className="text-lg font-bold text-orange-700">{formatCurrency(paymentSummary.summary?.total_balance || 0)}</p>
-                      <p className="text-[10px] text-orange-500">{paymentSummary.summary?.collection_percentage?.toFixed(1) || 0}% collected</p>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
+              <PaymentSummarySection
+                user={user}
+                projectId={projectId}
+                paymentSummary={paymentSummary}
+                formatCurrency={formatCurrency}
+                handleGenerateSchedule={handleGenerateSchedule}
+                getPaymentStatusBadge={getPaymentStatusBadge}
+                openCollectDialog={openCollectDialog}
+              />
 
               {/* Advance Payment Card */}
-              {paymentSummary?.advance_payment && paymentSummary.advance_payment.amount > 0 && (
-                <Card className="mb-6 border-2 border-green-300 bg-gradient-to-r from-green-50 to-emerald-50">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="flex items-center gap-2 text-green-700">
-                      <Wallet className="h-5 w-5" />
-                      Advance Payment Collected
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div>
-                        <p className="text-xs text-gray-500">Amount</p>
-                        <p className="text-xl font-bold text-green-700">{formatCurrency(paymentSummary.advance_payment.amount)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Payment Mode</p>
-                        <Badge className="bg-green-100 text-green-700 mt-1 capitalize">
-                          {paymentSummary.advance_payment.mode?.replace('_', ' ') || 'N/A'}
-                        </Badge>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Date Received</p>
-                        <p className="font-medium">
-                          {paymentSummary.advance_payment.date 
-                            ? new Date(paymentSummary.advance_payment.date).toLocaleDateString('en-IN')
-                            : 'N/A'}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Status</p>
-                        <Badge className="bg-green-600 text-white mt-1">
-                          <CheckCircle2 className="h-3 w-3 mr-1" /> Received
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Progress Bar */}
-              {paymentSummary?.summary && (
-                <div className="mb-6">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-gray-600">Collection Progress</span>
-                    <span className="font-medium">{paymentSummary.summary.stages_paid} / {paymentSummary.summary.stages_total} stages paid</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
-                    <div 
-                      className="bg-green-600 h-3 rounded-full transition-all duration-500"
-                      style={{ width: `${paymentSummary.summary.collection_percentage || 0}%` }}
-                    ></div>
-                  </div>
-                </div>
-              )}
-
-              {/* Payment Schedule Table */}
-              <div className="mb-8">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <FileText className="h-4 w-4" /> Stage-wise Payment Schedule
-                </h4>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b-2 border-gray-200">
-                    <tr>
-                      <th className="px-3 py-3 text-left font-semibold">S.No</th>
-                      <th className="px-3 py-3 text-left font-semibold">Payment Stage</th>
-                      <th className="px-3 py-3 text-right font-semibold">%</th>
-                      <th className="px-3 py-3 text-right font-semibold">Amount</th>
-                      <th className="px-3 py-3 text-right font-semibold">Received</th>
-                      <th className="px-3 py-3 text-center font-semibold">Mode</th>
-                      <th className="px-3 py-3 text-center font-semibold">Date</th>
-                      <th className="px-3 py-3 text-center font-semibold">Status</th>
-                      <th className="px-3 py-3 text-left font-semibold">Remarks</th>
-                      {(user?.role === 'cre' || user?.role === 'super_admin') && (
-                        <th className="px-3 py-3 text-center font-semibold">Action</th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {(!paymentSummary?.payment_stages || paymentSummary.payment_stages.length === 0) ? (
-                      <tr>
-                        <td colSpan={10} className="px-4 py-8 text-center text-gray-500">
-                          No payment schedule created yet. Planning team can generate the schedule.
-                        </td>
-                      </tr>
-                    ) : (
-                      paymentSummary.payment_stages.map((stage, idx) => {
-                        const balance = (stage.amount || 0) - (stage.amount_received || 0);
-                        const isPaid = stage.status === 'paid';
-                        
-                        return (
-                          <tr key={stage.stage_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
-                            <td className="px-3 py-3 font-medium">{stage.stage_label || idx + 1}</td>
-                            <td className="px-3 py-3 max-w-xs">
-                              <p className="font-medium truncate">{stage.stage_name}</p>
-                            </td>
-                            <td className="px-3 py-3 text-right">{stage.percentage}%</td>
-                            <td className="px-3 py-3 text-right font-semibold">{formatCurrency(stage.amount)}</td>
-                            <td className="px-3 py-3 text-right font-semibold text-green-600">
-                              {formatCurrency(stage.amount_received || 0)}
-                            </td>
-                            <td className="px-3 py-3 text-center text-xs">
-                              {stage.payment_mode ? (
-                                <Badge variant="outline" className="capitalize">{stage.payment_mode.replace('_', ' ')}</Badge>
-                              ) : '-'}
-                            </td>
-                            <td className="px-3 py-3 text-center text-xs">
-                              {stage.payment_date ? new Date(stage.payment_date).toLocaleDateString('en-IN') : '-'}
-                            </td>
-                            <td className="px-3 py-3 text-center">
-                              {getPaymentStatusBadge(stage.status)}
-                            </td>
-                            <td className="px-3 py-3 text-xs text-gray-500 max-w-xs truncate">
-                              {stage.remarks || '-'}
-                            </td>
-                            {(user?.role === 'cre' || user?.role === 'super_admin') && (
-                              <td className="px-3 py-3 text-center">
-                                {!isPaid && (
-                                  <Button 
-                                    size="sm" 
-                                    variant="outline"
-                                    className="text-green-600 border-green-300 hover:bg-green-50"
-                                    onClick={() => openCollectDialog(stage)}
-                                  >
-                                    <DollarSign className="h-3 w-3 mr-1" />
-                                    Collect
-                                  </Button>
-                                )}
-                                {isPaid && (
-                                  <CheckCircle2 className="h-5 w-5 text-green-600 mx-auto" />
-                                )}
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                  {paymentSummary?.payment_stages?.length > 0 && (
-                    <tfoot className="bg-gray-100 font-semibold">
-                      <tr>
-                        <td colSpan={2} className="px-3 py-3">Total</td>
-                        <td className="px-3 py-3 text-right">100%</td>
-                        <td className="px-3 py-3 text-right">{formatCurrency(paymentSummary.summary?.total_scheduled)}</td>
-                        <td className="px-3 py-3 text-right text-green-600">{formatCurrency(paymentSummary.summary?.total_received)}</td>
-                        <td colSpan={5}></td>
-                      </tr>
-                    </tfoot>
-                  )}
-                </table>
-              </div>
-              </div>
-
-              {/* Payment History Section */}
-              <div className="mt-8">
-                <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" /> Payment Collection History
-                </h4>
-                <Card>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Date</th>
-                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Type</th>
-                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Description</th>
-                            <th className="px-4 py-3 text-right font-semibold text-gray-600">Amount</th>
-                            <th className="px-4 py-3 text-center font-semibold text-gray-600">Mode</th>
-                            <th className="px-4 py-3 text-left font-semibold text-gray-600">Reference</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {/* Advance Payment Row */}
-                          {paymentSummary?.advance_payment?.amount > 0 && (
-                            <tr className="bg-green-50 hover:bg-green-100">
-                              <td className="px-4 py-3 text-sm">
-                                {paymentSummary.advance_payment.date 
-                                  ? new Date(paymentSummary.advance_payment.date).toLocaleDateString('en-IN')
-                                  : 'N/A'}
-                              </td>
-                              <td className="px-4 py-3">
-                                <Badge className="bg-green-600 text-white">Advance</Badge>
-                              </td>
-                              <td className="px-4 py-3 font-medium">Advance Payment at Project Start</td>
-                              <td className="px-4 py-3 text-right font-bold text-green-700">
-                                {formatCurrency(paymentSummary.advance_payment.amount)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <Badge variant="outline" className="capitalize">
-                                  {paymentSummary.advance_payment.mode?.replace('_', ' ') || 'N/A'}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-gray-500">-</td>
-                            </tr>
-                          )}
-                          
-                          {/* Stage Payments */}
-                          {paymentSummary?.payment_stages
-                            ?.filter(stage => stage.status === 'paid' || stage.status === 'partial')
-                            .map((stage, idx) => (
-                              <tr key={stage.stage_id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 text-sm">
-                                  {stage.payment_date 
-                                    ? new Date(stage.payment_date).toLocaleDateString('en-IN')
-                                    : 'N/A'}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <Badge className={stage.status === 'paid' ? 'bg-secondary text-white' : 'bg-yellow-500 text-white'}>
-                                    {stage.status === 'paid' ? 'Stage Payment' : 'Partial'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 font-medium">{stage.stage_name}</td>
-                                <td className="px-4 py-3 text-right font-bold text-green-700">
-                                  {formatCurrency(stage.amount_received || 0)}
-                                </td>
-                                <td className="px-4 py-3 text-center">
-                                  <Badge variant="outline" className="capitalize">
-                                    {stage.payment_mode?.replace('_', ' ') || 'N/A'}
-                                  </Badge>
-                                </td>
-                                <td className="px-4 py-3 text-xs text-gray-500">
-                                  {stage.payment_reference || '-'}
-                                </td>
-                              </tr>
-                            ))}
-                          
-                          {/* Income Records */}
-                          {paymentSummary?.income_records?.map((income, idx) => (
-                            <tr key={income.income_id || idx} className="hover:bg-gray-50 bg-purple-50">
-                              <td className="px-4 py-3 text-sm">
-                                {income.date ? new Date(income.date).toLocaleDateString('en-IN') : 
-                                 income.created_at ? new Date(income.created_at).toLocaleDateString('en-IN') : 'N/A'}
-                              </td>
-                              <td className="px-4 py-3">
-                                <Badge className="bg-purple-600 text-white">Income</Badge>
-                              </td>
-                              <td className="px-4 py-3 font-medium">{income.description || income.category || 'Payment Received'}</td>
-                              <td className="px-4 py-3 text-right font-bold text-green-700">
-                                {formatCurrency(income.amount)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <Badge variant="outline" className="capitalize">
-                                  {income.payment_mode?.replace('_', ' ') || 'N/A'}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-xs text-gray-500">
-                                {income.reference || income.remarks || '-'}
-                              </td>
-                            </tr>
-                          ))}
-                          
-                          {/* Empty state */}
-                          {(!paymentSummary?.advance_payment?.amount && 
-                            !paymentSummary?.payment_stages?.some(s => s.status === 'paid' || s.status === 'partial') &&
-                            !paymentSummary?.income_records?.length) && (
-                            <tr>
-                              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                                No payments collected yet
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                        {/* Total Footer */}
-                        {(paymentSummary?.advance_payment?.amount > 0 || 
-                          paymentSummary?.payment_stages?.some(s => s.amount_received > 0) ||
-                          paymentSummary?.income_records?.length > 0) && (
-                          <tfoot className="bg-gray-100 font-semibold border-t-2">
-                            <tr>
-                              <td colSpan={3} className="px-4 py-3 text-right">Total Collected:</td>
-                              <td className="px-4 py-3 text-right text-green-700 text-lg">
-                                {formatCurrency(
-                                  (paymentSummary?.advance_payment?.amount || 0) +
-                                  (paymentSummary?.payment_stages?.reduce((sum, s) => sum + (s.amount_received || 0), 0) || 0) +
-                                  (paymentSummary?.income_records?.reduce((sum, i) => sum + (i.amount || 0), 0) || 0)
-                                )}
-                              </td>
-                              <td colSpan={2}></td>
-                            </tr>
-                          </tfoot>
-                        )}
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
             </TabsContent>
 
             {/* ==================== DOCUMENTS TAB ==================== */}
