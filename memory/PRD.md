@@ -21,39 +21,44 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] Cheque Management with Smart Payment
 - [x] Project Summary with payment details
 - [x] Role-based access control
-- [x] Accountant responsive design with fixed header, sticky tabs, fixed bottom nav (Mar 9, 2026)
+- [x] Accountant responsive design (Mar 9, 2026)
 - [x] Full E2E lifecycle test - 100% pass (Mar 9, 2026)
-- [x] **Income/Expense Approval System** (Mar 9, 2026)
-  - ApprovalsTab in AccountsBoard with summary cards & sub-tabs (Income, Material, Labour, Supplier)
-  - Source column in expense table (Manual vs Approval badges)
-  - Backend approval endpoints (GET /api/approvals/unified, POST approve/reject)
-- [x] **Super Admin auto-creation** for urbanspacebuilderstech@gmail.com (Mar 9, 2026)
-- [x] **Forgot Password flow** fully functional for password creation (Mar 9, 2026)
-- [x] AccountsBoard accessible by both Accountant and Super Admin roles
+- [x] Income/Expense Approval System (Mar 9, 2026)
+- [x] Super Admin auto-creation for urbanspacebuilderstech@gmail.com (Mar 9, 2026)
+- [x] Forgot Password flow (Mar 9, 2026)
+- [x] **RNR Stage** added to Pre-Sales pipeline (Mar 9, 2026)
+- [x] **Pipeline Stage Management** - Full CRUD for Pre-Sales & Sales stages (Mar 9, 2026)
+  - StageManagement page at /settings/stages
+  - Add, edit, delete, reorder stages with color picker & is_final flag
+  - Settings Quick Links for Pre-Sales & Sales Stages
+  - "Manage Stages" button in CRMPreSales & CRMSales (Super Admin only)
+- [x] **Pre-Sales → Sales transfer fix** (Mar 9, 2026)
+  - Removed hardcoded `stage["name"] == "Appointment Booked"` check
+  - Now triggers on any `is_final` pre-sales stage
+  - Added double-transfer prevention
+  - Added 'sem', 'social_media', 'direct' to LeadSource enum
+- [x] **CRE Payment Collection → Accountant Approval fix** (Mar 9, 2026)
+  - Payment collections now create income with `status: "pending_approval"`
+  - Deal conversion advance payments now also create income records for approval
+  - Full approve/reject flow working in Accountant's Approvals tab
 
 ## Credentials
 - All demo users: password `Demo@1234`
 - Super Admin: `admin@constructionos.com`
 - Accountant: `accountant@constructionos.com`
-- GM: `gm@constructionos.com`
-- Planning: `planning@constructionos.com`
 - CRE: `cre@constructionos.com`
-- Site Engineer: `engineer@constructionos.com`
-- Procurement: `procurement@constructionos.com`
-- Production Super Admin: `urbanspacebuilderstech@gmail.com` (use Forgot Password to set password)
+- Production Super Admin: `urbanspacebuilderstech@gmail.com` (use Forgot Password)
 
 ## Key API Endpoints
 - `GET /api/approvals/unified` - All pending approvals
 - `POST /api/approvals/income/{id}/approve` - Approve income
 - `POST /api/approvals/income/{id}/reject` - Reject income
-- `PATCH /api/expenses/{type}/{id}/{action}` - Approve/reject expenses
-- `POST /api/auth/forgot-password` - Password reset request
-- `POST /api/auth/reset-password` - Set new password
+- `POST /api/payment-stages/{id}/collect` - CRE collects payment (creates pending_approval income)
+- `GET /api/crm/stages/with-counts` - Stages with lead counts (Super Admin)
+- `POST/PATCH/DELETE /api/crm/stages` - Stage CRUD
 
 ## Backlog
 - [ ] Gantt Chart for project timelines (P1)
 - [ ] Aadhar Document Upload with encrypted storage (P2)
 - [ ] UI/UX review continuation (other pages responsive)
 - [ ] Production deployment guidance
-- [ ] MarketingBoard.jsx refactoring (2500+ lines)
-- [ ] Unify expenses/recorded_expenses collections for project-level expense view
