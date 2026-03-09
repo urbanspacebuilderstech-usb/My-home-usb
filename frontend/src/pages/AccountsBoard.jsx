@@ -74,6 +74,9 @@ export default function AccountsBoard() {
   // Filters
   const [incomeFilter, setIncomeFilter] = useState({ project: '', mode: '', stage: '' });
   const [expenseFilter, setExpenseFilter] = useState({ project: '', type: '', way: '' });
+  const [addExpenseOpen, setAddExpenseOpen] = useState(false);
+  const [newExpense, setNewExpense] = useState({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
+  const [submittingExpense, setSubmittingExpense] = useState(false);
 
   useEffect(() => {
     fetchAll();
@@ -152,6 +155,34 @@ export default function AccountsBoard() {
       </body></html>
     `);
     w.document.close();
+  };
+
+  // Add Expense
+  const handleAddExpense = async () => {
+    if (!newExpense.project_id || !newExpense.amount || !newExpense.category) {
+      toast.error('Project, Category & Amount are required');
+      return;
+    }
+    setSubmittingExpense(true);
+    try {
+      await axios.post(`${API}/accountant/record-expense`, {
+        project_id: newExpense.project_id,
+        category: newExpense.category,
+        description: newExpense.description || `${newExpense.category} expense`,
+        amount: parseFloat(newExpense.amount),
+        payment_method: newExpense.payment_method || 'cash',
+        vendor_name: newExpense.vendor_name || null,
+        reference: newExpense.transaction_id || null,
+      }, { withCredentials: true });
+      toast.success('Expense recorded successfully');
+      setAddExpenseOpen(false);
+      setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
+      fetchAll();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to record expense');
+    } finally {
+      setSubmittingExpense(false);
+    }
   };
 
   // Filtered data
@@ -467,7 +498,12 @@ export default function AccountsBoard() {
             {/* Expense Payment Record */}
             <Card>
               <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-sm">Expense Records ({filteredExpenses.length})</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Expense Records ({filteredExpenses.length})</CardTitle>
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1.5" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
+                    <Plus className="h-3.5 w-3.5" /> Add Expense
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="px-0">
                 <div className="overflow-x-auto">
@@ -614,6 +650,81 @@ export default function AccountsBoard() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Expense Dialog */}
+      <Dialog open={addExpenseOpen} onOpenChange={setAddExpenseOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <Plus className="h-5 w-5" /> EXPENSE
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Project *</Label>
+              <Select value={newExpense.project_id} onValueChange={v => setNewExpense(p => ({...p, project_id: v}))}>
+                <SelectTrigger className="h-9"><SelectValue placeholder="Select Project" /></SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Category *</Label>
+              <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="material">Material</SelectItem>
+                  <SelectItem value="labour">Labour</SelectItem>
+                  <SelectItem value="petty_cash">Petty Cash</SelectItem>
+                  <SelectItem value="indirect">Indirect Expense</SelectItem>
+                  <SelectItem value="transport">Transport</SelectItem>
+                  <SelectItem value="utilities">Utilities</SelectItem>
+                  <SelectItem value="rent">Rent</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Amount *</Label>
+              <Input type="number" placeholder="Enter amount" value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} />
+            </div>
+            <div>
+              <Label className="text-xs">Vendor Name</Label>
+              <Input placeholder="Vendor name" value={newExpense.vendor_name} onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} />
+            </div>
+            <div>
+              <Label className="text-xs">Description</Label>
+              <Input placeholder="Description / remarks" value={newExpense.description} onChange={e => setNewExpense(p => ({...p, description: e.target.value}))} />
+            </div>
+            <div>
+              <Label className="text-xs">Payment Mode</Label>
+              <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
+                <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="petty_cash">Petty Cash</SelectItem>
+                  <SelectItem value="direct_transfer">Direct Transfer (DT)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Transaction ID</Label>
+              <Input placeholder="Transaction ID / Cheque No" value={newExpense.transaction_id} onChange={e => setNewExpense(p => ({...p, transaction_id: e.target.value}))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddExpenseOpen(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleAddExpense} disabled={submittingExpense}>
+              {submittingExpense ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : null}
+              Submit Expense
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

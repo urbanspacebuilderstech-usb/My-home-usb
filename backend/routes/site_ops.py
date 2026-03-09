@@ -1386,8 +1386,9 @@ async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = D
 # ==================== ACCOUNTANT MODULE - COMPREHENSIVE ====================
 
 EXPENSE_CATEGORIES = [
-    "salary", "material", "labour", "transport", "utility",
-    "rent", "marketing", "office", "maintenance", "other"
+    "salary", "material", "labour", "transport", "utility", "utilities",
+    "rent", "marketing", "office", "maintenance", "other",
+    "petty_cash", "indirect"
 ]
 
 class RecordedExpenseCreate(BaseModel):
