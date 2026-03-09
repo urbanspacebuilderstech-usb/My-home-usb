@@ -847,8 +847,9 @@ function CashbookTab({ overview, projects }) {
                     </tr>
                   </thead>
                   <tbody>
+                    {/* Desktop inline add expense row - hidden on mobile */}
                     {addExpenseOpen && (
-                      <tr className="border-b bg-red-50/50 border-l-4 border-l-red-400">
+                      <tr className="border-b bg-red-50/50 border-l-4 border-l-red-400 hidden md:table-row">
                         <td className="px-2 py-2 text-center"><span className="text-[10px] font-bold text-red-500">NEW</span></td>
                         <td className="px-1 py-1.5">
                           <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
@@ -997,6 +998,84 @@ function CashbookTab({ overview, projects }) {
             <Button variant="outline" onClick={() => setShowSubmitConfirm(false)}>Cancel</Button>
             <Button className="bg-red-600 hover:bg-red-700" onClick={handleAddExpense} disabled={submittingExpense}>
               {submittingExpense ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : null} Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mobile-only Add Expense Dialog */}
+      <Dialog open={addExpenseOpen} onOpenChange={(open) => { if (window.innerWidth < 768) { setAddExpenseOpen(open); if (!open) setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); } }}>
+        <DialogContent className="max-w-[95vw] md:hidden rounded-xl" data-testid="mobile-add-expense-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-base flex items-center gap-2">
+              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                <Plus className="h-4 w-4 text-red-600" />
+              </div>
+              Add Expense
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Category</Label>
+                <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="material">Material</SelectItem>
+                    <SelectItem value="labour">Labour</SelectItem>
+                    <SelectItem value="petty_cash">Petty Cash</SelectItem>
+                    <SelectItem value="indirect">Indirect</SelectItem>
+                    <SelectItem value="transport">Transport</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500 mb-1 block">Payment Mode</Label>
+                <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Amount</Label>
+              <Input type="number" placeholder="Enter amount" className="h-9 text-sm"
+                value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))}
+                data-testid="mobile-expense-amount" />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Project</Label>
+              <Select value={newExpense.project_id} onValueChange={v => setNewExpense(p => ({...p, project_id: v}))}>
+                <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="Select project" /></SelectTrigger>
+                <SelectContent>
+                  {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Vendor</Label>
+              <Input placeholder="Vendor name (optional)" className="h-9 text-sm"
+                value={newExpense.vendor_name} onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} />
+            </div>
+            <div>
+              <Label className="text-xs text-gray-500 mb-1 block">Description</Label>
+              <Input placeholder="Brief description (optional)" className="h-9 text-sm"
+                value={newExpense.description} onChange={e => setNewExpense(p => ({...p, description: e.target.value}))} />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={() => { setAddExpenseOpen(false); setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
+              Cancel
+            </Button>
+            <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={handleExpenseSubmitClick} disabled={submittingExpense}
+              data-testid="mobile-expense-submit">
+              {submittingExpense ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />} Add Expense
             </Button>
           </DialogFooter>
         </DialogContent>
