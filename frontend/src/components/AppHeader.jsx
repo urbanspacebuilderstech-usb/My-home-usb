@@ -19,12 +19,9 @@ const ROLE_NAV = {
     { label: 'Settings', path: '/settings' },
   ],
   accountant: [
-    { label: 'Dashboard', path: '/accounts-board' },
+    { label: 'Accounts Board', path: '/accounts-board' },
     { label: 'Approvals', path: '/approvals' },
-    { label: 'Cashbook', path: '/accountant-module' },
-    { label: 'Suspense Account', path: '/suspense-account' },
-    { label: 'Cheque Mgmt', path: '/cheque-management' },
-    { label: 'Project Finance', path: '/accountant-dashboard' },
+    { label: 'Expenses', path: '/expenses' },
     { label: 'HR Portal', path: '/hr-portal' },
   ],
   general_manager: [
@@ -78,10 +75,7 @@ const ROLE_SUB_MENUS = {
     '/accounts-board': [
       { label: 'Accounts Board', path: '/accounts-board' },
       { label: 'Approvals', path: '/approvals' },
-      { label: 'Cashbook', path: '/accountant-module' },
-      { label: 'Suspense Account', path: '/suspense-account' },
-      { label: 'Cheque Management', path: '/cheque-management' },
-      { label: 'Project Finance', path: '/accountant-dashboard' },
+      { label: 'Expenses', path: '/expenses' },
       { label: 'HR Portal', path: '/hr-portal' },
     ],
     '/planning-board': [{ label: 'Planning Board', path: '/planning-board' }],

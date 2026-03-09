@@ -33,8 +33,7 @@ const OTHER_ROLES = {
   accountant: [
     { label: 'Dashboard', icon: Landmark, path: '/accounts-board' },
     { label: 'Approvals', icon: CheckSquare, path: '/approvals' },
-    { label: 'Cashbook', icon: DollarSign, path: '/accountant-module' },
-    { label: 'Suspense', icon: Calculator, path: '/suspense-account' },
+    { label: 'HR', icon: DollarSign, path: '/hr-portal' },
     { label: 'More', icon: Menu, action: 'more' },
   ],
   general_manager: [

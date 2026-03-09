@@ -28,10 +28,9 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'Approvals', icon: CheckSquare, path: '/approvals', roles: ['accountant'] },
     { name: 'Procurement', icon: ShoppingCart, path: '/procurement', roles: ['super_admin', 'procurement'] },
     { name: 'Site Receipt', icon: Camera, path: '/site-receipt', roles: ['site_engineer'] },
+    { name: 'Accounts Board', icon: Calculator, path: '/accounts-board', roles: ['super_admin', 'accountant'] },
     { name: 'Expenses', icon: DollarSign, path: '/expenses', roles: ['super_admin', 'accountant'] },
-    { name: 'Accountant Dashboard', icon: Calculator, path: '/accountant-dashboard', roles: ['super_admin', 'accountant'] },
     { name: 'HR Portal', icon: Briefcase, path: '/hr-portal', roles: ['super_admin', 'accountant'] },
-    { name: 'Cheques', icon: FileText, path: '/cheque-management', roles: ['super_admin', 'accountant'] },
     { name: 'Users', icon: Users, path: '/users', roles: ['super_admin'] },
     { name: 'Notifications', icon: Bell, path: '/notifications', roles: ['all'] },
   ];

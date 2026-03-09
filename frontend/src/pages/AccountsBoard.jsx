@@ -1,42 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
-  Wallet, DollarSign, CreditCard, Building2, Eye, FileText,
-  Download, ArrowUpRight, ArrowDownRight, TrendingUp, Banknote,
-  Landmark, PiggyBank, CircleDollarSign, RefreshCw, Filter, Printer,
-  ChevronDown, ChevronUp, X, Plus
+  Wallet, DollarSign, Building2, Eye, FileText, ArrowUpRight, ArrowDownRight,
+  TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
+  Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
+  CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
+  AlertCircle, BookOpen
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const MODE_LABELS = {
-  cash: 'Cash',
-  current_account: 'Current A/c',
-  savings_account: 'Savings A/c',
-  cheque: 'Cheque',
-  petty_cash: 'Petty Cash',
-  miscellaneous: 'Miscellaneous',
-  direct_transfer: 'Cash DT',
-  suspense_account: 'Suspense A/c'
+  cash: 'Cash', current_account: 'Current A/c', savings_account: 'Savings A/c',
+  cheque: 'Cheque', petty_cash: 'Petty Cash', miscellaneous: 'Miscellaneous',
+  direct_transfer: 'Cash DT', suspense_account: 'Suspense A/c'
 };
-
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
   cheque: FileText, petty_cash: Wallet, miscellaneous: CircleDollarSign,
   direct_transfer: ArrowUpRight, suspense_account: RefreshCw
 };
-
 const MODE_COLORS = {
   cash: 'bg-green-50 text-green-700 border-green-200',
   current_account: 'bg-blue-50 text-blue-700 border-blue-200',
@@ -48,6 +43,15 @@ const MODE_COLORS = {
   suspense_account: 'bg-red-50 text-red-700 border-red-200'
 };
 
+const CHEQUE_STATUSES = [
+  { value: 'issued', label: 'Issued', color: 'bg-amber-50 text-amber-700' },
+  { value: 'deposited', label: 'Deposited', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'cleared', label: 'Cleared', color: 'bg-green-100 text-green-700' },
+  { value: 'bounced', label: 'Bounced', color: 'bg-red-100 text-red-700' },
+  { value: 'cancelled', label: 'Cancelled', color: 'bg-gray-100 text-gray-700' },
+  { value: 'post_dated', label: 'Post-Dated', color: 'bg-purple-100 text-purple-700' }
+];
+
 const fmt = (n) => {
   if (n === undefined || n === null) return '0';
   if (n >= 10000000) return `${(n / 10000000).toFixed(2)} Cr`;
@@ -55,110 +59,201 @@ const fmt = (n) => {
   if (n >= 1000) return `${(n / 1000).toFixed(1)} K`;
   return n.toLocaleString('en-IN');
 };
-
 const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 
-export default function AccountsBoard() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState(null);
-  const [mainTab, setMainTab] = useState('income');
+const classifyMode = (mode) => {
+  if (!mode) return 'cash';
+  const m = mode.toLowerCase().replace(/\s+/g, '_');
+  const map = {
+    cash: 'cash', bank_transfer: 'current_account', neft: 'current_account',
+    rtgs: 'current_account', imps: 'current_account', upi: 'current_account',
+    cheque: 'cheque', petty_cash: 'petty_cash', savings: 'savings_account',
+    savings_account: 'savings_account', current_account: 'current_account',
+    miscellaneous: 'miscellaneous', direct_transfer: 'direct_transfer',
+    dt: 'direct_transfer', suspense: 'suspense_account', suspense_account: 'suspense_account'
+  };
+  return map[m] || 'miscellaneous';
+};
+
+// ============ DASHBOARD TAB ============
+function DashboardTab({ overview }) {
+  const [projectExpanded, setProjectExpanded] = useState(false);
+  const inc = overview?.income_by_mode || {};
+  const exp = overview?.expense_by_mode || {};
+  const totals = overview?.totals || {};
+  const projects = overview?.project_wise || [];
+
+  const allExpenses = overview?.expense_entries || [];
+  const expByCategory = {
+    overall: allExpenses.reduce((s, e) => s + (e.amount || 0), 0),
+    material: allExpenses.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
+    labour: allExpenses.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
+    petty_cash: overview?.petty_cash?.spent || 0,
+    suspense: overview?.suspense_balance || 0,
+    other: allExpenses.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
+  };
+  const EXP_CATEGORIES = [
+    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
+    { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+    { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
+    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+  ];
+
+  return (
+    <div className="space-y-4" data-testid="dashboard-tab">
+      {/* Financial Overview */}
+      <Card className="border-l-4 border-l-amber-500">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
+            </CardTitle>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
+              <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
+              <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                Net: {fmtFull(totals.net_balance)}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          <div className="grid grid-cols-9 gap-2">
+            {Object.keys(MODE_LABELS).map(mode => {
+              const Icon = MODE_ICONS[mode];
+              return (
+                <div key={mode} className={`rounded-lg border p-2 text-center ${MODE_COLORS[mode]}`}>
+                  <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
+                  <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                  <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
+                  <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
+                </div>
+              );
+            })}
+            <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
+              <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
+              <p className="text-[10px] font-medium">Total</p>
+              <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
+              <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Expense Category Breakdown */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        {EXP_CATEGORIES.map(cat => {
+          const Icon = cat.icon;
+          return (
+            <Card key={cat.key} className={`border ${cat.color}`} data-testid={`exp-cat-${cat.key}`}>
+              <CardContent className="p-3 text-center">
+                <Icon className="h-4 w-4 mx-auto mb-1 opacity-70" />
+                <p className="text-[11px] font-semibold">{cat.label}</p>
+                <p className="text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Project-wise Collapsible */}
+      <Card>
+        <CardHeader className="pb-0 pt-3 px-4 cursor-pointer" onClick={() => setProjectExpanded(!projectExpanded)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-amber-600" /> Project-wise Summary
+              <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
+            </CardTitle>
+            {projectExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </div>
+        </CardHeader>
+        {projectExpanded && (
+          <CardContent className="px-4 pb-3 pt-2">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="project-summary-table">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="text-left px-2 py-1.5 font-medium text-gray-500">Project</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-green-600">Income</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-red-600">Expense</th>
+                    <th className="text-right px-2 py-1.5 font-medium text-gray-700">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {projects.map((p, i) => (
+                    <tr key={i} className="border-b hover:bg-gray-50">
+                      <td className="px-2 py-1.5 font-medium">{p.project_name}</td>
+                      <td className="px-2 py-1.5 text-right text-green-700">{fmtFull(p.income)}</td>
+                      <td className="px-2 py-1.5 text-right text-red-600">{fmtFull(p.expense)}</td>
+                      <td className={`px-2 py-1.5 text-right font-semibold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {fmtFull(p.balance)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// ============ CASHBOOK TAB ============
+function CashbookTab({ overview, projects }) {
+  const [cashbookData, setCashbookData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [subTab, setSubTab] = useState('income');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [filterProject, setFilterProject] = useState('');
   const [expenseSubTab, setExpenseSubTab] = useState('all');
-  const [modeDetailDialog, setModeDetailDialog] = useState(false);
-  const [selectedMode, setSelectedMode] = useState(null);
-  const [selectedModeEntries, setSelectedModeEntries] = useState([]);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
-  const [projectExpanded, setProjectExpanded] = useState(false);
-
-  // Filters
-  const [incomeFilter, setIncomeFilter] = useState({ project: '', mode: '', stage: '' });
-  const [expenseFilter, setExpenseFilter] = useState({ project: '', type: '', way: '' });
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
-  const [newExpense, setNewExpense] = useState({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
-  const [submittingExpense, setSubmittingExpense] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [submittingExpense, setSubmittingExpense] = useState(false);
+  const [newExpense, setNewExpense] = useState({
+    project_id: '', category: 'material', amount: '', vendor_name: '',
+    description: '', payment_method: 'cash', transaction_id: ''
+  });
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
-
-  const fetchAll = async () => {
+  const fetchCashbook = useCallback(async () => {
     try {
       setLoading(true);
-      const [userRes, overviewRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
-        axios.get(`${API}/accountant/overview`)
-      ]);
-      if (!['accountant', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied');
-        window.location.href = '/dashboard';
-        return;
-      }
-      setUser(userRes.data);
-      setOverview(overviewRes.data);
-    } catch (error) {
-      if (error.response?.status === 401) window.location.href = '/login';
+      const params = new URLSearchParams();
+      if (dateFrom) params.append('start_date', dateFrom);
+      if (dateTo) params.append('end_date', dateTo);
+      if (filterProject) params.append('project_id', filterProject);
+      const res = await axios.get(`${API}/accountant/cashbook-filtered?${params}`);
+      setCashbookData(res.data);
+    } catch (err) {
+      toast.error('Failed to load cashbook');
     } finally {
       setLoading(false);
     }
-  };
+  }, [dateFrom, dateTo, filterProject]);
 
-  const openModeDetail = (mode, type) => {
-    setSelectedMode({ mode, type, label: MODE_LABELS[mode] || mode });
-    const entries = type === 'income'
-      ? (overview?.income_entries || []).filter(e => classifyMode(e.payment_mode) === mode)
-      : (overview?.expense_entries || []).filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
-    setSelectedModeEntries(entries);
-    setModeDetailDialog(true);
-  };
+  useEffect(() => {
+    fetchCashbook();
+  }, [fetchCashbook]);
 
-  const classifyMode = (mode) => {
-    if (!mode) return 'cash';
-    const m = mode.toLowerCase().replace(/\s+/g, '_');
-    const map = {
-      cash: 'cash', bank_transfer: 'current_account', neft: 'current_account',
-      rtgs: 'current_account', imps: 'current_account', upi: 'current_account',
-      cheque: 'cheque', petty_cash: 'petty_cash', savings: 'savings_account',
-      savings_account: 'savings_account', current_account: 'current_account',
-      miscellaneous: 'miscellaneous', direct_transfer: 'direct_transfer',
-      dt: 'direct_transfer', suspense: 'suspense_account', suspense_account: 'suspense_account'
-    };
-    return map[m] || 'miscellaneous';
-  };
+  const incomeEntries = cashbookData?.income_entries || overview?.income_entries || [];
+  const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
+  const summary = cashbookData?.summary || overview?.totals || {};
 
-  const handlePrintReceipt = (entry) => {
-    const w = window.open('', '_blank');
-    w.document.write(`
-      <html><head><title>Payment Receipt</title>
-      <style>body{font-family:Arial;padding:40px;max-width:600px;margin:auto}
-      h1{text-align:center;color:#333;border-bottom:2px solid #d97706;padding-bottom:10px}
-      .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
-      .label{color:#666;font-weight:500}.value{font-weight:600}
-      .amount{font-size:24px;text-align:center;color:#059669;margin:20px 0}
-      .footer{text-align:center;margin-top:30px;color:#999;font-size:12px}
-      @media print{button{display:none}}</style></head><body>
-      <h1>My Home USB</h1>
-      <p style="text-align:center;color:#666">Payment Receipt</p>
-      <div class="amount">${fmtFull(entry.amount)}</div>
-      <div class="row"><span class="label">Date</span><span class="value">${new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} ${new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span></div>
-      <div class="row"><span class="label">Project</span><span class="value">${entry.project_name || 'N/A'}</span></div>
-      <div class="row"><span class="label">Stage</span><span class="value">${entry.stage || entry.description || 'N/A'}</span></div>
-      <div class="row"><span class="label">Mode</span><span class="value">${entry.payment_mode || entry.payment_method || 'Cash'}</span></div>
-      <div class="row"><span class="label">Status</span><span class="value">${entry.status || 'Recorded'}</span></div>
-      <div class="row"><span class="label">Transaction ID</span><span class="value">${entry.reference_number || entry.transaction_id || 'Cash'}</span></div>
-      ${entry.cheque_number ? `<div class="row"><span class="label">Cheque No</span><span class="value">${entry.cheque_number}</span></div>` : ''}
-      ${entry.remarks ? `<div class="row"><span class="label">Remarks</span><span class="value">${entry.remarks}</span></div>` : ''}
-      <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}<br>My Home USB - Urban Space Builders</div>
-      <div style="text-align:center;margin-top:20px">
-        <button onclick="window.print()" style="padding:8px 24px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer">Print / Download PDF</button>
-      </div>
-      </body></html>
-    `);
-    w.document.close();
-  };
+  const filteredExpenses = allExpenseEntries.filter(e => {
+    if (expenseSubTab === 'all') return true;
+    if (expenseSubTab === 'material') return e.expense_type === 'material';
+    if (expenseSubTab === 'labour') return e.expense_type === 'labour';
+    if (expenseSubTab === 'petty_cash') return e.expense_type === 'petty_cash';
+    if (expenseSubTab === 'other') return !['material', 'labour', 'petty_cash'].includes(e.expense_type);
+    return true;
+  });
 
-  // Add Expense - confirm then submit
   const handleExpenseSubmitClick = () => {
     if (!newExpense.project_id || !newExpense.amount || !newExpense.category) {
       toast.error('Project, Category & Amount are required');
@@ -179,11 +274,11 @@ export default function AccountsBoard() {
         vendor_name: newExpense.vendor_name || null,
         reference: newExpense.transaction_id || null,
       }, { withCredentials: true });
-      toast.success('Expense recorded manually');
+      toast.success('Expense recorded');
       setShowSubmitConfirm(false);
       setAddExpenseOpen(false);
       setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
-      fetchAll();
+      fetchCashbook();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record expense');
     } finally {
@@ -191,52 +286,955 @@ export default function AccountsBoard() {
     }
   };
 
-  // Filtered data
-  const filteredIncome = (overview?.income_entries || []).filter(e => {
-    if (incomeFilter.project && e.project_id !== incomeFilter.project) return false;
-    if (incomeFilter.mode && classifyMode(e.payment_mode) !== incomeFilter.mode) return false;
-    if (incomeFilter.stage && !(e.stage || '').toLowerCase().includes(incomeFilter.stage.toLowerCase())) return false;
-    return true;
-  });
-
-  const filteredExpenses = (overview?.expense_entries || []).filter(e => {
-    if (expenseSubTab !== 'all') {
-      if (expenseSubTab === 'other') {
-        if (['material', 'labour'].includes(e.expense_type)) return false;
-      } else if (expenseSubTab === 'suspense') {
-        // show all for suspense tab
-      } else {
-        if (e.expense_type !== expenseSubTab) return false;
-      }
-    }
-    if (expenseFilter.project && e.project_id !== expenseFilter.project) return false;
-    if (expenseFilter.type && e.expense_type !== expenseFilter.type) return false;
-    if (expenseFilter.way === 'manual' && e.auto_synced !== false) return false;
-    if (expenseFilter.way === 'approval' && !e.approved_by) return false;
-    return true;
-  });
-
-  const projects = overview?.project_wise || [];
-
-  // Compute expense by category
-  const allExpenses = overview?.expense_entries || [];
-  const expByCategory = {
-    overall: allExpenses.reduce((s, e) => s + (e.amount || 0), 0),
-    material: allExpenses.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
-    labour: allExpenses.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
-    petty_cash: overview?.petty_cash?.spent || 0,
-    suspense: overview?.suspense_balance || 0,
-    other: allExpenses.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
+  const handlePrintReceipt = (entry) => {
+    const w = window.open('', '_blank');
+    w.document.write(`<html><head><title>Payment Receipt</title>
+      <style>body{font-family:Arial;padding:40px;max-width:600px;margin:auto}
+      h1{text-align:center;color:#333;border-bottom:2px solid #d97706;padding-bottom:10px}
+      .row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eee}
+      .label{color:#666;font-weight:500}.value{font-weight:600}
+      .amount{font-size:24px;text-align:center;color:#059669;margin:20px 0}
+      .footer{text-align:center;margin-top:30px;color:#999;font-size:12px}
+      @media print{button{display:none}}</style></head><body>
+      <h1>My Home USB</h1><p style="text-align:center;color:#666">Payment Receipt</p>
+      <div class="amount">${fmtFull(entry.amount)}</div>
+      <div class="row"><span class="label">Date</span><span class="value">${new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN')}</span></div>
+      <div class="row"><span class="label">Project</span><span class="value">${entry.project_name || 'N/A'}</span></div>
+      <div class="row"><span class="label">Mode</span><span class="value">${entry.payment_mode || entry.payment_method || 'Cash'}</span></div>
+      <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}<br>My Home USB - Urban Space Builders</div>
+      <div style="text-align:center;margin-top:20px">
+        <button onclick="window.print()" style="padding:8px 24px;background:#d97706;color:#fff;border:none;border-radius:6px;cursor:pointer">Print / Download PDF</button>
+      </div></body></html>`);
+    w.document.close();
   };
 
-  const EXP_CATEGORIES = [
-    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
-    { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-    { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
-    { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
-  ];
+  const projectsList = cashbookData?.projects || projects || [];
+
+  return (
+    <div className="space-y-4" data-testid="cashbook-tab">
+      {/* Date Range Filters */}
+      <Card>
+        <CardContent className="p-3 flex flex-wrap gap-3 items-center">
+          <Calendar className="h-4 w-4 text-amber-600" />
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-gray-500 whitespace-nowrap">From</Label>
+            <Input type="date" className="h-8 w-40 text-xs" value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)} data-testid="cashbook-date-from" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-gray-500 whitespace-nowrap">To</Label>
+            <Input type="date" className="h-8 w-40 text-xs" value={dateTo}
+              onChange={e => setDateTo(e.target.value)} data-testid="cashbook-date-to" />
+          </div>
+          <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
+            <SelectTrigger className="w-48 h-8 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Projects</SelectItem>
+              {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {(dateFrom || dateTo || filterProject) && (
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setDateFrom(''); setDateTo(''); setFilterProject(''); }}>
+              <X className="h-3 w-3 mr-1" /> Clear
+            </Button>
+          )}
+          {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+        </CardContent>
+      </Card>
+
+      {/* Summary Row */}
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Income</p>
+            <p className="text-lg font-bold text-green-700">{fmtFull(summary.total_income)}</p>
+            <p className="text-[10px] text-gray-400">{summary.income_count || incomeEntries.length} entries</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Expense</p>
+            <p className="text-lg font-bold text-red-600">{fmtFull(summary.total_expense)}</p>
+            <p className="text-[10px] text-gray-400">{summary.expense_count || filteredExpenses.length} entries</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Net Balance</p>
+            <p className={`text-lg font-bold ${(summary.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(summary.net_balance)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Income / Expense Sub-tabs */}
+      <Tabs value={subTab} onValueChange={setSubTab}>
+        <TabsList className="w-full grid grid-cols-2 mb-3">
+          <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="cashbook-income-tab">
+            <ArrowDownRight className="h-4 w-4" /> Income ({incomeEntries.length})
+          </TabsTrigger>
+          <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="cashbook-expense-tab">
+            <ArrowUpRight className="h-4 w-4" /> Expense ({allExpenseEntries.length})
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="income">
+          <Card>
+            <CardContent className="px-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="cashbook-income-table">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Stage</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {incomeEntries.map((entry, i) => (
+                      <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2">
+                          {new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          {' '}<span className="text-gray-400">{new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </td>
+                        <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge></td>
+                        <td className="px-3 py-2">
+                          <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
+                            {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[10px]">{entry.reference_number || entry.cheque_number || 'Cash'}</td>
+                        <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(entry.amount)}</td>
+                        <td className="px-3 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
+                              <Printer className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {incomeEntries.length === 0 && (
+                      <tr><td colSpan={8} className="text-center py-8 text-gray-400">No income entries found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="expense">
+          {/* Expense sub-filters */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {['all', 'material', 'labour', 'petty_cash', 'other'].map(tab => (
+              <Button key={tab} size="sm" variant={expenseSubTab === tab ? 'default' : 'outline'}
+                className={`text-xs h-7 ${expenseSubTab === tab ? 'bg-red-600 hover:bg-red-700' : ''}`}
+                onClick={() => setExpenseSubTab(tab)} data-testid={`expense-filter-${tab}`}>
+                {tab === 'all' ? 'All' : tab === 'petty_cash' ? 'Petty Cash' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </Button>
+            ))}
+            <div className="ml-auto">
+              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1.5 h-7" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
+                <Plus className="h-3.5 w-3.5" /> Add Expense
+              </Button>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="px-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="cashbook-expense-table">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                      <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Inline Add Expense Row */}
+                    {addExpenseOpen && (
+                      <tr className="border-b bg-red-50/50 border-l-4 border-l-red-400">
+                        <td className="px-2 py-2 text-center"><span className="text-[10px] font-bold text-red-500">NEW</span></td>
+                        <td className="px-1 py-1.5">
+                          <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
+                            <SelectTrigger className="h-7 text-[11px] w-24 bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="material">Material</SelectItem>
+                              <SelectItem value="labour">Labour</SelectItem>
+                              <SelectItem value="petty_cash">Petty Cash</SelectItem>
+                              <SelectItem value="indirect">Indirect</SelectItem>
+                              <SelectItem value="transport">Transport</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-1 py-1.5 text-[10px] text-gray-400 whitespace-nowrap">
+                          {new Date().toLocaleDateString('en-IN')} {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-1 py-1.5">
+                          <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
+                            <SelectTrigger className="h-7 text-[11px] w-24 bg-white"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="cash">Cash</SelectItem>
+                              <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                              <SelectItem value="cheque">Cheque</SelectItem>
+                              <SelectItem value="upi">UPI</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-1 py-1.5">
+                          <Input type="number" placeholder="Amount" className="h-7 text-[11px] w-24 bg-white text-right"
+                            value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} />
+                        </td>
+                        <td className="px-1 py-1.5">
+                          <Input placeholder="Vendor" className="h-7 text-[11px] w-24 bg-white"
+                            value={newExpense.vendor_name} onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} />
+                        </td>
+                        <td className="px-1 py-1.5">
+                          <Select value={newExpense.project_id} onValueChange={v => setNewExpense(p => ({...p, project_id: v}))}>
+                            <SelectTrigger className="h-7 text-[11px] w-32 bg-white"><SelectValue placeholder="Project" /></SelectTrigger>
+                            <SelectContent>
+                              {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-1 py-1.5 text-center">
+                          <div className="flex items-center gap-1 justify-center">
+                            <Button size="sm" className="h-7 text-[11px] bg-red-600 hover:bg-red-700 px-2.5" onClick={handleExpenseSubmitClick} data-testid="submit-expense-row-btn">Submit</Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400" onClick={() => { setAddExpenseOpen(false); setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {filteredExpenses.map((entry, i) => (
+                      <tr key={entry.expense_id || entry.request_id || i} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2">
+                          <Badge className={
+                            entry.expense_type === 'material' ? 'bg-blue-100 text-blue-700' :
+                            entry.expense_type === 'labour' ? 'bg-purple-100 text-purple-700' :
+                            entry.expense_type === 'petty_cash' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
+                          }>{entry.expense_type || entry.category || 'Other'}</Badge>
+                        </td>
+                        <td className="px-3 py-2">
+                          {new Date(entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          {' '}<span className="text-gray-400">{new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_method || entry.payment_mode)]}`}>
+                            {MODE_LABELS[classifyMode(entry.payment_method || entry.payment_mode)] || 'Cash'}
+                          </Badge>
+                        </td>
+                        <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(entry.amount)}</td>
+                        <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '-'}</td>
+                        <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
+                              <Printer className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredExpenses.length === 0 && (
+                      <tr><td colSpan={8} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* View Entry Dialog */}
+      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Transaction Details</DialogTitle></DialogHeader>
+          {selectedEntry && (
+            <div className="space-y-3">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-gray-900">{fmtFull(selectedEntry.amount)}</p>
+                <Badge className={selectedEntry.income_id ? 'bg-green-100 text-green-700 mt-1' : 'bg-red-100 text-red-700 mt-1'}>
+                  {selectedEntry.income_id ? 'Income' : 'Expense'}
+                </Badge>
+              </div>
+              <div className="space-y-2 text-sm">
+                {[
+                  ['Project', selectedEntry.project_name],
+                  ['Description', selectedEntry.stage || selectedEntry.description],
+                  ['Date', new Date(selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
+                  ['Mode', selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
+                  ['Vendor', selectedEntry.vendor_name],
+                ].filter(([, v]) => v).map(([label, value]) => (
+                  <div key={label} className="flex justify-between border-b pb-1">
+                    <span className="text-gray-500">{label}</span>
+                    <span className="font-medium">{value}</span>
+                  </div>
+                ))}
+              </div>
+              <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
+                <Printer className="h-4 w-4 mr-2" /> Print Receipt
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Submit Confirmation */}
+      <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="text-center text-lg">Confirm Expense</DialogTitle></DialogHeader>
+          <div className="text-center space-y-3 py-2">
+            <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+              <FileText className="h-7 w-7 text-red-600" />
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+              <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold text-red-600">{fmtFull(parseFloat(newExpense.amount) || 0)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{newExpense.category}</span></div>
+              {newExpense.vendor_name && <div className="flex justify-between"><span className="text-gray-500">Vendor</span><span className="font-medium">{newExpense.vendor_name}</span></div>}
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowSubmitConfirm(false)}>Cancel</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={handleAddExpense} disabled={submittingExpense}>
+              {submittingExpense ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : null} Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============ CHEQUE MANAGEMENT TAB ============
+function ChequeManagementTab({ projects }) {
+  const [cheques, setCheques] = useState([]);
+  const [reminders, setReminders] = useState([]);
+  const [vendorSuspense, setVendorSuspense] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [addDialog, setAddDialog] = useState(false);
+  const [statusDialog, setStatusDialog] = useState(false);
+  const [smartPayDialog, setSmartPayDialog] = useState(false);
+  const [selectedCheque, setSelectedCheque] = useState(null);
+  const [suspenseAlert, setSuspenseAlert] = useState(null);
+
+  const [chequeForm, setChequeForm] = useState({
+    cheque_number: '', bank_name: '', branch_name: '', account_number: '',
+    ifsc_code: '', amount: '', cheque_date: '', cheque_type: 'incoming',
+    party_name: '', party_type: 'client', project_id: '', is_post_dated: false,
+    reminder_date: '', remarks: ''
+  });
+
+  const [statusForm, setStatusForm] = useState({
+    status: '', deposit_date: '', clearance_date: '', bounce_reason: '', bounce_charges: '', remarks: ''
+  });
+
+  const [smartPayForm, setSmartPayForm] = useState({
+    cheque_id: '', expense_project_id: '', expense_category: 'material',
+    expense_description: '', expense_amount: '', vendor_name: '',
+    use_suspense: false, suspense_amount_to_use: 0, remarks: ''
+  });
+
+  const fetchChequeData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [chequesRes, remindersRes, suspenseRes] = await Promise.all([
+        axios.get(`${API}/accountant/cheques`),
+        axios.get(`${API}/accountant/cheques/reminders`),
+        axios.get(`${API}/accountant/all-vendor-suspense`),
+      ]);
+      setCheques(chequesRes.data);
+      setReminders(remindersRes.data);
+      setVendorSuspense(suspenseRes.data);
+    } catch (err) {
+      console.error('Failed to load cheques:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchChequeData(); }, [fetchChequeData]);
+
+  const handleAddCheque = async () => {
+    if (!chequeForm.cheque_number || !chequeForm.bank_name || !chequeForm.amount || !chequeForm.party_name) {
+      toast.error('Please fill required fields'); return;
+    }
+    try {
+      await axios.post(`${API}/accountant/cheques`, {
+        ...chequeForm,
+        amount: parseFloat(chequeForm.amount),
+        cheque_date: new Date(chequeForm.cheque_date).toISOString(),
+        reminder_date: chequeForm.reminder_date ? new Date(chequeForm.reminder_date).toISOString() : null
+      });
+      toast.success('Cheque record added');
+      setAddDialog(false);
+      fetchChequeData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to add cheque');
+    }
+  };
+
+  const handleUpdateStatus = async () => {
+    try {
+      await axios.patch(`${API}/accountant/cheques/${selectedCheque.cheque_id}/status`, {
+        status: statusForm.status,
+        deposit_date: statusForm.deposit_date ? new Date(statusForm.deposit_date).toISOString() : null,
+        clearance_date: statusForm.clearance_date ? new Date(statusForm.clearance_date).toISOString() : null,
+        bounce_reason: statusForm.bounce_reason || null,
+        bounce_charges: parseFloat(statusForm.bounce_charges) || 0,
+        remarks: statusForm.remarks || null
+      });
+      toast.success('Cheque status updated');
+      setStatusDialog(false);
+      fetchChequeData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update status');
+    }
+  };
+
+  // Smart payment: check vendor suspense when vendor name changes
+  const checkVendorSuspense = async (vendorName) => {
+    if (!vendorName) { setSuspenseAlert(null); return; }
+    try {
+      const res = await axios.get(`${API}/accountant/vendor-suspense/${encodeURIComponent(vendorName)}`);
+      if (res.data.suspense_balance > 0) {
+        setSuspenseAlert(res.data);
+        setSmartPayForm(prev => ({ ...prev, use_suspense: true, suspense_amount_to_use: res.data.suspense_balance }));
+      } else {
+        setSuspenseAlert(null);
+      }
+    } catch {
+      setSuspenseAlert(null);
+    }
+  };
+
+  const handleSmartPayment = async () => {
+    if (!smartPayForm.cheque_id || !smartPayForm.expense_project_id || !smartPayForm.expense_amount || !smartPayForm.vendor_name) {
+      toast.error('Fill all required fields'); return;
+    }
+    try {
+      const res = await axios.post(`${API}/accountant/cheque-payment`, {
+        ...smartPayForm,
+        expense_amount: parseFloat(smartPayForm.expense_amount),
+        suspense_amount_to_use: smartPayForm.use_suspense ? parseFloat(smartPayForm.suspense_amount_to_use) || 0 : 0,
+      });
+      toast.success(res.data.message);
+      setSmartPayDialog(false);
+      setSuspenseAlert(null);
+      setSmartPayForm({ cheque_id: '', expense_project_id: '', expense_category: 'material', expense_description: '', expense_amount: '', vendor_name: '', use_suspense: false, suspense_amount_to_use: 0, remarks: '' });
+      fetchChequeData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Payment failed');
+    }
+  };
+
+  const getStatusBadge = (status) => {
+    const config = CHEQUE_STATUSES.find(s => s.value === status) || { label: status, color: 'bg-gray-100 text-gray-700' };
+    return <Badge className={config.color}>{config.label}</Badge>;
+  };
+
+  const filteredCheques = cheques.filter(c => {
+    const matchesSearch = !searchTerm ||
+      c.cheque_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.party_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      c.bank_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    if (activeTab === 'all') return matchesSearch;
+    if (activeTab === 'incoming') return matchesSearch && c.cheque_type === 'incoming';
+    if (activeTab === 'outgoing') return matchesSearch && c.cheque_type === 'outgoing';
+    if (activeTab === 'pending') return matchesSearch && ['issued', 'deposited', 'post_dated'].includes(c.status);
+    if (activeTab === 'bounced') return matchesSearch && c.status === 'bounced';
+    return matchesSearch;
+  });
+
+  const stats = {
+    total: cheques.length,
+    incoming: cheques.filter(c => c.cheque_type === 'incoming').length,
+    outgoing: cheques.filter(c => c.cheque_type === 'outgoing').length,
+    pending: cheques.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).length,
+    bounced: cheques.filter(c => c.status === 'bounced').length,
+    cleared: cheques.filter(c => c.status === 'cleared').length,
+    pendingAmount: cheques.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).reduce((sum, c) => sum + (c.amount || 0), 0),
+  };
+
+  // Uncleared outgoing cheques for smart payment
+  const unclearedOutgoing = cheques.filter(c => c.cheque_type === 'outgoing' && ['issued', 'post_dated'].includes(c.status));
+
+  return (
+    <div className="space-y-4" data-testid="cheque-management-tab">
+      {/* Reminders */}
+      {reminders.length > 0 && (
+        <Card className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200" data-testid="cheque-reminders">
+          <CardContent className="p-3">
+            <div className="flex items-start gap-2">
+              <Bell className="h-4 w-4 text-amber-600 mt-0.5" />
+              <div>
+                <p className="font-semibold text-amber-800 text-sm">Post-Dated Cheque Reminders ({reminders.length})</p>
+                {reminders.slice(0, 3).map(r => (
+                  <div key={r.cheque_id} className="text-xs bg-white/50 rounded px-2 py-0.5 mt-1">
+                    <span className="font-medium">{r.cheque_number}</span> - {r.party_name} - {fmtFull(r.amount)}
+                    <span className="text-amber-600 ml-2">Due: {new Date(r.cheque_date).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Vendor Suspense Alert */}
+      {vendorSuspense.length > 0 && (
+        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200" data-testid="vendor-suspense-summary">
+          <CardContent className="p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-blue-800 text-sm">Vendor Suspense Balances</p>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {vendorSuspense.map(v => (
+                    <Badge key={v.vendor_name} className="bg-blue-100 text-blue-700 text-xs">
+                      {v.vendor_name}: {fmtFull(v.balance)}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab('all')}>
+          <CardContent className="p-3 text-center">
+            <FileText className="h-5 w-5 mx-auto mb-1 text-gray-600" />
+            <p className="text-xl font-bold">{stats.total}</p>
+            <p className="text-[10px] text-gray-500">Total</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md bg-green-50" onClick={() => setActiveTab('incoming')}>
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-green-700">{stats.incoming}</p>
+            <p className="text-[10px] text-green-600">Incoming</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md bg-amber-50" onClick={() => setActiveTab('outgoing')}>
+          <CardContent className="p-3 text-center">
+            <p className="text-xl font-bold text-amber-700">{stats.outgoing}</p>
+            <p className="text-[10px] text-amber-600">Outgoing</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md bg-amber-50" onClick={() => setActiveTab('pending')}>
+          <CardContent className="p-3 text-center">
+            <Clock className="h-4 w-4 mx-auto mb-0.5 text-amber-600" />
+            <p className="text-xl font-bold text-amber-700">{stats.pending}</p>
+            <p className="text-[10px] text-amber-600">Pending</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-md bg-red-50" onClick={() => setActiveTab('bounced')}>
+          <CardContent className="p-3 text-center">
+            <XCircle className="h-4 w-4 mx-auto mb-0.5 text-red-600" />
+            <p className="text-xl font-bold text-red-700">{stats.bounced}</p>
+            <p className="text-[10px] text-red-600">Bounced</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-emerald-50">
+          <CardContent className="p-3 text-center">
+            <CheckCircle className="h-4 w-4 mx-auto mb-0.5 text-emerald-600" />
+            <p className="text-xl font-bold text-emerald-700">{stats.cleared}</p>
+            <p className="text-[10px] text-emerald-600">Cleared</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cheques Table */}
+      <Card>
+        <CardHeader className="border-b py-3 px-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-1">
+              {['all', 'incoming', 'outgoing', 'pending', 'bounced'].map(tab => (
+                <Button key={tab} size="sm" variant={activeTab === tab ? 'default' : 'ghost'}
+                  className={`text-xs h-7 ${activeTab === tab ? 'bg-amber-600 hover:bg-amber-700' : ''}`}
+                  onClick={() => setActiveTab(tab)} data-testid={`cheque-filter-${tab}`}>
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Input placeholder="Search cheques..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
+                  className="pl-8 w-48 h-8 text-xs" data-testid="search-cheques" />
+              </div>
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1 h-8" onClick={() => setAddDialog(true)} data-testid="add-cheque-btn">
+                <Plus className="h-3.5 w-3.5" /> Add
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1 h-8 border-blue-300 text-blue-700" onClick={() => setSmartPayDialog(true)} data-testid="smart-pay-btn">
+                <CreditCard className="h-3.5 w-3.5" /> Smart Pay
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="cheque-table">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">CHEQUE NO</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">BANK</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">PARTY</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">PROJECT</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600">TYPE</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">AMOUNT</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">DATE</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600">STATUS</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredCheques.length === 0 ? (
+                    <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-500">No cheques found</td></tr>
+                  ) : filteredCheques.map(cheque => (
+                    <tr key={cheque.cheque_id} className="hover:bg-gray-50" data-testid={`cheque-row-${cheque.cheque_id}`}>
+                      <td className="px-3 py-2">
+                        <p className="font-mono font-medium">{cheque.cheque_number}</p>
+                        {cheque.is_post_dated && <Badge variant="outline" className="text-purple-600 border-purple-300 text-[9px] mt-0.5">PDC</Badge>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{cheque.bank_name}</p>
+                        {cheque.branch_name && <p className="text-[10px] text-gray-500">{cheque.branch_name}</p>}
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{cheque.party_name}</p>
+                        <Badge variant="outline" className="text-[9px]">{cheque.party_type === 'client' ? 'Client' : 'Vendor'}</Badge>
+                      </td>
+                      <td className="px-3 py-2 text-gray-600">{cheque.project_name || '-'}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge className={cheque.cheque_type === 'incoming' ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-700'}>
+                          {cheque.cheque_type === 'incoming' ? 'IN' : 'OUT'}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold">
+                        <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'}>
+                          {fmtFull(cheque.amount)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{new Date(cheque.cheque_date).toLocaleDateString('en-IN')}</td>
+                      <td className="px-3 py-2 text-center">{getStatusBadge(cheque.status)}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => {
+                          setSelectedCheque(cheque);
+                          setStatusForm({ status: cheque.status, deposit_date: cheque.deposit_date?.split('T')[0] || '', clearance_date: cheque.clearance_date?.split('T')[0] || '', bounce_reason: cheque.bounce_reason || '', bounce_charges: cheque.bounce_charges?.toString() || '', remarks: cheque.remarks || '' });
+                          setStatusDialog(true);
+                        }} data-testid={`update-status-${cheque.cheque_id}`}>
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Cheque Dialog */}
+      <Dialog open={addDialog} onOpenChange={setAddDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-amber-600" /> Add New Cheque</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Cheque Number *</Label><Input value={chequeForm.cheque_number} onChange={e => setChequeForm({...chequeForm, cheque_number: e.target.value})} data-testid="input-cheque-number" /></div>
+              <div><Label>Amount *</Label><Input type="number" value={chequeForm.amount} onChange={e => setChequeForm({...chequeForm, amount: e.target.value})} data-testid="input-amount" /></div>
+              <div><Label>Cheque Date *</Label><Input type="date" value={chequeForm.cheque_date} onChange={e => setChequeForm({...chequeForm, cheque_date: e.target.value})} data-testid="input-cheque-date" /></div>
+              <div><Label>Type</Label>
+                <Select value={chequeForm.cheque_type} onValueChange={v => setChequeForm({...chequeForm, cheque_type: v})}>
+                  <SelectTrigger data-testid="select-type"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="incoming">Incoming</SelectItem><SelectItem value="outgoing">Outgoing</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div><Label>Bank Name *</Label><Input value={chequeForm.bank_name} onChange={e => setChequeForm({...chequeForm, bank_name: e.target.value})} data-testid="input-bank-name" /></div>
+              <div><Label>Branch</Label><Input value={chequeForm.branch_name} onChange={e => setChequeForm({...chequeForm, branch_name: e.target.value})} /></div>
+              <div><Label>Party Name *</Label><Input value={chequeForm.party_name} onChange={e => setChequeForm({...chequeForm, party_name: e.target.value})} data-testid="input-party-name" /></div>
+              <div><Label>Party Type</Label>
+                <Select value={chequeForm.party_type} onValueChange={v => setChequeForm({...chequeForm, party_type: v})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="client">Client</SelectItem><SelectItem value="vendor">Vendor</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2"><Label>Project</Label>
+                <Select value={chequeForm.project_id || 'none'} onValueChange={v => setChequeForm({...chequeForm, project_id: v === 'none' ? '' : v})}>
+                  <SelectTrigger><SelectValue placeholder="Select project" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Project</SelectItem>
+                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="is_post_dated" checked={chequeForm.is_post_dated} onChange={e => setChequeForm({...chequeForm, is_post_dated: e.target.checked})} className="h-4 w-4 rounded" />
+              <Label htmlFor="is_post_dated" className="cursor-pointer text-sm">Post-Dated Cheque</Label>
+            </div>
+            {chequeForm.is_post_dated && <div><Label>Reminder Date</Label><Input type="date" value={chequeForm.reminder_date} onChange={e => setChequeForm({...chequeForm, reminder_date: e.target.value})} /></div>}
+            <div><Label>Remarks</Label><Textarea value={chequeForm.remarks} onChange={e => setChequeForm({...chequeForm, remarks: e.target.value})} rows={2} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddCheque} className="bg-amber-600 hover:bg-amber-700" data-testid="save-cheque-btn">
+              <CheckCircle className="h-4 w-4 mr-1" /> Save Cheque
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Update Status Dialog */}
+      <Dialog open={statusDialog} onOpenChange={setStatusDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Update Cheque Status</DialogTitle></DialogHeader>
+          {selectedCheque && (
+            <div className="space-y-4">
+              <Card className="bg-gray-50"><CardContent className="p-3">
+                <p className="font-mono font-semibold">{selectedCheque.cheque_number}</p>
+                <p className="text-sm text-gray-600">{selectedCheque.bank_name}</p>
+                <p className="text-lg font-bold text-green-600 mt-1">{fmtFull(selectedCheque.amount)}</p>
+              </CardContent></Card>
+              <div><Label>Status</Label>
+                <Select value={statusForm.status} onValueChange={v => setStatusForm({...statusForm, status: v})}>
+                  <SelectTrigger data-testid="select-status"><SelectValue /></SelectTrigger>
+                  <SelectContent>{CHEQUE_STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {statusForm.status === 'deposited' && <div><Label>Deposit Date</Label><Input type="date" value={statusForm.deposit_date} onChange={e => setStatusForm({...statusForm, deposit_date: e.target.value})} /></div>}
+              {statusForm.status === 'cleared' && <div><Label>Clearance Date</Label><Input type="date" value={statusForm.clearance_date} onChange={e => setStatusForm({...statusForm, clearance_date: e.target.value})} /></div>}
+              {statusForm.status === 'bounced' && (
+                <>
+                  <div><Label>Bounce Reason</Label>
+                    <Select value={statusForm.bounce_reason} onValueChange={v => setStatusForm({...statusForm, bounce_reason: v})}>
+                      <SelectTrigger><SelectValue placeholder="Select reason" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Insufficient Funds">Insufficient Funds</SelectItem>
+                        <SelectItem value="Signature Mismatch">Signature Mismatch</SelectItem>
+                        <SelectItem value="Account Closed">Account Closed</SelectItem>
+                        <SelectItem value="Date Issue">Date Issue</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Bounce Charges</Label><Input type="number" value={statusForm.bounce_charges} onChange={e => setStatusForm({...statusForm, bounce_charges: e.target.value})} /></div>
+                </>
+              )}
+              <div><Label>Remarks</Label><Textarea value={statusForm.remarks} onChange={e => setStatusForm({...statusForm, remarks: e.target.value})} rows={2} /></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusDialog(false)}>Cancel</Button>
+            <Button onClick={handleUpdateStatus} className="bg-amber-600 hover:bg-amber-700" data-testid="update-status-btn">
+              <CheckCircle className="h-4 w-4 mr-1" /> Update
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Smart Payment Dialog */}
+      <Dialog open={smartPayDialog} onOpenChange={v => { setSmartPayDialog(v); if (!v) setSuspenseAlert(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-blue-600" /> Smart Cheque Payment</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Suspense Alert */}
+            {suspenseAlert && suspenseAlert.suspense_balance > 0 && (
+              <Card className="bg-green-50 border-green-300" data-testid="suspense-auto-alert">
+                <CardContent className="p-3">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="h-5 w-5 text-green-600" />
+                    <div>
+                      <p className="font-semibold text-green-800 text-sm">Suspense Balance Available!</p>
+                      <p className="text-xs text-green-700">
+                        {suspenseAlert.vendor_name} has {fmtFull(suspenseAlert.suspense_balance)} in suspense.
+                        This will be auto-deducted from the expense.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <input type="checkbox" checked={smartPayForm.use_suspense}
+                      onChange={e => setSmartPayForm(prev => ({ ...prev, use_suspense: e.target.checked }))} className="h-4 w-4 rounded" />
+                    <Label className="text-sm cursor-pointer">Use suspense balance ({fmtFull(suspenseAlert.suspense_balance)})</Label>
+                  </div>
+                  {smartPayForm.use_suspense && (
+                    <div className="mt-2">
+                      <Label className="text-xs">Amount to use from suspense</Label>
+                      <Input type="number" className="h-8 text-sm" value={smartPayForm.suspense_amount_to_use}
+                        onChange={e => setSmartPayForm(prev => ({ ...prev, suspense_amount_to_use: e.target.value }))} />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            <div><Label>Select Cheque *</Label>
+              <Select value={smartPayForm.cheque_id} onValueChange={v => setSmartPayForm(prev => ({ ...prev, cheque_id: v }))}>
+                <SelectTrigger data-testid="smart-pay-cheque-select"><SelectValue placeholder="Select an outgoing cheque" /></SelectTrigger>
+                <SelectContent>
+                  {unclearedOutgoing.length === 0 && <SelectItem value="none" disabled>No uncleared outgoing cheques</SelectItem>}
+                  {unclearedOutgoing.map(c => (
+                    <SelectItem key={c.cheque_id} value={c.cheque_id}>
+                      {c.cheque_number} - {c.party_name} - {fmtFull(c.amount)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div><Label>Vendor Name *</Label>
+              <Input value={smartPayForm.vendor_name} data-testid="smart-pay-vendor"
+                onChange={e => { setSmartPayForm(prev => ({ ...prev, vendor_name: e.target.value })); }}
+                onBlur={e => checkVendorSuspense(e.target.value)} placeholder="Vendor name" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Project *</Label>
+                <Select value={smartPayForm.expense_project_id} onValueChange={v => setSmartPayForm(prev => ({ ...prev, expense_project_id: v }))}>
+                  <SelectTrigger data-testid="smart-pay-project"><SelectValue placeholder="Project" /></SelectTrigger>
+                  <SelectContent>
+                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div><Label>Category</Label>
+                <Select value={smartPayForm.expense_category} onValueChange={v => setSmartPayForm(prev => ({ ...prev, expense_category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="material">Material</SelectItem>
+                    <SelectItem value="labour">Labour</SelectItem>
+                    <SelectItem value="vendor">Vendor</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div><Label>Expense Amount *</Label>
+              <Input type="number" value={smartPayForm.expense_amount}
+                onChange={e => setSmartPayForm(prev => ({ ...prev, expense_amount: e.target.value }))}
+                data-testid="smart-pay-amount" placeholder="Expense amount" />
+            </div>
+
+            <div><Label>Description</Label>
+              <Input value={smartPayForm.expense_description}
+                onChange={e => setSmartPayForm(prev => ({ ...prev, expense_description: e.target.value }))}
+                placeholder="e.g., Cement purchase" />
+            </div>
+
+            <div><Label>Remarks</Label>
+              <Textarea value={smartPayForm.remarks} onChange={e => setSmartPayForm(prev => ({ ...prev, remarks: e.target.value }))} rows={2} />
+            </div>
+
+            {/* Payment Summary */}
+            {smartPayForm.cheque_id && smartPayForm.expense_amount && (
+              <Card className="bg-gray-50" data-testid="payment-summary">
+                <CardContent className="p-3 space-y-1 text-sm">
+                  <p className="font-semibold text-gray-700">Payment Summary</p>
+                  {(() => {
+                    const chq = unclearedOutgoing.find(c => c.cheque_id === smartPayForm.cheque_id);
+                    const chequeAmt = chq?.amount || 0;
+                    const expAmt = parseFloat(smartPayForm.expense_amount) || 0;
+                    const susUse = smartPayForm.use_suspense ? parseFloat(smartPayForm.suspense_amount_to_use) || 0 : 0;
+                    const fromCheque = Math.max(0, expAmt - susUse);
+                    const excess = chequeAmt - fromCheque;
+                    return (
+                      <>
+                        <div className="flex justify-between"><span className="text-gray-500">Cheque Amount</span><span className="font-bold">{fmtFull(chequeAmt)}</span></div>
+                        <div className="flex justify-between"><span className="text-gray-500">Expense Amount</span><span className="font-bold text-red-600">{fmtFull(expAmt)}</span></div>
+                        {susUse > 0 && <div className="flex justify-between"><span className="text-gray-500">From Suspense</span><span className="font-bold text-blue-600">-{fmtFull(susUse)}</span></div>}
+                        <div className="flex justify-between"><span className="text-gray-500">Used from Cheque</span><span className="font-bold">{fmtFull(fromCheque)}</span></div>
+                        {excess > 0 && <div className="flex justify-between border-t pt-1"><span className="text-green-600 font-medium">Excess to Suspense</span><span className="font-bold text-green-600">+{fmtFull(excess)}</span></div>}
+                        {excess < 0 && <div className="flex justify-between border-t pt-1"><span className="text-red-600 font-medium">Shortfall</span><span className="font-bold text-red-600">{fmtFull(excess)}</span></div>}
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSmartPayDialog(false)}>Cancel</Button>
+            <Button onClick={handleSmartPayment} className="bg-blue-600 hover:bg-blue-700" data-testid="process-smart-payment-btn">
+              <CreditCard className="h-4 w-4 mr-1" /> Process Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============ MAIN ACCOUNTS BOARD ============
+export default function AccountsBoard() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [mainTab, setMainTab] = useState('dashboard');
+
+  useEffect(() => {
+    fetchAll();
+  }, []);
+
+  const fetchAll = async () => {
+    try {
+      setLoading(true);
+      const [userRes, overviewRes, projectsRes] = await Promise.all([
+        axios.get(`${API}/auth/me`),
+        axios.get(`${API}/accountant/overview`),
+        axios.get(`${API}/projects`).catch(() => ({ data: [] })),
+      ]);
+      if (!['accountant', 'super_admin'].includes(userRes.data.role)) {
+        toast.error('Access denied');
+        window.location.href = '/dashboard';
+        return;
+      }
+      setUser(userRes.data);
+      setOverview(overviewRes.data);
+      setProjects(projectsRes.data);
+    } catch (error) {
+      if (error.response?.status === 401) window.location.href = '/login';
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -249,532 +1247,37 @@ export default function AccountsBoard() {
     );
   }
 
-  const inc = overview?.income_by_mode || {};
-  const exp = overview?.expense_by_mode || {};
-  const totals = overview?.totals || {};
-
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
       <AppHeader />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-4">
-
-        {/* Overview Financial Summary Row */}
-        <Card className="mb-4 border-l-4 border-l-amber-500">
-          <CardHeader className="pb-2 pt-3 px-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
-              </CardTitle>
-              <div className="flex items-center gap-3 text-xs">
-                <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
-                <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
-                <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                  Net: {fmtFull(totals.net_balance)}
-                </Badge>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="px-4 pb-3">
-            <div className="grid grid-cols-9 gap-2">
-              {Object.keys(MODE_LABELS).map(mode => {
-                const Icon = MODE_ICONS[mode];
-                return (
-                  <div key={mode} className={`rounded-lg border p-2 text-center ${MODE_COLORS[mode]}`}>
-                    <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
-                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                    <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
-                    <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
-                  </div>
-                );
-              })}
-              <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
-                <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
-                <p className="text-[10px] font-medium">Total</p>
-                <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
-                <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Project-wise Collapsible */}
-        <Card className="mb-4">
-          <CardHeader className="pb-0 pt-3 px-4 cursor-pointer" onClick={() => setProjectExpanded(!projectExpanded)}>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-amber-600" /> Project-wise View
-                <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
-              </CardTitle>
-              {projectExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </div>
-          </CardHeader>
-          {projectExpanded && (
-            <CardContent className="px-4 pb-3 pt-2">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-left px-2 py-1.5 font-medium text-gray-500">Project</th>
-                      <th className="text-right px-2 py-1.5 font-medium text-green-600">Income</th>
-                      <th className="text-right px-2 py-1.5 font-medium text-red-600">Expense</th>
-                      <th className="text-right px-2 py-1.5 font-medium text-gray-700">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.map((p, i) => (
-                      <tr key={i} className="border-b hover:bg-gray-50">
-                        <td className="px-2 py-1.5 font-medium">{p.project_name}</td>
-                        <td className="px-2 py-1.5 text-right text-green-700">{fmtFull(p.income)}</td>
-                        <td className="px-2 py-1.5 text-right text-red-600">{fmtFull(p.expense)}</td>
-                        <td className={`px-2 py-1.5 text-right font-semibold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                          {fmtFull(p.balance)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          )}
-        </Card>
-
-        {/* Main Tabs: Income | Expense */}
+        {/* Main Section Tabs */}
         <Tabs value={mainTab} onValueChange={setMainTab}>
-          <TabsList className="w-full grid grid-cols-2 mb-3">
-            <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="income-tab">
-              <ArrowDownRight className="h-4 w-4" /> Income
+          <TabsList className="w-full grid grid-cols-3 mb-4" data-testid="accounts-main-tabs">
+            <TabsTrigger value="dashboard" className="gap-1.5 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-dashboard">
+              <TrendingUp className="h-4 w-4" /> Dashboard
             </TabsTrigger>
-            <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="expense-tab">
-              <ArrowUpRight className="h-4 w-4" /> Expense
+            <TabsTrigger value="cashbook" className="gap-1.5 data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
+              <BookOpen className="h-4 w-4" /> Cashbook
+            </TabsTrigger>
+            <TabsTrigger value="cheques" className="gap-1.5 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
+              <FileText className="h-4 w-4" /> Cheque Management
             </TabsTrigger>
           </TabsList>
 
-          {/* ========= INCOME TAB ========= */}
-          <TabsContent value="income">
-            {/* Income Mode Breakdown */}
-            <div className="grid grid-cols-4 md:grid-cols-9 gap-2 mb-4">
-              {Object.keys(MODE_LABELS).map(mode => (
-                <Card key={mode} className={`cursor-pointer hover:shadow-md transition-shadow border ${MODE_COLORS[mode]}`}
-                  onClick={() => openModeDetail(mode, 'income')} data-testid={`income-mode-${mode}`}>
-                  <CardContent className="p-2.5 text-center">
-                    {React.createElement(MODE_ICONS[mode], { className: "h-4 w-4 mx-auto mb-1 opacity-60" })}
-                    <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                    <p className="text-sm font-bold">{fmtFull(inc[mode] || 0)}</p>
-                  </CardContent>
-                </Card>
-              ))}
-              <Card className="border-gray-900 bg-gray-900 text-white">
-                <CardContent className="p-2.5 text-center">
-                  <DollarSign className="h-4 w-4 mx-auto mb-1" />
-                  <p className="text-[10px]">Total</p>
-                  <p className="text-sm font-bold">{fmtFull(inc.total || 0)}</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Income Filters */}
-            <Card className="mb-3">
-              <CardContent className="p-3 flex flex-wrap gap-2 items-center">
-                <Filter className="h-4 w-4 text-gray-400" />
-                <Select value={incomeFilter.project} onValueChange={v => setIncomeFilter(p => ({...p, project: v}))}>
-                  <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value=" ">All Projects</SelectItem>
-                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={incomeFilter.mode} onValueChange={v => setIncomeFilter(p => ({...p, mode: v}))}>
-                  <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All Modes" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value=" ">All Modes</SelectItem>
-                    {Object.entries(MODE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Input placeholder="Stage (Advance, Stage 01...)" className="w-48 h-8 text-xs"
-                  value={incomeFilter.stage} onChange={e => setIncomeFilter(p => ({...p, stage: e.target.value}))} />
-                {(incomeFilter.project || incomeFilter.mode || incomeFilter.stage) && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setIncomeFilter({ project: '', mode: '', stage: '' })}>
-                    <X className="h-3 w-3 mr-1" /> Clear
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Income Payment Summary List */}
-            <Card>
-              <CardHeader className="pb-2 pt-3 px-4">
-                <CardTitle className="text-sm">Payment Summary ({filteredIncome.length})</CardTitle>
-              </CardHeader>
-              <CardContent className="px-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs" data-testid="income-table">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Stage</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Status</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID / Cash</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
-                        <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredIncome.map((entry, i) => (
-                        <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
-                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                          <td className="px-3 py-2">
-                            {new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {' '}
-                            <span className="text-gray-400">{new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                          </td>
-                          <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
-                          <td className="px-3 py-2">
-                            <Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
-                              {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Badge className={entry.status === 'verified' ? 'bg-green-100 text-green-700' : entry.status === 'approved' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}>
-                              {entry.payment_type === 'partial' ? 'Partly Paid' : entry.status === 'verified' ? 'Fully Paid' : entry.status || 'Recorded'}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2 font-mono text-[10px]">{entry.reference_number || entry.cheque_number || 'Cash'}</td>
-                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(entry.amount)}</td>
-                          <td className="px-3 py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
-                                <Eye className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
-                                <Printer className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredIncome.length === 0 && (
-                        <tr><td colSpan={9} className="text-center py-8 text-gray-400">No income entries found</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="dashboard">
+            <DashboardTab overview={overview} />
           </TabsContent>
 
-          {/* ========= EXPENSE TAB ========= */}
-          <TabsContent value="expense">
-            {/* Expense Category Breakdown */}
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
-              {EXP_CATEGORIES.map(cat => {
-                const Icon = cat.icon;
-                const isActive = expenseSubTab === cat.key || (cat.key === 'overall' && expenseSubTab === 'all');
-                return (
-                  <Card key={cat.key}
-                    className={`cursor-pointer hover:shadow-md transition-all border-2 ${isActive ? 'ring-2 ring-offset-1 ring-red-400 shadow-md' : ''} ${cat.color}`}
-                    onClick={() => setExpenseSubTab(cat.key === 'overall' ? 'all' : cat.key)}
-                    data-testid={`exp-cat-${cat.key}`}>
-                    <CardContent className="p-4 text-center">
-                      <Icon className="h-5 w-5 mx-auto mb-1.5 opacity-70" />
-                      <p className="text-xs font-semibold">{cat.label}</p>
-                      <p className="text-lg font-bold mt-1">{fmtFull(expByCategory[cat.key] || 0)}</p>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
+          <TabsContent value="cashbook">
+            <CashbookTab overview={overview} projects={projects} />
+          </TabsContent>
 
-            {/* Expense Filters */}
-            <Card className="mb-3">
-              <CardContent className="p-3 flex flex-wrap gap-2 items-center">
-                <Filter className="h-4 w-4 text-gray-400" />
-                <Select value={expenseFilter.project} onValueChange={v => setExpenseFilter(p => ({...p, project: v}))}>
-                  <SelectTrigger className="w-48 h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value=" ">All Projects</SelectItem>
-                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={expenseFilter.way} onValueChange={v => setExpenseFilter(p => ({...p, way: v}))}>
-                  <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="Manual/Approval" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value=" ">All</SelectItem>
-                    <SelectItem value="manual">Manual</SelectItem>
-                    <SelectItem value="approval">Approval</SelectItem>
-                  </SelectContent>
-                </Select>
-                {(expenseFilter.project || expenseFilter.type || expenseFilter.way) && (
-                  <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setExpenseFilter({ project: '', type: '', way: '' })}>
-                    <X className="h-3 w-3 mr-1" /> Clear
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Expense Payment Record */}
-            <Card>
-              <CardHeader className="pb-2 pt-3 px-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">Expense Records ({filteredExpenses.length})</CardTitle>
-                  <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1.5" onClick={() => setAddExpenseOpen(true)} data-testid="add-expense-btn">
-                    <Plus className="h-3.5 w-3.5" /> Add Expense
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="px-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs" data-testid="expense-table">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Way</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
-                        <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>
-                        <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
-                        <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* Inline Add Expense Row */}
-                      {addExpenseOpen && (
-                        <tr className="border-b bg-red-50/50 border-l-4 border-l-red-400">
-                          <td className="px-2 py-2 text-center">
-                            <span className="text-[10px] font-bold text-red-500">NEW</span>
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Select value={newExpense.category} onValueChange={v => setNewExpense(p => ({...p, category: v}))}>
-                              <SelectTrigger className="h-7 text-[11px] w-24 bg-white"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="material">Material</SelectItem>
-                                <SelectItem value="labour">Labour</SelectItem>
-                                <SelectItem value="petty_cash">Petty Cash</SelectItem>
-                                <SelectItem value="indirect">Indirect</SelectItem>
-                                <SelectItem value="transport">Transport</SelectItem>
-                                <SelectItem value="utilities">Utilities</SelectItem>
-                                <SelectItem value="rent">Rent</SelectItem>
-                                <SelectItem value="other">Other</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Badge variant="outline" className="text-[10px] border-gray-300 text-gray-600">Manual</Badge>
-                          </td>
-                          <td className="px-1 py-1.5 text-[10px] text-gray-400 whitespace-nowrap">
-                            {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {' '}{new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
-                              <SelectTrigger className="h-7 text-[11px] w-24 bg-white"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="cash">Cash</SelectItem>
-                                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                                <SelectItem value="cheque">Cheque</SelectItem>
-                                <SelectItem value="upi">UPI</SelectItem>
-                                <SelectItem value="direct_transfer">DT</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Input type="number" placeholder="Amount" className="h-7 text-[11px] w-24 bg-white text-right" value={newExpense.amount}
-                              onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} />
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Input placeholder="Txn ID" className="h-7 text-[11px] w-20 bg-white" value={newExpense.transaction_id}
-                              onChange={e => setNewExpense(p => ({...p, transaction_id: e.target.value}))} />
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Input placeholder="Vendor" className="h-7 text-[11px] w-24 bg-white" value={newExpense.vendor_name}
-                              onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} />
-                          </td>
-                          <td className="px-1 py-1.5">
-                            <Select value={newExpense.project_id} onValueChange={v => setNewExpense(p => ({...p, project_id: v}))}>
-                              <SelectTrigger className="h-7 text-[11px] w-32 bg-white"><SelectValue placeholder="Project" /></SelectTrigger>
-                              <SelectContent>
-                                {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.project_name}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="px-1 py-1.5 text-center">
-                            <div className="flex items-center gap-1 justify-center">
-                              <Button size="sm" className="h-7 text-[11px] bg-red-600 hover:bg-red-700 px-2.5" onClick={handleExpenseSubmitClick} data-testid="submit-expense-row-btn">
-                                Submit
-                              </Button>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400" onClick={() => { setAddExpenseOpen(false); setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' }); }}>
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      {filteredExpenses.map((entry, i) => (
-                        <tr key={entry.expense_id || entry.request_id || i} className="border-b hover:bg-gray-50">
-                          <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                          <td className="px-3 py-2">
-                            <Badge className={
-                              entry.expense_type === 'material' ? 'bg-blue-100 text-blue-700' :
-                              entry.expense_type === 'labour' ? 'bg-purple-100 text-purple-700' :
-                              entry.expense_type === 'petty_cash' ? 'bg-amber-100 text-amber-700' :
-                              'bg-gray-100 text-gray-700'
-                            }>{entry.expense_type || entry.category || 'Other'}</Badge>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Badge variant="outline" className={`text-[10px] ${entry.approved_by ? 'border-green-300 text-green-700' : 'border-gray-300 text-gray-600'}`}>
-                              {entry.approved_by ? 'Approval' : 'Manual'}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2">
-                            {new Date(entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {' '}
-                            <span className="text-gray-400">{new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                          </td>
-                          <td className="px-3 py-2">
-                            <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_method || entry.payment_mode)]}`}>
-                              {MODE_LABELS[classifyMode(entry.payment_method || entry.payment_mode)] || 'Cash'}
-                            </Badge>
-                          </td>
-                          <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(entry.amount)}</td>
-                          <td className="px-3 py-2 font-mono text-[10px]">{entry.transaction_id || entry.reference_number || '—'}</td>
-                          <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '—'}</td>
-                          <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
-                          <td className="px-3 py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
-                                <Eye className="h-3 w-3" />
-                              </Button>
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
-                                <Printer className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredExpenses.length === 0 && (
-                        <tr><td colSpan={10} className="text-center py-8 text-gray-400">No expense entries found</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="cheques">
+            <ChequeManagementTab projects={projects} />
           </TabsContent>
         </Tabs>
       </main>
-
-      {/* Mode Detail Dialog */}
-      <Dialog open={modeDetailDialog} onOpenChange={setModeDetailDialog}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {selectedMode && React.createElement(MODE_ICONS[selectedMode.mode] || DollarSign, { className: "h-5 w-5" })}
-              {selectedMode?.label} — {selectedMode?.type === 'income' ? 'Income' : 'Expense'} Details
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm text-gray-500">Total: {fmtFull(selectedModeEntries.reduce((s, e) => s + (e.amount || 0), 0))} ({selectedModeEntries.length} entries)</p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="px-2 py-1.5 text-left">Date</th>
-                    <th className="px-2 py-1.5 text-left">Project</th>
-                    <th className="px-2 py-1.5 text-left">Description</th>
-                    <th className="px-2 py-1.5 text-right">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedModeEntries.map((e, i) => (
-                    <tr key={i} className="border-b">
-                      <td className="px-2 py-1.5">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
-                      <td className="px-2 py-1.5">{e.project_name || 'N/A'}</td>
-                      <td className="px-2 py-1.5">{e.stage || e.description || e.remarks || '—'}</td>
-                      <td className="px-2 py-1.5 text-right font-bold">{fmtFull(e.amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* View Entry Dialog */}
-      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Transaction Details</DialogTitle>
-          </DialogHeader>
-          {selectedEntry && (
-            <div className="space-y-3">
-              <div className="text-center">
-                <p className="text-3xl font-bold text-gray-900">{fmtFull(selectedEntry.amount)}</p>
-                <Badge className={selectedEntry.income_id ? 'bg-green-100 text-green-700 mt-1' : 'bg-red-100 text-red-700 mt-1'}>
-                  {selectedEntry.income_id ? 'Income' : 'Expense'}
-                </Badge>
-              </div>
-              <div className="space-y-2 text-sm">
-                {[
-                  ['Project', selectedEntry.project_name],
-                  ['Stage/Description', selectedEntry.stage || selectedEntry.description],
-                  ['Date', new Date(selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
-                  ['Mode', selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
-                  ['Status', selectedEntry.status],
-                  ['Transaction ID', selectedEntry.reference_number || selectedEntry.transaction_id || 'Cash'],
-                  ['Vendor', selectedEntry.vendor_name],
-                  ['Remarks', selectedEntry.remarks],
-                ].filter(([, v]) => v).map(([label, value]) => (
-                  <div key={label} className="flex justify-between border-b pb-1">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-              <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
-                <Printer className="h-4 w-4 mr-2" /> Print Receipt / Download PDF
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Submit Confirmation Popup */}
-      <Dialog open={showSubmitConfirm} onOpenChange={setShowSubmitConfirm}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-center text-lg">SUBMIT</DialogTitle>
-          </DialogHeader>
-          <div className="text-center space-y-3 py-2">
-            <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto">
-              <FileText className="h-7 w-7 text-red-600" />
-            </div>
-            <p className="text-sm text-gray-600">This expense will be recorded as <span className="font-bold text-red-600">MANUAL</span> entry</p>
-            <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-              <div className="flex justify-between"><span className="text-gray-500">Amount</span><span className="font-bold text-red-600">{fmtFull(parseFloat(newExpense.amount) || 0)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{newExpense.category}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Mode</span><span className="font-medium">{MODE_LABELS[classifyMode(newExpense.payment_method)] || newExpense.payment_method}</span></div>
-              {newExpense.vendor_name && <div className="flex justify-between"><span className="text-gray-500">Vendor</span><span className="font-medium">{newExpense.vendor_name}</span></div>}
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setShowSubmitConfirm(false)}>Cancel</Button>
-            <Button className="bg-red-600 hover:bg-red-700" onClick={handleAddExpense} disabled={submittingExpense}>
-              {submittingExpense ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : null}
-              Confirm & Record
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <MobileBottomNav />
     </div>
   );

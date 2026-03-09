@@ -2240,3 +2240,276 @@ async def get_settings_summary(user: User = Depends(get_current_user)):
     }
 
 
+
+# ==================== ENHANCED CASHBOOK WITH DATE RANGE ====================
+
+@router.get("/accountant/cashbook-filtered")
+async def get_cashbook_filtered(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    project_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get filtered cashbook data with date range support"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    income_q = {}
+    expense_q = {}
+
+    if project_id:
+        income_q["project_id"] = project_id
+        expense_q["project_id"] = project_id
+
+    if start_date:
+        income_q.setdefault("created_at", {})["$gte"] = start_date
+        expense_q.setdefault("created_at", {})["$gte"] = start_date
+    if end_date:
+        income_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
+        expense_q.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
+
+    (incomes, recorded_exps, labour_exps, material_reqs, projects_list) = await asyncio.gather(
+        db.income.find(income_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        db.recorded_expenses.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(2000),
+        db.labour_expenses.find({**expense_q, "status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        db.material_requests.find(expense_q, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
+    )
+
+    project_map = {p["project_id"]: p["name"] for p in projects_list}
+
+    # Enrich income entries
+    for i in incomes:
+        i["project_name"] = project_map.get(i.get("project_id"), "Unknown")
+
+    # Build all expenses list
+    all_expenses = []
+    for e in recorded_exps:
+        all_expenses.append({**e, "expense_type": e.get("category", "other"), "project_name": project_map.get(e.get("project_id"), "")})
+    for l in labour_exps:
+        all_expenses.append({**l, "expense_type": "labour", "amount": l.get("total_amount", 0), "project_name": project_map.get(l.get("project_id"), "")})
+    for m in material_reqs:
+        amt = m.get("estimated_price", 0) or m.get("final_price", 0)
+        all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), "")})
+
+    all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    total_income = sum(i.get("amount", 0) for i in incomes)
+    total_expense = sum(e.get("amount", 0) for e in all_expenses)
+
+    return {
+        "income_entries": incomes[:500],
+        "expense_entries": all_expenses[:500],
+        "projects": projects_list,
+        "summary": {
+            "total_income": total_income,
+            "total_expense": total_expense,
+            "net_balance": total_income - total_expense,
+            "income_count": len(incomes),
+            "expense_count": len(all_expenses),
+        }
+    }
+
+
+# ==================== SMART CHEQUE PAYMENT ====================
+
+@router.get("/accountant/vendor-suspense/{vendor_name}")
+async def get_vendor_suspense_balance(vendor_name: str, user: User = Depends(get_current_user)):
+    """Get suspense balance for a specific vendor"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Check cheque-based suspense
+    suspense_entries = await db.cheque_suspense.find(
+        {"vendor_name": vendor_name},
+        {"_id": 0}
+    ).to_list(500)
+
+    total_balance = sum(e.get("amount", 0) for e in suspense_entries)
+
+    return {
+        "vendor_name": vendor_name,
+        "suspense_balance": total_balance,
+        "entries": suspense_entries
+    }
+
+
+@router.get("/accountant/all-vendor-suspense")
+async def get_all_vendor_suspense(user: User = Depends(get_current_user)):
+    """Get suspense balances for all vendors"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    entries = await db.cheque_suspense.find({}, {"_id": 0}).to_list(5000)
+
+    # Group by vendor
+    vendor_balances = {}
+    for e in entries:
+        vn = e.get("vendor_name", "Unknown")
+        if vn not in vendor_balances:
+            vendor_balances[vn] = {"vendor_name": vn, "balance": 0, "entries": []}
+        vendor_balances[vn]["balance"] += e.get("amount", 0)
+        vendor_balances[vn]["entries"].append(e)
+
+    # Only return vendors with non-zero balance
+    result = [v for v in vendor_balances.values() if v["balance"] != 0]
+    result.sort(key=lambda x: x["balance"], reverse=True)
+
+    return result
+
+
+class ChequePaymentRequest(BaseModel):
+    cheque_id: str
+    expense_project_id: str
+    expense_category: str  # material, labour, vendor, other
+    expense_description: str
+    expense_amount: float
+    vendor_name: str
+    use_suspense: bool = False
+    suspense_amount_to_use: float = 0
+    remarks: Optional[str] = None
+
+
+@router.post("/accountant/cheque-payment")
+async def process_cheque_payment(data: ChequePaymentRequest, user: User = Depends(get_current_user)):
+    """Smart cheque payment: pay expense via cheque, handle excess → vendor suspense.
+    
+    Logic:
+    - Fetch cheque details
+    - If use_suspense, deduct from vendor's suspense first
+    - Record expense
+    - If cheque amount > expense amount, excess goes to vendor suspense
+    - Update cheque status
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    now = datetime.now(timezone.utc).isoformat()
+    payment_id = f"cpay_{uuid.uuid4().hex[:12]}"
+
+    # Get cheque
+    cheque = await db.cheques.find_one({"cheque_id": data.cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+
+    cheque_amount = cheque.get("amount", 0)
+
+    # Get project name
+    project = await db.projects.find_one({"project_id": data.expense_project_id}, {"_id": 0, "name": 1})
+    project_name = project.get("name") if project else "Unknown"
+
+    # Calculate effective payment
+    suspense_used = 0
+    if data.use_suspense and data.suspense_amount_to_use > 0:
+        # Verify suspense balance
+        suspense_entries = await db.cheque_suspense.find(
+            {"vendor_name": data.vendor_name}, {"_id": 0}
+        ).to_list(500)
+        available_suspense = sum(e.get("amount", 0) for e in suspense_entries)
+
+        suspense_used = min(data.suspense_amount_to_use, available_suspense, data.expense_amount)
+
+        if suspense_used > 0:
+            # Debit suspense
+            await db.cheque_suspense.insert_one({
+                "entry_id": f"csus_{uuid.uuid4().hex[:12]}",
+                "vendor_name": data.vendor_name,
+                "amount": -suspense_used,
+                "description": f"Used for expense: {data.expense_description}",
+                "payment_id": payment_id,
+                "cheque_id": data.cheque_id,
+                "project_id": data.expense_project_id,
+                "created_at": now,
+            })
+
+    amount_from_cheque = data.expense_amount - suspense_used
+    excess = cheque_amount - amount_from_cheque
+
+    # If excess, credit to vendor suspense
+    if excess > 0:
+        await db.cheque_suspense.insert_one({
+            "entry_id": f"csus_{uuid.uuid4().hex[:12]}",
+            "vendor_name": data.vendor_name,
+            "amount": excess,
+            "description": f"Excess from cheque {cheque.get('cheque_number')} (Cheque: {cheque_amount}, Used: {amount_from_cheque})",
+            "payment_id": payment_id,
+            "cheque_id": data.cheque_id,
+            "project_id": data.expense_project_id,
+            "created_at": now,
+        })
+
+    # Record the expense
+    expense_record = {
+        "expense_id": f"exp_{uuid.uuid4().hex[:12]}",
+        "project_id": data.expense_project_id,
+        "project_name": project_name,
+        "category": data.expense_category,
+        "description": data.expense_description,
+        "amount": data.expense_amount,
+        "payment_method": "cheque",
+        "vendor_name": data.vendor_name,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "status": "recorded",
+        "payment_id": payment_id,
+        "cheque_id": data.cheque_id,
+        "cheque_number": cheque.get("cheque_number"),
+        "suspense_used": suspense_used,
+        "remarks": data.remarks,
+        "created_at": now,
+    }
+    await db.recorded_expenses.insert_one(expense_record)
+    del expense_record["_id"]
+
+    # Update cheque status to 'used' or keep as issued
+    await db.cheques.update_one(
+        {"cheque_id": data.cheque_id},
+        {"$set": {
+            "status": "deposited",
+            "linked_payment_id": payment_id,
+            "linked_expense_amount": data.expense_amount,
+            "updated_at": now,
+        }}
+    )
+
+    # Get new suspense balance
+    new_suspense_entries = await db.cheque_suspense.find(
+        {"vendor_name": data.vendor_name}, {"_id": 0}
+    ).to_list(500)
+    new_balance = sum(e.get("amount", 0) for e in new_suspense_entries)
+
+    await create_audit_log(user.user_id, "cheque_payment", "expense", payment_id, {
+        "cheque_id": data.cheque_id,
+        "cheque_amount": cheque_amount,
+        "expense_amount": data.expense_amount,
+        "suspense_used": suspense_used,
+        "excess_to_suspense": excess if excess > 0 else 0,
+        "vendor": data.vendor_name,
+    })
+
+    return {
+        "payment_id": payment_id,
+        "cheque_amount": cheque_amount,
+        "expense_amount": data.expense_amount,
+        "suspense_used": suspense_used,
+        "amount_from_cheque": amount_from_cheque,
+        "excess_to_suspense": excess if excess > 0 else 0,
+        "new_suspense_balance": new_balance,
+        "expense": expense_record,
+        "message": f"Payment processed via cheque {cheque.get('cheque_number')}. Vendor suspense balance: ₹{new_balance:,.0f}"
+    }
+
+
+@router.get("/accountant/uncleared-cheques")
+async def get_uncleared_cheques(user: User = Depends(get_current_user)):
+    """Get cheques available for payment (issued/post_dated, not yet cleared/used)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cheques = await db.cheques.find(
+        {"status": {"$in": ["issued", "post_dated"]}, "cheque_type": "outgoing"},
+        {"_id": 0}
+    ).sort("cheque_date", -1).to_list(200)
+
+    return cheques
+
