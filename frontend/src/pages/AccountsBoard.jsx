@@ -16,7 +16,7 @@ import {
   TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
-  AlertCircle, BookOpen
+  AlertCircle, BookOpen, ArrowLeft, BarChart3
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
@@ -75,129 +75,141 @@ const classifyMode = (mode) => {
   return map[m] || 'miscellaneous';
 };
 
-// ============ DASHBOARD TAB ============
-function DashboardTab({ overview }) {
-  const [projectExpanded, setProjectExpanded] = useState(false);
-  const inc = overview?.income_by_mode || {};
-  const exp = overview?.expense_by_mode || {};
-  const totals = overview?.totals || {};
-  const projects = overview?.project_wise || [];
-
-  const allExpenses = overview?.expense_entries || [];
-  const expByCategory = {
-    overall: allExpenses.reduce((s, e) => s + (e.amount || 0), 0),
-    material: allExpenses.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
-    labour: allExpenses.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
-    petty_cash: overview?.petty_cash?.spent || 0,
-    suspense: overview?.suspense_balance || 0,
-    other: allExpenses.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
-  };
-  const EXP_CATEGORIES = [
-    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
-    { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
-    { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
-    { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
-    { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
-    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
-  ];
-
+// ============ DRILLDOWN VIEW ============
+function DrilldownView({ title, entries, type, onBack }) {
   return (
-    <div className="space-y-4" data-testid="dashboard-tab">
-      {/* Financial Overview */}
-      <Card className="border-l-4 border-l-amber-500">
-        <CardHeader className="pb-2 pt-3 px-4">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
-            </CardTitle>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
-              <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
-              <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                Net: {fmtFull(totals.net_balance)}
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-3">
-          <div className="grid grid-cols-9 gap-2">
-            {Object.keys(MODE_LABELS).map(mode => {
-              const Icon = MODE_ICONS[mode];
-              return (
-                <div key={mode} className={`rounded-lg border p-2 text-center ${MODE_COLORS[mode]}`}>
-                  <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
-                  <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                  <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
-                  <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
-                </div>
-              );
-            })}
-            <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
-              <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
-              <p className="text-[10px] font-medium">Total</p>
-              <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
-              <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
-            </div>
+    <div className="space-y-3" data-testid="drilldown-view">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="drilldown-back">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
+        <Badge variant="outline" className="text-xs">{entries.length} entries</Badge>
+        <span className="ml-auto text-sm font-bold">
+          Total: <span className={type === 'income' ? 'text-green-700' : 'text-red-600'}>
+            {fmtFull(entries.reduce((s, e) => s + (e.amount || 0), 0))}
+          </span>
+        </span>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid="drilldown-table">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Date</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Description</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                  {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
+                  <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {entries.length === 0 ? (
+                  <tr><td colSpan={type === 'expense' ? 7 : 6} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                ) : entries.map((e, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-3 py-2">{new Date(e.payment_date || e.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="px-3 py-2 font-medium">{e.stage || e.description || e.category || '-'}</td>
+                    <td className="px-3 py-2">{e.project_name || '-'}</td>
+                    <td className="px-3 py-2">
+                      <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(e.payment_mode || e.payment_method)]}`}>
+                        {MODE_LABELS[classifyMode(e.payment_mode || e.payment_method)] || 'Cash'}
+                      </Badge>
+                    </td>
+                    {type === 'expense' && <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>}
+                    <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
+                      {fmtFull(e.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
 
-      {/* Expense Category Breakdown */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-        {EXP_CATEGORIES.map(cat => {
-          const Icon = cat.icon;
-          return (
-            <Card key={cat.key} className={`border ${cat.color}`} data-testid={`exp-cat-${cat.key}`}>
-              <CardContent className="p-3 text-center">
-                <Icon className="h-4 w-4 mx-auto mb-1 opacity-70" />
-                <p className="text-[11px] font-semibold">{cat.label}</p>
-                <p className="text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
-              </CardContent>
-            </Card>
-          );
-        })}
+// ============ SUSPENSE DRILLDOWN ============
+function SuspenseDrilldown({ onBack }) {
+  const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/accountant/all-vendor-suspense`);
+        setVendors(res.data);
+      } catch { /* ignore */ }
+      setLoading(false);
+    })();
+  }, []);
+
+  return (
+    <div className="space-y-3" data-testid="suspense-drilldown">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={onBack} data-testid="suspense-back">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <h3 className="text-sm font-semibold text-gray-800">Suspense Account</h3>
+        <Badge variant="outline" className="text-xs">{vendors.length} vendors</Badge>
       </div>
 
-      {/* Project-wise Collapsible */}
-      <Card>
-        <CardHeader className="pb-0 pt-3 px-4 cursor-pointer" onClick={() => setProjectExpanded(!projectExpanded)}>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-amber-600" /> Project-wise Summary
-              <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
-            </CardTitle>
-            {projectExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </div>
-        </CardHeader>
-        {projectExpanded && (
-          <CardContent className="px-4 pb-3 pt-2">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs" data-testid="project-summary-table">
-                <thead>
-                  <tr className="border-b bg-gray-50">
-                    <th className="text-left px-2 py-1.5 font-medium text-gray-500">Project</th>
-                    <th className="text-right px-2 py-1.5 font-medium text-green-600">Income</th>
-                    <th className="text-right px-2 py-1.5 font-medium text-red-600">Expense</th>
-                    <th className="text-right px-2 py-1.5 font-medium text-gray-700">Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projects.map((p, i) => (
-                    <tr key={i} className="border-b hover:bg-gray-50">
-                      <td className="px-2 py-1.5 font-medium">{p.project_name}</td>
-                      <td className="px-2 py-1.5 text-right text-green-700">{fmtFull(p.income)}</td>
-                      <td className="px-2 py-1.5 text-right text-red-600">{fmtFull(p.expense)}</td>
-                      <td className={`px-2 py-1.5 text-right font-semibold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {fmtFull(p.balance)}
-                      </td>
+      {loading ? (
+        <div className="flex justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>
+      ) : vendors.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-gray-400">No suspense balances found</CardContent></Card>
+      ) : (
+        <div className="space-y-3">
+          <Card className="bg-gradient-to-r from-orange-50 to-red-50 border-orange-200">
+            <CardContent className="p-3">
+              <p className="text-sm font-semibold text-orange-800">Total Suspense Balance</p>
+              <p className="text-2xl font-bold text-orange-700">
+                {fmtFull(vendors.reduce((s, v) => s + v.balance, 0))}
+              </p>
+            </CardContent>
+          </Card>
+          {vendors.map(v => (
+            <Card key={v.vendor_name} data-testid={`suspense-vendor-${v.vendor_name}`}>
+              <CardHeader className="py-2 px-4 border-b">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">{v.vendor_name}</CardTitle>
+                  <Badge className={v.balance > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                    Balance: {fmtFull(v.balance)}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="text-left px-3 py-1.5 font-medium text-gray-500">Date</th>
+                      <th className="text-left px-3 py-1.5 font-medium text-gray-500">Description</th>
+                      <th className="text-right px-3 py-1.5 font-medium text-gray-500">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        )}
-      </Card>
+                  </thead>
+                  <tbody className="divide-y">
+                    {v.entries.map((e, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-3 py-1.5">{new Date(e.created_at).toLocaleDateString('en-IN')}</td>
+                        <td className="px-3 py-1.5">{e.description}</td>
+                        <td className={`px-3 py-1.5 text-right font-bold ${e.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {e.amount >= 0 ? '+' : ''}{fmtFull(e.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -216,6 +228,7 @@ function CashbookTab({ overview, projects }) {
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [submittingExpense, setSubmittingExpense] = useState(false);
+  const [drilldown, setDrilldown] = useState(null); // { type: 'income'|'expense'|'suspense', mode?: string, category?: string }
   const [newExpense, setNewExpense] = useState({
     project_id: '', category: 'material', amount: '', vendor_name: '',
     description: '', payment_method: 'cash', transaction_id: ''
@@ -230,20 +243,41 @@ function CashbookTab({ overview, projects }) {
       if (filterProject) params.append('project_id', filterProject);
       const res = await axios.get(`${API}/accountant/cashbook-filtered?${params}`);
       setCashbookData(res.data);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load cashbook');
     } finally {
       setLoading(false);
     }
   }, [dateFrom, dateTo, filterProject]);
 
-  useEffect(() => {
-    fetchCashbook();
-  }, [fetchCashbook]);
+  useEffect(() => { fetchCashbook(); }, [fetchCashbook]);
 
   const incomeEntries = cashbookData?.income_entries || overview?.income_entries || [];
   const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
   const summary = cashbookData?.summary || overview?.totals || {};
+
+  // Data from overview for Financial Overview cards
+  const inc = overview?.income_by_mode || {};
+  const exp = overview?.expense_by_mode || {};
+  const totals = overview?.totals || {};
+
+  // Expense category calc
+  const expByCategory = {
+    overall: allExpenseEntries.reduce((s, e) => s + (e.amount || 0), 0),
+    material: allExpenseEntries.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
+    labour: allExpenseEntries.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
+    petty_cash: overview?.petty_cash?.spent || 0,
+    suspense: overview?.suspense_balance || 0,
+    other: allExpenseEntries.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
+  };
+  const EXP_CATEGORIES = [
+    { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
+    { key: 'material', label: 'Material', icon: Building2, color: 'bg-blue-50 text-blue-700 border-blue-200' },
+    { key: 'labour', label: 'Labour', icon: Wallet, color: 'bg-purple-50 text-purple-700 border-purple-200' },
+    { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    { key: 'suspense', label: 'Suspense', icon: RefreshCw, color: 'bg-orange-50 text-orange-700 border-orange-200' },
+    { key: 'other', label: 'Other', icon: CircleDollarSign, color: 'bg-gray-50 text-gray-700 border-gray-200' },
+  ];
 
   const filteredExpenses = allExpenseEntries.filter(e => {
     if (expenseSubTab === 'all') return true;
@@ -254,10 +288,78 @@ function CashbookTab({ overview, projects }) {
     return true;
   });
 
+  // Drilldown click handlers
+  const handleModeClick = (mode) => {
+    if (mode === 'suspense_account') {
+      setDrilldown({ type: 'suspense' });
+      return;
+    }
+    // Show income entries for this mode
+    const modeIncome = incomeEntries.filter(e => classifyMode(e.payment_mode) === mode);
+    const modeExpense = allExpenseEntries.filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
+    setDrilldown({ type: 'mode', mode, incomeEntries: modeIncome, expenseEntries: modeExpense, label: MODE_LABELS[mode] });
+  };
+
+  const handleCategoryClick = (catKey) => {
+    if (catKey === 'suspense') {
+      setDrilldown({ type: 'suspense' });
+      return;
+    }
+    if (catKey === 'overall') {
+      setDrilldown(null);
+      setSubTab('expense');
+      setExpenseSubTab('all');
+      return;
+    }
+    const filtered = allExpenseEntries.filter(e => {
+      if (catKey === 'material') return e.expense_type === 'material';
+      if (catKey === 'labour') return e.expense_type === 'labour';
+      if (catKey === 'petty_cash') return e.expense_type === 'petty_cash';
+      if (catKey === 'other') return !['material', 'labour', 'petty_cash'].includes(e.expense_type);
+      return true;
+    });
+    setDrilldown({ type: 'category', category: catKey, entries: filtered, label: EXP_CATEGORIES.find(c => c.key === catKey)?.label || catKey });
+  };
+
+  // If in drilldown mode, show the drilldown
+  if (drilldown?.type === 'suspense') {
+    return <SuspenseDrilldown onBack={() => setDrilldown(null)} />;
+  }
+  if (drilldown?.type === 'category') {
+    return <DrilldownView title={`${drilldown.label} Expenses`} entries={drilldown.entries} type="expense" onBack={() => setDrilldown(null)} />;
+  }
+  if (drilldown?.type === 'mode') {
+    return (
+      <div className="space-y-3" data-testid="mode-drilldown">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" className="h-8 gap-1" onClick={() => setDrilldown(null)} data-testid="mode-drilldown-back">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <h3 className="text-sm font-semibold text-gray-800">{drilldown.label} — Breakdown</h3>
+        </div>
+        <Tabs defaultValue="income">
+          <TabsList className="grid grid-cols-2 w-full mb-3">
+            <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
+              <ArrowDownRight className="h-3.5 w-3.5" /> Income ({drilldown.incomeEntries.length})
+            </TabsTrigger>
+            <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1">
+              <ArrowUpRight className="h-3.5 w-3.5" /> Expense ({drilldown.expenseEntries.length})
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="income">
+            <DrilldownView title={`${drilldown.label} Income`} entries={drilldown.incomeEntries} type="income" onBack={() => setDrilldown(null)} />
+          </TabsContent>
+          <TabsContent value="expense">
+            <DrilldownView title={`${drilldown.label} Expenses`} entries={drilldown.expenseEntries} type="expense" onBack={() => setDrilldown(null)} />
+          </TabsContent>
+        </Tabs>
+      </div>
+    );
+  }
+
   const handleExpenseSubmitClick = () => {
     if (!newExpense.project_id || !newExpense.amount || !newExpense.category) {
-      toast.error('Project, Category & Amount are required');
-      return;
+      toast.error('Project, Category & Amount are required'); return;
     }
     setShowSubmitConfirm(true);
   };
@@ -312,6 +414,69 @@ function CashbookTab({ overview, projects }) {
 
   return (
     <div className="space-y-4" data-testid="cashbook-tab">
+      {/* Financial Overview - Clickable Cards */}
+      <Card className="border-l-4 border-l-amber-500">
+        <CardHeader className="pb-2 pt-3 px-4">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
+            </CardTitle>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
+              <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
+              <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                Net: {fmtFull(totals.net_balance)}
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-3">
+          <div className="grid grid-cols-9 gap-2">
+            {Object.keys(MODE_LABELS).map(mode => {
+              const Icon = MODE_ICONS[mode];
+              return (
+                <div key={mode}
+                  className={`rounded-lg border p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03] ${MODE_COLORS[mode]}`}
+                  onClick={() => handleModeClick(mode)}
+                  data-testid={`mode-card-${mode}`}
+                >
+                  <Icon className="h-3.5 w-3.5 mx-auto mb-1 opacity-70" />
+                  <p className="text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                  <p className="text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
+                  <p className="text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
+                </div>
+              );
+            })}
+            <div className="rounded-lg border p-2 text-center bg-gray-900 text-white">
+              <DollarSign className="h-3.5 w-3.5 mx-auto mb-1" />
+              <p className="text-[10px] font-medium">Total</p>
+              <p className="text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
+              <p className="text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Expense Category Breakdown - Clickable */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        {EXP_CATEGORIES.map(cat => {
+          const Icon = cat.icon;
+          return (
+            <Card key={cat.key}
+              className={`border cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] ${cat.color}`}
+              onClick={() => handleCategoryClick(cat.key)}
+              data-testid={`exp-cat-${cat.key}`}
+            >
+              <CardContent className="p-3 text-center">
+                <Icon className="h-4 w-4 mx-auto mb-1 opacity-70" />
+                <p className="text-[11px] font-semibold">{cat.label}</p>
+                <p className="text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
       {/* Date Range Filters */}
       <Card>
         <CardContent className="p-3 flex flex-wrap gap-3 items-center">
@@ -341,30 +506,6 @@ function CashbookTab({ overview, projects }) {
           {loading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
         </CardContent>
       </Card>
-
-      {/* Summary Row */}
-      <div className="grid grid-cols-3 gap-3">
-        <Card className="border-l-4 border-l-green-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Income</p>
-            <p className="text-lg font-bold text-green-700">{fmtFull(summary.total_income)}</p>
-            <p className="text-[10px] text-gray-400">{summary.income_count || incomeEntries.length} entries</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-red-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Total Expense</p>
-            <p className="text-lg font-bold text-red-600">{fmtFull(summary.total_expense)}</p>
-            <p className="text-[10px] text-gray-400">{summary.expense_count || filteredExpenses.length} entries</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-3">
-            <p className="text-xs text-gray-500">Net Balance</p>
-            <p className={`text-lg font-bold ${(summary.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(summary.net_balance)}</p>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Income / Expense Sub-tabs */}
       <Tabs value={subTab} onValueChange={setSubTab}>
@@ -413,12 +554,8 @@ function CashbookTab({ overview, projects }) {
                         <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(entry.amount)}</td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
-                              <Printer className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}><Printer className="h-3 w-3" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -434,7 +571,6 @@ function CashbookTab({ overview, projects }) {
         </TabsContent>
 
         <TabsContent value="expense">
-          {/* Expense sub-filters */}
           <div className="flex flex-wrap gap-2 mb-3">
             {['all', 'material', 'labour', 'petty_cash', 'other'].map(tab => (
               <Button key={tab} size="sm" variant={expenseSubTab === tab ? 'default' : 'outline'}
@@ -449,7 +585,6 @@ function CashbookTab({ overview, projects }) {
               </Button>
             </div>
           </div>
-
           <Card>
             <CardContent className="px-0">
               <div className="overflow-x-auto">
@@ -467,7 +602,6 @@ function CashbookTab({ overview, projects }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {/* Inline Add Expense Row */}
                     {addExpenseOpen && (
                       <tr className="border-b bg-red-50/50 border-l-4 border-l-red-400">
                         <td className="px-2 py-2 text-center"><span className="text-[10px] font-bold text-red-500">NEW</span></td>
@@ -549,12 +683,8 @@ function CashbookTab({ overview, projects }) {
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}>
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}>
-                              <Printer className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}><Printer className="h-3 w-3" /></Button>
                           </div>
                         </td>
                       </tr>
@@ -650,11 +780,9 @@ function ChequeManagementTab({ projects }) {
     party_name: '', party_type: 'client', project_id: '', is_post_dated: false,
     reminder_date: '', remarks: ''
   });
-
   const [statusForm, setStatusForm] = useState({
     status: '', deposit_date: '', clearance_date: '', bounce_reason: '', bounce_charges: '', remarks: ''
   });
-
   const [smartPayForm, setSmartPayForm] = useState({
     cheque_id: '', expense_project_id: '', expense_category: 'material',
     expense_description: '', expense_amount: '', vendor_name: '',
@@ -687,17 +815,14 @@ function ChequeManagementTab({ projects }) {
     }
     try {
       await axios.post(`${API}/accountant/cheques`, {
-        ...chequeForm,
-        amount: parseFloat(chequeForm.amount),
+        ...chequeForm, amount: parseFloat(chequeForm.amount),
         cheque_date: new Date(chequeForm.cheque_date).toISOString(),
         reminder_date: chequeForm.reminder_date ? new Date(chequeForm.reminder_date).toISOString() : null
       });
       toast.success('Cheque record added');
       setAddDialog(false);
       fetchChequeData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add cheque');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to add cheque'); }
   };
 
   const handleUpdateStatus = async () => {
@@ -713,12 +838,9 @@ function ChequeManagementTab({ projects }) {
       toast.success('Cheque status updated');
       setStatusDialog(false);
       fetchChequeData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update status');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to update status'); }
   };
 
-  // Smart payment: check vendor suspense when vendor name changes
   const checkVendorSuspense = async (vendorName) => {
     if (!vendorName) { setSuspenseAlert(null); return; }
     try {
@@ -726,12 +848,8 @@ function ChequeManagementTab({ projects }) {
       if (res.data.suspense_balance > 0) {
         setSuspenseAlert(res.data);
         setSmartPayForm(prev => ({ ...prev, use_suspense: true, suspense_amount_to_use: res.data.suspense_balance }));
-      } else {
-        setSuspenseAlert(null);
-      }
-    } catch {
-      setSuspenseAlert(null);
-    }
+      } else { setSuspenseAlert(null); }
+    } catch { setSuspenseAlert(null); }
   };
 
   const handleSmartPayment = async () => {
@@ -740,8 +858,7 @@ function ChequeManagementTab({ projects }) {
     }
     try {
       const res = await axios.post(`${API}/accountant/cheque-payment`, {
-        ...smartPayForm,
-        expense_amount: parseFloat(smartPayForm.expense_amount),
+        ...smartPayForm, expense_amount: parseFloat(smartPayForm.expense_amount),
         suspense_amount_to_use: smartPayForm.use_suspense ? parseFloat(smartPayForm.suspense_amount_to_use) || 0 : 0,
       });
       toast.success(res.data.message);
@@ -749,9 +866,7 @@ function ChequeManagementTab({ projects }) {
       setSuspenseAlert(null);
       setSmartPayForm({ cheque_id: '', expense_project_id: '', expense_category: 'material', expense_description: '', expense_amount: '', vendor_name: '', use_suspense: false, suspense_amount_to_use: 0, remarks: '' });
       fetchChequeData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Payment failed');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Payment failed'); }
   };
 
   const getStatusBadge = (status) => {
@@ -773,21 +888,16 @@ function ChequeManagementTab({ projects }) {
   });
 
   const stats = {
-    total: cheques.length,
-    incoming: cheques.filter(c => c.cheque_type === 'incoming').length,
+    total: cheques.length, incoming: cheques.filter(c => c.cheque_type === 'incoming').length,
     outgoing: cheques.filter(c => c.cheque_type === 'outgoing').length,
     pending: cheques.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).length,
     bounced: cheques.filter(c => c.status === 'bounced').length,
     cleared: cheques.filter(c => c.status === 'cleared').length,
-    pendingAmount: cheques.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).reduce((sum, c) => sum + (c.amount || 0), 0),
   };
-
-  // Uncleared outgoing cheques for smart payment
   const unclearedOutgoing = cheques.filter(c => c.cheque_type === 'outgoing' && ['issued', 'post_dated'].includes(c.status));
 
   return (
     <div className="space-y-4" data-testid="cheque-management-tab">
-      {/* Reminders */}
       {reminders.length > 0 && (
         <Card className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200" data-testid="cheque-reminders">
           <CardContent className="p-3">
@@ -807,7 +917,6 @@ function ChequeManagementTab({ projects }) {
         </Card>
       )}
 
-      {/* Vendor Suspense Alert */}
       {vendorSuspense.length > 0 && (
         <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200" data-testid="vendor-suspense-summary">
           <CardContent className="p-3">
@@ -817,9 +926,7 @@ function ChequeManagementTab({ projects }) {
                 <p className="font-semibold text-blue-800 text-sm">Vendor Suspense Balances</p>
                 <div className="flex flex-wrap gap-2 mt-1">
                   {vendorSuspense.map(v => (
-                    <Badge key={v.vendor_name} className="bg-blue-100 text-blue-700 text-xs">
-                      {v.vendor_name}: {fmtFull(v.balance)}
-                    </Badge>
+                    <Badge key={v.vendor_name} className="bg-blue-100 text-blue-700 text-xs">{v.vendor_name}: {fmtFull(v.balance)}</Badge>
                   ))}
                 </div>
               </div>
@@ -828,51 +935,25 @@ function ChequeManagementTab({ projects }) {
         </Card>
       )}
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-        <Card className="cursor-pointer hover:shadow-md" onClick={() => setActiveTab('all')}>
-          <CardContent className="p-3 text-center">
-            <FileText className="h-5 w-5 mx-auto mb-1 text-gray-600" />
-            <p className="text-xl font-bold">{stats.total}</p>
-            <p className="text-[10px] text-gray-500">Total</p>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md bg-green-50" onClick={() => setActiveTab('incoming')}>
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-green-700">{stats.incoming}</p>
-            <p className="text-[10px] text-green-600">Incoming</p>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md bg-amber-50" onClick={() => setActiveTab('outgoing')}>
-          <CardContent className="p-3 text-center">
-            <p className="text-xl font-bold text-amber-700">{stats.outgoing}</p>
-            <p className="text-[10px] text-amber-600">Outgoing</p>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md bg-amber-50" onClick={() => setActiveTab('pending')}>
-          <CardContent className="p-3 text-center">
-            <Clock className="h-4 w-4 mx-auto mb-0.5 text-amber-600" />
-            <p className="text-xl font-bold text-amber-700">{stats.pending}</p>
-            <p className="text-[10px] text-amber-600">Pending</p>
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer hover:shadow-md bg-red-50" onClick={() => setActiveTab('bounced')}>
-          <CardContent className="p-3 text-center">
-            <XCircle className="h-4 w-4 mx-auto mb-0.5 text-red-600" />
-            <p className="text-xl font-bold text-red-700">{stats.bounced}</p>
-            <p className="text-[10px] text-red-600">Bounced</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-emerald-50">
-          <CardContent className="p-3 text-center">
-            <CheckCircle className="h-4 w-4 mx-auto mb-0.5 text-emerald-600" />
-            <p className="text-xl font-bold text-emerald-700">{stats.cleared}</p>
-            <p className="text-[10px] text-emerald-600">Cleared</p>
-          </CardContent>
-        </Card>
+        {[
+          { key: 'all', label: 'Total', value: stats.total, icon: FileText, bg: '' },
+          { key: 'incoming', label: 'Incoming', value: stats.incoming, color: 'text-green-700', bg: 'bg-green-50' },
+          { key: 'outgoing', label: 'Outgoing', value: stats.outgoing, color: 'text-amber-700', bg: 'bg-amber-50' },
+          { key: 'pending', label: 'Pending', value: stats.pending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+          { key: 'bounced', label: 'Bounced', value: stats.bounced, icon: XCircle, color: 'text-red-600', bg: 'bg-red-50' },
+          { key: 'cleared', label: 'Cleared', value: stats.cleared, icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+        ].map(s => (
+          <Card key={s.key} className={`cursor-pointer hover:shadow-md ${s.bg}`} onClick={() => setActiveTab(s.key)}>
+            <CardContent className="p-3 text-center">
+              {s.icon && React.createElement(s.icon, { className: `h-4 w-4 mx-auto mb-0.5 ${s.color || 'text-gray-600'}` })}
+              <p className={`text-xl font-bold ${s.color || ''}`}>{s.value}</p>
+              <p className={`text-[10px] ${s.color || 'text-gray-500'}`}>{s.label}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Cheques Table */}
       <Card>
         <CardHeader className="border-b py-3 px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -943,9 +1024,7 @@ function ChequeManagementTab({ projects }) {
                         </Badge>
                       </td>
                       <td className="px-3 py-2 text-right font-bold">
-                        <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'}>
-                          {fmtFull(cheque.amount)}
-                        </span>
+                        <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'}>{fmtFull(cheque.amount)}</span>
                       </td>
                       <td className="px-3 py-2">{new Date(cheque.cheque_date).toLocaleDateString('en-IN')}</td>
                       <td className="px-3 py-2 text-center">{getStatusBadge(cheque.status)}</td>
@@ -954,9 +1033,7 @@ function ChequeManagementTab({ projects }) {
                           setSelectedCheque(cheque);
                           setStatusForm({ status: cheque.status, deposit_date: cheque.deposit_date?.split('T')[0] || '', clearance_date: cheque.clearance_date?.split('T')[0] || '', bounce_reason: cheque.bounce_reason || '', bounce_charges: cheque.bounce_charges?.toString() || '', remarks: cheque.remarks || '' });
                           setStatusDialog(true);
-                        }} data-testid={`update-status-${cheque.cheque_id}`}>
-                          <Edit className="h-3 w-3" />
-                        </Button>
+                        }} data-testid={`update-status-${cheque.cheque_id}`}><Edit className="h-3 w-3" /></Button>
                       </td>
                     </tr>
                   ))}
@@ -970,9 +1047,7 @@ function ChequeManagementTab({ projects }) {
       {/* Add Cheque Dialog */}
       <Dialog open={addDialog} onOpenChange={setAddDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-amber-600" /> Add New Cheque</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-amber-600" /> Add New Cheque</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Cheque Number *</Label><Input value={chequeForm.cheque_number} onChange={e => setChequeForm({...chequeForm, cheque_number: e.target.value})} data-testid="input-cheque-number" /></div>
@@ -1012,9 +1087,7 @@ function ChequeManagementTab({ projects }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddDialog(false)}>Cancel</Button>
-            <Button onClick={handleAddCheque} className="bg-amber-600 hover:bg-amber-700" data-testid="save-cheque-btn">
-              <CheckCircle className="h-4 w-4 mr-1" /> Save Cheque
-            </Button>
+            <Button onClick={handleAddCheque} className="bg-amber-600 hover:bg-amber-700" data-testid="save-cheque-btn"><CheckCircle className="h-4 w-4 mr-1" /> Save Cheque</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1060,9 +1133,7 @@ function ChequeManagementTab({ projects }) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setStatusDialog(false)}>Cancel</Button>
-            <Button onClick={handleUpdateStatus} className="bg-amber-600 hover:bg-amber-700" data-testid="update-status-btn">
-              <CheckCircle className="h-4 w-4 mr-1" /> Update
-            </Button>
+            <Button onClick={handleUpdateStatus} className="bg-amber-600 hover:bg-amber-700" data-testid="update-status-btn"><CheckCircle className="h-4 w-4 mr-1" /> Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1070,11 +1141,8 @@ function ChequeManagementTab({ projects }) {
       {/* Smart Payment Dialog */}
       <Dialog open={smartPayDialog} onOpenChange={v => { setSmartPayDialog(v); if (!v) setSuspenseAlert(null); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-blue-600" /> Smart Cheque Payment</DialogTitle>
-          </DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-blue-600" /> Smart Cheque Payment</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            {/* Suspense Alert */}
             {suspenseAlert && suspenseAlert.suspense_balance > 0 && (
               <Card className="bg-green-50 border-green-300" data-testid="suspense-auto-alert">
                 <CardContent className="p-3">
@@ -1082,15 +1150,11 @@ function ChequeManagementTab({ projects }) {
                     <AlertCircle className="h-5 w-5 text-green-600" />
                     <div>
                       <p className="font-semibold text-green-800 text-sm">Suspense Balance Available!</p>
-                      <p className="text-xs text-green-700">
-                        {suspenseAlert.vendor_name} has {fmtFull(suspenseAlert.suspense_balance)} in suspense.
-                        This will be auto-deducted from the expense.
-                      </p>
+                      <p className="text-xs text-green-700">{suspenseAlert.vendor_name} has {fmtFull(suspenseAlert.suspense_balance)} in suspense.</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 mt-2">
-                    <input type="checkbox" checked={smartPayForm.use_suspense}
-                      onChange={e => setSmartPayForm(prev => ({ ...prev, use_suspense: e.target.checked }))} className="h-4 w-4 rounded" />
+                    <input type="checkbox" checked={smartPayForm.use_suspense} onChange={e => setSmartPayForm(prev => ({ ...prev, use_suspense: e.target.checked }))} className="h-4 w-4 rounded" />
                     <Label className="text-sm cursor-pointer">Use suspense balance ({fmtFull(suspenseAlert.suspense_balance)})</Label>
                   </div>
                   {smartPayForm.use_suspense && (
@@ -1103,66 +1167,42 @@ function ChequeManagementTab({ projects }) {
                 </CardContent>
               </Card>
             )}
-
             <div><Label>Select Cheque *</Label>
               <Select value={smartPayForm.cheque_id} onValueChange={v => setSmartPayForm(prev => ({ ...prev, cheque_id: v }))}>
                 <SelectTrigger data-testid="smart-pay-cheque-select"><SelectValue placeholder="Select an outgoing cheque" /></SelectTrigger>
                 <SelectContent>
                   {unclearedOutgoing.length === 0 && <SelectItem value="none" disabled>No uncleared outgoing cheques</SelectItem>}
-                  {unclearedOutgoing.map(c => (
-                    <SelectItem key={c.cheque_id} value={c.cheque_id}>
-                      {c.cheque_number} - {c.party_name} - {fmtFull(c.amount)}
-                    </SelectItem>
-                  ))}
+                  {unclearedOutgoing.map(c => (<SelectItem key={c.cheque_id} value={c.cheque_id}>{c.cheque_number} - {c.party_name} - {fmtFull(c.amount)}</SelectItem>))}
                 </SelectContent>
               </Select>
             </div>
-
             <div><Label>Vendor Name *</Label>
               <Input value={smartPayForm.vendor_name} data-testid="smart-pay-vendor"
-                onChange={e => { setSmartPayForm(prev => ({ ...prev, vendor_name: e.target.value })); }}
+                onChange={e => setSmartPayForm(prev => ({ ...prev, vendor_name: e.target.value }))}
                 onBlur={e => checkVendorSuspense(e.target.value)} placeholder="Vendor name" />
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Project *</Label>
                 <Select value={smartPayForm.expense_project_id} onValueChange={v => setSmartPayForm(prev => ({ ...prev, expense_project_id: v }))}>
                   <SelectTrigger data-testid="smart-pay-project"><SelectValue placeholder="Project" /></SelectTrigger>
-                  <SelectContent>
-                    {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
-                  </SelectContent>
+                  <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div><Label>Category</Label>
                 <Select value={smartPayForm.expense_category} onValueChange={v => setSmartPayForm(prev => ({ ...prev, expense_category: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="material">Material</SelectItem>
-                    <SelectItem value="labour">Labour</SelectItem>
-                    <SelectItem value="vendor">Vendor</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="material">Material</SelectItem><SelectItem value="labour">Labour</SelectItem>
+                    <SelectItem value="vendor">Vendor</SelectItem><SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
             <div><Label>Expense Amount *</Label>
-              <Input type="number" value={smartPayForm.expense_amount}
-                onChange={e => setSmartPayForm(prev => ({ ...prev, expense_amount: e.target.value }))}
-                data-testid="smart-pay-amount" placeholder="Expense amount" />
+              <Input type="number" value={smartPayForm.expense_amount} onChange={e => setSmartPayForm(prev => ({ ...prev, expense_amount: e.target.value }))} data-testid="smart-pay-amount" placeholder="Expense amount" />
             </div>
-
-            <div><Label>Description</Label>
-              <Input value={smartPayForm.expense_description}
-                onChange={e => setSmartPayForm(prev => ({ ...prev, expense_description: e.target.value }))}
-                placeholder="e.g., Cement purchase" />
-            </div>
-
-            <div><Label>Remarks</Label>
-              <Textarea value={smartPayForm.remarks} onChange={e => setSmartPayForm(prev => ({ ...prev, remarks: e.target.value }))} rows={2} />
-            </div>
-
-            {/* Payment Summary */}
+            <div><Label>Description</Label><Input value={smartPayForm.expense_description} onChange={e => setSmartPayForm(prev => ({ ...prev, expense_description: e.target.value }))} placeholder="e.g., Cement purchase" /></div>
+            <div><Label>Remarks</Label><Textarea value={smartPayForm.remarks} onChange={e => setSmartPayForm(prev => ({ ...prev, remarks: e.target.value }))} rows={2} /></div>
             {smartPayForm.cheque_id && smartPayForm.expense_amount && (
               <Card className="bg-gray-50" data-testid="payment-summary">
                 <CardContent className="p-3 space-y-1 text-sm">
@@ -1191,12 +1231,102 @@ function ChequeManagementTab({ projects }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setSmartPayDialog(false)}>Cancel</Button>
-            <Button onClick={handleSmartPayment} className="bg-blue-600 hover:bg-blue-700" data-testid="process-smart-payment-btn">
-              <CreditCard className="h-4 w-4 mr-1" /> Process Payment
-            </Button>
+            <Button onClick={handleSmartPayment} className="bg-blue-600 hover:bg-blue-700" data-testid="process-smart-payment-btn"><CreditCard className="h-4 w-4 mr-1" /> Process Payment</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ============ PROJECT SUMMARY TAB ============
+function ProjectSummaryTab({ overview }) {
+  const projects = overview?.project_wise || [];
+  const totals = overview?.totals || {};
+
+  return (
+    <div className="space-y-4" data-testid="project-summary-tab">
+      <div className="grid grid-cols-3 gap-3">
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Income</p>
+            <p className="text-lg font-bold text-green-700">{fmtFull(totals.total_income)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Total Expense</p>
+            <p className="text-lg font-bold text-red-600">{fmtFull(totals.total_expense)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="p-3">
+            <p className="text-xs text-gray-500">Net Balance</p>
+            <p className={`text-lg font-bold ${(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(totals.net_balance)}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader className="py-3 px-4 border-b">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-amber-600" /> All Projects
+              <Badge variant="outline" className="text-xs">{projects.length} projects</Badge>
+            </CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid="project-summary-table">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">S.No</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
+                  <th className="text-right px-3 py-2 font-semibold text-green-600">Income</th>
+                  <th className="text-right px-3 py-2 font-semibold text-red-600">Expense</th>
+                  <th className="text-right px-3 py-2 font-semibold text-gray-600">Balance</th>
+                  <th className="text-center px-3 py-2 font-semibold text-gray-600">P&L</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {projects.map((p, i) => {
+                  const pnl = (p.income || 0) - (p.expense || 0);
+                  const pnlPct = p.income ? ((pnl / p.income) * 100).toFixed(1) : '0.0';
+                  return (
+                    <tr key={i} className="hover:bg-gray-50" data-testid={`project-row-${i}`}>
+                      <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                      <td className="px-3 py-2 font-medium">{p.project_name}</td>
+                      <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(p.income)}</td>
+                      <td className="px-3 py-2 text-right text-red-600 font-semibold">{fmtFull(p.expense)}</td>
+                      <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(p.balance)}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Badge className={pnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                          {pnl >= 0 ? '+' : ''}{pnlPct}%
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {projects.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No projects found</td></tr>
+                )}
+              </tbody>
+              {projects.length > 0 && (
+                <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+                  <tr className="font-bold">
+                    <td className="px-3 py-2" colSpan={2}>Total ({projects.length} projects)</td>
+                    <td className="px-3 py-2 text-right text-green-700">{fmtFull(projects.reduce((s, p) => s + (p.income || 0), 0))}</td>
+                    <td className="px-3 py-2 text-right text-red-600">{fmtFull(projects.reduce((s, p) => s + (p.expense || 0), 0))}</td>
+                    <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(totals.net_balance)}</td>
+                    <td className="px-3 py-2"></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -1207,11 +1337,9 @@ export default function AccountsBoard() {
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState(null);
   const [projects, setProjects] = useState([]);
-  const [mainTab, setMainTab] = useState('dashboard');
+  const [mainTab, setMainTab] = useState('cashbook');
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   const fetchAll = async () => {
     try {
@@ -1251,23 +1379,18 @@ export default function AccountsBoard() {
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
       <AppHeader user={user} />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-4">
-        {/* Main Section Tabs */}
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsList className="w-full grid grid-cols-3 mb-4" data-testid="accounts-main-tabs">
-            <TabsTrigger value="dashboard" className="gap-1.5 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-dashboard">
-              <TrendingUp className="h-4 w-4" /> Dashboard
-            </TabsTrigger>
             <TabsTrigger value="cashbook" className="gap-1.5 data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
               <BookOpen className="h-4 w-4" /> Cashbook
             </TabsTrigger>
             <TabsTrigger value="cheques" className="gap-1.5 data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
               <FileText className="h-4 w-4" /> Cheque Management
             </TabsTrigger>
+            <TabsTrigger value="projects" className="gap-1.5 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-projects">
+              <BarChart3 className="h-4 w-4" /> Project Summary
+            </TabsTrigger>
           </TabsList>
-
-          <TabsContent value="dashboard">
-            <DashboardTab overview={overview} />
-          </TabsContent>
 
           <TabsContent value="cashbook">
             <CashbookTab overview={overview} projects={projects} />
@@ -1275,6 +1398,10 @@ export default function AccountsBoard() {
 
           <TabsContent value="cheques">
             <ChequeManagementTab projects={projects} />
+          </TabsContent>
+
+          <TabsContent value="projects">
+            <ProjectSummaryTab overview={overview} />
           </TabsContent>
         </Tabs>
       </main>
