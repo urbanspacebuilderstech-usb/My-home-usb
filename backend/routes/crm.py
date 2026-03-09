@@ -2219,6 +2219,263 @@ async def preview_sheet(data: PreviewSheetRequest, user: User = Depends(get_curr
         raise HTTPException(status_code=400, detail=f"Failed to read spreadsheet: {str(e)}")
 
 
+@router.post("/sheets/preview-all-tabs")
+async def preview_all_tabs(data: PreviewSheetRequest, user: User = Depends(get_current_user)):
+    """Preview ALL tabs in a Google Sheet - each tab with headers, auto-mapping, and sample data"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    try:
+        spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        sheet_names = [s['properties']['title'] for s in spreadsheet.get('sheets', [])]
+        spreadsheet_name = spreadsheet.get('properties', {}).get('title', 'Unknown')
+        
+        # Get existing custom fields
+        existing_custom_fields = await db.custom_fields.find({}, {"_id": 0}).to_list(100)
+        existing_field_names = {f.get("field_name", "").lower() for f in existing_custom_fields}
+        
+        tabs_preview = []
+        for sheet_name in sheet_names:
+            try:
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{sheet_name}'!A1:Z50"
+                ).execute()
+            except:
+                continue
+            
+            values = result.get('values', [])
+            if len(values) < 2:
+                tabs_preview.append({
+                    "tab_name": sheet_name,
+                    "source_name": sheet_name.lower().replace(" ", "_").replace("-", "_"),
+                    "headers": [],
+                    "sample_data": [],
+                    "total_rows": 0,
+                    "column_mapping": {},
+                    "unmapped_columns": [],
+                    "is_empty": True
+                })
+                continue
+            
+            headers = values[0]
+            sample_data = values[1:6]  # 5 sample rows
+            
+            column_mapping = {}
+            unmapped_columns = []
+            
+            for idx, header in enumerate(headers):
+                col_letter = chr(65 + idx) if idx < 26 else f"A{chr(65 + idx - 26)}"
+                mapped = auto_map_column(header)
+                if mapped:
+                    column_mapping[col_letter] = {
+                        "original": header,
+                        "mapped_to": mapped,
+                        "is_standard": True,
+                        "is_custom_existing": False
+                    }
+                else:
+                    # Check if it matches an existing custom field
+                    normalized = header.lower().strip().replace(" ", "_")
+                    is_existing_custom = normalized in existing_field_names
+                    column_mapping[col_letter] = {
+                        "original": header,
+                        "mapped_to": normalized if is_existing_custom else None,
+                        "is_standard": False,
+                        "is_custom_existing": is_existing_custom
+                    }
+                    if not is_existing_custom:
+                        unmapped_columns.append({
+                            "col_letter": col_letter,
+                            "header": header,
+                            "suggested_field_name": normalized,
+                            "sample_values": [row[idx] if idx < len(row) else "" for row in sample_data[:3]]
+                        })
+            
+            tabs_preview.append({
+                "tab_name": sheet_name,
+                "source_name": sheet_name.lower().replace(" ", "_").replace("-", "_"),
+                "headers": headers,
+                "sample_data": sample_data,
+                "total_rows": len(values) - 1,
+                "column_mapping": column_mapping,
+                "unmapped_columns": unmapped_columns,
+                "is_empty": False
+            })
+        
+        return {
+            "spreadsheet_id": spreadsheet_id,
+            "spreadsheet_name": spreadsheet_name,
+            "total_tabs": len(sheet_names),
+            "tabs": tabs_preview
+        }
+    except Exception as e:
+        logger.error(f"Failed to preview all tabs: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to read spreadsheet: {str(e)}")
+
+
+class ImportAllTabsRequest(BaseModel):
+    spreadsheet_url: str
+    tab_configs: List[Dict] = []  # [{tab_name, column_mapping, new_custom_fields}]
+
+
+@router.post("/sheets/import-all-tabs")
+async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = Depends(get_current_user)):
+    """Import leads from all tabs with per-tab column mapping and custom field creation"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    creds = await get_sheets_credentials(user.user_id)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+    
+    try:
+        spreadsheet_id = extract_spreadsheet_id(data.spreadsheet_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        settings = await get_distribution_settings()
+        pre_sales_team = settings.get("pre_sales_team", [])
+        current_index = settings.get("pre_sales_current_index", 0)
+        
+        total_imported = 0
+        total_skipped = 0
+        sources_imported = []
+        custom_fields_created = []
+        
+        for tab_config in data.tab_configs:
+            tab_name = tab_config.get("tab_name")
+            col_mapping = tab_config.get("column_mapping", {})
+            new_fields = tab_config.get("new_custom_fields", [])
+            
+            # Create new custom fields for this tab
+            for field in new_fields:
+                field_name = field.get("field_name", "").lower().strip().replace(" ", "_")
+                existing = await db.custom_fields.find_one({"field_name": field_name})
+                if not existing:
+                    field_doc = {
+                        "field_id": f"cf_{uuid.uuid4().hex[:8]}",
+                        "field_name": field_name,
+                        "display_name": field.get("display_name", field.get("header", field_name)),
+                        "field_type": "text",
+                        "source_tab": tab_name,
+                        "created_by": user.user_id,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await db.custom_fields.insert_one(field_doc)
+                    custom_fields_created.append(field_name)
+            
+            # Fetch sheet data
+            try:
+                result = service.spreadsheets().values().get(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{tab_name}'"
+                ).execute()
+            except Exception as e:
+                logger.error(f"Failed to read tab {tab_name}: {e}")
+                continue
+            
+            values = result.get('values', [])
+            if len(values) < 2:
+                continue
+            
+            headers = values[0]
+            data_rows = values[1:]
+            source_name = tab_name.lower().replace(" ", "_").replace("-", "_")
+            tab_imported = 0
+            tab_skipped = 0
+            
+            for row in data_rows:
+                lead_data = {
+                    "lead_id": f"lead_{uuid.uuid4().hex[:12]}",
+                    "source": source_name,
+                    "source_display": tab_name,
+                    "stage_type": "pre_sales",
+                    "current_stage_id": "stg_new_lead",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "imported_from_sheet": spreadsheet_id,
+                    "custom_fields": {}
+                }
+                
+                for col_letter, field_name in col_mapping.items():
+                    if not field_name or field_name == '_skip':
+                        continue
+                    col_idx = ord(col_letter[0]) - 65
+                    if len(col_letter) > 1:
+                        col_idx = 26 + ord(col_letter[1]) - 65
+                    
+                    if col_idx < len(row):
+                        value = str(row[col_idx]).strip() if row[col_idx] else ""
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
+                            lead_data[field_name] = value
+                        elif field_name == "sqft":
+                            try:
+                                lead_data["sqft"] = int(value.replace(",", "").replace(" ", ""))
+                            except:
+                                lead_data["sqft"] = value
+                        else:
+                            lead_data["custom_fields"][field_name] = value
+                
+                if not lead_data.get("name") and not lead_data.get("phone"):
+                    tab_skipped += 1
+                    continue
+                
+                if lead_data.get("phone"):
+                    existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                    if existing:
+                        tab_skipped += 1
+                        continue
+                
+                if settings.get("enabled") and pre_sales_team:
+                    assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
+                    assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+                    lead_data["assigned_to"] = assigned_user_id
+                    lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
+                    current_index = (current_index + 1) % len(pre_sales_team)
+                
+                await db.leads.insert_one(lead_data)
+                tab_imported += 1
+            
+            if tab_imported > 0 or tab_skipped > 0:
+                sources_imported.append({
+                    "tab": tab_name,
+                    "source": source_name,
+                    "imported": tab_imported,
+                    "skipped": tab_skipped
+                })
+            total_imported += tab_imported
+            total_skipped += tab_skipped
+        
+        if settings.get("enabled") and pre_sales_team:
+            await db.lead_distribution_settings.update_one(
+                {}, {"$set": {"pre_sales_current_index": current_index}}
+            )
+        
+        return {
+            "message": f"Imported {total_imported} leads from {len(sources_imported)} tabs",
+            "imported": total_imported,
+            "skipped": total_skipped,
+            "sources": sources_imported,
+            "custom_fields_created": custom_fields_created
+        }
+    except Exception as e:
+        logger.error(f"Failed to import all tabs: {e}")
+        raise HTTPException(status_code=400, detail=f"Import failed: {str(e)}")
+
+
+
 class AddSheetSourceRequest(BaseModel):
     name: str  # e.g., "Website", "Meta Ads"
     spreadsheet_url: str

@@ -158,6 +158,15 @@ export default function MarketingBoard() {
   const [autoSyncConfig, setAutoSyncConfig] = useState({ enabled: false, interval_hours: 1 });
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Zapier-style sheet import flow
+  const [zapSheetUrl, setZapSheetUrl] = useState('');
+  const [zapLoading, setZapLoading] = useState(false);
+  const [zapPreview, setZapPreview] = useState(null); // {spreadsheet_name, tabs: [...]}
+  const [zapStep, setZapStep] = useState('url'); // url | mapping | importing | done
+  const [zapTabMappings, setZapTabMappings] = useState({}); // {tabName: {colLetter: fieldName}}
+  const [zapNewFields, setZapNewFields] = useState({}); // {tabName: [{header, field_name}]}
+  const [zapImportResult, setZapImportResult] = useState(null);
+
   useEffect(() => {
     const checkAuthAndFetch = async () => {
       try {
@@ -498,6 +507,73 @@ export default function MarketingBoard() {
       toast.error(error.response?.data?.detail || 'Sync failed');
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  // Zapier-style: Fetch all tabs from sheet URL
+  const zapFetchTabs = async () => {
+    if (!zapSheetUrl) { toast.error('Please paste a Google Sheet URL'); return; }
+    setZapLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/sheets/preview-all-tabs`, { spreadsheet_url: zapSheetUrl }, { withCredentials: true });
+      setZapPreview(res.data);
+      // Initialize mappings from auto-detected
+      const mappings = {};
+      const newFields = {};
+      res.data.tabs.forEach(tab => {
+        if (tab.is_empty) return;
+        const tabMapping = {};
+        Object.entries(tab.column_mapping).forEach(([col, info]) => {
+          tabMapping[col] = info.mapped_to || '_skip';
+        });
+        mappings[tab.tab_name] = tabMapping;
+        newFields[tab.tab_name] = [];
+      });
+      setZapTabMappings(mappings);
+      setZapNewFields(newFields);
+      setZapStep('mapping');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to read spreadsheet');
+    } finally {
+      setZapLoading(false);
+    }
+  };
+
+  // Zapier-style: Add unmapped column as custom field for a tab
+  const zapAddCustomField = (tabName, colLetter, header) => {
+    const fieldName = header.toLowerCase().trim().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    setZapTabMappings(prev => ({
+      ...prev,
+      [tabName]: { ...prev[tabName], [colLetter]: fieldName }
+    }));
+    setZapNewFields(prev => ({
+      ...prev,
+      [tabName]: [...(prev[tabName] || []), { header, field_name: fieldName, display_name: header }]
+    }));
+    toast.success(`"${header}" will be added as custom field`);
+  };
+
+  // Zapier-style: Import all tabs with mappings
+  const zapImportAll = async () => {
+    setZapLoading(true);
+    try {
+      const tabConfigs = zapPreview.tabs.filter(t => !t.is_empty).map(tab => ({
+        tab_name: tab.tab_name,
+        column_mapping: zapTabMappings[tab.tab_name] || {},
+        new_custom_fields: zapNewFields[tab.tab_name] || []
+      }));
+      const res = await axios.post(`${API}/api/sheets/import-all-tabs`, {
+        spreadsheet_url: zapSheetUrl,
+        tab_configs: tabConfigs
+      }, { withCredentials: true });
+      setZapImportResult(res.data);
+      setZapStep('done');
+      toast.success(`Imported ${res.data.imported} leads from ${res.data.sources?.length || 0} tabs!`);
+      fetchDashboard();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Import failed');
+    } finally {
+      setZapLoading(false);
     }
   };
 
@@ -1287,146 +1363,288 @@ export default function MarketingBoard() {
             <div className="space-y-6">
               {/* Connection Status */}
               <Card className="border-2 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
                       <div>
                         <CardTitle>Google Sheets Integration</CardTitle>
-                        <CardDescription>Import leads from Google Sheets and export CRM data</CardDescription>
+                        <CardDescription>Paste a sheet URL → each tab becomes a lead source</CardDescription>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {sheetsConfig?.is_connected ? (
-                        <>
-                          <Badge className="bg-emerald-100 text-emerald-700 gap-1"><Check className="h-3 w-3" /> Connected</Badge>
-                          <Button variant="outline" size="sm" onClick={disconnectGoogleSheets} className="text-red-600 border-red-300 hover:bg-red-50 gap-1">
-                            <Unlink className="h-3.5 w-3.5" /> Disconnect
-                          </Button>
-                        </>
-                      ) : (
-                        <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
-                          <Link className="h-4 w-4" /> Connect Google Sheets
+                    {sheetsConfig?.is_connected ? (
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-emerald-100 text-emerald-700 gap-1"><Check className="h-3 w-3" /> Connected</Badge>
+                        <Button variant="outline" size="sm" onClick={disconnectGoogleSheets} className="text-red-600 border-red-300 hover:bg-red-50 gap-1">
+                          <Unlink className="h-3.5 w-3.5" /> Disconnect
                         </Button>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <Button onClick={connectGoogleSheets} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="connect-google-sheets-btn">
+                        <Link className="h-4 w-4" /> Connect Google Sheets
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
               </Card>
 
-              {/* Actions Grid */}
-              <div className="grid md:grid-cols-3 gap-4">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-emerald-100" onClick={() => setShowSheetsDialog(true)} data-testid="import-from-sheets-card">
-                  <CardContent className="p-6 text-center">
-                    <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <Table className="h-6 w-6 text-emerald-600" />
-                    </div>
-                    <h3 className="font-semibold text-gray-900">Import from Sheets</h3>
-                    <p className="text-sm text-gray-500 mt-1">Pull leads from a Google Sheet into CRM</p>
-                  </CardContent>
-                </Card>
+              {sheetsConfig?.is_connected && (
+                <>
+                  {/* STEP 1: Paste URL */}
+                  {zapStep === 'url' && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">1</span>
+                          Paste Google Sheet URL
+                        </CardTitle>
+                        <CardDescription>Each tab in the sheet will become a separate lead source in your CRM</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex gap-3">
+                          <Input
+                            placeholder="https://docs.google.com/spreadsheets/d/..."
+                            value={zapSheetUrl}
+                            onChange={(e) => setZapSheetUrl(e.target.value)}
+                            className="flex-1"
+                            data-testid="zap-sheet-url"
+                          />
+                          <Button onClick={zapFetchTabs} disabled={zapLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5 whitespace-nowrap" data-testid="zap-fetch-btn">
+                            {zapLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                            {zapLoading ? 'Reading...' : 'Fetch Tabs'}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-blue-100" onClick={() => setShowExportDialog(true)} data-testid="export-to-sheets-card">
-                  <CardContent className="p-6 text-center">
-                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <Download className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <h3 className="font-semibold text-gray-900">Export to Sheets</h3>
-                    <p className="text-sm text-gray-500 mt-1">Export CRM leads to a Google Sheet</p>
-                  </CardContent>
-                </Card>
-
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-purple-100" onClick={() => { fetchAutoSyncConfig(); }} data-testid="auto-sync-card">
-                  <CardContent className="p-6 text-center">
-                    <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center mx-auto mb-3">
-                      <RefreshCw className="h-6 w-6 text-purple-600" />
-                    </div>
-                    <h3 className="font-semibold text-gray-900">Auto-Sync</h3>
-                    <p className="text-sm text-gray-500 mt-1">{autoSyncConfig?.enabled ? 'Enabled' : 'Configure'} auto-import schedule</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Connected Sources */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Connected Sheet Sources</CardTitle>
-                  <CardDescription>Sheets currently linked for lead import</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {sheetSources.length > 0 ? (
-                    <div className="space-y-3">
-                      {sheetSources.map((source, idx) => (
-                        <div key={idx} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border">
-                          <div className="flex items-center gap-3">
-                            <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
+                  {/* STEP 2: Column Mapping per Tab */}
+                  {zapStep === 'mapping' && zapPreview && (
+                    <div className="space-y-4">
+                      <Card className="bg-gray-50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
                             <div>
-                              <p className="font-medium">{source.source_name || source.sheet_name || 'Unnamed'}</p>
-                              <p className="text-xs text-gray-500">{source.spreadsheet_url || source.spreadsheet_id}</p>
+                              <p className="font-semibold text-lg">{zapPreview.spreadsheet_name}</p>
+                              <p className="text-sm text-gray-500">{zapPreview.total_tabs} tab(s) found — each tab = lead source</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button variant="outline" size="sm" onClick={() => { setZapStep('url'); setZapPreview(null); }}>
+                                <ArrowRight className="h-3.5 w-3.5 rotate-180 mr-1" /> Back
+                              </Button>
+                              <Button onClick={zapImportAll} disabled={zapLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" data-testid="zap-import-btn">
+                                {zapLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                {zapLoading ? 'Importing...' : `Import All ${zapPreview.tabs.filter(t => !t.is_empty).length} Tabs`}
+                              </Button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge className="bg-emerald-100 text-emerald-700">{source.imported_count || 0} leads</Badge>
-                            <Button variant="ghost" size="sm" onClick={() => deleteSheetSource(source.source_id)} className="text-red-500 hover:text-red-700 hover:bg-red-50">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
+                        </CardContent>
+                      </Card>
+
+                      {zapPreview.tabs.map((tab) => (
+                        <Card key={tab.tab_name} className={tab.is_empty ? 'opacity-50' : ''}>
+                          <CardHeader className="pb-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <FileSpreadsheet className="h-5 w-5 text-emerald-500" />
+                                <div>
+                                  <CardTitle className="text-sm">{tab.tab_name}</CardTitle>
+                                  <CardDescription className="text-xs">
+                                    {tab.is_empty ? 'Empty tab — will be skipped' : `${tab.total_rows} rows → Source: "${tab.source_name}"`}
+                                  </CardDescription>
+                                </div>
+                              </div>
+                              {!tab.is_empty && (
+                                <Badge className="bg-emerald-50 text-emerald-700">{tab.total_rows} leads</Badge>
+                              )}
+                            </div>
+                          </CardHeader>
+                          {!tab.is_empty && (
+                            <CardContent className="pt-0">
+                              <div className="border rounded-lg overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-1/4">Sheet Column</th>
+                                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-1/4">Maps To</th>
+                                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-1/4">Sample Data</th>
+                                      <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 w-1/4">Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y">
+                                    {Object.entries(tab.column_mapping).map(([col, info]) => {
+                                      const currentMapping = zapTabMappings[tab.tab_name]?.[col] || '_skip';
+                                      const isStandard = info.is_standard;
+                                      const isMapped = currentMapping && currentMapping !== '_skip';
+                                      const colIdx = col.length === 1 ? col.charCodeAt(0) - 65 : 26 + col.charCodeAt(1) - 65;
+                                      const sampleVal = tab.sample_data?.[0]?.[colIdx] || '';
+                                      
+                                      return (
+                                        <tr key={col} className={isMapped ? 'bg-emerald-50/50' : 'bg-amber-50/30'}>
+                                          <td className="px-3 py-2">
+                                            <span className="font-mono text-xs text-gray-400 mr-1.5">{col}</span>
+                                            <span className="font-medium">{info.original}</span>
+                                          </td>
+                                          <td className="px-3 py-2">
+                                            <Select
+                                              value={currentMapping}
+                                              onValueChange={(val) => setZapTabMappings(prev => ({
+                                                ...prev,
+                                                [tab.tab_name]: { ...prev[tab.tab_name], [col]: val }
+                                              }))}
+                                            >
+                                              <SelectTrigger className="h-8 text-xs w-40">
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="_skip">— Skip —</SelectItem>
+                                                <SelectItem value="name">Name</SelectItem>
+                                                <SelectItem value="phone">Phone</SelectItem>
+                                                <SelectItem value="email">Email</SelectItem>
+                                                <SelectItem value="city">City</SelectItem>
+                                                <SelectItem value="sqft">Sqft</SelectItem>
+                                                <SelectItem value="budget">Budget</SelectItem>
+                                                <SelectItem value="notes">Notes</SelectItem>
+                                                <SelectItem value="address">Address</SelectItem>
+                                                <SelectItem value="state">State</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </td>
+                                          <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[150px]">{sampleVal}</td>
+                                          <td className="px-3 py-2">
+                                            {!isStandard && !isMapped && (
+                                              <Button 
+                                                variant="outline" 
+                                                size="sm" 
+                                                className="h-7 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                                onClick={() => zapAddCustomField(tab.tab_name, col, info.original)}
+                                                data-testid={`add-field-${tab.tab_name}-${col}`}
+                                              >
+                                                <Plus className="h-3 w-3" /> Add as Field
+                                              </Button>
+                                            )}
+                                            {isStandard && <Badge className="bg-emerald-100 text-emerald-700 text-xs">Auto-matched</Badge>}
+                                            {!isStandard && isMapped && <Badge className="bg-amber-100 text-amber-700 text-xs">Custom Field</Badge>}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </CardContent>
+                          )}
+                        </Card>
                       ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <FileSpreadsheet className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-                      <p>No sheets connected yet</p>
-                      <p className="text-sm mt-1">Click "Import from Sheets" to get started</p>
+
+                      {/* Bottom Import Button */}
+                      <div className="flex justify-end">
+                        <Button onClick={zapImportAll} disabled={zapLoading} className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" size="lg">
+                          {zapLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                          {zapLoading ? 'Importing...' : `Import All ${zapPreview.tabs.filter(t => !t.is_empty).length} Tabs`}
+                        </Button>
+                      </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
 
-              {/* Auto-Sync Config */}
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">Auto-Sync Settings</CardTitle>
-                      <CardDescription>Automatically import new leads at set intervals</CardDescription>
-                    </div>
-                    <Switch
-                      checked={autoSyncConfig?.enabled}
-                      onCheckedChange={(checked) => {
-                        const newConfig = { ...autoSyncConfig, enabled: checked };
-                        setAutoSyncConfig(newConfig);
-                        saveAutoSyncConfig(newConfig);
-                      }}
-                    />
+                  {/* STEP 3: Import Complete */}
+                  {zapStep === 'done' && zapImportResult && (
+                    <Card className="border-2 border-emerald-200">
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-emerald-700">
+                          <Check className="h-5 w-5" /> Import Complete
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="bg-emerald-50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-emerald-700">{zapImportResult.imported}</p>
+                            <p className="text-sm text-emerald-600">Leads Imported</p>
+                          </div>
+                          <div className="bg-amber-50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-amber-700">{zapImportResult.skipped}</p>
+                            <p className="text-sm text-amber-600">Duplicates Skipped</p>
+                          </div>
+                          <div className="bg-blue-50 rounded-lg p-4 text-center">
+                            <p className="text-3xl font-bold text-blue-700">{zapImportResult.sources?.length || 0}</p>
+                            <p className="text-sm text-blue-600">Sources Created</p>
+                          </div>
+                        </div>
+
+                        {zapImportResult.sources?.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-gray-700">Source Breakdown:</p>
+                            {zapImportResult.sources.map((src, i) => (
+                              <div key={i} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border">
+                                <div className="flex items-center gap-2">
+                                  <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                                  <span className="font-medium">{src.tab}</span>
+                                  <span className="text-xs text-gray-400">→ {src.source}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                  <Badge className="bg-emerald-100 text-emerald-700">{src.imported} imported</Badge>
+                                  {src.skipped > 0 && <Badge className="bg-amber-100 text-amber-700">{src.skipped} skipped</Badge>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {zapImportResult.custom_fields_created?.length > 0 && (
+                          <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                            <p className="text-sm font-medium text-blue-700">New Custom Fields Created:</p>
+                            <div className="flex flex-wrap gap-1.5 mt-1.5">
+                              {zapImportResult.custom_fields_created.map((f, i) => (
+                                <Badge key={i} className="bg-blue-100 text-blue-700">{f}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <Button variant="outline" onClick={() => { setZapStep('url'); setZapPreview(null); setZapImportResult(null); setZapSheetUrl(''); }} className="gap-1.5">
+                          <Plus className="h-4 w-4" /> Import Another Sheet
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Export & Auto-Sync section */}
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <Card className="hover:shadow-md transition-shadow cursor-pointer border-blue-100" onClick={() => setShowExportDialog(true)} data-testid="export-to-sheets-card">
+                      <CardContent className="p-5 flex items-center gap-4">
+                        <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
+                          <Download className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-gray-900 text-sm">Export to Sheets</h3>
+                          <p className="text-xs text-gray-500">Export CRM leads to a Google Sheet</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                    <Card className="border-purple-100">
+                      <CardContent className="p-5 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center shrink-0">
+                            <RefreshCw className="h-5 w-5 text-purple-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900 text-sm">Auto-Sync</h3>
+                            <p className="text-xs text-gray-500">{autoSyncConfig?.enabled ? `Every ${autoSyncConfig.interval_hours}h` : 'Disabled'}</p>
+                          </div>
+                        </div>
+                        <Switch
+                          checked={autoSyncConfig?.enabled}
+                          onCheckedChange={(checked) => {
+                            const newConfig = { ...autoSyncConfig, enabled: checked };
+                            setAutoSyncConfig(newConfig);
+                            saveAutoSyncConfig(newConfig);
+                          }}
+                        />
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardHeader>
-                {autoSyncConfig?.enabled && (
-                  <CardContent>
-                    <div className="flex items-center gap-4">
-                      <Label className="text-sm whitespace-nowrap">Sync every</Label>
-                      <Select value={String(autoSyncConfig?.interval_hours || 1)} onValueChange={(val) => {
-                        const newConfig = { ...autoSyncConfig, interval_hours: parseInt(val) };
-                        setAutoSyncConfig(newConfig);
-                        saveAutoSyncConfig(newConfig);
-                      }}>
-                        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">1 hour</SelectItem>
-                          <SelectItem value="2">2 hours</SelectItem>
-                          <SelectItem value="6">6 hours</SelectItem>
-                          <SelectItem value="12">12 hours</SelectItem>
-                          <SelectItem value="24">24 hours</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="sm" onClick={runManualSync} disabled={isSyncing} className="gap-1.5">
-                        <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin' : ''}`} /> Sync Now
-                      </Button>
-                    </div>
-                  </CardContent>
-                )}
-              </Card>
+                </>
+              )}
             </div>
           </TabsContent>
         </Tabs>
