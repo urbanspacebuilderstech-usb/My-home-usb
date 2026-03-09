@@ -200,7 +200,7 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
         }).sort("updated_at", -1)
         
         async for lead in cursor:
-            lead["_id"] = str(lead["_id"]) if "_id" in lead else None
+            lead.pop("_id", None)
             lead["deal_type"] = "sales_lead"
             
             # Skip if this lead's RE project is already in the list

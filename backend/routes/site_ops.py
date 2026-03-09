@@ -1279,33 +1279,60 @@ async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User
     return petty_cash_list
 
 
+class PettyCashIssueInput(BaseModel):
+    amount: float
+    remarks: Optional[str] = None
+
+
+
 @router.patch("/accountant/petty-cash/{petty_cash_id}/issue")
-async def issue_petty_cash(petty_cash_id: str, amount: float, user: User = Depends(get_current_user)):
-    """Accountant issues petty cash"""
+async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: User = Depends(get_current_user)):
+    """Accountant issues/releases petty cash to site engineer"""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can issue petty cash")
-    
-    petty_cash = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
-    if not petty_cash:
-        raise HTTPException(status_code=404, detail="Petty cash not found")
-    
-    if petty_cash["status"] != "requested":
-        raise HTTPException(status_code=400, detail="Petty cash is not in requested status")
-    
+
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Petty cash request not found")
+
+    now = datetime.now(timezone.utc).isoformat()
     await db.petty_cash.update_one(
         {"petty_cash_id": petty_cash_id},
         {"$set": {
+            "amount_issued": data.amount,
             "status": "issued",
-            "amount_issued": amount,
             "issued_by": user.user_id,
-            "issued_at": datetime.now(timezone.utc).isoformat()
+            "issued_by_name": user.name,
+            "issued_at": now,
+            "issue_remarks": data.remarks,
         }}
     )
-    
+
+    # Record as expense in recorded_expenses for the accountant's cashbook
+    await db.recorded_expenses.insert_one({
+        "expense_id": f"exp_{secrets.token_hex(6)}",
+        "project_id": pc.get("project_id"),
+        "project_name": pc.get("project_name", ""),
+        "category": "petty_cash",
+        "description": f"Petty cash issued to {pc.get('requested_by_name')} - {pc.get('purpose', '')}",
+        "amount": data.amount,
+        "payment_method": "cash",
+        "vendor_name": pc.get("requested_by_name"),
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "status": "recorded",
+        "petty_cash_id": petty_cash_id,
+        "created_at": now,
+    })
+
     # Notify site engineer
-    await create_notification(petty_cash["requested_by"], f"Petty cash issued: ₹{amount}")
-    
-    return {"message": "Petty cash issued", "amount": amount}
+    await create_notification(pc["requested_by"], f"Petty cash issued: ₹{data.amount:,.0f}")
+
+    return {
+        "message": f"₹{data.amount:,.0f} issued to {pc.get('requested_by_name')}",
+        "petty_cash_id": petty_cash_id,
+        "amount_issued": data.amount,
+    }
 
 
 @router.patch("/accountant/petty-cash/{petty_cash_id}/settle")
@@ -1951,58 +1978,6 @@ async def get_petty_cash_management(user: User = Depends(get_current_user)):
             "total_balance": sum(s["balance"] for s in se_data.values()),
             "pending_requests": sum(s["pending_requests"] for s in se_data.values()),
         }
-    }
-
-
-class PettyCashIssueInput(BaseModel):
-    amount: float
-    remarks: Optional[str] = None
-
-
-@router.patch("/accountant/petty-cash/{petty_cash_id}/issue")
-async def issue_petty_cash(petty_cash_id: str, data: PettyCashIssueInput, user: User = Depends(get_current_user)):
-    """Accountant issues/releases petty cash to site engineer"""
-    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Accountant can issue petty cash")
-
-    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
-    if not pc:
-        raise HTTPException(status_code=404, detail="Petty cash request not found")
-
-    now = datetime.now(timezone.utc).isoformat()
-    await db.petty_cash.update_one(
-        {"petty_cash_id": petty_cash_id},
-        {"$set": {
-            "amount_issued": data.amount,
-            "status": "issued",
-            "issued_by": user.user_id,
-            "issued_by_name": user.name,
-            "issued_at": now,
-            "issue_remarks": data.remarks,
-        }}
-    )
-
-    # Record as expense in recorded_expenses for the accountant's cashbook
-    await db.recorded_expenses.insert_one({
-        "expense_id": f"exp_{secrets.token_hex(6)}",
-        "project_id": pc.get("project_id"),
-        "project_name": pc.get("project_name", ""),
-        "category": "petty_cash",
-        "description": f"Petty cash issued to {pc.get('requested_by_name')} - {pc.get('purpose', '')}",
-        "amount": data.amount,
-        "payment_method": "cash",
-        "vendor_name": pc.get("requested_by_name"),
-        "recorded_by": user.user_id,
-        "recorded_by_name": user.name,
-        "status": "recorded",
-        "petty_cash_id": petty_cash_id,
-        "created_at": now,
-    })
-
-    return {
-        "message": f"₹{data.amount:,.0f} issued to {pc.get('requested_by_name')}",
-        "petty_cash_id": petty_cash_id,
-        "amount_issued": data.amount,
     }
 
 

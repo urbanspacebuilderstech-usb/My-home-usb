@@ -1,0 +1,124 @@
+{
+  "iteration": 37,
+  "date": "2026-03-09",
+  "summary": "E2E testing completed for new Construction CRM features: Auto-Cheque Creation, Site Engineer Mini Cashbook, and Accountant Petty Cash Management. All backend APIs (12/12 tests passed) and frontend features verified successfully. Test data: 1 project (Villa Vinothkumar - Coimbatore), 2 cheques (CHQ001 ₹300K, CHQ002 ₹200K), 2 petty cash entries (₹40K total).",
+  "features_tested": [
+    {
+      "feature": "Login for all roles",
+      "status": "PASS",
+      "notes": "Super Admin, Accountant, Site Engineer, CRE login all working correctly"
+    },
+    {
+      "feature": "Site Engineer Dashboard - Mini Cashbook tab",
+      "status": "PASS",
+      "notes": "Shows Total Issued ₹40,000, Total Spent ₹0, Balance ₹40,000 with 2 petty cash entries"
+    },
+    {
+      "feature": "Site Engineer Dashboard - Petty Cash tab",
+      "status": "PASS",
+      "notes": "Shows 2 petty cash entries with 'issued' status (₹15K cement purchase, ₹25K site materials)"
+    },
+    {
+      "feature": "Site Engineer Project Assignment",
+      "status": "PASS",
+      "notes": "Ramesh Kumar (SE) assigned to Villa Vinothkumar - Coimbatore project (payment_verified status)"
+    },
+    {
+      "feature": "Accountant Cheque Management - Auto-created cheques",
+      "status": "PASS",
+      "notes": "2 incoming cheques visible: CHQ001 ₹3,00,000 and CHQ002 ₹2,00,000 from Mr. Vinothkumar babu, linked to Villa Vinothkumar - Coimbatore"
+    },
+    {
+      "feature": "Accountant Petty Cash Management view",
+      "status": "PASS",
+      "notes": "Shows SE Ramesh Kumar with ₹40,000 issued, ₹0 spent, Balance ₹40,000"
+    },
+    {
+      "feature": "Accountant - View SE Mini Cashbook detail",
+      "status": "PASS",
+      "notes": "Clicking 'View' shows Ramesh Kumar's Mini Cashbook with 2 petty cash entries table"
+    },
+    {
+      "feature": "CRE Dashboard - New Deals",
+      "status": "PASS",
+      "notes": "Shows 'No new deals waiting' - Vinothkumar deal already converted to project (correct behavior)"
+    },
+    {
+      "feature": "Backend API: GET /api/site-engineer/mini-cashbook",
+      "status": "PASS",
+      "notes": "Returns cashbook data with summary (total_issued, total_spent, total_balance) and project cashbooks"
+    },
+    {
+      "feature": "Backend API: GET /api/accountant/petty-cash-management",
+      "status": "PASS",
+      "notes": "Returns site_engineers array with petty cash balances grouped by SE"
+    },
+    {
+      "feature": "Backend API: PATCH /api/accountant/petty-cash/{id}/issue",
+      "status": "PASS",
+      "notes": "Accepts JSON body {amount, remarks} correctly (not query param)"
+    },
+    {
+      "feature": "Backend API: GET /api/accountant/petty-cash/{user_id}/mini-cashbook",
+      "status": "PASS",
+      "notes": "Returns specific SE's cashbook with user info and petty_cash array"
+    },
+    {
+      "feature": "Backend API: GET /api/accountant/cheques",
+      "status": "PASS",
+      "notes": "Returns auto-created cheques with CHQ001 ₹300K and CHQ002 ₹200K"
+    },
+    {
+      "feature": "Backend API: GET /api/cre/new-deals",
+      "status": "PASS",
+      "notes": "Returns empty array when no unconverted deals exist (Vinothkumar already converted)"
+    }
+  ],
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_e2e_new_features.py",
+    "/app/test_reports/pytest/pytest_e2e_new_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Auto-cheque creation in convert-deal correctly creates incoming cheques with client details",
+    "Mini Cashbook correctly aggregates petty cash by project with income/expense tracking",
+    "Petty Cash Management groups SE data correctly with balance calculations",
+    "Issue petty cash endpoint correctly accepts JSON body instead of query params (fix verified)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_e2e_new_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend": "100% (all new features working correctly)"
+  },
+  "test_credentials": {
+    "super_admin": "admin@constructionos.com / Demo@1234",
+    "accountant": "accountant@constructionos.com / Demo@1234",
+    "site_engineer": "engineer@constructionos.com / Demo@1234",
+    "cre": "cre@constructionos.com / Demo@1234"
+  },
+  "seed_data_verified": {
+    "lead": "Mr. Vinothkumar babu (lead_978e3cf17f84) - deal_closed",
+    "project": "Villa Vinothkumar - Coimbatore (proj_6f33e023cc5f) - payment_verified",
+    "cheques": ["CHQ001 ₹300,000 (incoming)", "CHQ002 ₹200,000 (incoming)"],
+    "petty_cash": ["pc_29ba99b65611 ₹25,000 (issued)", "pc_425e29780351 ₹15,000 (issued)"],
+    "se_assignment": "user_engineer001 (Ramesh Kumar)"
+  },
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "E2E testing completed with clean database. New features verified: (1) Auto-cheque creation when CRE converts deal with cheque payment - creates incoming cheques linked to project, (2) Site Engineer Mini Cashbook tab - shows petty cash by project with income/expense tracking, (3) Accountant Petty Cash Management - clickable from expense categories, shows all SE balances with View button for detail. The /api/accountant/petty-cash/{id}/issue endpoint now correctly accepts JSON body {amount, remarks}.",
+  "mocked_apis": {
+    "has_mocked_apis": false,
+    "mocked_apis_list": []
+  }
+}
