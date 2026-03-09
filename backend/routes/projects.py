@@ -1904,7 +1904,7 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     
     await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data})
     
-    # Create income record for this payment
+    # Create income record for this payment - pending accountant approval
     income_record = {
         "income_id": f"inc_{uuid.uuid4().hex[:12]}",
         "project_id": stage["project_id"],
@@ -1915,13 +1915,16 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         "payment_mode": collection.payment_mode,
         "payment_reference": collection.payment_reference,
         "payment_date": payment_date,
+        "stage": stage.get("stage_label", stage.get("stage_name", "")),
         "description": f"Payment collection: {stage.get('stage_label', '')} - {stage.get('stage_name', '')}",
         "collected_by": user.user_id,
         "collected_by_name": user.name,
-        "status": "received",
+        "status": "pending_approval",
+        "source": "approval",
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.income.insert_one(income_record)
+    del income_record["_id"]
     
     # Notify Planning team
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)

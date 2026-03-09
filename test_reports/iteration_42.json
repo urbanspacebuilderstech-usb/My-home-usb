@@ -1,0 +1,49 @@
+{
+  "summary": "VERIFIED: CRE payment collections now appear in Accountant Approvals tab. Bug fix confirmed - income records created with status='pending_approval' and source='approval'. End-to-end flow tested: CRE collect payment → Accountant sees pending income → Approve/Reject actions work correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cre_payment_approval_fix.py",
+    "/app/test_reports/pytest/pytest_cre_payment_approval_fix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_cre_payment_approval_fix.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "accountant": "accountant@constructionos.com / Demo@1234",
+    "cre": "cre@constructionos.com / Demo@1234"
+  },
+  "seed_data_creation": "Created test payments on stages ps_0a70cc058860, ps_c0fc6370c88e, ps_73ab998eab65 in project proj_8ce119c8db61",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix verified. Key code changes in /app/backend/routes/projects.py line 1921 (status='pending_approval') and /app/backend/routes/crm.py line 773-774 (deal closing income record). All 8 features verified working.",
+  "features_tested": {
+    "1_cre_collect_payment": "PASS - POST /api/payment-stages/{stage_id}/collect creates income with status='pending_approval' and source='approval'",
+    "2_accountant_sees_pending": "PASS - GET /api/approvals/unified returns pending income with correct structure",
+    "3_approve_income": "PASS - POST /api/approvals/income/{id}/approve changes status to 'approved'",
+    "4_reject_income": "PASS - POST /api/approvals/income/{id}/reject changes status to 'rejected'",
+    "5_approved_not_in_pending": "PASS - Approved income correctly removed from pending list",
+    "6_approvals_tab_ui": "PASS - Income items show with Approve/Reject buttons, status badge shows 'pending_approval'",
+    "7_presales_sales_transfer": "PASS - Pre-Sales to Sales transfer functionality intact",
+    "8_stage_management": "PASS - Stage Management page accessible with correct data"
+  },
+  "api_tests_results": {
+    "collect_payment": "200 OK - Payment collected successfully, income created",
+    "unified_approvals": "200 OK - Returns income with status='pending_approval', source='approval'",
+    "approve_income": "200 OK - Income approved successfully message",
+    "reject_income": "200 OK - Income rejected message"
+  }
+}
