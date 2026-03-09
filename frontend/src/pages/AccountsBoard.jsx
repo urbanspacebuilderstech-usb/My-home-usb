@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -17,7 +17,7 @@ import {
   TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
-  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown
+  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
@@ -62,6 +62,47 @@ const fmt = (n) => {
 };
 const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 
+// Context for user role - controls masking behavior
+const MaskContext = React.createContext('accountant');
+
+// Masked value component - Super Admin always sees values, Accountant clicks to reveal for 10s
+function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '' }) {
+  const role = React.useContext(MaskContext);
+  const [visible, setVisible] = useState(false);
+  const timerRef = useRef(null);
+
+  // Super Admin always sees values
+  const alwaysVisible = role === 'super_admin';
+
+  const handleClick = (e) => {
+    if (alwaysVisible) return;
+    e.stopPropagation();
+    if (visible) {
+      setVisible(false);
+      if (timerRef.current) clearTimeout(timerRef.current);
+    } else {
+      setVisible(true);
+      timerRef.current = setTimeout(() => setVisible(false), 10000);
+    }
+  };
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+
+  const show = alwaysVisible || visible;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 select-none ${alwaysVisible ? '' : 'cursor-pointer'} ${className}`}
+      onClick={handleClick}
+      data-testid={testId || undefined}
+      title={alwaysVisible ? undefined : (show ? 'Click to hide' : 'Click to reveal')}
+    >
+      {show ? formatFn(value) : '₹*****'}
+      {!alwaysVisible && (show ? <EyeOff className="h-3 w-3 opacity-40" /> : <Eye className="h-3 w-3 opacity-40" />)}
+    </span>
+  );
+}
+
 const classifyMode = (mode) => {
   if (!mode) return 'cash';
   const m = mode.toLowerCase().replace(/\s+/g, '_');
@@ -88,7 +129,7 @@ function DrilldownView({ title, entries, type, onBack }) {
         <Badge variant="outline" className="text-xs">{entries.length} entries</Badge>
         <span className="ml-auto text-sm font-bold">
           Total: <span className={type === 'income' ? 'text-green-700' : 'text-red-600'}>
-            {fmtFull(entries.reduce((s, e) => s + (e.amount || 0), 0))}
+            <MaskedValue value={entries.reduce((s, e) => s + (e.amount || 0), 0)} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
           </span>
         </span>
       </div>
@@ -123,7 +164,7 @@ function DrilldownView({ title, entries, type, onBack }) {
                     </td>
                     {type === 'expense' && <td className="px-3 py-2 text-gray-600">{e.vendor_name || '-'}</td>}
                     <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
-                      {fmtFull(e.amount)}
+                      <MaskedValue value={e.amount} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
                     </td>
                   </tr>
                 ))}
@@ -171,7 +212,7 @@ function SuspenseDrilldown({ onBack }) {
             <CardContent className="p-3">
               <p className="text-sm font-semibold text-orange-800">Total Suspense Balance</p>
               <p className="text-2xl font-bold text-orange-700">
-                {fmtFull(vendors.reduce((s, v) => s + v.balance, 0))}
+                <MaskedValue value={vendors.reduce((s, v) => s + v.balance, 0)} className="text-orange-700" />
               </p>
             </CardContent>
           </Card>
@@ -181,7 +222,7 @@ function SuspenseDrilldown({ onBack }) {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">{v.vendor_name}</CardTitle>
                   <Badge className={v.balance > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                    Balance: {fmtFull(v.balance)}
+                    Balance: <MaskedValue value={v.balance} className={v.balance > 0 ? 'text-green-700' : 'text-red-700'} />
                   </Badge>
                 </div>
               </CardHeader>
@@ -200,7 +241,7 @@ function SuspenseDrilldown({ onBack }) {
                         <td className="px-3 py-1.5">{new Date(e.created_at).toLocaleDateString('en-IN')}</td>
                         <td className="px-3 py-1.5">{e.description}</td>
                         <td className={`px-3 py-1.5 text-right font-bold ${e.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {e.amount >= 0 ? '+' : ''}{fmtFull(e.amount)}
+                          <MaskedValue value={e.amount} className={e.amount >= 0 ? 'text-green-600' : 'text-red-600'} formatFn={(n) => `${n >= 0 ? '+' : ''}${fmtFull(n)}`} />
                         </td>
                       </tr>
                     ))}
@@ -277,16 +318,16 @@ function PettyCashManagement({ onBack }) {
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           <Card className="border-l-4 border-l-green-500"><CardContent className="p-2 sm:p-3">
             <p className="text-[10px] sm:text-xs text-gray-500">Total Issued</p>
-            <p className="text-base sm:text-lg font-bold text-green-700">{fmtFull(seCashbook.summary?.total_issued)}</p>
+            <p className="text-base sm:text-lg font-bold text-green-700"><MaskedValue value={seCashbook.summary?.total_issued} className="text-green-700" /></p>
           </CardContent></Card>
           <Card className="border-l-4 border-l-red-500"><CardContent className="p-2 sm:p-3">
             <p className="text-[10px] sm:text-xs text-gray-500">Total Spent</p>
-            <p className="text-base sm:text-lg font-bold text-red-600">{fmtFull(seCashbook.summary?.total_spent)}</p>
+            <p className="text-base sm:text-lg font-bold text-red-600"><MaskedValue value={seCashbook.summary?.total_spent} className="text-red-600" /></p>
           </CardContent></Card>
           <Card className="border-l-4 border-l-amber-500"><CardContent className="p-2 sm:p-3">
             <p className="text-[10px] sm:text-xs text-gray-500">Balance</p>
             <p className={`text-base sm:text-lg font-bold ${(seCashbook.summary?.balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {fmtFull(seCashbook.summary?.balance)}
+              <MaskedValue value={seCashbook.summary?.balance} className={(seCashbook.summary?.balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'} />
             </p>
           </CardContent></Card>
         </div>
@@ -320,9 +361,9 @@ function PettyCashManagement({ onBack }) {
                         'bg-gray-100 text-gray-700'
                       }>{pc.status}</Badge>
                     </td>
-                    <td className="px-3 py-2 text-right">{fmtFull(pc.amount_requested)}</td>
-                    <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(pc.amount_issued)}</td>
-                    <td className="px-3 py-2 text-right text-red-600">{fmtFull(pc.amount_spent)}</td>
+                    <td className="px-3 py-2 text-right"><MaskedValue value={pc.amount_requested} /></td>
+                    <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={pc.amount_issued} className="text-green-700" /></td>
+                    <td className="px-3 py-2 text-right text-red-600"><MaskedValue value={pc.amount_spent} className="text-red-600" /></td>
                     <td className="px-3 py-2 text-center">
                       {pc.status === 'requested' && (
                         <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700"
@@ -360,16 +401,16 @@ function PettyCashManagement({ onBack }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <Card className="border-l-4 border-l-green-500"><CardContent className="p-2 sm:p-3">
           <p className="text-[10px] sm:text-xs text-gray-500">Total Issued</p>
-          <p className="text-base sm:text-lg font-bold text-green-700">{fmtFull(summary.total_issued)}</p>
+          <p className="text-base sm:text-lg font-bold text-green-700"><MaskedValue value={summary.total_issued} className="text-green-700" /></p>
         </CardContent></Card>
         <Card className="border-l-4 border-l-red-500"><CardContent className="p-2 sm:p-3">
           <p className="text-[10px] sm:text-xs text-gray-500">Total Spent</p>
-          <p className="text-base sm:text-lg font-bold text-red-600">{fmtFull(summary.total_spent)}</p>
+          <p className="text-base sm:text-lg font-bold text-red-600"><MaskedValue value={summary.total_spent} className="text-red-600" /></p>
         </CardContent></Card>
         <Card className="border-l-4 border-l-amber-500"><CardContent className="p-2 sm:p-3">
           <p className="text-[10px] sm:text-xs text-gray-500">Total Balance</p>
           <p className={`text-base sm:text-lg font-bold ${(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            {fmtFull(summary.total_balance)}
+            <MaskedValue value={summary.total_balance} className={(summary.total_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'} />
           </p>
         </CardContent></Card>
         <Card className="border-l-4 border-l-purple-500"><CardContent className="p-2 sm:p-3">
@@ -401,9 +442,9 @@ function PettyCashManagement({ onBack }) {
                   <tr key={se.user_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => fetchSECashbook(se.user_id)}>
                     <td className="px-3 py-2 font-medium text-blue-700">{se.name}</td>
                     <td className="px-3 py-2">{se.projects.map(p => p.project_name).join(', ') || '-'}</td>
-                    <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(se.total_issued)}</td>
-                    <td className="px-3 py-2 text-right text-red-600 font-semibold">{fmtFull(se.total_spent)}</td>
-                    <td className={`px-3 py-2 text-right font-bold ${se.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(se.balance)}</td>
+                    <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={se.total_issued} className="text-green-700" /></td>
+                    <td className="px-3 py-2 text-right text-red-600 font-semibold"><MaskedValue value={se.total_spent} className="text-red-600" /></td>
+                    <td className={`px-3 py-2 text-right font-bold ${se.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={se.balance} className={se.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
                     <td className="px-3 py-2 text-center">
                       {se.pending_requests > 0 && <Badge className="bg-amber-100 text-amber-700">{se.pending_requests}</Badge>}
                     </td>
@@ -663,10 +704,10 @@ function CashbookTab({ overview, projects }) {
               <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
             </CardTitle>
             <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs flex-wrap">
-              <span className="text-green-600 font-semibold">Income: {fmtFull(totals.total_income)}</span>
-              <span className="text-red-600 font-semibold">Expense: {fmtFull(totals.total_expense)}</span>
+              <span className="text-green-600 font-semibold">Income: <MaskedValue value={totals.total_income} className="text-green-600" testId="masked-total-income" /></span>
+              <span className="text-red-600 font-semibold">Expense: <MaskedValue value={totals.total_expense} className="text-red-600" testId="masked-total-expense" /></span>
               <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                Net: {fmtFull(totals.net_balance)}
+                Net: <MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-700'} testId="masked-net-balance" />
               </Badge>
             </div>
           </div>
@@ -683,16 +724,16 @@ function CashbookTab({ overview, projects }) {
                 >
                   <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" />
                   <p className="text-[9px] sm:text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                  <p className="text-[10px] sm:text-xs font-bold text-green-700">+{fmt(inc[mode] || 0)}</p>
-                  <p className="text-[10px] sm:text-xs font-bold text-red-600">-{fmt(exp[mode] || 0)}</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-green-700"><MaskedValue value={inc[mode] || 0} className="text-green-700 text-[10px] sm:text-xs" formatFn={(n) => `+${fmt(n)}`} /></p>
+                  <p className="text-[10px] sm:text-xs font-bold text-red-600"><MaskedValue value={exp[mode] || 0} className="text-red-600 text-[10px] sm:text-xs" formatFn={(n) => `-${fmt(n)}`} /></p>
                 </div>
               );
             })}
             <div className="rounded-lg border p-1.5 sm:p-2 text-center bg-gray-900 text-white col-span-3 sm:col-span-1">
               <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
               <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
-              <p className="text-[10px] sm:text-xs font-bold text-green-400">+{fmt(inc.total || 0)}</p>
-              <p className="text-[10px] sm:text-xs font-bold text-red-400">-{fmt(exp.total || 0)}</p>
+              <p className="text-[10px] sm:text-xs font-bold text-green-400"><MaskedValue value={inc.total || 0} className="text-green-400 text-[10px] sm:text-xs" formatFn={(n) => `+${fmt(n)}`} /></p>
+              <p className="text-[10px] sm:text-xs font-bold text-red-400"><MaskedValue value={exp.total || 0} className="text-red-400 text-[10px] sm:text-xs" formatFn={(n) => `-${fmt(n)}`} /></p>
             </div>
           </div>
         </CardContent>
@@ -711,7 +752,7 @@ function CashbookTab({ overview, projects }) {
               <CardContent className="p-2 sm:p-3 text-center">
                 <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 mx-auto mb-0.5 opacity-70" />
                 <p className="text-[10px] sm:text-[11px] font-semibold truncate">{cat.label}</p>
-                <p className="text-sm sm:text-base font-bold mt-0.5">{fmtFull(expByCategory[cat.key] || 0)}</p>
+                <p className="text-sm sm:text-base font-bold mt-0.5"><MaskedValue value={expByCategory[cat.key] || 0} /></p>
               </CardContent>
             </Card>
           );
@@ -798,7 +839,7 @@ function CashbookTab({ overview, projects }) {
                           </Badge>
                         </td>
                         <td className="px-3 py-2 font-mono text-[10px]">{entry.reference_number || entry.cheque_number || 'Cash'}</td>
-                        <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(entry.amount)}</td>
+                        <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={entry.amount} className="text-green-700" /></td>
                         <td className="px-3 py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
@@ -930,7 +971,7 @@ function CashbookTab({ overview, projects }) {
                             {MODE_LABELS[classifyMode(entry.payment_method || entry.payment_mode)] || 'Cash'}
                           </Badge>
                         </td>
-                        <td className="px-3 py-2 text-right font-bold text-red-600">{fmtFull(entry.amount)}</td>
+                        <td className="px-3 py-2 text-right font-bold text-red-600"><MaskedValue value={entry.amount} className="text-red-600" /></td>
                         <td className="px-3 py-2 text-gray-600">{entry.vendor_name || '-'}</td>
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
                         <td className="px-3 py-2 text-center" data-testid={`expense-source-${i}`}>
@@ -1359,7 +1400,7 @@ function ChequeManagementTab({ projects }) {
                         </Badge>
                       </td>
                       <td className="px-3 py-2 text-right font-bold">
-                        <span className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'}>{fmtFull(cheque.amount)}</span>
+                        <MaskedValue value={cheque.amount} className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'} />
                       </td>
                       <td className="px-3 py-2">{new Date(cheque.cheque_date).toLocaleDateString('en-IN')}</td>
                       <td className="px-3 py-2 text-center">{getStatusBadge(cheque.status)}</td>
@@ -1680,7 +1721,7 @@ function ApprovalsTab() {
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Income</span>
             </div>
             <p className="text-lg sm:text-xl font-bold text-green-700">{s.income_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-green-600 font-medium">{fmtFull(s.income_total)}</p>
+            <p className="text-[10px] sm:text-xs text-green-600 font-medium"><MaskedValue value={s.income_total} className="text-green-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-amber-500" onClick={() => setActiveTab('materials')} data-testid="approvals-material-card">
@@ -1690,7 +1731,7 @@ function ApprovalsTab() {
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Materials</span>
             </div>
             <p className="text-lg sm:text-xl font-bold text-amber-700">{s.material_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-amber-600 font-medium">{fmtFull(s.material_total)}</p>
+            <p className="text-[10px] sm:text-xs text-amber-600 font-medium"><MaskedValue value={s.material_total} className="text-amber-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-blue-500" onClick={() => setActiveTab('labour')} data-testid="approvals-labour-card">
@@ -1700,7 +1741,7 @@ function ApprovalsTab() {
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Labour</span>
             </div>
             <p className="text-lg sm:text-xl font-bold text-blue-700">{s.labour_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-blue-600 font-medium">{fmtFull(s.labour_total)}</p>
+            <p className="text-[10px] sm:text-xs text-blue-600 font-medium"><MaskedValue value={s.labour_total} className="text-blue-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-orange-500" onClick={() => setActiveTab('vendor')} data-testid="approvals-vendor-card">
@@ -1710,7 +1751,7 @@ function ApprovalsTab() {
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Suppliers</span>
             </div>
             <p className="text-lg sm:text-xl font-bold text-orange-700">{s.vendor_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-orange-600 font-medium">{fmtFull(s.vendor_total)}</p>
+            <p className="text-[10px] sm:text-xs text-orange-600 font-medium"><MaskedValue value={s.vendor_total} className="text-orange-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
       </div>
@@ -1767,7 +1808,7 @@ function ApprovalsTab() {
                               {MODE_LABELS[classifyMode(inc.payment_mode)] || inc.payment_mode || 'Cash'}
                             </Badge>
                           </td>
-                          <td className="px-3 py-2 text-right font-bold text-green-700">{fmtFull(inc.amount)}</td>
+                          <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={inc.amount} className="text-green-700" /></td>
                           <td className="px-3 py-2 text-center">
                             <Badge className="bg-amber-100 text-amber-700">{inc.status?.replace(/_/g, ' ')}</Badge>
                           </td>
@@ -1912,7 +1953,7 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                     <td className="px-3 py-2 whitespace-nowrap">{item.created_at ? new Date(item.created_at).toLocaleDateString('en-IN') : '-'}</td>
                     <td className="px-3 py-2 font-medium">{desc}</td>
                     <td className="px-3 py-2">{item.project_name || 'N/A'}</td>
-                    <td className="px-3 py-2 text-right font-bold text-amber-700">{fmtFull(amount)}</td>
+                    <td className="px-3 py-2 text-right font-bold text-amber-700"><MaskedValue value={amount} className="text-amber-700" /></td>
                     <td className="px-3 py-2 text-center">
                       <Badge className={
                         item.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
@@ -1964,19 +2005,19 @@ function ProjectSummaryTab({ overview }) {
         <Card className="border-l-4 border-l-green-500">
           <CardContent className="p-3">
             <p className="text-xs text-gray-500">Total Income</p>
-            <p className="text-lg font-bold text-green-700">{fmtFull(totals.total_income)}</p>
+            <p className="text-lg font-bold text-green-700"><MaskedValue value={totals.total_income} className="text-green-700" testId="masked-proj-income" /></p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-red-500">
           <CardContent className="p-3">
             <p className="text-xs text-gray-500">Total Expense</p>
-            <p className="text-lg font-bold text-red-600">{fmtFull(totals.total_expense)}</p>
+            <p className="text-lg font-bold text-red-600"><MaskedValue value={totals.total_expense} className="text-red-600" testId="masked-proj-expense" /></p>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-amber-500">
           <CardContent className="p-3">
             <p className="text-xs text-gray-500">Net Balance</p>
-            <p className={`text-lg font-bold ${(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(totals.net_balance)}</p>
+            <p className={`text-lg font-bold ${(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={(totals.net_balance || 0) >= 0 ? 'text-green-700' : 'text-red-600'} testId="masked-proj-net" /></p>
           </CardContent>
         </Card>
       </div>
@@ -2012,9 +2053,9 @@ function ProjectSummaryTab({ overview }) {
                       onClick={() => p.project_id && navigate(`/projects/${p.project_id}`)}>
                       <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                       <td className="px-3 py-2 font-medium text-blue-700 underline decoration-dotted">{p.project_name}</td>
-                      <td className="px-3 py-2 text-right text-green-700 font-semibold">{fmtFull(p.income)}</td>
-                      <td className="px-3 py-2 text-right text-red-600 font-semibold">{fmtFull(p.expense)}</td>
-                      <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(p.balance)}</td>
+                      <td className="px-3 py-2 text-right text-green-700 font-semibold"><MaskedValue value={p.income} className="text-green-700" /></td>
+                      <td className="px-3 py-2 text-right text-red-600 font-semibold"><MaskedValue value={p.expense} className="text-red-600" /></td>
+                      <td className={`px-3 py-2 text-right font-bold ${p.balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={p.balance} className={p.balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
                       <td className="px-3 py-2 text-center">
                         <Badge className={pnl >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
                           {pnl >= 0 ? '+' : ''}{pnlPct}%
@@ -2031,9 +2072,9 @@ function ProjectSummaryTab({ overview }) {
                 <tfoot className="bg-gray-100 border-t-2 border-gray-300">
                   <tr className="font-bold">
                     <td className="px-3 py-2" colSpan={2}>Total ({projects.length} projects)</td>
-                    <td className="px-3 py-2 text-right text-green-700">{fmtFull(projects.reduce((s, p) => s + (p.income || 0), 0))}</td>
-                    <td className="px-3 py-2 text-right text-red-600">{fmtFull(projects.reduce((s, p) => s + (p.expense || 0), 0))}</td>
-                    <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmtFull(totals.net_balance)}</td>
+                    <td className="px-3 py-2 text-right text-green-700"><MaskedValue value={projects.reduce((s, p) => s + (p.income || 0), 0)} className="text-green-700" /></td>
+                    <td className="px-3 py-2 text-right text-red-600"><MaskedValue value={projects.reduce((s, p) => s + (p.expense || 0), 0)} className="text-red-600" /></td>
+                    <td className={`px-3 py-2 text-right ${totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'}`}><MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-600'} /></td>
                     <td className="px-3 py-2"></td>
                   </tr>
                 </tfoot>
@@ -2091,6 +2132,7 @@ export default function AccountsBoard() {
   }
 
   return (
+    <MaskContext.Provider value={user?.role || 'accountant'}>
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
       <AppHeader user={user} />
       <div className="sticky top-14 z-40 bg-gray-50 border-b border-gray-100">
@@ -2134,5 +2176,6 @@ export default function AccountsBoard() {
       </main>
       <MobileBottomNav user={user} />
     </div>
+    </MaskContext.Provider>
   );
 }

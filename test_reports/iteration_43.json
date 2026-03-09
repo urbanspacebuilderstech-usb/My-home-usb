@@ -1,0 +1,65 @@
+{
+  "summary": "VERIFIED: Masked values (₹*****) feature for Accountant Dashboard is working. Super Admin sees all values unmasked. Click-to-reveal for 10 seconds works correctly. Fixed bug where Approvals tab table amounts were not using MaskedValue component.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_masked_values_flow.py",
+    "/app/test_reports/pytest/pytest_masked_values.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/frontend/src/pages/AccountsBoard.jsx",
+    "/app/backend/tests/test_masked_values_flow.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "super_admin": "admin@constructionos.com / Demo@1234",
+    "accountant": "accountant@constructionos.com / Demo@1234",
+    "cre": "cre@constructionos.com / Demo@1234"
+  },
+  "seed_data_creation": "None - used existing data",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Masked values feature verified complete. MaskedValue component uses React Context (MaskContext) at line ~65-107 in AccountsBoard.jsx. Super Admin (role=super_admin) always sees values. Accountant (role=accountant) sees ₹***** with Eye icon.",
+  "features_tested": {
+    "1_accountant_dashboard_masked": "PASS - Cashbook tab shows ₹***** for all financial amounts (overview cards, mode cards, expense categories, income table, expense table)",
+    "2_super_admin_unmasked": "PASS - Super Admin sees actual ₹ amounts (no masking) on Accounts Board",
+    "3_click_to_reveal": "PASS - Accountant can click masked value, it reveals for 10 seconds, then auto-hides",
+    "4_approvals_tab_masked": "PASS - Approvals tab summary cards show ₹***** for Accountant",
+    "5_project_summary_masked": "PASS - Project Summary tab totals and table rows show ₹***** for Accountant",
+    "6_cre_payment_collect_api": "PASS - POST /api/payment-stages/{id}/collect creates income with status=pending_approval",
+    "7_accountant_unified_approvals": "PASS - GET /api/approvals/unified returns pending income with correct structure"
+  },
+  "bugs_fixed": [
+    {
+      "file": "/app/frontend/src/pages/AccountsBoard.jsx",
+      "line": "1811",
+      "issue": "Income amounts in Approvals tab table were using fmtFull() instead of MaskedValue component",
+      "fix": "Changed {fmtFull(inc.amount)} to <MaskedValue value={inc.amount} className='text-green-700' />"
+    },
+    {
+      "file": "/app/frontend/src/pages/AccountsBoard.jsx",
+      "line": "1956",
+      "issue": "Expense amounts in ApprovalExpenseTable were using fmtFull() instead of MaskedValue",
+      "fix": "Changed {fmtFull(amount)} to <MaskedValue value={amount} className='text-amber-700' />"
+    }
+  ],
+  "masking_implementation_notes": {
+    "component": "MaskedValue (lines 69-103 in AccountsBoard.jsx)",
+    "context": "MaskContext (line 66) - React Context stores user role",
+    "provider": "MaskContext.Provider wraps entire AccountsBoard (line 2135)",
+    "behavior_super_admin": "alwaysVisible=true, shows actual ₹ amount without Eye icon",
+    "behavior_accountant": "alwaysVisible=false, shows ₹***** with Eye icon, click to reveal for 10s"
+  }
+}
