@@ -8,44 +8,47 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - **Backend**: FastAPI (Python), MongoDB Atlas
 - **Integrations**: Google Sheets API, Resend, Emergent Object Storage, Leaflet/OpenStreetMap
 
+## Current Seed Data
+**Single Project: Villa Murugan - Vadapalani (PROJ-2026-001)**
+- Client: Mr. Murugan, Vadapalani Chennai
+- Value: ₹55,00,000 | 2400 sqft | 3BHK G+1 Villa
+- Income: ₹9,00,000 (2 approved + 1 pending)
+- Expenses: ₹2,80,300
+- 13 Payment stages (2 paid, 11 pending)
+- 4 Work Orders | 8 Vendors | 12 BOQ Items
+- 6 Material Requests | 3 Labour | 2 Vendor Expenses
+- 3 Petty Cash | 4 Cheques | 4 Site Stages
+- 6 Pending Approvals for Accountant
+
 ## What's Implemented
 - [x] Full CRM pipeline with Google Sheets auto-sync
-- [x] CRE deal conversion with auto-cheque creation
-- [x] Project approval workflow (CRE -> Planning -> GM -> Final)
-- [x] Work order creation and stage-based payment lifecycle
-- [x] Material request & procurement workflow
-- [x] OTP-based material receipt verification
-- [x] Site Engineer Mini Cashbook
-- [x] Petty cash management (request, issue, expense, settle)
-- [x] Accountant Cashbook with clickable drilldowns
-- [x] Cheque Management with Smart Payment
-- [x] Project Summary with payment details
-- [x] Role-based access control
-- [x] Accountant responsive design (Mar 9, 2026)
-- [x] Full E2E lifecycle test - 100% pass (Mar 9, 2026)
-- [x] Income/Expense Approval System (Mar 9, 2026)
-- [x] Super Admin auto-creation for urbanspacebuilderstech@gmail.com (Mar 9, 2026)
-- [x] Forgot Password flow (Mar 9, 2026)
-- [x] RNR Stage in Pre-Sales pipeline (Mar 9, 2026)
-- [x] Pipeline Stage Management - CRUD for Pre-Sales & Sales stages (Mar 9, 2026)
-- [x] Pre-Sales → Sales transfer fix (Mar 9, 2026)
-- [x] CRE Payment Collection → Accountant Approval fix (Mar 9, 2026)
-- [x] **Masked Financial Values** (Mar 9, 2026)
-  - MaskedValue component using React Context (MaskContext)
-  - **Super Admin**: All values always visible (no masking)
-  - **Accountant**: All values masked as ₹*****, click to reveal for 10 seconds
-  - Applied to: Overview cards, mode cards, expense categories, income table, expense table, project summary, approvals tab, cheque management, petty cash, SE cashbook, vendor suspense
-- [x] Deal conversion advance creates income approval record (Mar 9, 2026)
+- [x] Pre-Sales → Sales transfer (any is_final stage)
+- [x] RNR Stage + Pipeline Stage Management (CRUD)
+- [x] Deal conversion, project creation, work orders
+- [x] Material request/procurement/approval workflow
+- [x] Site Engineer Mini Cashbook + Petty Cash
+- [x] Accountant Cashbook, Cheque Management, Project Summary
+- [x] Income/Expense Approval System
+- [x] Masked Financial Values (Super Admin=visible, Accountant=₹*****)
+- [x] Super Admin auto-creation (urbanspacebuilderstech@gmail.com)
+- [x] Forgot Password + Role-based access control
+- [x] 360° seed data for Murugan Vadapalani project
 
 ## Credentials
-- All demo users: password `Demo@1234`
-- Super Admin: `admin@constructionos.com`
-- Accountant: `accountant@constructionos.com`
-- CRE: `cre@constructionos.com`
-- Production Super Admin: `urbanspacebuilderstech@gmail.com` (use Forgot Password)
+- Super Admin: `admin@constructionos.com` / `Demo@1234`
+- Accountant: `accountant@constructionos.com` / `Demo@1234`
+- CRE: `cre@constructionos.com` / `Demo@1234`
+- GM: `gm@constructionos.com` / `Demo@1234`
+- Project Manager: `pm@constructionos.com` / `Demo@1234`
+- Planning: `planning@constructionos.com` / `Demo@1234`
+- Procurement: `procurement@constructionos.com` / `Demo@1234`
+- Site Engineer: `engineer@constructionos.com` / `Demo@1234`
+- Pre-Sales: `presales@constructionos.com` / `Demo@1234`
+- Sales: `sales@constructionos.com` / `Demo@1234`
+- Production: `urbanspacebuilderstech@gmail.com` (Forgot Password)
 
 ## Backlog
 - [ ] Gantt Chart for project timelines (P1)
 - [ ] Aadhar Document Upload with encrypted storage (P2)
-- [ ] UI/UX review continuation (other pages responsive)
+- [ ] UI/UX review continuation
 - [ ] Production deployment guidance
