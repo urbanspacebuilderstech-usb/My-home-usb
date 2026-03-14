@@ -2177,8 +2177,8 @@ async def create_vendor_master(
     vendor_input: VendorMasterCreate,
     user: User = Depends(get_current_user)
 ):
-    """Create a new vendor in master (Procurement, Super Admin only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+    """Create a new vendor in master (Procurement, Planning, Super Admin)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = VendorMaster(
@@ -2214,7 +2214,7 @@ async def update_vendor_master(
     user: User = Depends(get_current_user)
 ):
     """Update a vendor in master"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
@@ -2233,7 +2233,7 @@ async def update_vendor_master(
 @router.delete("/vendor-master/{vendor_id}")
 async def delete_vendor_master(vendor_id: str, user: User = Depends(get_current_user)):
     """Soft delete a vendor (set is_active to false)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
