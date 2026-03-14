@@ -349,7 +349,7 @@ export default function REProjectsPage() {
                       </div>
                       
                       <div className="flex items-center gap-2 ml-4">
-                        {canEdit && ['re_requested', 're_in_progress', 're_rejected'].includes(project.status) && (
+                        {canEdit && (
                           <>
                             <Button 
                               variant="outline" 
@@ -638,7 +638,7 @@ export default function REProjectsPage() {
             <Button variant="outline" onClick={() => setEditDialog(false)}>
               {canEdit ? 'Cancel' : 'Close'}
             </Button>
-            {canEdit && ['re_requested', 're_in_progress', 're_rejected'].includes(selectedProject?.status) && (
+            {canEdit && (
               <Button onClick={handleSaveProject} variant="outline">
                 <Save className="h-4 w-4 mr-1" /> Save
               </Button>
