@@ -501,18 +501,19 @@ export default function ProjectDetail() {
   };
 
   const handleConvertToScope = async () => {
-    if (!reProject?.scope_items?.length) {
+    const scopeItems = reProject?.rough_scope_items || reProject?.scope_items || [];
+    if (!scopeItems.length) {
       toast.error('No scope items in the Rough Estimate to convert');
       setActiveTab('scope');
       return;
     }
     
     try {
-      const items = reProject.scope_items.map(item => ({
-        item_name: item.item_name,
+      const items = scopeItems.map(item => ({
+        item_name: item.name || item.item_name,
         quantity: parseFloat(item.quantity) || 1,
         unit: item.unit || 'Nos',
-        unit_rate: parseFloat(item.unit_rate) || 0,
+        unit_rate: parseFloat(item.rate || item.unit_rate) || 0,
         remarks: `From RE: ${reProject.project_name || ''}`
       }));
       
@@ -1244,7 +1245,7 @@ export default function ProjectDetail() {
                   </div>
                   
                   {/* RE Scope Items */}
-                  {reProject.scope_items && reProject.scope_items.length > 0 && (
+                  {(reProject.rough_scope_items || reProject.scope_items)?.length > 0 && (
                     <div>
                       <h4 className="font-semibold mb-2 text-sm">Rough Estimate Scope Items</h4>
                       <div className="overflow-x-auto">
@@ -1259,12 +1260,12 @@ export default function ProjectDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {reProject.scope_items.map((item, idx) => (
+                            {(reProject.rough_scope_items || reProject.scope_items).map((item, idx) => (
                               <tr key={idx} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">{item.item_name}</td>
+                                <td className="px-3 py-2">{item.name || item.item_name}</td>
                                 <td className="px-3 py-2 text-right">{item.quantity}</td>
                                 <td className="px-3 py-2">{item.unit}</td>
-                                <td className="px-3 py-2 text-right">₹{(item.unit_rate || 0).toLocaleString()}</td>
+                                <td className="px-3 py-2 text-right">₹{(item.rate || item.unit_rate || 0).toLocaleString()}</td>
                                 <td className="px-3 py-2 text-right font-medium">₹{(item.total || 0).toLocaleString()}</td>
                               </tr>
                             ))}
@@ -1273,7 +1274,7 @@ export default function ProjectDetail() {
                             <tr>
                               <td colSpan="4" className="px-3 py-2 text-right font-semibold">Estimated Total:</td>
                               <td className="px-3 py-2 text-right font-bold text-purple-700">
-                                ₹{reProject.scope_items.reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
+                                ₹{(reProject.rough_scope_items || reProject.scope_items).reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
                               </td>
                             </tr>
                           </tfoot>
