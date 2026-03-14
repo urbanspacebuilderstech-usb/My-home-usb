@@ -12,6 +12,27 @@ import { toast } from 'sonner';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+function getRoleRedirect(role) {
+  const roleRoutes = {
+    site_engineer: '/site-engineer',
+    sr_site_engineer: '/site-engineer',
+    pre_sales: '/crm-pre-sales',
+    sales: '/crm-sales',
+    general_manager: '/gm-dashboard',
+    accountant: '/accounts-board',
+    planning: '/planning-board',
+    procurement: '/procurement-board-v2',
+    cre: '/cre-board',
+    project_manager: '/pm-dashboard',
+    associate_pm: '/pm-dashboard',
+    client: '/client-portal',
+    vendor: '/vendor-portal',
+    marketing_head: '/marketing-board',
+    super_admin: '/dashboard'
+  };
+  return roleRoutes[role] || '/dashboard';
+}
+
 const DEMO_USERS = [
   { email: 'admin@constructionos.com', name: 'Super Admin', role: 'super_admin' },
   { email: 'gm@constructionos.com', name: 'General Manager', role: 'general_manager' },
@@ -46,11 +67,9 @@ export default function Login() {
       const response = await axios.post(`${API}/auth/login`, { email, password }, { withCredentials: true });
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
-      if (user.role === 'client') {
-        navigate('/client-portal', { state: { user }, replace: true });
-      } else {
-        navigate('/dashboard', { state: { user }, replace: true });
-      }
+      // Navigate directly to role-specific page
+      const target = getRoleRedirect(user.role);
+      navigate(target, { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Login failed');
     } finally {
@@ -65,11 +84,8 @@ export default function Login() {
       const response = await axios.post(`${API}/auth/demo-login`, { email: emailToUse }, { withCredentials: true });
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
-      if (user.role === 'client') {
-        navigate('/client-portal', { state: { user }, replace: true });
-      } else {
-        navigate('/dashboard', { state: { user }, replace: true });
-      }
+      const target = getRoleRedirect(user.role);
+      navigate(target, { replace: true });
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Login failed');
     } finally {

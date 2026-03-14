@@ -47,18 +47,23 @@ export default function Dashboard() {
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
-      if (userRes.data.role === 'site_engineer' || userRes.data.role === 'sr_site_engineer') { window.location.href = '/site-engineer'; return; }
-      if (userRes.data.role === 'pre_sales') { window.location.href = '/crm-pre-sales'; return; }
-      if (userRes.data.role === 'sales') { window.location.href = '/crm-sales'; return; }
-      if (userRes.data.role === 'general_manager') { window.location.href = '/gm-dashboard'; return; }
-      if (userRes.data.role === 'accountant') { window.location.href = '/accounts-board'; return; }
-      if (userRes.data.role === 'planning') { window.location.href = '/planning-board'; return; }
-      if (userRes.data.role === 'procurement') { window.location.href = '/procurement-board-v2'; return; }
-      if (userRes.data.role === 'cre') { window.location.href = '/cre-board'; return; }
-      if (userRes.data.role === 'project_manager' || userRes.data.role === 'associate_pm') { window.location.href = '/pm-dashboard'; return; }
-      if (userRes.data.role === 'client') { window.location.href = '/client-portal'; return; }
-      if (userRes.data.role === 'vendor') { window.location.href = '/vendor-portal'; return; }
-      if (userRes.data.role === 'marketing_head') { window.location.href = '/marketing-board'; return; }
+      // Only super_admin should be on this page
+      // Other roles are redirected by Login directly, but handle edge case of direct URL access
+      const role = userRes.data.role;
+      if (role !== 'super_admin') {
+        const roleRoutes = {
+          site_engineer: '/site-engineer', sr_site_engineer: '/site-engineer',
+          pre_sales: '/crm-pre-sales', sales: '/crm-sales',
+          general_manager: '/gm-dashboard', accountant: '/accounts-board',
+          planning: '/planning-board', procurement: '/procurement-board-v2',
+          cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',
+          client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board'
+        };
+        if (roleRoutes[role]) {
+          window.location.replace(roleRoutes[role]);
+          return;
+        }
+      }
       
       const [dashboardRes, notifsRes] = await Promise.all([
         axios.get(`${API}/admin/dashboard-summary`).catch(() => ({ data: null })),

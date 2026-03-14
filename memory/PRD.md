@@ -43,6 +43,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Procurement can "Request Payment" for credit entries → notifies Accountant
   - Fixed React state bug in PM approve/verify buttons (async state race condition)
   - Added comprehensive status badges in Site Engineer project page
+- [x] Login Loading & Super Admin Flash Fix (Mar 14, 2026):
+  - Login now redirects directly to role-specific pages (no more /dashboard bounce)
+  - Auth caching eliminates duplicate /api/auth/me calls
+  - Removed "Loading..." spinner between pages (was caused by ProtectedRoute re-auth)
+  - Logout properly clears auth cache via interceptors
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`

@@ -62,6 +62,25 @@ const API = `${BACKEND_URL}/api`;
 
 axios.defaults.withCredentials = true;
 
+// Clear auth cache on logout or auth failure
+axios.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      cachedUser = null;
+      authPromise = null;
+    }
+    return Promise.reject(error);
+  }
+);
+axios.interceptors.request.use(config => {
+  if (config.url?.includes('/auth/logout')) {
+    cachedUser = null;
+    authPromise = null;
+  }
+  return config;
+});
+
 function AppRouter() {
   const location = useLocation();
   
@@ -126,35 +145,88 @@ function AppRouter() {
   );
 }
 
-function ProtectedRoute({ children }) {
-  const location = useLocation();
-  const [isAuthenticated, setIsAuthenticated] = useState(location.state?.user ? true : null);
-  const [user, setUser] = useState(location.state?.user || null);
-  const navigate = (path, options) => {
-    window.location.href = path;
+function getRoleRedirect(role) {
+  const roleRoutes = {
+    site_engineer: '/site-engineer',
+    sr_site_engineer: '/site-engineer',
+    pre_sales: '/crm-pre-sales',
+    sales: '/crm-sales',
+    general_manager: '/gm-dashboard',
+    accountant: '/accounts-board',
+    planning: '/planning-board',
+    procurement: '/procurement-board-v2',
+    cre: '/cre-board',
+    project_manager: '/pm-dashboard',
+    associate_pm: '/pm-dashboard',
+    client: '/client-portal',
+    vendor: '/vendor-portal',
+    marketing_head: '/marketing-board',
+    super_admin: '/dashboard'
   };
+  return roleRoutes[role] || '/dashboard';
+}
+
+// Simple auth cache to avoid repeated /auth/me calls
+let cachedUser = null;
+let authPromise = null;
+
+async function getAuthUser() {
+  if (cachedUser) return cachedUser;
+  if (authPromise) return authPromise;
+  
+  authPromise = axios.get(`${API}/auth/me`)
+    .then(res => {
+      cachedUser = res.data;
+      authPromise = null;
+      return cachedUser;
+    })
+    .catch(err => {
+      authPromise = null;
+      cachedUser = null;
+      throw err;
+    });
+  
+  return authPromise;
+}
+
+// Call this on logout to clear cache
+function clearAuthCache() {
+  cachedUser = null;
+  authPromise = null;
+}
+
+// Expose to other components
+window.__clearAuthCache = clearAuthCache;
+
+function ProtectedRoute({ children }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(cachedUser ? true : null);
+  const [user, setUser] = useState(cachedUser || null);
 
   useEffect(() => {
-    if (location.state?.user) return;
+    if (cachedUser) {
+      setUser(cachedUser);
+      setIsAuthenticated(true);
+      return;
+    }
 
-    const checkAuth = async () => {
-      try {
-        const response = await axios.get(`${API}/auth/me`);
-        setUser(response.data);
+    getAuthUser()
+      .then(userData => {
+        setUser(userData);
         setIsAuthenticated(true);
-      } catch (error) {
+      })
+      .catch(() => {
         setIsAuthenticated(false);
-        navigate('/login');
-      }
-    };
-
-    checkAuth();
+        window.location.href = '/login';
+      });
   }, []);
 
   if (isAuthenticated === null) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg font-semibold">Loading...</div>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50" data-testid="auth-loading">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 border-3 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+          <p className="text-sm text-gray-400">Authenticating...</p>
+        </div>
       </div>
     );
   }

@@ -131,6 +131,8 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); } catch {}
+    // Clear auth cache
+    if (window.__clearAuthCache) window.__clearAuthCache();
     navigate('/login', { replace: true });
   };
 
