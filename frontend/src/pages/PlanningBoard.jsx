@@ -66,6 +66,8 @@ export default function PlanningBoard() {
   const [editingVendor, setEditingVendor] = useState(null);
   const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
 
+  const [vendorLoading, setVendorLoading] = useState(false);
+
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
@@ -110,13 +112,15 @@ export default function PlanningBoard() {
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
   const fetchContractors = async () => { try { const r = await axios.get(`${API}/labour-contractors`); setContractors(r.data); } catch {} };
   const fetchVendors = async () => {
+    if (vendorLoading) return;
+    setVendorLoading(true);
     try {
       const [v, m] = await Promise.all([
         axios.get(`${API}/vendor-master?active_only=false`),
         materials.length === 0 ? axios.get(`${API}/materials?active_only=false`) : Promise.resolve({ data: materials })
       ]);
       setVendors(v.data); if (materials.length === 0) setMaterials(m.data);
-    } catch {}
+    } catch {} finally { setVendorLoading(false); }
   };
 
   // === PROJECT HANDLERS ===

@@ -103,11 +103,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - "Request RE" sends notification to Planning team and creates project in planning_review status
   - New backend endpoints: /cre/additional-payment-requests, /cre/income-collected, /cre/pending-approvals, /cre/projects/request-re
 - [x] **P0: Planning Board Redesign (Mar 14, 2026)**:
-  - Redesigned with dashboard header (5 summary cards + construction stages overview + alert banners)
-  - 4 tabs: All Projects (table with stages), Materials (CRUD + active/inactive/hide), Labours (contractor CRUD), Suppliers (vendor CRUD)
-  - Materials, Labours, Suppliers now inline on Planning Board (previously separate pages)
+  - Simplified to tabs-only layout: All Projects, Requests, Materials, Labours, Suppliers
+  - No summary cards, no construction stages overview, no alert banners
+  - Red badge counts on tabs showing pending items (new projects on All Projects tab, pending requests on Requests tab)
+  - Requests tab: Site Requests (material + labour) and Payment Requests inline with approve/reject
+  - Materials, Labours, Suppliers: Full CRUD with search, filter (active/inactive), create/edit/hide dialogs
   - Planning role added to vendor CRUD permissions
-  - Lazy-loading: tab data fetched on first tab click
 
 ## Credentials
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
