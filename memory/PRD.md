@@ -51,7 +51,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Currency uses "Rs." prefix (jsPDF Helvetica font limitation for ₹ symbol)
   - Works from both RE Projects page and CRM Sales page
 
-## Credentials
+- [x] **RE Rejection → Re-edit → Resubmit Flow (Mar 14, 2026)**:
+  - GM rejection sends notification to Planning with reason
+  - Planning sees rejection reason prominently on rejected projects
+  - Planning can Edit and Resubmit rejected REs for re-approval
+  - Backend updated to allow editing/resubmitting rejected projects
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
 - CRE: `cre@constructionos.com` / `Demo@1234`

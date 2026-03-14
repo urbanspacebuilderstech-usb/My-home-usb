@@ -1470,8 +1470,8 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
     if data.planning_notes is not None:
         update["planning_notes"] = data.planning_notes
     
-    # Set status to in progress if it was requested
-    if project["status"] == "re_requested":
+    # Set status to in progress if it was requested or rejected
+    if project["status"] in ["re_requested", "re_rejected"]:
         update["status"] = "re_in_progress"
         update["prepared_by"] = user.user_id
         update["prepared_at"] = datetime.now(timezone.utc)
@@ -1491,7 +1491,7 @@ async def submit_re_for_approval(re_project_id: str, user: User = Depends(get_cu
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
     
-    if project["status"] not in ["re_requested", "re_in_progress"]:
+    if project["status"] not in ["re_requested", "re_in_progress", "re_rejected"]:
         raise HTTPException(status_code=400, detail="Project not in valid state for submission")
     
     await db.re_projects.update_one(
@@ -1574,6 +1574,18 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
             "gm_approved_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc)
         }
+        # Notify Planning about rejection
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": "all_planning",
+            "title": "RE Rejected",
+            "message": f"Rough Estimate for '{project.get('project_name', project['client_name'])}' was rejected. Reason: {data.rejection_reason or 'No reason provided'}",
+            "type": "re_rejected",
+            "reference_id": re_project_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notification)
     
     await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
     

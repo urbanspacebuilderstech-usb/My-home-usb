@@ -14,7 +14,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
-  ArrowLeft, Target, Download
+  ArrowLeft, Target, Download, AlertCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -337,25 +337,36 @@ export default function REProjectsPage() {
                             )}
                           </p>
                         )}
+                        
+                        {project.status === 're_rejected' && project.gm_rejection_reason && (
+                          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg" data-testid="rejection-reason-box">
+                            <p className="text-xs font-semibold text-red-700 flex items-center gap-1 mb-1">
+                              <AlertCircle className="h-3 w-3" /> GM Rejection Reason:
+                            </p>
+                            <p className="text-sm text-red-600">{project.gm_rejection_reason}</p>
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-2 ml-4">
-                        {canEdit && ['re_requested', 're_in_progress'].includes(project.status) && (
+                        {canEdit && ['re_requested', 're_in_progress', 're_rejected'].includes(project.status) && (
                           <>
                             <Button 
                               variant="outline" 
                               size="sm"
                               onClick={() => openEditDialog(project)}
+                              data-testid={`edit-re-${project.re_project_id}`}
                             >
                               <Edit2 className="h-4 w-4 mr-1" /> Edit
                             </Button>
-                            {project.status === 're_in_progress' && (
+                            {['re_in_progress', 're_rejected'].includes(project.status) && (
                               <Button 
                                 size="sm"
                                 className="bg-purple-600 hover:bg-purple-700"
                                 onClick={() => handleSubmitForApproval(project.re_project_id)}
+                                data-testid={`submit-re-${project.re_project_id}`}
                               >
-                                <Send className="h-4 w-4 mr-1" /> Submit
+                                <Send className="h-4 w-4 mr-1" /> {project.status === 're_rejected' ? 'Resubmit' : 'Submit'}
                               </Button>
                             )}
                           </>
