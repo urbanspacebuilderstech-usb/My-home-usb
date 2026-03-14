@@ -1558,6 +1558,7 @@ class PaymentCollectionInput(BaseModel):
     payment_reference: Optional[str] = None
     payment_date: Optional[str] = None
     remarks: Optional[str] = None
+    cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount, cheque_date}]
 
 
 class AdditionalCostCreate(BaseModel):
@@ -1872,6 +1873,8 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         raise HTTPException(status_code=404, detail="Payment stage not found")
     
     project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found for this payment stage")
     
     # Calculate new received amount
     current_received = stage.get("amount_received", 0)
@@ -1924,7 +1927,29 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     await db.income.insert_one(income_record)
+    income_id = income_record["income_id"]
     del income_record["_id"]
+    
+    # Save cheque records if payment mode is cheque
+    if collection.payment_mode == "cheque" and collection.cheque_details:
+        for chq in collection.cheque_details:
+            if chq.get("cheque_number"):
+                cheque_record = {
+                    "cheque_id": f"chq_{uuid.uuid4().hex[:8]}",
+                    "project_id": stage["project_id"],
+                    "income_id": income_id,
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "cheque_date": chq.get("cheque_date", payment_date),
+                    "cheque_type": "incoming",
+                    "category": "payment_collection",
+                    "stage_id": stage_id,
+                    "status": "received",
+                    "collected_by": user.user_id,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await db.cheques.insert_one(cheque_record)
     
     # Notify Planning team
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)

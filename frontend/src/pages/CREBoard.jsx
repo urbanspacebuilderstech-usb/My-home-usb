@@ -75,7 +75,7 @@ export default function CREBoard() {
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [collectDialog, setCollectDialog] = useState(false);
   const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
-  const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '' });
+  const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
   
   
   const [form, setForm] = useState({
@@ -342,11 +342,18 @@ export default function CREBoard() {
     }
 
     try {
-      const res = await axios.post(`${API}/cre/projects`, {
+      const payload = {
         ...form,
         sqft: parseFloat(form.sqft) || 0,
         advance_amount: parseFloat(form.advance_amount) || 0
-      });
+      };
+      
+      // Include cheque details if mode is cheque
+      if (form.advance_payment_mode === 'cheque' && form.cheque_details?.length > 0) {
+        payload.cheque_details = form.cheque_details.filter(c => c.cheque_number);
+      }
+      
+      const res = await axios.post(`${API}/cre/projects`, payload);
       toast.success(`Project created! ID: ${res.data.project_id}`);
       setCreateDialog(false);
       resetForm();
@@ -408,7 +415,7 @@ export default function CREBoard() {
   const openCollectDialog = (stage) => {
     setSelectedPaymentStage(stage);
     const balance = (stage.amount || 0) - (stage.amount_received || 0);
-    setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '' });
+    setCollectForm({ amount: balance, mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
     setCollectDialog(true);
   };
 
@@ -424,14 +431,22 @@ export default function CREBoard() {
     }
     
     try {
-      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, {
+      const payload = {
         amount_received: parseFloat(collectForm.amount),
         payment_mode: collectForm.mode,
         payment_reference: collectForm.reference || null,
         remarks: collectForm.remarks || null
-      });
+      };
+      
+      // Add cheque details if mode is cheque
+      if (collectForm.mode === 'cheque' && collectForm.cheque_details?.length > 0) {
+        payload.cheque_details = collectForm.cheque_details.filter(c => c.cheque_number);
+      }
+      
+      await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, payload);
       toast.success('Payment collected successfully');
       setCollectDialog(false);
+      setCollectForm({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to collect payment');
@@ -1273,7 +1288,7 @@ export default function CREBoard() {
                   </div>
                   <div>
                     <Label className="text-xs">Payment Mode *</Label>
-                    <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v })}>
+                    <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v, num_cheques: v === 'cheque' ? 1 : 0 })}>
                       <SelectTrigger data-testid="select-payment-mode">
                         <SelectValue placeholder="Select mode" />
                       </SelectTrigger>
@@ -1285,6 +1300,91 @@ export default function CREBoard() {
                     </Select>
                   </div>
                 </div>
+                
+                {/* Cheque Details - shown when mode is cheque */}
+                {form.advance_payment_mode === 'cheque' && (
+                  <div className="mt-3 space-y-3 border-t pt-3">
+                    <div className="flex items-center gap-3">
+                      <Label className="text-xs whitespace-nowrap">No. of Cheques</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={form.num_cheques || 1}
+                        onChange={(e) => {
+                          const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
+                          const existing = form.cheque_details || [];
+                          const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
+                          setForm({ ...form, num_cheques: count, cheque_details: cheques });
+                        }}
+                        className="w-20"
+                        data-testid="input-num-cheques"
+                      />
+                    </div>
+                    {(form.cheque_details || []).map((cheque, idx) => (
+                      <div key={idx} className="grid grid-cols-4 gap-2 bg-gray-50 p-2 rounded-lg" data-testid={`cheque-entry-${idx}`}>
+                        <div>
+                          <Label className="text-xs">Cheque #{idx + 1} No.</Label>
+                          <Input
+                            value={cheque.cheque_number}
+                            onChange={(e) => {
+                              const cheques = [...(form.cheque_details || [])];
+                              cheques[idx] = { ...cheques[idx], cheque_number: e.target.value };
+                              setForm({ ...form, cheque_details: cheques });
+                            }}
+                            placeholder="Cheque number"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Bank Name</Label>
+                          <Input
+                            value={cheque.bank_name}
+                            onChange={(e) => {
+                              const cheques = [...(form.cheque_details || [])];
+                              cheques[idx] = { ...cheques[idx], bank_name: e.target.value };
+                              setForm({ ...form, cheque_details: cheques });
+                            }}
+                            placeholder="Bank name"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Amount</Label>
+                          <Input
+                            type="number"
+                            value={cheque.amount}
+                            onChange={(e) => {
+                              const cheques = [...(form.cheque_details || [])];
+                              cheques[idx] = { ...cheques[idx], amount: e.target.value };
+                              setForm({ ...form, cheque_details: cheques });
+                            }}
+                            placeholder="0"
+                            className="text-xs"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Date</Label>
+                          <Input
+                            type="date"
+                            value={cheque.cheque_date || ''}
+                            onChange={(e) => {
+                              const cheques = [...(form.cheque_details || [])];
+                              cheques[idx] = { ...cheques[idx], cheque_date: e.target.value };
+                              setForm({ ...form, cheque_details: cheques });
+                            }}
+                            className="text-xs"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {(form.cheque_details || []).length > 0 && (
+                      <p className="text-xs text-gray-500">
+                        Total: ₹{(form.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1372,7 +1472,15 @@ export default function CREBoard() {
               <Label>Payment Mode *</Label>
               <select
                 value={collectForm.mode}
-                onChange={(e) => setCollectForm({...collectForm, mode: e.target.value})}
+                onChange={(e) => {
+                  const mode = e.target.value;
+                  setCollectForm({
+                    ...collectForm, 
+                    mode, 
+                    num_cheques: mode === 'cheque' ? 1 : 0,
+                    cheque_details: mode === 'cheque' ? [{ cheque_number: '', bank_name: '', amount: collectForm.amount || '', cheque_date: new Date().toISOString().split('T')[0] }] : []
+                  });
+                }}
                 className="w-full mt-1 p-2 border rounded-md"
               >
                 <option value="bank_transfer">Bank Transfer</option>
@@ -1382,15 +1490,101 @@ export default function CREBoard() {
               </select>
             </div>
             
-            <div>
-              <Label>Reference / Transaction ID</Label>
-              <Input
-                value={collectForm.reference}
-                onChange={(e) => setCollectForm({...collectForm, reference: e.target.value})}
-                placeholder="Transaction ID or Cheque No."
-                className="mt-1"
-              />
-            </div>
+            {collectForm.mode === 'cheque' && (
+              <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+                <div className="flex items-center gap-3">
+                  <Label className="text-sm whitespace-nowrap">No. of Cheques</Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={collectForm.num_cheques || 1}
+                    onChange={(e) => {
+                      const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
+                      const existing = collectForm.cheque_details || [];
+                      const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
+                      setCollectForm({ ...collectForm, num_cheques: count, cheque_details: cheques });
+                    }}
+                    className="w-20"
+                    data-testid="collect-num-cheques"
+                  />
+                </div>
+                {(collectForm.cheque_details || []).map((cheque, idx) => (
+                  <div key={idx} className="grid grid-cols-4 gap-2" data-testid={`collect-cheque-${idx}`}>
+                    <div>
+                      <Label className="text-xs">Cheque #{idx + 1}</Label>
+                      <Input
+                        value={cheque.cheque_number}
+                        onChange={(e) => {
+                          const cheques = [...(collectForm.cheque_details || [])];
+                          cheques[idx] = { ...cheques[idx], cheque_number: e.target.value };
+                          setCollectForm({ ...collectForm, cheque_details: cheques });
+                        }}
+                        placeholder="Number"
+                        className="text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Bank</Label>
+                      <Input
+                        value={cheque.bank_name}
+                        onChange={(e) => {
+                          const cheques = [...(collectForm.cheque_details || [])];
+                          cheques[idx] = { ...cheques[idx], bank_name: e.target.value };
+                          setCollectForm({ ...collectForm, cheque_details: cheques });
+                        }}
+                        placeholder="Bank name"
+                        className="text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Amount</Label>
+                      <Input
+                        type="number"
+                        value={cheque.amount}
+                        onChange={(e) => {
+                          const cheques = [...(collectForm.cheque_details || [])];
+                          cheques[idx] = { ...cheques[idx], amount: e.target.value };
+                          setCollectForm({ ...collectForm, cheque_details: cheques });
+                        }}
+                        placeholder="0"
+                        className="text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Date</Label>
+                      <Input
+                        type="date"
+                        value={cheque.cheque_date || ''}
+                        onChange={(e) => {
+                          const cheques = [...(collectForm.cheque_details || [])];
+                          cheques[idx] = { ...cheques[idx], cheque_date: e.target.value };
+                          setCollectForm({ ...collectForm, cheque_details: cheques });
+                        }}
+                        className="text-xs"
+                      />
+                    </div>
+                  </div>
+                ))}
+                {(collectForm.cheque_details || []).length > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Total: ₹{(collectForm.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            )}
+            
+            {collectForm.mode !== 'cheque' && (
+              <div>
+                <Label>Reference / Transaction ID</Label>
+                <Input
+                  value={collectForm.reference}
+                  onChange={(e) => setCollectForm({...collectForm, reference: e.target.value})}
+                  placeholder="Transaction ID"
+                  className="mt-1"
+                />
+              </div>
+            )}
             
             <div>
               <Label>Remarks</Label>

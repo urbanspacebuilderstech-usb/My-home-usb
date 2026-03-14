@@ -43,6 +43,7 @@ class CREProjectCreateInput(BaseModel):
     advance_amount: Optional[float] = 0
     advance_payment_mode: Optional[str] = None
     rough_estimate_url: Optional[str] = None
+    cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount}]
 
 
 # Project stages definition for display
@@ -519,9 +520,11 @@ async def convert_re_project_to_project(
         )
     
     # Create income record for advance payment - pending accountant approval
+    income_id = None
     if data.advance_amount and data.advance_amount > 0:
+        income_id = f"inc_{secrets.token_hex(6)}"
         income_record = {
-            "income_id": f"inc_{secrets.token_hex(6)}",
+            "income_id": income_id,
             "project_id": project_id,
             "project_name": project_name,
             "category": "advance_payment",
@@ -539,6 +542,27 @@ async def convert_re_project_to_project(
             "created_at": now.isoformat()
         }
         await db.income.insert_one(income_record)
+    
+    # Auto-create cheque records if payment mode is cheque
+    if data.payment_mode == "cheque" and data.cheque_details:
+        for chq in data.cheque_details:
+            if chq.get("cheque_number"):
+                cheque_record = {
+                    "cheque_id": f"chq_{secrets.token_hex(6)}",
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_type": "incoming",
+                    "project_id": project_id,
+                    "income_id": income_id,
+                    "category": "advance_payment",
+                    "status": "received",
+                    "collected_by": user.user_id,
+                    "remarks": f"Advance cheque for RE project {project_name}",
+                    "created_at": now.isoformat()
+                }
+                await db.cheques.insert_one(cheque_record)
     
     return {
         "success": True,
@@ -774,6 +798,23 @@ async def cro_create_project(project_input: CREProjectCreateInput, user: User = 
     project_dict["created_at"] = project_dict["created_at"].isoformat()
     
     await db.projects.insert_one(project_dict)
+    
+    # Save cheque details if payment mode is cheque
+    if project_input.advance_payment_mode == "cheque" and project_input.cheque_details:
+        for chq in project_input.cheque_details:
+            if chq.get("cheque_number"):
+                cheque_record = {
+                    "cheque_id": f"chq_{uuid.uuid4().hex[:8]}",
+                    "project_id": project.project_id,
+                    "income_id": None,
+                    "cheque_number": chq.get("cheque_number"),
+                    "bank_name": chq.get("bank_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "category": "advance_payment",
+                    "collected_by": user.user_id,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                await db.cheques.insert_one(cheque_record)
     
     # Auto-create scope items from package
     for item in package.get("scope_items", []):

@@ -4,7 +4,7 @@
 ---
 
 **Test Date:** March 4, 2026  
-**Target:** https://crm-workflow-v2.preview.emergentagent.com/api  
+**Target:** https://multi-cheque-entry.preview.emergentagent.com/api  
 **Focus:** IDOR (Insecure Direct Object Reference) & Unauthenticated API Access  
 
 ---
