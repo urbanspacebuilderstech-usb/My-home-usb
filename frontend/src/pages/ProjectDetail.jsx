@@ -39,10 +39,10 @@ const createEmptyRows = (type, count = 3) => {
 
 const WorkflowBadge = ({ status }) => {
   const config = {
-    draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700', icon: Clock },
-    pending_verification: { label: 'Pending Verification', color: 'bg-yellow-100 text-yellow-700', icon: AlertTriangle },
-    pending_approval: { label: 'Pending Approval', color: 'bg-amber-50 text-amber-700', icon: ShieldCheck },
-    approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: Check },
+    draft: { label: 'Active', color: 'bg-green-100 text-green-700', icon: Check },
+    pending_verification: { label: 'Active', color: 'bg-green-100 text-green-700', icon: Check },
+    pending_approval: { label: 'Active', color: 'bg-green-100 text-green-700', icon: Check },
+    approved: { label: 'Active', color: 'bg-green-100 text-green-700', icon: Check },
     rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: XCircle }
   };
   const cfg = config[status] || config.draft;
@@ -599,6 +599,18 @@ export default function ProjectDetail() {
     const validItems = bulkPaymentRows.filter(r => r.stage_name && r.amount);
     if (validItems.length === 0) {
       toast.error('Please fill at least one complete row');
+      return;
+    }
+    
+    // Validate: total of new stages + existing stages cannot exceed balance
+    const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
+    const advanceReceived = projectData?.project?.advance_amount || 0;
+    const balance = totalValue - advanceReceived;
+    const existingTotal = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
+    const newTotal = validItems.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+    
+    if (existingTotal + newTotal > balance) {
+      toast.error(`Total payment stages (₹${(existingTotal + newTotal).toLocaleString()}) exceeds balance amount (₹${balance.toLocaleString()}). Reduce amounts.`);
       return;
     }
     
@@ -2072,10 +2084,39 @@ export default function ProjectDetail() {
             </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
+              {/* Balance Payment Info */}
+              {(() => {
+                const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
+                const advanceReceived = projectData?.project?.advance_amount || 0;
+                const balanceForStages = totalValue - advanceReceived;
+                const existingStagesTotal = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
+                const remainingToAllocate = balanceForStages - existingStagesTotal;
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6" data-testid="payment-balance-info">
+                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                      <p className="text-xs text-blue-600">Total Project Value</p>
+                      <p className="text-lg font-bold text-blue-700">₹{totalValue.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                      <p className="text-xs text-green-600">Advance Received</p>
+                      <p className="text-lg font-bold text-green-700">₹{advanceReceived.toLocaleString()}</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                      <p className="text-xs text-amber-600">Balance for Payment Stages</p>
+                      <p className="text-lg font-bold text-amber-700">₹{balanceForStages.toLocaleString()}</p>
+                    </div>
+                    <div className={`rounded-lg p-3 border ${remainingToAllocate > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                      <p className="text-xs text-gray-600">Remaining to Allocate</p>
+                      <p className={`text-lg font-bold ${remainingToAllocate > 0 ? 'text-red-600' : 'text-green-600'}`}>₹{remainingToAllocate.toLocaleString()}</p>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
-                  <p className="text-sm text-gray-500">Create and manage milestone-based payments</p>
+                  <p className="text-sm text-gray-500">Milestone payments based on balance after advance (₹{((summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0)).toLocaleString()})</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selectedPaymentIds.length > 0 && (
@@ -2099,7 +2140,7 @@ export default function ProjectDetail() {
                       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Payment Stages</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped). Project value: ₹{projectData?.summary?.total_value?.toLocaleString() || 0}</DialogDescription>
+                          <DialogDescription>Fill in the rows below (empty rows will be skipped). Balance for stages: ₹{((summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0)).toLocaleString()}</DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
@@ -2137,9 +2178,10 @@ export default function ProjectDetail() {
                                         const newRows = [...bulkPaymentRows];
                                         const pct = parseFloat(e.target.value) || 0;
                                         newRows[idx].percentage = e.target.value;
-                                        // Auto-calculate amount from percentage
-                                        if (projectData?.summary?.total_value && pct > 0) {
-                                          newRows[idx].amount = Math.round((projectData.summary.total_value * pct) / 100);
+                                        // Auto-calculate amount from percentage of BALANCE (Total - Advance)
+                                        const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
+                                        if (balance > 0 && pct > 0) {
+                                          newRows[idx].amount = Math.round((balance * pct) / 100);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
@@ -2155,9 +2197,10 @@ export default function ProjectDetail() {
                                         const newRows = [...bulkPaymentRows];
                                         const amt = parseFloat(e.target.value) || 0;
                                         newRows[idx].amount = e.target.value;
-                                        // Auto-calculate percentage from amount
-                                        if (projectData?.summary?.total_value && amt > 0) {
-                                          newRows[idx].percentage = ((amt / projectData.summary.total_value) * 100).toFixed(2);
+                                        // Auto-calculate percentage from amount based on BALANCE
+                                        const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
+                                        if (balance > 0 && amt > 0) {
+                                          newRows[idx].percentage = ((amt / balance) * 100).toFixed(2);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
@@ -2259,8 +2302,9 @@ export default function ProjectDetail() {
                           onChange={(e) => {
                             const pct = parseFloat(e.target.value) || 0;
                             let newAmount = editPaymentForm.amount;
-                            if (projectData?.summary?.total_value && pct > 0) {
-                              newAmount = Math.round((projectData.summary.total_value * pct) / 100).toString();
+                            const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
+                            if (balance > 0 && pct > 0) {
+                              newAmount = Math.round((balance * pct) / 100).toString();
                             }
                             setEditPaymentForm({ ...editPaymentForm, percentage: e.target.value, amount: newAmount });
                           }}
@@ -2277,8 +2321,9 @@ export default function ProjectDetail() {
                           onChange={(e) => {
                             const amt = parseFloat(e.target.value) || 0;
                             let newPct = editPaymentForm.percentage;
-                            if (projectData?.summary?.total_value && amt > 0) {
-                              newPct = ((amt / projectData.summary.total_value) * 100).toFixed(2);
+                            const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
+                            if (balance > 0 && amt > 0) {
+                              newPct = ((amt / balance) * 100).toFixed(2);
                             }
                             setEditPaymentForm({ ...editPaymentForm, amount: e.target.value, percentage: newPct });
                           }}
@@ -2343,7 +2388,6 @@ export default function ProjectDetail() {
                       payment_stages.map((stage, index) => {
                         const balance = stage.amount - (stage.amount_received || 0);
                         const isPaid = balance <= 0;
-                        const isDraft = stage.workflow_status === 'draft';
                         const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
                         const isPartial = stage.amount_received > 0 && balance > 0;
                         
@@ -2356,7 +2400,7 @@ export default function ProjectDetail() {
                         } else if (isRequested) {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-50 text-amber-700">Requested</span>;
                         } else {
-                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Draft</span>;
+                          statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Pending</span>;
                         }
                         
                         return (
@@ -2395,7 +2439,7 @@ export default function ProjectDetail() {
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 {/* Request Payment - for Planning/Admin, only if draft and balance > 0 */}
-                                {canManage && isDraft && balance > 0 && (
+                                {canManage && balance > 0 && (
                                   <Button
                                     data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
@@ -2421,7 +2465,7 @@ export default function ProjectDetail() {
                                   </Button>
                                 )}
                                 {/* Edit button - only for draft items that are not paid */}
-                                {canManage && isDraft && !isPaid && (
+                                {canManage && !isPaid && (
                                   <Button
                                     data-testid={`edit-payment-${stage.stage_id}`}
                                     variant="ghost"
@@ -2433,7 +2477,7 @@ export default function ProjectDetail() {
                                   </Button>
                                 )}
                                 {/* Delete button - only for draft items that are not paid */}
-                                {canManage && isDraft && !isPaid && (
+                                {canManage && !isPaid && (
                                   <Button 
                                     data-testid={`delete-payment-${stage.stage_id}`}
                                     variant="ghost" 
