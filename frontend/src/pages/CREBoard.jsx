@@ -10,10 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  Building2, LogOut, Plus, FileText, Clock, CheckCircle, Send,
+import {
+  Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
-  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target
+  Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
+  Receipt, Banknote, ClipboardList
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
@@ -44,68 +45,57 @@ export default function CREBoard() {
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeTab, setActiveTab] = useState('new_deals');
-  const [projectStages, setProjectStages] = useState([]);
-  const [stageCounts, setStageCounts] = useState({});
-  
-  // New Deals from Sales (closed deals waiting for project creation)
+
+  // New Deals
   const [newDeals, setNewDeals] = useState([]);
   const [convertDealDialog, setConvertDealDialog] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState(null);
   const [selectedDealRE, setSelectedDealRE] = useState(null);
-  
+
   // Advance Collection for Deal Conversion
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [advanceMode, setAdvanceMode] = useState('');
   const [advanceRef, setAdvanceRef] = useState('');
   const [accountantConfirmed, setAccountantConfirmed] = useState(false);
-  
-  // Filters
-  const [filters, setFilters] = useState({
-    status: '',
-    stage: '',
-    dateFrom: '',
-    dateTo: '',
-    search: ''
-  });
-  const [showFilters, setShowFilters] = useState(false);
-  
+  const [chequeEntries, setChequeEntries] = useState([]);
+
+  // Payment Requests from Planning
+  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [additionalPaymentRequests, setAdditionalPaymentRequests] = useState([]);
+  const [paymentReqSubTab, setPaymentReqSubTab] = useState('stage');
+
+  // Payment Approvals
+  const [pendingApprovals, setPendingApprovals] = useState({ advance_verified: [], pending_income: [] });
+
+  // Payment Collected (ledger)
+  const [incomeCollected, setIncomeCollected] = useState([]);
+
+  // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
+  const [requestREMode, setRequestREMode] = useState(false);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
-  const [paymentRequests, setPaymentRequests] = useState([]);
   const [collectDialog, setCollectDialog] = useState(false);
   const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
   const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
-  
-  
+
+  // Search
+  const [projectSearch, setProjectSearch] = useState('');
+
   const [form, setForm] = useState({
-    name: '',
-    client_name: '',
-    client_phone: '',
-    client_email: '',
-    location: '',
-    sqft: '',
-    building_type: 'residential',
+    name: '', client_name: '', client_phone: '', client_email: '',
+    location: '', sqft: '', building_type: 'residential',
     expected_start_date: new Date().toISOString().split('T')[0],
-    package_id: '',
-    advance_date: new Date().toISOString().split('T')[0],
-    advance_amount: '',
-    advance_payment_mode: '',
-    rough_estimate_url: ''
+    package_id: '', advance_date: new Date().toISOString().split('T')[0],
+    advance_amount: '', advance_payment_mode: '', rough_estimate_url: ''
   });
-  const [chequeEntries, setChequeEntries] = useState([]);
-  
   const [selectedPackage, setSelectedPackage] = useState(null);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      
-      // First, authenticate
       const userRes = await axios.get(`${API}/auth/me`);
       if (!['cre', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied. Only CRE can access this page.');
@@ -113,74 +103,51 @@ export default function CREBoard() {
         return;
       }
       setUser(userRes.data);
-      
-      // Run all data fetches in parallel
-      const [dashboardRes, dealsRes, paymentReqRes] = await Promise.allSettled([
+
+      const [dashboardRes, dealsRes, paymentReqRes, additionalReqRes, incomeRes, approvalsRes] = await Promise.allSettled([
         axios.get(`${API}/cre/dashboard`),
         axios.get(`${API}/cre/new-deals`),
-        axios.get(`${API}/cre/payment-requests`)
+        axios.get(`${API}/cre/payment-requests`),
+        axios.get(`${API}/cre/additional-payment-requests`),
+        axios.get(`${API}/cre/income-collected`),
+        axios.get(`${API}/cre/pending-approvals`)
       ]);
-      
-      // Process dashboard data
+
       if (dashboardRes.status === 'fulfilled') {
         const data = dashboardRes.value.data;
         setDashboard(data);
         setPackages(data.packages || []);
         setProjects(data.recent_projects || []);
-        setProjectStages(data.project_stages || []);
-        setStageCounts(data.stage_counts || {});
       }
-      
-      // Process deals data
       if (dealsRes.status === 'fulfilled') {
         setNewDeals(dealsRes.value.data || []);
       } else {
-        // Fallback: try sales leads
         try {
           const salesRes = await axios.get(`${API}/crm/sales/leads?stage=deal_closed`);
           setNewDeals(salesRes.data?.filter(l => !l.project_created) || []);
-        } catch {
-          setNewDeals([]);
-        }
+        } catch { setNewDeals([]); }
       }
-      
-      // Process payment requests
-      if (paymentReqRes.status === 'fulfilled') {
-        setPaymentRequests(paymentReqRes.value.data || []);
-      }
+      if (paymentReqRes.status === 'fulfilled') setPaymentRequests(paymentReqRes.value.data || []);
+      if (additionalReqRes.status === 'fulfilled') setAdditionalPaymentRequests(additionalReqRes.value.data || []);
+      if (incomeRes.status === 'fulfilled') setIncomeCollected(incomeRes.value.data || []);
+      if (approvalsRes.status === 'fulfilled') setPendingApprovals(approvalsRes.value.data || { advance_verified: [], pending_income: [] });
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      if (error.response?.status === 401) {
-        window.location.href = '/login';
-      }
+      if (error.response?.status === 401) window.location.href = '/login';
     } finally {
       setLoading(false);
     }
   };
-  
-  // Open deal conversion dialog with pre-filled data
+
+  // ==================== HANDLERS ====================
   const openConvertDealDialog = async (deal) => {
     setSelectedDeal(deal);
-    setAdvanceAmount('');
-    setAdvanceMode('');
-    setAdvanceRef('');
-    setAccountantConfirmed(false);
-    
-    // For RE projects directly approved by GM, use embedded re_project data
+    setAdvanceAmount(''); setAdvanceMode(''); setAdvanceRef('');
+    setAccountantConfirmed(false); setChequeEntries([]);
     let reData = deal.re_project || null;
-    
-    // Fetch RE Project if only re_project_id is available
     if (!reData && deal.re_project_id) {
-      try {
-        const reRes = await axios.get(`${API}/crm/re-projects/${deal.re_project_id}`);
-        reData = reRes.data;
-      } catch (e) {
-        reData = null;
-      }
+      try { const reRes = await axios.get(`${API}/crm/re-projects/${deal.re_project_id}`); reData = reRes.data; } catch { reData = null; }
     }
     setSelectedDealRE(reData);
-    
-    // Pre-fill form with deal and RE data
     setForm({
       name: deal.project_name || reData?.project_name || deal.name || '',
       client_name: deal.client_name || deal.name || '',
@@ -192,75 +159,37 @@ export default function CREBoard() {
       expected_start_date: new Date().toISOString().split('T')[0],
       package_id: reData?.package_id || '',
       advance_date: new Date().toISOString().split('T')[0],
-      advance_amount: '',
-      advance_payment_mode: '',
-      rough_estimate_url: ''
+      advance_amount: '', advance_payment_mode: '', rough_estimate_url: ''
     });
-    
     setConvertDealDialog(true);
   };
-  
-  // Convert deal to project with full project details
+
   const handleConvertDeal = async () => {
     if (!selectedDeal) return;
-    
-    // Validate required fields
     const projectName = form.name || selectedDeal.project_name || selectedDeal.name;
     const clientName = form.client_name || selectedDeal.client_name || selectedDeal.name;
     const location = form.location || selectedDealRE?.location || selectedDeal.city;
-    
-    if (!projectName?.trim()) {
-      toast.error('Project name is required');
-      return;
-    }
-    if (!clientName?.trim()) {
-      toast.error('Client name is required');
-      return;
-    }
-    if (!location?.trim()) {
-      toast.error('Location is required');
-      return;
-    }
-    
-    if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
-      toast.error('Please enter advance amount');
-      return;
-    }
-    if (!advanceMode) {
-      toast.error('Please select payment mode');
-      return;
-    }
-    if (!accountantConfirmed) {
-      toast.error('Please confirm accountant verification');
-      return;
-    }
-    
+    if (!projectName?.trim()) { toast.error('Project name is required'); return; }
+    if (!clientName?.trim()) { toast.error('Client name is required'); return; }
+    if (!location?.trim()) { toast.error('Location is required'); return; }
+    if (!advanceAmount || parseFloat(advanceAmount) <= 0) { toast.error('Please enter advance amount'); return; }
+    if (!advanceMode) { toast.error('Please select payment mode'); return; }
+    if (!accountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
     try {
-      // Determine which endpoint to use based on deal type
-      const endpoint = selectedDeal.deal_type === 're_project' 
+      const endpoint = selectedDeal.deal_type === 're_project'
         ? `${API}/cre/convert-re-project/${selectedDeal.re_project_id}`
         : `${API}/cre/convert-deal/${selectedDeal.lead_id}`;
-      
-      const result = await axios.post(endpoint, {
-        // Project details from form
-        project_name: form.name || selectedDeal.project_name || selectedDeal.name,
-        client_name: form.client_name || selectedDeal.client_name || selectedDeal.name,
+      await axios.post(endpoint, {
+        project_name: projectName, client_name: clientName,
         client_phone: form.client_phone || selectedDeal.client_phone || selectedDeal.phone,
         client_email: form.client_email || selectedDeal.client_email || selectedDeal.email,
-        location: form.location,
-        sqft: form.sqft ? parseFloat(form.sqft) : null,
-        building_type: form.building_type,
-        expected_start_date: form.expected_start_date,
-        package_id: form.package_id,
-        // Advance payment details
-        advance_amount: parseFloat(advanceAmount),
-        payment_mode: advanceMode,
-        payment_reference: advanceRef,
+        location, sqft: form.sqft ? parseFloat(form.sqft) : null,
+        building_type: form.building_type, expected_start_date: form.expected_start_date,
+        package_id: form.package_id, advance_amount: parseFloat(advanceAmount),
+        payment_mode: advanceMode, payment_reference: advanceRef,
         accountant_confirmed: accountantConfirmed,
-        // Cheque details (auto-creates cheque records)
         cheque_details: advanceMode === 'cheque' ? chequeEntries : null,
       });
-      
       toast.success('Project created successfully!');
       setConvertDealDialog(false);
       fetchData();
@@ -269,95 +198,36 @@ export default function CREBoard() {
     }
   };
 
-  const fetchProjectsByStatus = async (statuses) => {
-    try {
-      const res = await axios.get(`${API}/cre/projects/all?status=${statuses}`);
-      setProjects(res.data);
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    }
-  };
-
-  const fetchFilteredProjects = async () => {
-    try {
-      let url = `${API}/cre/projects/all?`;
-      if (filters.status) url += `status=${filters.status}&`;
-      if (filters.stage && filters.stage !== 'all') url += `stage=${filters.stage}&`;
-      if (filters.dateFrom) url += `date_from=${filters.dateFrom}&`;
-      if (filters.dateTo) url += `date_to=${filters.dateTo}&`;
-      
-      const res = await axios.get(url);
-      let filtered = res.data;
-      
-      // Client-side search filter
-      if (filters.search) {
-        const search = filters.search.toLowerCase();
-        filtered = filtered.filter(p => 
-          p.name?.toLowerCase().includes(search) ||
-          p.client_name?.toLowerCase().includes(search) ||
-          p.project_code?.toLowerCase().includes(search)
-        );
-      }
-      
-      setProjects(filtered);
-    } catch (error) {
-      console.error('Error fetching filtered projects:', error);
-    }
-  };
-
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    if (tab === 'draft') {
-      fetchProjectsByStatus('draft');
-    } else if (tab === 'pending_payment') {
-      fetchProjectsByStatus('pending_payment');
-    } else if (tab === 'payment_received') {
-      fetchProjectsByStatus('payment_verified');
-    } else if (tab === 'in_planning') {
-      fetchProjectsByStatus('planning_review,awaiting_approval');
-    } else if (tab === 'approved') {
-      fetchProjectsByStatus('planning_approved,active');
-    }
-  };
-
-  const handlePackageSelect = async (packageId) => {
-    setForm({ ...form, package_id: packageId });
-    try {
-      const res = await axios.get(`${API}/packages/${packageId}`);
-      setSelectedPackage(res.data);
-    } catch (error) {
-      console.error('Error fetching package:', error);
-    }
-  };
-
   const handleCreateProject = async () => {
-    if (!form.name?.trim() || !form.client_name?.trim() || !form.package_id) {
-      toast.error('Please fill all required fields (Project Name, Client Name, Package)');
+    if (!form.name?.trim() || !form.client_name?.trim()) {
+      toast.error('Please fill Project Name and Client Name');
       return;
     }
-
-    if (!form.advance_amount || parseFloat(form.advance_amount) <= 0) {
-      toast.error('Advance payment amount is required');
+    if (requestREMode) {
+      // Request RE from Planning - no advance needed
+      try {
+        await axios.post(`${API}/cre/projects/request-re`, {
+          name: form.name, client_name: form.client_name,
+          client_phone: form.client_phone, client_email: form.client_email,
+          location: form.location, sqft: form.sqft, building_type: form.building_type
+        });
+        toast.success('Project created! RE requested from Planning team.');
+        setCreateDialog(false); resetForm(); fetchData();
+      } catch (error) {
+        toast.error(error.response?.data?.detail || 'Failed to create project');
+      }
       return;
     }
-
+    if (!form.package_id) { toast.error('Please select a package'); return; }
+    if (!form.advance_amount || parseFloat(form.advance_amount) <= 0) { toast.error('Advance amount required'); return; }
     try {
-      const payload = {
-        ...form,
-        sqft: parseFloat(form.sqft) || 0,
-        advance_amount: parseFloat(form.advance_amount) || 0
-      };
-      
-      // Include cheque details if mode is cheque
+      const payload = { ...form, sqft: parseFloat(form.sqft) || 0, advance_amount: parseFloat(form.advance_amount) || 0 };
       if (form.advance_payment_mode === 'cheque' && form.cheque_details?.length > 0) {
         payload.cheque_details = form.cheque_details.filter(c => c.cheque_number);
       }
-      
       const res = await axios.post(`${API}/cre/projects`, payload);
       toast.success(`Project created! ID: ${res.data.project_id}`);
-      setCreateDialog(false);
-      resetForm();
-      fetchData();
+      setCreateDialog(false); resetForm(); fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create project');
     }
@@ -368,9 +238,7 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/submit`);
       toast.success('Project submitted for payment verification');
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit project');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to submit'); }
   };
 
   const handleSubmitToPlanning = async (projectId) => {
@@ -378,9 +246,7 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/send-to-planning`);
       toast.success('Project sent to Planning Department');
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to send to Planning');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
   const handleMoveToDrawing = async (projectId) => {
@@ -388,28 +254,19 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/move-to-drawing`);
       toast.success('Project moved to Drawing Stage');
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to move to Drawing');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
   const resetForm = () => {
     setForm({
-      name: '',
-      client_name: '',
-      client_phone: '',
-      client_email: '',
-      location: '',
-      sqft: '',
-      building_type: 'residential',
+      name: '', client_name: '', client_phone: '', client_email: '',
+      location: '', sqft: '', building_type: 'residential',
       expected_start_date: new Date().toISOString().split('T')[0],
-      package_id: '',
-      advance_date: new Date().toISOString().split('T')[0],
-      advance_amount: '',
-      advance_payment_mode: '',
-      rough_estimate_url: ''
+      package_id: '', advance_date: new Date().toISOString().split('T')[0],
+      advance_amount: '', advance_payment_mode: '', rough_estimate_url: ''
     });
     setSelectedPackage(null);
+    setRequestREMode(false);
   };
 
   const openCollectDialog = (stage) => {
@@ -419,17 +276,8 @@ export default function CREBoard() {
     setCollectDialog(true);
   };
 
-  const openViewDialog = (project) => {
-    setSelectedProject(project);
-    setViewDialog(true);
-  };
-
   const handleCollectPayment = async () => {
-    if (!selectedPaymentStage || !collectForm.amount) {
-      toast.error('Please enter amount');
-      return;
-    }
-    
+    if (!selectedPaymentStage || !collectForm.amount) { toast.error('Enter amount'); return; }
     try {
       const payload = {
         amount_received: parseFloat(collectForm.amount),
@@ -437,12 +285,9 @@ export default function CREBoard() {
         payment_reference: collectForm.reference || null,
         remarks: collectForm.remarks || null
       };
-      
-      // Add cheque details if mode is cheque
       if (collectForm.mode === 'cheque' && collectForm.cheque_details?.length > 0) {
         payload.cheque_details = collectForm.cheque_details.filter(c => c.cheque_number);
       }
-      
       await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, payload);
       toast.success('Payment collected successfully');
       setCollectDialog(false);
@@ -453,1577 +298,737 @@ export default function CREBoard() {
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await axios.post(`${API}/auth/logout`);
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-    window.location.href = '/login';
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
-  };
+  const formatCurrency = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
 
   const getStatusBadge = (status) => {
     const config = {
-      draft: { label: 'Draft', className: 'bg-gray-100 text-gray-700' },
-      pending_payment: { label: 'Awaiting Accountant', className: 'bg-orange-100 text-orange-700' },
-      payment_received: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
-      payment_verified: { label: 'Payment Verified', className: 'bg-emerald-100 text-emerald-700' },
-      in_planning: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
-      planning_review: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
-      planning: { label: 'In Planning', className: 'bg-amber-50 text-amber-700' },
-      awaiting_approval: { label: 'Awaiting Approval', className: 'bg-yellow-100 text-yellow-700' },
-      gm_approved: { label: 'GM Approved', className: 'bg-purple-100 text-purple-700' },
-      planning_approved: { label: 'Approved', className: 'bg-green-100 text-green-700' },
-      active: { label: 'Active', className: 'bg-green-100 text-green-700' }
+      draft: { label: 'Draft', cls: 'bg-gray-100 text-gray-700' },
+      pending_payment: { label: 'Pending Verification', cls: 'bg-orange-100 text-orange-700' },
+      payment_received: { label: 'Verified', cls: 'bg-emerald-100 text-emerald-700' },
+      payment_verified: { label: 'Verified', cls: 'bg-emerald-100 text-emerald-700' },
+      in_planning: { label: 'In Planning', cls: 'bg-amber-100 text-amber-700' },
+      planning_review: { label: 'In Planning', cls: 'bg-amber-100 text-amber-700' },
+      planning: { label: 'In Planning', cls: 'bg-amber-100 text-amber-700' },
+      awaiting_approval: { label: 'Awaiting GM', cls: 'bg-yellow-100 text-yellow-700' },
+      gm_approved: { label: 'GM Approved', cls: 'bg-purple-100 text-purple-700' },
+      planning_approved: { label: 'Approved', cls: 'bg-green-100 text-green-700' },
+      active: { label: 'Active', cls: 'bg-green-100 text-green-700' },
+      in_progress: { label: 'In Progress', cls: 'bg-blue-100 text-blue-700' }
     };
-    const c = config[status] || { label: status, className: 'bg-gray-100 text-gray-700' };
-    return <span className={`px-2 py-1 rounded text-xs font-medium ${c.className}`}>{c.label}</span>;
+    const c = config[status] || { label: status?.replace(/_/g, ' ') || '-', cls: 'bg-gray-100 text-gray-700' };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.cls}`}>{c.label}</span>;
   };
 
-  const getStageBadge = (stage) => {
-    const stageInfo = projectStages.find(s => s.id === stage);
-    return stageInfo ? stageInfo.name : stage || 'Yet to Start';
-  };
-
-  const getActionButton = (project) => {
+  const getProjectAction = (project) => {
     switch (project.status) {
       case 'draft':
-        return (
-          <Button size="sm" className="gap-1 bg-orange-500 hover:bg-orange-600" onClick={() => handleSubmitForPayment(project.project_id)} data-testid={`submit-payment-btn-${project.project_id}`}>
-            <CreditCard className="h-3 w-3" /> Submit for Verification
-          </Button>
-        );
+        return <Button size="sm" variant="outline" className="text-orange-600 border-orange-300 h-7 text-xs" onClick={() => handleSubmitForPayment(project.project_id)}>Submit for Verification</Button>;
       case 'pending_payment':
-        return (
-          <Badge variant="outline" className="text-orange-600 border-orange-300">
-            <Clock className="h-3 w-3 mr-1" /> Awaiting Accountant
-          </Badge>
-        );
+        return <Badge variant="outline" className="text-orange-500 text-xs">Awaiting Accountant</Badge>;
       case 'payment_received':
       case 'payment_verified':
-        return (
-          <Button size="sm" className="gap-1 bg-secondary hover:bg-secondary/90" onClick={() => handleSubmitToPlanning(project.project_id)} data-testid={`submit-planning-btn-${project.project_id}`}>
-            <Send className="h-3 w-3" /> Planning Dept
-          </Button>
-        );
-      case 'in_planning':
-      case 'planning':
-      case 'planning_review':
-        return (
-          <Badge variant="outline" className="text-amber-600 border-blue-300">
-            <Clock className="h-3 w-3 mr-1" /> In Planning (Scopes & Payments)
-          </Badge>
-        );
+        return <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-7 text-xs" onClick={() => handleSubmitToPlanning(project.project_id)}>Send to Planning</Button>;
       case 'planning_approved':
-        return (
-          <Button size="sm" className="gap-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleMoveToDrawing(project.project_id)} data-testid={`move-drawing-btn-${project.project_id}`}>
-            <ArrowRight className="h-3 w-3" /> Move to Drawing
-          </Button>
-        );
-      case 'drawing':
-      case 'in_drawing':
-        return (
-          <Badge variant="outline" className="text-purple-600 border-purple-300">
-            <FileText className="h-3 w-3 mr-1" /> In Drawing Stage
-          </Badge>
-        );
+        return <Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-7 text-xs" onClick={() => handleMoveToDrawing(project.project_id)}>Move to Drawing</Button>;
       default:
-        return (
-          <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`} data-testid={`view-btn-${project.project_id}`}>
-            <Eye className="h-3 w-3 mr-1" /> View
-          </Button>
-        );
+        return <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${project.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>;
     }
   };
+
+  const filteredProjects = projects.filter(p => {
+    if (!projectSearch) return true;
+    const s = projectSearch.toLowerCase();
+    return (p.name || '').toLowerCase().includes(s) || (p.client_name || '').toLowerCase().includes(s) || (p.location || '').toLowerCase().includes(s);
+  });
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50" data-testid="cre-board-loading">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-4">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="bg-white rounded-lg border p-4 animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
-                <div className="h-8 bg-gray-200 rounded w-12" />
-              </div>
-            ))}
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="grid grid-cols-4 gap-4 mb-6">
+            {[...Array(4)].map((_, i) => <div key={i} className="bg-white rounded-lg border p-4 animate-pulse"><div className="h-4 bg-gray-200 rounded w-20 mb-2" /><div className="h-8 bg-gray-200 rounded w-12" /></div>)}
           </div>
-          <div className="bg-white rounded-lg border p-4 mb-4 animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-64 mx-auto" />
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <div className="bg-white rounded-lg border p-4 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-40 mb-2" />
-              <div className="h-10 bg-gray-200 rounded w-20" />
-            </div>
-            <div className="bg-white rounded-lg border p-4 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-40 mb-2" />
-              <div className="h-10 bg-gray-200 rounded w-32" />
-            </div>
-          </div>
+          <div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-64" /></div>
         </div>
       </div>
     );
   }
 
+  const totalCollected = incomeCollected.reduce((s, i) => s + (i.amount || 0), 0);
+  const pendingCount = (pendingApprovals.advance_verified?.length || 0) + (pendingApprovals.pending_income?.length || 0);
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
+    <div className="min-h-screen bg-gray-50" data-testid="cre-board">
       <AppHeader user={user} />
 
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Dashboard Metrics Row 1 - Status Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-4">
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('draft')} data-testid="draft-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <FileText className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Draft</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold">{dashboard.draft_count || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('pending_payment')} data-testid="pending-payment-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-orange-600 mb-1">
-                <CreditCard className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Pending Payment</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-orange-700">{dashboard.pending_payment_count || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('payment_received')} data-testid="payment-received-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-emerald-600 mb-1">
-                <CheckCircle2 className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Payment Verified</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-emerald-700">{dashboard.payment_received_count || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('in_planning')} data-testid="planning-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-amber-600 mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">In Planning</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.in_planning_count || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleTabChange('approved')} data-testid="approved-card">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-green-600 mb-1">
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Approved</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-green-700">{dashboard.approved_count || 0}</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Workflow Info Banner */}
-        <Card className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-              <Badge variant="outline" className="bg-gray-100">Draft</Badge>
-              <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-orange-100 text-orange-700">Submit for Payment</Badge>
-              <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-purple-100 text-purple-700">Accountant Verifies</Badge>
-              <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-emerald-100 text-emerald-700">Payment Received</Badge>
-              <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-amber-50 text-amber-700">Planning Dept</Badge>
-              <ArrowRight className="h-4 w-4 text-gray-400" />
-              <Badge variant="outline" className="bg-indigo-100 text-indigo-700">Drawing Stage</Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Payment Requests from Planning */}
-        {paymentRequests.length > 0 && (
-          <Card className="mb-4 bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-purple-600" />
-                Payment Collection Requests ({paymentRequests.length})
-              </CardTitle>
-            </CardHeader>
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+          <Card className="border-l-4 border-l-amber-500" data-testid="card-total-projects">
             <CardContent className="p-3">
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {paymentRequests.map((req) => {
-                  const balance = (req.amount || 0) - (req.amount_received || 0);
-                  return (
-                    <div key={req.stage_id} className="flex items-center justify-between bg-white p-3 rounded-lg border">
-                      <div>
-                        <p className="font-medium text-sm">{req.project_name}</p>
-                        <p className="text-xs text-gray-500">{req.stage_name}</p>
-                        <p className="text-sm font-semibold text-purple-600">₹{balance.toLocaleString()}</p>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => openCollectDialog(req)}
-                      >
-                        <DollarSign className="h-3 w-3 mr-1" />
-                        Collect
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
+              <p className="text-xs text-gray-500 mb-1">Total Projects</p>
+              <p className="text-2xl font-bold text-gray-800">{dashboard.total_ongoing || projects.length || 0}</p>
             </CardContent>
           </Card>
-        )}
-
-        {/* Dashboard Section - Total Ongoing & Value */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Total Ongoing Projects</p>
-                  <p className="text-3xl font-bold text-amber-600">{dashboard.total_ongoing || 0}</p>
-                </div>
-                <Button variant="outline" onClick={() => window.location.href = '/projects'}>
-                  View All Projects
-                </Button>
-              </div>
+          <Card className="border-l-4 border-l-green-500" data-testid="card-total-value">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500 mb-1">Total Value</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(dashboard.total_project_value)}</p>
             </CardContent>
           </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Total Project Value</p>
-                  <p className="text-2xl font-bold text-green-600">{formatCurrency(dashboard.total_project_value)}</p>
-                </div>
-                <DollarSign className="h-10 w-10 text-green-200" />
-              </div>
+          <Card className="border-l-4 border-l-blue-500" data-testid="card-collected">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500 mb-1">Total Collected</p>
+              <p className="text-lg font-bold text-blue-700">{formatCurrency(totalCollected)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-orange-500" data-testid="card-pending">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500 mb-1">Pending Actions</p>
+              <p className="text-2xl font-bold text-orange-700">{pendingCount + paymentRequests.length + newDeals.length}</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Project Stages Overview */}
-        {projectStages.length > 0 && (
-          <Card className="mb-6">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Project Stages</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap gap-2">
-                {projectStages.map((stage) => (
-                  <div 
-                    key={stage.id}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
-                    onClick={() => {
-                      setFilters({ ...filters, stage: stage.id });
-                      fetchFilteredProjects();
-                    }}
-                  >
-                    <span className="text-sm font-medium">{stage.name}</span>
-                    <Badge variant="secondary" className="text-xs">{stageCounts[stage.id] || 0}</Badge>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* My Projects Section */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-          <h2 className="text-lg font-semibold">My Projects</h2>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} data-testid="filter-btn">
-              <Filter className="h-4 w-4 mr-1" /> Filters
-            </Button>
-            <Button onClick={() => setCreateDialog(true)} className="gap-2 bg-secondary hover:bg-secondary/90" data-testid="create-project-btn">
-              <Plus className="h-4 w-4" /> Create Project
-            </Button>
+        {/* Main Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <TabsList className="bg-white border shadow-sm">
+              <TabsTrigger value="new_deals" className="text-xs sm:text-sm" data-testid="tab-new-deals">
+                New Deals {newDeals.length > 0 && <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{newDeals.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
+              <TabsTrigger value="payment_req" className="text-xs sm:text-sm" data-testid="tab-payment-req">
+                Payment Req {(paymentRequests.length + additionalPaymentRequests.length) > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{paymentRequests.length + additionalPaymentRequests.length}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="payment_approvals" className="text-xs sm:text-sm" data-testid="tab-payment-approvals">
+                Payment Approvals {pendingCount > 0 && <Badge className="ml-1 bg-orange-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingCount}</Badge>}
+              </TabsTrigger>
+              <TabsTrigger value="payment_collected" className="text-xs sm:text-sm" data-testid="tab-payment-collected">Payment Collected</TabsTrigger>
+            </TabsList>
           </div>
-        </div>
 
-        {/* Filters Panel */}
-        {showFilters && (
-          <Card className="mb-4">
-            <CardContent className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                <div>
-                  <Label className="text-xs">Search</Label>
-                  <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
-                    <Input 
-                      placeholder="Project/Client..."
-                      value={filters.search}
-                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                      className="pl-8"
-                      data-testid="filter-search"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Date From</Label>
-                  <Input 
-                    type="date"
-                    value={filters.dateFrom}
-                    onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-                    data-testid="filter-date-from"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Date To</Label>
-                  <Input 
-                    type="date"
-                    value={filters.dateTo}
-                    onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-                    data-testid="filter-date-to"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Stage</Label>
-                  <Select value={filters.stage || 'all'} onValueChange={(v) => setFilters({ ...filters, stage: v === 'all' ? '' : v })}>
-                    <SelectTrigger data-testid="filter-stage">
-                      <SelectValue placeholder="All Stages" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Stages</SelectItem>
-                      {projectStages.map((stage) => (
-                        <SelectItem key={stage.id} value={stage.id}>{stage.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-end gap-2">
-                  <Button onClick={fetchFilteredProjects} className="flex-1" data-testid="apply-filters-btn">Apply</Button>
-                  <Button variant="outline" onClick={() => { setFilters({ status: '', stage: '', dateFrom: '', dateTo: '', search: '' }); fetchData(); }}>Clear</Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Projects Table/Cards */}
-        <Card>
-          <Tabs value={activeTab} onValueChange={handleTabChange}>
-            <CardHeader className="border-b p-3 sm:p-4">
-              <TabsList className="bg-transparent p-0 flex-wrap">
-                <TabsTrigger value="new_deals" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none text-xs sm:text-sm" data-testid="tab-new-deals">
-                  New Deals {newDeals.length > 0 && <span className="ml-1 bg-yellow-500 text-white text-xs px-1.5 rounded-full">{newDeals.length}</span>}
-                </TabsTrigger>
-                <TabsTrigger value="all_projects" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none text-xs sm:text-sm" data-testid="tab-all-projects">
-                  All Projects
-                </TabsTrigger>
-                <TabsTrigger value="draft" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm" data-testid="tab-draft">
-                  Draft
-                </TabsTrigger>
-                <TabsTrigger value="pending_payment" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-600 rounded-none text-xs sm:text-sm" data-testid="tab-pending-payment">
-                  Pending Payment
-                </TabsTrigger>
-                <TabsTrigger value="payment_received" className="data-[state=active]:border-b-2 data-[state=active]:border-emerald-600 rounded-none text-xs sm:text-sm" data-testid="tab-payment-received">
-                  Payment Received
-                </TabsTrigger>
-                <TabsTrigger value="in_planning" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm" data-testid="tab-planning">
-                  In Planning
-                </TabsTrigger>
-                <TabsTrigger value="approved" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm" data-testid="tab-approved">
-                  Approved
-                </TabsTrigger>
-              </TabsList>
-            </CardHeader>
-
-            <CardContent className="p-0">
-              {/* New Deals Tab Content */}
-              <TabsContent value="new_deals" className="m-0">
+          {/* ==================== TAB 1: NEW DEALS ==================== */}
+          <TabsContent value="new_deals">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals from Sales & GM-Approved RE</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
                 {newDeals.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">
-                    <Target className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p className="font-medium">No new deals waiting</p>
-                    <p className="text-sm">GM-approved RE projects and closed deals from Sales will appear here</p>
+                  <div className="p-8 text-center text-gray-400">
+                    <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No new deals waiting for conversion</p>
                   </div>
                 ) : (
                   <div className="divide-y">
                     {newDeals.map((deal) => (
-                      <div key={deal.re_project_id || deal.lead_id} className="p-4 hover:bg-gray-50" data-testid={`deal-card-${deal.re_project_id || deal.lead_id}`}>
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
+                      <div key={deal.re_project_id || deal.lead_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`deal-card-${deal.re_project_id || deal.lead_id}`}>
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold text-lg">{deal.project_name || deal.name}</h4>
-                              {deal.deal_type === 're_project' ? (
-                                <Badge className="bg-green-100 text-green-700">GM Approved RE</Badge>
-                              ) : (
-                                <Badge className="bg-yellow-100 text-yellow-700">New Deal</Badge>
-                              )}
-                              {deal.re_project_id && deal.deal_type !== 're_project' && <Badge className="bg-amber-50 text-amber-700">Has RE</Badge>}
+                              <h4 className="font-semibold truncate">{deal.project_name || deal.name}</h4>
+                              {deal.deal_type === 're_project' ? <Badge className="bg-green-100 text-green-700 text-xs shrink-0">GM Approved RE</Badge> : <Badge className="bg-yellow-100 text-yellow-700 text-xs shrink-0">Sales Deal</Badge>}
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-600 mb-2">
-                              <div className="flex items-center gap-1">
-                                <Phone className="h-3 w-3" /> {deal.phone || deal.client_phone || '-'}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Mail className="h-3 w-3" /> {deal.email || deal.client_email || '-'}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> {deal.location || deal.city || deal.re_project?.location || '-'}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" /> {new Date(deal.gm_approved_at || deal.updated_at || deal.created_at).toLocaleDateString()}
-                              </div>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{deal.phone || deal.client_phone || '-'}</span>
+                              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{deal.location || deal.city || deal.re_project?.location || '-'}</span>
+                              {(deal.estimated_total || deal.re_project?.estimated_total) && <span className="font-medium text-green-600">{formatCurrency(deal.estimated_total || deal.re_project?.estimated_total)}</span>}
                             </div>
-                            {/* RE Project details */}
-                            {(deal.deal_type === 're_project' || deal.re_project) && (
-                              <div className="bg-amber-50 p-2 rounded-lg mt-2">
-                                <p className="text-sm font-medium text-amber-800">RE: {deal.re_project?.project_name || deal.project_name}</p>
-                                <div className="flex gap-4 text-xs text-amber-600">
-                                  <span>{(deal.sqft || deal.re_project?.sqft || deal.re_project?.area_sqft)?.toLocaleString()} sqft</span>
-                                  <span>₹{(deal.estimated_total || deal.re_project?.estimated_total || 0).toLocaleString()}</span>
-                                  <span>{deal.handover_months || deal.re_project?.handover_months} months</span>
-                                </div>
-                              </div>
-                            )}
                           </div>
-                          <Button 
-                            className="bg-green-600 hover:bg-green-700"
-                            onClick={() => openConvertDealDialog(deal)}
-                            data-testid={`convert-deal-${deal.re_project_id || deal.lead_id}`}
-                          >
-                            <ArrowRight className="h-4 w-4 mr-1" />
-                            Convert to Project
+                          <Button className="bg-green-600 hover:bg-green-700 shrink-0" size="sm" onClick={() => openConvertDealDialog(deal)} data-testid={`convert-deal-${deal.re_project_id || deal.lead_id}`}>
+                            <ArrowRight className="h-4 w-4 mr-1" />Convert
                           </Button>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-              {/* All Projects Tab */}
-              <TabsContent value="all_projects" className="m-0">
-                {/* Mobile Card View */}
-                <div className="block sm:hidden divide-y">
-                  {projects.length === 0 ? (
-                    <div className="p-8 text-center text-gray-500">No projects found</div>
-                  ) : (
-                    projects.map((project) => (
-                      <div key={project.project_id} className="p-4" data-testid={`project-card-${project.project_id}`}>
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-semibold">{project.name}</p>
-                            <p className="text-xs text-gray-400">{project.project_code}</p>
-                            <p className="text-sm text-gray-500">{project.client_name}</p>
-                          </div>
-                          {getStatusBadge(project.status)}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                          <div className="flex items-center gap-1 text-gray-500">
-                            <MapPin className="h-3 w-3" /> {project.location || 'N/A'}
-                          </div>
-                          <div className="flex items-center gap-1 text-gray-500">
-                            <Package className="h-3 w-3" /> {project.package_name || 'N/A'}
-                          </div>
-                          <div>{project.sqft?.toLocaleString()} sqft</div>
-                          <div className="font-semibold text-green-600">
-                            {formatCurrency(project.total_value)}
-                          </div>
-                        </div>
-                        <div className="flex justify-end">
-                          {getActionButton(project)}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-
-                {/* Desktop Table View */}
-                <div className="hidden sm:block overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Project</th>
-                        <th className="px-4 py-3 text-left">Client</th>
-                        <th className="px-4 py-3 text-left">Location</th>
-                        <th className="px-4 py-3 text-center">Stage</th>
-                        <th className="px-4 py-3 text-right">Value</th>
-                        <th className="px-4 py-3 text-center">Status</th>
-                        <th className="px-4 py-3 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {projects.map((project) => (
-                        <tr key={project.project_id} className="hover:bg-gray-50" data-testid={`project-row-${project.project_id}`}>
-                          <td className="px-4 py-3">
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-xs text-gray-400">{project.project_id}</p>
-                          </td>
-                          <td className="px-4 py-3">{project.client_name}</td>
-                          <td className="px-4 py-3">{project.location || '-'}</td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge variant="outline">{project.current_stage?.replace(/_/g, ' ') || '-'}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium">{formatCurrency(project.total_value)}</td>
-                          <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <Button size="sm" variant="outline" onClick={() => openViewDialog(project)}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </TabsContent>
-
-              {/* Draft/Other Status Tabs - Show same project list format */}
-              <TabsContent value="draft" className="m-0">
-                <div className="p-4 text-center text-gray-500">
-                  {projects.length === 0 ? (
-                    <div className="py-8">
-                      <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No draft projects</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 border-b">
-                          <tr>
-                            <th className="px-4 py-3 text-left">Project</th>
-                            <th className="px-4 py-3 text-left">Client</th>
-                            <th className="px-4 py-3 text-right">Value</th>
-                            <th className="px-4 py-3 text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                          {projects.map((project) => (
-                            <tr key={project.project_id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium">{project.name}</td>
-                              <td className="px-4 py-3">{project.client_name}</td>
-                              <td className="px-4 py-3 text-right font-medium">{formatCurrency(project.total_value)}</td>
-                              <td className="px-4 py-3 text-center">{getActionButton(project)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="pending_payment" className="m-0">
-                <div className="p-4">
-                  {projects.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
-                      <CreditCard className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No pending payments</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {projects.map((project) => (
-                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-sm text-gray-500">{project.client_name}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-orange-600">{formatCurrency(project.total_value)}</p>
-                            <Badge className="bg-orange-100 text-orange-700">Awaiting Accountant</Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="payment_received" className="m-0">
-                <div className="p-4">
-                  {projects.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
-                      <CheckCircle2 className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No verified payments</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {projects.map((project) => (
-                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                          <div>
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-sm text-gray-500">{project.client_name}</p>
-                          </div>
-                          <div className="text-right flex items-center gap-3">
-                            <p className="font-bold text-emerald-600">{formatCurrency(project.total_value)}</p>
-                            <Button size="sm" className="bg-secondary hover:bg-secondary/90" onClick={() => handleSubmitToPlanning(project.project_id)}>
-                              <Send className="h-3 w-3 mr-1" /> Planning Team
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="in_planning" className="m-0">
-                <div className="p-4">
-                  {projects.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
-                      <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No projects in planning</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {projects.map((project) => (
-                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-blue-200">
-                          <div>
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-sm text-gray-500">{project.client_name}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-amber-600">{formatCurrency(project.total_value)}</p>
-                            <Badge className="bg-amber-50 text-amber-700">In Planning</Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="approved" className="m-0">
-                <div className="p-4">
-                  {projects.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
-                      <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No approved projects</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {projects.map((project) => (
-                        <div key={project.project_id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
-                          <div>
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-sm text-gray-500">{project.client_name}</p>
-                          </div>
-                          <div className="text-right flex items-center gap-3">
-                            <p className="font-bold text-green-600">{formatCurrency(project.total_value)}</p>
-                            <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
-                              <Eye className="h-3 w-3 mr-1" /> View
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </CardContent>
-          </Tabs>
-        </Card>
-      </div>
-
-      {/* Create Project Dialog */}
-      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create New Project</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Basic Info */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Project Name *</Label>
-                <Input 
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="Enter project name"
-                  data-testid="input-project-name"
-                />
-              </div>
-              <div>
-                <Label>Client Name *</Label>
-                <Input 
-                  value={form.client_name}
-                  onChange={(e) => setForm({ ...form, client_name: e.target.value })}
-                  placeholder="Enter client name"
-                  data-testid="input-client-name"
-                />
-              </div>
-            </div>
-
-            {/* Client Contact */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Client Phone</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                  <Input 
-                    value={form.client_phone}
-                    onChange={(e) => setForm({ ...form, client_phone: e.target.value })}
-                    placeholder="+91 9876543210"
-                    className="pl-10"
-                    data-testid="input-client-phone"
-                  />
-                </div>
-              </div>
-              <div>
-                <Label>Client Email</Label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                  <Input 
-                    value={form.client_email}
-                    onChange={(e) => setForm({ ...form, client_email: e.target.value })}
-                    placeholder="client@email.com"
-                    className="pl-10"
-                    data-testid="input-client-email"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <Label>Location</Label>
-              <Input 
-                value={form.location}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
-                placeholder="Project location"
-                data-testid="input-location"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <Label>Square Feet</Label>
-                <Input 
-                  type="number"
-                  value={form.sqft}
-                  onChange={(e) => setForm({ ...form, sqft: e.target.value })}
-                  placeholder="0"
-                  data-testid="input-sqft"
-                />
-              </div>
-              <div>
-                <Label>Building Type</Label>
-                <Select value={form.building_type} onValueChange={(v) => setForm({ ...form, building_type: v })}>
-                  <SelectTrigger data-testid="select-building-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BUILDING_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Expected Start Date</Label>
-                <Input 
-                  type="date"
-                  value={form.expected_start_date}
-                  onChange={(e) => setForm({ ...form, expected_start_date: e.target.value })}
-                  data-testid="input-start-date"
-                />
-              </div>
-            </div>
-
-            {/* Package Selection */}
-            <div>
-              <Label>Select Package *</Label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-2">
-                {packages.map((pkg) => (
-                  <Card 
-                    key={pkg.package_id}
-                    className={`cursor-pointer transition-all ${form.package_id === pkg.package_id ? 'ring-2 ring-blue-500 bg-amber-50' : 'hover:shadow-md'}`}
-                    onClick={() => handlePackageSelect(pkg.package_id)}
-                    data-testid={`package-${pkg.code}`}
-                  >
-                    <CardContent className="p-4 text-center">
-                      <Badge variant="outline" className="text-lg mb-2">{pkg.code}</Badge>
-                      <p className="font-semibold">{pkg.name}</p>
-                      {pkg.base_rate_per_sqft > 0 && (
-                        <p className="text-xs text-gray-500 mt-1">{formatCurrency(pkg.base_rate_per_sqft)}/sqft</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-
-            {/* Advance Payment Section - Required */}
-            <Card className="bg-amber-50 border-amber-200">
+          {/* ==================== TAB 2: ALL PROJECTS ==================== */}
+          <TabsContent value="all_projects">
+            <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" /> Advance Payment Details *
-                  <Badge variant="destructive" className="text-xs">Required</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <Label className="text-xs">Date of Advance Received *</Label>
-                    <Input 
-                      type="date"
-                      value={form.advance_date}
-                      onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
-                      data-testid="input-advance-date"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Advance Amount *</Label>
-                    <Input 
-                      type="number"
-                      value={form.advance_amount}
-                      onChange={(e) => setForm({ ...form, advance_amount: e.target.value })}
-                      placeholder="0"
-                      data-testid="input-advance-amount"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Payment Mode *</Label>
-                    <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v, num_cheques: v === 'cheque' ? 1 : 0 })}>
-                      <SelectTrigger data-testid="select-payment-mode">
-                        <SelectValue placeholder="Select mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PAYMENT_MODES.map((mode) => (
-                          <SelectItem key={mode.value} value={mode.value}>{mode.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-amber-600" />All Projects</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
+                    </div>
+                    <Button size="sm" onClick={() => { resetForm(); setCreateDialog(true); }} className="bg-amber-600 hover:bg-amber-700" data-testid="create-project-btn">
+                      <Plus className="h-4 w-4 mr-1" />Create Project
+                    </Button>
                   </div>
                 </div>
-                
-                {/* Cheque Details - shown when mode is cheque */}
-                {form.advance_payment_mode === 'cheque' && (
-                  <div className="mt-3 space-y-3 border-t pt-3">
-                    <div className="flex items-center gap-3">
-                      <Label className="text-xs whitespace-nowrap">No. of Cheques</Label>
-                      <Input
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={form.num_cheques || 1}
-                        onChange={(e) => {
-                          const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
-                          const existing = form.cheque_details || [];
-                          const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
-                          setForm({ ...form, num_cheques: count, cheque_details: cheques });
-                        }}
-                        className="w-20"
-                        data-testid="input-num-cheques"
-                      />
-                    </div>
-                    {(form.cheque_details || []).map((cheque, idx) => (
-                      <div key={idx} className="grid grid-cols-4 gap-2 bg-gray-50 p-2 rounded-lg" data-testid={`cheque-entry-${idx}`}>
-                        <div>
-                          <Label className="text-xs">Cheque #{idx + 1} No.</Label>
-                          <Input
-                            value={cheque.cheque_number}
-                            onChange={(e) => {
-                              const cheques = [...(form.cheque_details || [])];
-                              cheques[idx] = { ...cheques[idx], cheque_number: e.target.value };
-                              setForm({ ...form, cheque_details: cheques });
-                            }}
-                            placeholder="Cheque number"
-                            className="text-xs"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Bank Name</Label>
-                          <Input
-                            value={cheque.bank_name}
-                            onChange={(e) => {
-                              const cheques = [...(form.cheque_details || [])];
-                              cheques[idx] = { ...cheques[idx], bank_name: e.target.value };
-                              setForm({ ...form, cheque_details: cheques });
-                            }}
-                            placeholder="Bank name"
-                            className="text-xs"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Amount</Label>
-                          <Input
-                            type="number"
-                            value={cheque.amount}
-                            onChange={(e) => {
-                              const cheques = [...(form.cheque_details || [])];
-                              cheques[idx] = { ...cheques[idx], amount: e.target.value };
-                              setForm({ ...form, cheque_details: cheques });
-                            }}
-                            placeholder="0"
-                            className="text-xs"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Date</Label>
-                          <Input
-                            type="date"
-                            value={cheque.cheque_date || ''}
-                            onChange={(e) => {
-                              const cheques = [...(form.cheque_details || [])];
-                              cheques[idx] = { ...cheques[idx], cheque_date: e.target.value };
-                              setForm({ ...form, cheque_details: cheques });
-                            }}
-                            className="text-xs"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                    {(form.cheque_details || []).length > 0 && (
-                      <p className="text-xs text-gray-500">
-                        Total: ₹{(form.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
-                      </p>
-                    )}
+              </CardHeader>
+              <CardContent className="p-0">
+                {filteredProjects.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400">
+                    <Building2 className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No projects found</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="projects-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Location</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredProjects.map((p) => (
+                          <tr key={p.project_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => window.location.href = `/projects/${p.project_id}`} data-testid={`project-row-${p.project_id}`}>
+                            <td className="px-4 py-2.5">
+                              <p className="font-medium text-gray-900">{p.name}</p>
+                              <p className="text-xs text-gray-400">{p.project_code || p.project_id}</p>
+                            </td>
+                            <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
+                            <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">{p.location || '-'}</td>
+                            <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(p.total_value)}</td>
+                            <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                            <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>{getProjectAction(p)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
 
-            {/* Rough Estimate Upload */}
-            <div>
-              <Label>Rough Estimate (PDF URL)</Label>
-              <div className="relative">
-                <Upload className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                <Input 
-                  value={form.rough_estimate_url}
-                  onChange={(e) => setForm({ ...form, rough_estimate_url: e.target.value })}
-                  placeholder="https://... (PDF link)"
-                  className="pl-10"
-                  data-testid="input-estimate-url"
-                />
+          {/* ==================== TAB 3: PAYMENT REQ (FROM PLANNING) ==================== */}
+          <TabsContent value="payment_req">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-purple-600" />Payment Requests from Planning</CardTitle>
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                    <button className={`px-3 py-1 text-xs rounded-md transition-colors ${paymentReqSubTab === 'stage' ? 'bg-white shadow text-purple-700 font-medium' : 'text-gray-500'}`} onClick={() => setPaymentReqSubTab('stage')} data-testid="subtab-stage-payments">
+                      Stage Payments ({paymentRequests.length})
+                    </button>
+                    <button className={`px-3 py-1 text-xs rounded-md transition-colors ${paymentReqSubTab === 'additional' ? 'bg-white shadow text-purple-700 font-medium' : 'text-gray-500'}`} onClick={() => setPaymentReqSubTab('additional')} data-testid="subtab-additional-payments">
+                      Additional ({additionalPaymentRequests.length})
+                    </button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {paymentReqSubTab === 'stage' ? (
+                  paymentRequests.length === 0 ? (
+                    <div className="p-8 text-center text-gray-400"><Receipt className="h-10 w-10 mx-auto mb-2 opacity-50" /><p className="text-sm">No stage payment requests</p></div>
+                  ) : (
+                    <div className="divide-y">
+                      {paymentRequests.map((req) => {
+                        const balance = (req.amount || 0) - (req.amount_received || 0);
+                        return (
+                          <div key={req.stage_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`stage-req-${req.stage_id}`}>
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{req.project_name || req.project_id}</p>
+                              <p className="text-xs text-gray-500">{req.stage_label || ''} - {req.stage_name}</p>
+                              <div className="flex gap-3 mt-1 text-xs">
+                                <span className="text-gray-500">Total: {formatCurrency(req.amount)}</span>
+                                <span className="text-green-600">Received: {formatCurrency(req.amount_received || 0)}</span>
+                                <span className="font-medium text-purple-700">Balance: {formatCurrency(balance)}</span>
+                              </div>
+                            </div>
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-8" onClick={() => openCollectDialog(req)}>
+                              <DollarSign className="h-3 w-3 mr-1" />Collect
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : (
+                  additionalPaymentRequests.length === 0 ? (
+                    <div className="p-8 text-center text-gray-400"><Banknote className="h-10 w-10 mx-auto mb-2 opacity-50" /><p className="text-sm">No additional payment requests</p></div>
+                  ) : (
+                    <div className="divide-y">
+                      {additionalPaymentRequests.map((req) => (
+                        <div key={req.cost_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`additional-req-${req.cost_id}`}>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{req.project_name || req.project_id}</p>
+                            <p className="text-xs text-gray-500">{req.description}</p>
+                            <div className="flex gap-3 mt-1 text-xs">
+                              <span className="font-medium text-purple-700">Amount: {formatCurrency(req.estimated_amount || req.actual_amount)}</span>
+                              {req.income_received > 0 && <span className="text-green-600">Received: {formatCurrency(req.income_received)}</span>}
+                            </div>
+                          </div>
+                          <Badge className="bg-orange-100 text-orange-700 text-xs">Payment Requested</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ==================== TAB 4: PAYMENT APPROVALS ==================== */}
+          <TabsContent value="payment_approvals">
+            <div className="space-y-4">
+              {/* Advance Payments - Send to Planning */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Send className="h-4 w-4 text-amber-600" />
+                    Advance Verified - Ready for Planning
+                    {pendingApprovals.advance_verified?.length > 0 && <Badge className="bg-amber-100 text-amber-700 text-xs">{pendingApprovals.advance_verified.length}</Badge>}
+                  </CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">Accountant has verified advance payment. Send project to Planning team.</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {(!pendingApprovals.advance_verified || pendingApprovals.advance_verified.length === 0) ? (
+                    <div className="p-6 text-center text-gray-400 text-sm">No advance payments pending action</div>
+                  ) : (
+                    <div className="divide-y">
+                      {pendingApprovals.advance_verified.map((p) => (
+                        <div key={p.project_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`approval-advance-${p.project_id}`}>
+                          <div>
+                            <p className="font-medium">{p.name}</p>
+                            <p className="text-xs text-gray-500">{p.client_name} | Advance: {formatCurrency(p.advance_amount)}</p>
+                          </div>
+                          <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-8" onClick={() => handleSubmitToPlanning(p.project_id)}>
+                            <Send className="h-3 w-3 mr-1" />Send to Planning
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Other Payments - Just Approve */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    Pending Income Approvals
+                    {pendingApprovals.pending_income?.length > 0 && <Badge className="bg-green-100 text-green-700 text-xs">{pendingApprovals.pending_income.length}</Badge>}
+                  </CardTitle>
+                  <p className="text-xs text-gray-500 mt-1">Collected payments pending confirmation</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {(!pendingApprovals.pending_income || pendingApprovals.pending_income.length === 0) ? (
+                    <div className="p-6 text-center text-gray-400 text-sm">No payments pending approval</div>
+                  ) : (
+                    <div className="divide-y">
+                      {pendingApprovals.pending_income.map((inc) => (
+                        <div key={inc.income_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`approval-income-${inc.income_id}`}>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{inc.project_name}</p>
+                            <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
+                              <span>{inc.category?.replace(/_/g, ' ')}</span>
+                              <span>{inc.payment_mode?.replace(/_/g, ' ')}</span>
+                              {inc.stage && <span>{inc.stage}</span>}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-semibold text-green-700">{formatCurrency(inc.amount)}</p>
+                            <Badge className="bg-yellow-100 text-yellow-700 text-xs">Pending</Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* ==================== TAB 5: PAYMENT COLLECTED ==================== */}
+          <TabsContent value="payment_collected">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2"><Banknote className="h-4 w-4 text-green-600" />Payment Collected Ledger</CardTitle>
+                  <p className="text-sm font-semibold text-green-700">Total: {formatCurrency(totalCollected)}</p>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {incomeCollected.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400"><Banknote className="h-10 w-10 mx-auto mb-2 opacity-50" /><p className="text-sm">No payments collected yet</p></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="collected-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Category</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Mode</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {incomeCollected.map((inc) => (
+                          <tr key={inc.income_id} className="hover:bg-gray-50" data-testid={`collected-row-${inc.income_id}`}>
+                            <td className="px-4 py-2.5 text-xs text-gray-500">{inc.payment_date ? new Date(inc.payment_date).toLocaleDateString('en-IN') : '-'}</td>
+                            <td className="px-4 py-2.5">
+                              <p className="font-medium text-gray-900 text-sm">{inc.project_name || '-'}</p>
+                              <p className="text-xs text-gray-400">{inc.stage || inc.description || ''}</p>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-gray-500 hidden sm:table-cell capitalize">{inc.category?.replace(/_/g, ' ')}</td>
+                            <td className="px-4 py-2.5 text-xs hidden sm:table-cell capitalize">{inc.payment_mode?.replace(/_/g, ' ')}</td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-green-700">{formatCurrency(inc.amount)}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              {inc.status === 'approved' ? <span className="text-xs text-green-600 font-medium">Approved</span> :
+                               inc.status === 'pending_approval' ? <span className="text-xs text-orange-600 font-medium">Pending</span> :
+                               <span className="text-xs text-gray-500">{inc.status}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* ==================== CREATE PROJECT DIALOG ==================== */}
+      <Dialog open={createDialog} onOpenChange={setCreateDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-amber-600" />Create New Project</DialogTitle>
+          </DialogHeader>
+
+          {/* Toggle: Full Project vs Request RE */}
+          <div className="flex gap-2 p-1 bg-gray-100 rounded-lg mb-4" data-testid="create-mode-toggle">
+            <button className={`flex-1 py-2 px-3 text-sm rounded-md transition-colors ${!requestREMode ? 'bg-white shadow font-medium' : 'text-gray-500'}`} onClick={() => setRequestREMode(false)}>
+              Full Project + Advance
+            </button>
+            <button className={`flex-1 py-2 px-3 text-sm rounded-md transition-colors ${requestREMode ? 'bg-white shadow font-medium text-amber-700' : 'text-gray-500'}`} onClick={() => setRequestREMode(true)}>
+              Request RE from Planning
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {/* Basic Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Project Name *</Label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Project name" data-testid="input-project-name" />
+              </div>
+              <div>
+                <Label>Client Name *</Label>
+                <Input value={form.client_name} onChange={(e) => setForm({ ...form, client_name: e.target.value })} placeholder="Client name" data-testid="input-client-name" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Phone</Label>
+                <Input value={form.client_phone} onChange={(e) => setForm({ ...form, client_phone: e.target.value })} placeholder="+91..." />
+              </div>
+              <div>
+                <Label>Email</Label>
+                <Input value={form.client_email} onChange={(e) => setForm({ ...form, client_email: e.target.value })} placeholder="email@..." />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Location</Label>
+                <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Location" />
+              </div>
+              <div>
+                <Label>Area (sqft)</Label>
+                <Input type="number" value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value })} placeholder="0" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Building Type</Label>
+                <Select value={form.building_type} onValueChange={(v) => setForm({ ...form, building_type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{BUILDING_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Expected Start</Label>
+                <Input type="date" value={form.expected_start_date} onChange={(e) => setForm({ ...form, expected_start_date: e.target.value })} />
               </div>
             </div>
 
-            {/* Selected Package Details */}
-            {selectedPackage && form.sqft && (
-              <Card className="bg-gray-50">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Estimated Project Value</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-500">{form.sqft} sqft × {formatCurrency(selectedPackage.base_rate_per_sqft || 0)}/sqft</p>
-                      <p className="text-sm text-gray-500">Package: {selectedPackage.name}</p>
-                    </div>
-                    <p className="text-2xl font-bold text-green-600">
-                      {formatCurrency(parseFloat(form.sqft) * (selectedPackage.base_rate_per_sqft || 0))}
-                    </p>
+            {requestREMode && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm text-amber-800 font-medium flex items-center gap-2"><FileText className="h-4 w-4" />RE will be requested from Planning</p>
+                <p className="text-xs text-amber-600 mt-1">Planning team will be notified to prepare a Rough Estimate. Project will be created in "In Planning" status. You can collect advance after GM approves the RE.</p>
+              </div>
+            )}
+
+            {/* Package + Advance - only when NOT requesting RE */}
+            {!requestREMode && (
+              <>
+                <div>
+                  <Label>Package *</Label>
+                  <Select value={form.package_id} onValueChange={(v) => { setForm({ ...form, package_id: v }); setSelectedPackage(packages.find(p => p.package_id === v)); }}>
+                    <SelectTrigger data-testid="select-package"><SelectValue placeholder="Select package" /></SelectTrigger>
+                    <SelectContent>{packages.map((p) => <SelectItem key={p.package_id} value={p.package_id}>{p.name} - {formatCurrency(p.base_rate_per_sqft)}/sqft</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                {selectedPackage && form.sqft && (
+                  <div className="bg-gray-50 rounded-lg p-3 flex items-center justify-between">
+                    <span className="text-sm text-gray-600">{form.sqft} sqft x {formatCurrency(selectedPackage.base_rate_per_sqft)}/sqft</span>
+                    <span className="text-lg font-bold text-green-600">{formatCurrency(parseFloat(form.sqft) * (selectedPackage.base_rate_per_sqft || 0))}</span>
                   </div>
-                </CardContent>
-              </Card>
+                )}
+
+                <Card className="border-green-200 bg-green-50">
+                  <CardContent className="p-4 space-y-3">
+                    <h4 className="font-medium text-green-800 flex items-center gap-2"><CreditCard className="h-4 w-4" />Advance Payment</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Amount *</Label>
+                        <Input type="number" value={form.advance_amount} onChange={(e) => setForm({ ...form, advance_amount: e.target.value })} placeholder="0" data-testid="input-advance-amount" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Payment Mode *</Label>
+                        <Select value={form.advance_payment_mode} onValueChange={(v) => setForm({ ...form, advance_payment_mode: v, num_cheques: v === 'cheque' ? 1 : 0 })}>
+                          <SelectTrigger data-testid="select-payment-mode"><SelectValue placeholder="Select mode" /></SelectTrigger>
+                          <SelectContent>{PAYMENT_MODES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    {form.advance_payment_mode === 'cheque' && (
+                      <div className="space-y-2 border-t pt-2">
+                        <div className="flex items-center gap-3">
+                          <Label className="text-xs whitespace-nowrap">No. of Cheques</Label>
+                          <Input type="number" min="1" max="20" value={form.num_cheques || 1} onChange={(e) => {
+                            const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
+                            const existing = form.cheque_details || [];
+                            const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
+                            setForm({ ...form, num_cheques: count, cheque_details: cheques });
+                          }} className="w-20" data-testid="input-num-cheques" />
+                        </div>
+                        {(form.cheque_details || []).map((cheque, idx) => (
+                          <div key={idx} className="grid grid-cols-4 gap-2 bg-white p-2 rounded" data-testid={`cheque-entry-${idx}`}>
+                            <div><Label className="text-xs">Cheque #{idx + 1}</Label><Input value={cheque.cheque_number} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], cheque_number: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="Number" className="text-xs" /></div>
+                            <div><Label className="text-xs">Bank</Label><Input value={cheque.bank_name} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], bank_name: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="Bank" className="text-xs" /></div>
+                            <div><Label className="text-xs">Amount</Label><Input type="number" value={cheque.amount} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], amount: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="0" className="text-xs" /></div>
+                            <div><Label className="text-xs">Date</Label><Input type="date" value={cheque.cheque_date || ''} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], cheque_date: e.target.value }; setForm({ ...form, cheque_details: c }); }} className="text-xs" /></div>
+                          </div>
+                        ))}
+                        {(form.cheque_details || []).length > 0 && <p className="text-xs text-gray-500">Total: {formatCurrency((form.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0))}</p>}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div>
+                  <Label>Rough Estimate PDF URL</Label>
+                  <Input value={form.rough_estimate_url} onChange={(e) => setForm({ ...form, rough_estimate_url: e.target.value })} placeholder="https://..." />
+                </div>
+              </>
             )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCreateDialog(false); resetForm(); }}>Cancel</Button>
-            <Button onClick={handleCreateProject} className="bg-secondary hover:bg-secondary/90" data-testid="btn-create-project">
-              <Plus className="h-4 w-4 mr-2" /> Create Project
+            <Button onClick={handleCreateProject} className={requestREMode ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'} data-testid="btn-create-project">
+              {requestREMode ? <><FileText className="h-4 w-4 mr-2" />Create & Request RE</> : <><Plus className="h-4 w-4 mr-2" />Create Project</>}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Collect Payment Dialog */}
+      {/* ==================== COLLECT PAYMENT DIALOG ==================== */}
       <Dialog open={collectDialog} onOpenChange={setCollectDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-green-600" />
-              Collect Payment
-            </DialogTitle>
-            <DialogDescription>
-              {selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}
-            </DialogDescription>
+            <DialogTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-green-600" />Collect Payment</DialogTitle>
+            <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg">
-              <div>
-                <p className="text-xs text-gray-500">Stage Amount</p>
-                <p className="font-semibold">₹{(selectedPaymentStage?.amount || 0).toLocaleString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Already Received</p>
-                <p className="font-semibold text-green-600">₹{(selectedPaymentStage?.amount_received || 0).toLocaleString()}</p>
-              </div>
+              <div><p className="text-xs text-gray-500">Stage Amount</p><p className="font-semibold">{formatCurrency(selectedPaymentStage?.amount)}</p></div>
+              <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
             </div>
-            
             <div>
-              <Label>Amount to Collect *</Label>
-              <Input
-                type="number"
-                value={collectForm.amount}
-                onChange={(e) => setCollectForm({...collectForm, amount: e.target.value})}
-                placeholder="Enter amount"
-                className="mt-1"
-              />
+              <Label>Amount *</Label>
+              <Input type="number" value={collectForm.amount} onChange={(e) => setCollectForm({ ...collectForm, amount: e.target.value })} placeholder="Amount" className="mt-1" />
             </div>
-            
             <div>
               <Label>Payment Mode *</Label>
-              <select
-                value={collectForm.mode}
-                onChange={(e) => {
-                  const mode = e.target.value;
-                  setCollectForm({
-                    ...collectForm, 
-                    mode, 
-                    num_cheques: mode === 'cheque' ? 1 : 0,
-                    cheque_details: mode === 'cheque' ? [{ cheque_number: '', bank_name: '', amount: collectForm.amount || '', cheque_date: new Date().toISOString().split('T')[0] }] : []
-                  });
-                }}
-                className="w-full mt-1 p-2 border rounded-md"
-              >
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="upi">UPI</option>
-                <option value="cheque">Cheque</option>
-                <option value="cash">Cash</option>
-              </select>
+              <Select value={collectForm.mode} onValueChange={(mode) => setCollectForm({ ...collectForm, mode, num_cheques: mode === 'cheque' ? 1 : 0, cheque_details: mode === 'cheque' ? [{ cheque_number: '', bank_name: '', amount: collectForm.amount || '', cheque_date: new Date().toISOString().split('T')[0] }] : [] })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{PAYMENT_MODES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+              </Select>
             </div>
-            
             {collectForm.mode === 'cheque' && (
-              <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+              <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
                 <div className="flex items-center gap-3">
                   <Label className="text-sm whitespace-nowrap">No. of Cheques</Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={collectForm.num_cheques || 1}
-                    onChange={(e) => {
-                      const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
-                      const existing = collectForm.cheque_details || [];
-                      const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
-                      setCollectForm({ ...collectForm, num_cheques: count, cheque_details: cheques });
-                    }}
-                    className="w-20"
-                    data-testid="collect-num-cheques"
-                  />
+                  <Input type="number" min="1" max="20" value={collectForm.num_cheques || 1} onChange={(e) => {
+                    const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
+                    const existing = collectForm.cheque_details || [];
+                    const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
+                    setCollectForm({ ...collectForm, num_cheques: count, cheque_details: cheques });
+                  }} className="w-20" data-testid="collect-num-cheques" />
                 </div>
                 {(collectForm.cheque_details || []).map((cheque, idx) => (
                   <div key={idx} className="grid grid-cols-4 gap-2" data-testid={`collect-cheque-${idx}`}>
-                    <div>
-                      <Label className="text-xs">Cheque #{idx + 1}</Label>
-                      <Input
-                        value={cheque.cheque_number}
-                        onChange={(e) => {
-                          const cheques = [...(collectForm.cheque_details || [])];
-                          cheques[idx] = { ...cheques[idx], cheque_number: e.target.value };
-                          setCollectForm({ ...collectForm, cheque_details: cheques });
-                        }}
-                        placeholder="Number"
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Bank</Label>
-                      <Input
-                        value={cheque.bank_name}
-                        onChange={(e) => {
-                          const cheques = [...(collectForm.cheque_details || [])];
-                          cheques[idx] = { ...cheques[idx], bank_name: e.target.value };
-                          setCollectForm({ ...collectForm, cheque_details: cheques });
-                        }}
-                        placeholder="Bank name"
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Amount</Label>
-                      <Input
-                        type="number"
-                        value={cheque.amount}
-                        onChange={(e) => {
-                          const cheques = [...(collectForm.cheque_details || [])];
-                          cheques[idx] = { ...cheques[idx], amount: e.target.value };
-                          setCollectForm({ ...collectForm, cheque_details: cheques });
-                        }}
-                        placeholder="0"
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Date</Label>
-                      <Input
-                        type="date"
-                        value={cheque.cheque_date || ''}
-                        onChange={(e) => {
-                          const cheques = [...(collectForm.cheque_details || [])];
-                          cheques[idx] = { ...cheques[idx], cheque_date: e.target.value };
-                          setCollectForm({ ...collectForm, cheque_details: cheques });
-                        }}
-                        className="text-xs"
-                      />
-                    </div>
+                    <div><Label className="text-xs">Cheque #{idx + 1}</Label><Input value={cheque.cheque_number} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], cheque_number: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="Number" className="text-xs" /></div>
+                    <div><Label className="text-xs">Bank</Label><Input value={cheque.bank_name} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], bank_name: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="Bank" className="text-xs" /></div>
+                    <div><Label className="text-xs">Amount</Label><Input type="number" value={cheque.amount} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], amount: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="0" className="text-xs" /></div>
+                    <div><Label className="text-xs">Date</Label><Input type="date" value={cheque.cheque_date || ''} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], cheque_date: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} className="text-xs" /></div>
                   </div>
                 ))}
-                {(collectForm.cheque_details || []).length > 0 && (
-                  <p className="text-xs text-gray-500">
-                    Total: ₹{(collectForm.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
-                  </p>
-                )}
+                {(collectForm.cheque_details || []).length > 0 && <p className="text-xs text-gray-500">Total: {formatCurrency((collectForm.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0))}</p>}
               </div>
             )}
-            
             {collectForm.mode !== 'cheque' && (
-              <div>
-                <Label>Reference / Transaction ID</Label>
-                <Input
-                  value={collectForm.reference}
-                  onChange={(e) => setCollectForm({...collectForm, reference: e.target.value})}
-                  placeholder="Transaction ID"
-                  className="mt-1"
-                />
-              </div>
+              <div><Label>Reference / Transaction ID</Label><Input value={collectForm.reference} onChange={(e) => setCollectForm({ ...collectForm, reference: e.target.value })} placeholder="Transaction ID" className="mt-1" /></div>
             )}
-            
-            <div>
-              <Label>Remarks</Label>
-              <Input
-                value={collectForm.remarks}
-                onChange={(e) => setCollectForm({...collectForm, remarks: e.target.value})}
-                placeholder="Optional remarks"
-                className="mt-1"
-              />
-            </div>
+            <div><Label>Remarks</Label><Input value={collectForm.remarks} onChange={(e) => setCollectForm({ ...collectForm, remarks: e.target.value })} placeholder="Optional" className="mt-1" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCollectDialog(false)}>Cancel</Button>
-            <Button onClick={handleCollectPayment} className="bg-green-600 hover:bg-green-700">
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              Confirm Collection
-            </Button>
+            <Button onClick={handleCollectPayment} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-2" />Confirm</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Convert Deal to Project Dialog - Full Create Project Form */}
+      {/* ==================== CONVERT DEAL DIALOG ==================== */}
       <Dialog open={convertDealDialog} onOpenChange={setConvertDealDialog}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-green-600">
-              <Target className="h-5 w-5" />
-              Create Project from Deal
-            </DialogTitle>
-            <DialogDescription>
-              Review and edit project details, then collect advance payment to create the project
-            </DialogDescription>
+            <DialogTitle className="flex items-center gap-2 text-green-600"><Target className="h-5 w-5" />Create Project from Deal</DialogTitle>
+            <DialogDescription>Review and edit project details, then collect advance payment</DialogDescription>
           </DialogHeader>
-          
           {selectedDeal && (
             <div className="space-y-6">
-              {/* Rough Estimate Reference Card */}
               {selectedDealRE && (
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="font-semibold text-purple-800 flex items-center gap-2">
-                      <FileText className="h-4 w-4" />
-                      Rough Estimate Reference
-                    </h4>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      className="text-purple-600 border-purple-300"
-                      onClick={() => {
-                        // Open RE in new tab or download
-                        window.open(`/crm/re-projects?view=${selectedDealRE.re_project_id}`, '_blank');
-                      }}
-                    >
-                      <Eye className="h-3 w-3 mr-1" /> View RE
-                    </Button>
-                  </div>
+                  <h4 className="font-semibold text-purple-800 flex items-center gap-2 mb-2"><FileText className="h-4 w-4" />Rough Estimate Reference</h4>
                   <div className="grid grid-cols-4 gap-4 text-sm">
-                    <div>
-                      <p className="text-xs text-purple-600">RE Project</p>
-                      <p className="font-medium">{selectedDealRE.project_name}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-purple-600">Area</p>
-                      <p className="font-medium">{selectedDealRE.sqft?.toLocaleString()} sqft</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-purple-600">Timeline</p>
-                      <p className="font-medium">{selectedDealRE.handover_months || 12} months</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-purple-600">Estimated Value</p>
-                      <p className="font-bold text-purple-700">₹{(selectedDealRE.estimated_total || 0).toLocaleString()}</p>
-                    </div>
+                    <div><p className="text-xs text-purple-600">Project</p><p className="font-medium">{selectedDealRE.project_name}</p></div>
+                    <div><p className="text-xs text-purple-600">Area</p><p className="font-medium">{selectedDealRE.sqft?.toLocaleString()} sqft</p></div>
+                    <div><p className="text-xs text-purple-600">Timeline</p><p className="font-medium">{selectedDealRE.handover_months || 12} months</p></div>
+                    <div><p className="text-xs text-purple-600">Value</p><p className="font-bold text-purple-700">{formatCurrency(selectedDealRE.estimated_total)}</p></div>
                   </div>
                 </div>
               )}
-
-              {/* Project Details Section */}
               <div className="border rounded-lg p-4">
-                <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <Building2 className="h-4 w-4 text-amber-600" />
-                  Project Details
-                </h4>
+                <h4 className="font-semibold mb-3 flex items-center gap-2"><Building2 className="h-4 w-4 text-amber-600" />Project Details</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <Label>Project Name <span className="text-red-500">*</span></Label>
-                    <Input
-                      value={form.name || selectedDealRE?.project_name || selectedDeal.name}
-                      onChange={(e) => setForm({...form, name: e.target.value})}
-                      placeholder="Enter project name"
-                      className="mt-1"
-                      data-testid="project-name-input"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label>Location <span className="text-red-500">*</span></Label>
-                    <Input
-                      value={form.location || selectedDealRE?.location || selectedDeal.city || ''}
-                      onChange={(e) => setForm({...form, location: e.target.value})}
-                      placeholder="Project location"
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label>Area (sqft)</Label>
-                    <Input
-                      type="number"
-                      value={form.sqft || selectedDealRE?.sqft || ''}
-                      onChange={(e) => setForm({...form, sqft: e.target.value})}
-                      placeholder="Built-up area in sqft"
-                      className="mt-1"
-                    />
-                  </div>
-                  
+                  <div className="col-span-2"><Label>Project Name *</Label><Input value={form.name || selectedDealRE?.project_name || selectedDeal.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" data-testid="project-name-input" /></div>
+                  <div><Label>Location *</Label><Input value={form.location || selectedDealRE?.location || selectedDeal.city || ''} onChange={(e) => setForm({ ...form, location: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Area (sqft)</Label><Input type="number" value={form.sqft || selectedDealRE?.sqft || ''} onChange={(e) => setForm({ ...form, sqft: e.target.value })} className="mt-1" /></div>
                   <div>
                     <Label>Building Type</Label>
-                    <Select 
-                      value={form.building_type || selectedDealRE?.building_type || 'residential'} 
-                      onValueChange={(v) => setForm({...form, building_type: v})}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="residential">Residential</SelectItem>
-                        <SelectItem value="commercial">Commercial</SelectItem>
-                        <SelectItem value="industrial">Industrial</SelectItem>
-                        <SelectItem value="mixed">Mixed Use</SelectItem>
-                      </SelectContent>
+                    <Select value={form.building_type || 'residential'} onValueChange={(v) => setForm({ ...form, building_type: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="residential">Residential</SelectItem><SelectItem value="commercial">Commercial</SelectItem><SelectItem value="industrial">Industrial</SelectItem><SelectItem value="mixed">Mixed Use</SelectItem></SelectContent>
                     </Select>
                   </div>
-                  
-                  <div>
-                    <Label>Expected Start Date</Label>
-                    <Input
-                      type="date"
-                      value={form.expected_start_date}
-                      onChange={(e) => setForm({...form, expected_start_date: e.target.value})}
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  {dashboard.packages && dashboard.packages.length > 0 && (
-                    <div className="col-span-2">
-                      <Label>Package</Label>
-                      <Select 
-                        value={form.package_id || ''} 
-                        onValueChange={(v) => {
-                          setForm({...form, package_id: v});
-                          const pkg = dashboard.packages.find(p => p.package_id === v);
-                          setSelectedPackage(pkg);
-                        }}
-                      >
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder="Select construction package" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {dashboard.packages.map((pkg) => (
-                            <SelectItem key={pkg.package_id} value={pkg.package_id}>
-                              {pkg.name} - ₹{pkg.rate_per_sqft}/sqft
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                  <div><Label>Start Date</Label><Input type="date" value={form.expected_start_date} onChange={(e) => setForm({ ...form, expected_start_date: e.target.value })} className="mt-1" /></div>
                 </div>
               </div>
-
-              {/* Client Details Section */}
               <div className="border rounded-lg p-4">
-                <h4 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <Users className="h-4 w-4 text-green-600" />
-                  Client Details
-                </h4>
+                <h4 className="font-semibold mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-green-600" />Client Details</h4>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Client Name <span className="text-red-500">*</span></Label>
-                    <Input
-                      value={form.client_name || selectedDeal.name}
-                      onChange={(e) => setForm({...form, client_name: e.target.value})}
-                      placeholder="Client name"
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label>Phone</Label>
-                    <Input
-                      value={form.client_phone || selectedDeal.phone || ''}
-                      onChange={(e) => setForm({...form, client_phone: e.target.value})}
-                      placeholder="+91 9876543210"
-                      className="mt-1"
-                    />
-                  </div>
-                  
-                  <div className="col-span-2">
-                    <Label>Email</Label>
-                    <Input
-                      type="email"
-                      value={form.client_email || selectedDeal.email || ''}
-                      onChange={(e) => setForm({...form, client_email: e.target.value})}
-                      placeholder="client@email.com"
-                      className="mt-1"
-                    />
-                  </div>
+                  <div><Label>Client Name *</Label><Input value={form.client_name || selectedDeal.name} onChange={(e) => setForm({ ...form, client_name: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Phone</Label><Input value={form.client_phone || selectedDeal.phone || ''} onChange={(e) => setForm({ ...form, client_phone: e.target.value })} className="mt-1" /></div>
+                  <div className="col-span-2"><Label>Email</Label><Input value={form.client_email || selectedDeal.email || ''} onChange={(e) => setForm({ ...form, client_email: e.target.value })} className="mt-1" /></div>
                 </div>
               </div>
-
-              {/* Advance Payment Section */}
               <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                <h4 className="font-semibold text-green-800 mb-4 flex items-center gap-2">
-                  <CreditCard className="h-4 w-4" />
-                  Advance Payment Collection
-                </h4>
+                <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><CreditCard className="h-4 w-4" />Advance Payment</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-green-700">
-                      Advance Amount <span className="text-red-500">*</span>
-                    </Label>
-                    <div className="relative mt-1">
-                      <span className="absolute left-3 top-2.5 text-gray-500">₹</span>
-                      <Input
-                        type="number"
-                        placeholder="Enter advance amount"
-                        value={advanceAmount}
-                        onChange={(e) => setAdvanceAmount(e.target.value)}
-                        className="pl-8"
-                        data-testid="advance-amount-input"
-                      />
-                    </div>
-                    {advanceAmount && selectedDealRE?.estimated_total && (
-                      <p className="text-xs text-green-600 mt-1">
-                        {((parseFloat(advanceAmount) / selectedDealRE.estimated_total) * 100).toFixed(1)}% of estimated value
-                      </p>
-                    )}
+                    <Label className="text-green-700">Amount *</Label>
+                    <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><Input type="number" placeholder="Amount" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} className="pl-8" data-testid="advance-amount-input" /></div>
                   </div>
-
                   <div>
-                    <Label className="text-green-700">
-                      Payment Mode <span className="text-red-500">*</span>
-                    </Label>
+                    <Label className="text-green-700">Payment Mode *</Label>
                     <Select value={advanceMode} onValueChange={setAdvanceMode}>
-                      <SelectTrigger className="mt-1" data-testid="payment-mode-select">
-                        <SelectValue placeholder="Select payment mode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="upi">UPI</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer / NEFT / RTGS</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="card">Debit/Credit Card</SelectItem>
-                      </SelectContent>
+                      <SelectTrigger className="mt-1" data-testid="payment-mode-select"><SelectValue placeholder="Select mode" /></SelectTrigger>
+                      <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem><SelectItem value="bank_transfer">Bank Transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="card">Card</SelectItem></SelectContent>
                     </Select>
                   </div>
-
-                  <div className="col-span-2">
-                    <Label className="text-green-700">Payment Reference / Transaction ID</Label>
-                    <Input
-                      placeholder="e.g., UPI Ref, Cheque No., Transaction ID"
-                      value={advanceRef}
-                      onChange={(e) => setAdvanceRef(e.target.value)}
-                      className="mt-1"
-                      data-testid="payment-ref-input"
-                    />
-                  </div>
+                  <div className="col-span-2"><Label className="text-green-700">Reference</Label><Input placeholder="Transaction ID / Cheque No." value={advanceRef} onChange={(e) => setAdvanceRef(e.target.value)} className="mt-1" data-testid="payment-ref-input" /></div>
                 </div>
-
-                {/* Cheque Details - shown when payment mode is cheque */}
                 {advanceMode === 'cheque' && (
                   <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200" data-testid="cheque-details-section">
                     <div className="flex items-center justify-between mb-2">
                       <Label className="text-purple-700 font-semibold text-sm">Cheque Details</Label>
-                      <Button size="sm" variant="outline" className="h-7 text-xs border-purple-300 text-purple-700"
-                        onClick={() => setChequeEntries([...chequeEntries, { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] }])}>
-                        + Add Cheque
-                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs border-purple-300 text-purple-700" onClick={() => setChequeEntries([...chequeEntries, { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] }])}>+ Add Cheque</Button>
                     </div>
                     {chequeEntries.map((chq, idx) => (
                       <div key={idx} className="grid grid-cols-4 gap-2 mb-2 items-end">
-                        <div>
-                          <Label className="text-xs text-purple-600">Cheque No</Label>
-                          <Input className="h-8 text-xs" placeholder="CHQ001" value={chq.cheque_number}
-                            onChange={e => { const n = [...chequeEntries]; n[idx].cheque_number = e.target.value; setChequeEntries(n); }} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-purple-600">Bank</Label>
-                          <Input className="h-8 text-xs" placeholder="HDFC Bank" value={chq.bank_name}
-                            onChange={e => { const n = [...chequeEntries]; n[idx].bank_name = e.target.value; setChequeEntries(n); }} />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-purple-600">Amount</Label>
-                          <Input type="number" className="h-8 text-xs" placeholder="100000" value={chq.amount}
-                            onChange={e => { const n = [...chequeEntries]; n[idx].amount = e.target.value; setChequeEntries(n); }} />
-                        </div>
+                        <div><Label className="text-xs text-purple-600">Cheque No</Label><Input className="h-8 text-xs" value={chq.cheque_number} onChange={e => { const n = [...chequeEntries]; n[idx].cheque_number = e.target.value; setChequeEntries(n); }} /></div>
+                        <div><Label className="text-xs text-purple-600">Bank</Label><Input className="h-8 text-xs" value={chq.bank_name} onChange={e => { const n = [...chequeEntries]; n[idx].bank_name = e.target.value; setChequeEntries(n); }} /></div>
+                        <div><Label className="text-xs text-purple-600">Amount</Label><Input type="number" className="h-8 text-xs" value={chq.amount} onChange={e => { const n = [...chequeEntries]; n[idx].amount = e.target.value; setChequeEntries(n); }} /></div>
                         <div className="flex gap-1">
-                          <div className="flex-1">
-                            <Label className="text-xs text-purple-600">Date</Label>
-                            <Input type="date" className="h-8 text-xs" value={chq.cheque_date}
-                              onChange={e => { const n = [...chequeEntries]; n[idx].cheque_date = e.target.value; setChequeEntries(n); }} />
-                          </div>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mt-4 text-red-400"
-                            onClick={() => setChequeEntries(chequeEntries.filter((_, i) => i !== idx))}>×</Button>
+                          <div className="flex-1"><Label className="text-xs text-purple-600">Date</Label><Input type="date" className="h-8 text-xs" value={chq.cheque_date} onChange={e => { const n = [...chequeEntries]; n[idx].cheque_date = e.target.value; setChequeEntries(n); }} /></div>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mt-4 text-red-400" onClick={() => setChequeEntries(chequeEntries.filter((_, i) => i !== idx))}>x</Button>
                         </div>
                       </div>
                     ))}
-                    {chequeEntries.length > 0 && (
-                      <p className="text-xs text-purple-600 mt-1">
-                        Total: ₹{chequeEntries.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0).toLocaleString()}
-                        {' '}({chequeEntries.length} cheque{chequeEntries.length > 1 ? 's' : ''})
-                      </p>
-                    )}
+                    {chequeEntries.length > 0 && <p className="text-xs text-purple-600 mt-1">Total: {formatCurrency(chequeEntries.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0))} ({chequeEntries.length} cheque{chequeEntries.length > 1 ? 's' : ''})</p>}
                   </div>
                 )}
-
-                {/* Balance Summary */}
                 {advanceAmount && parseFloat(advanceAmount) > 0 && selectedDealRE?.estimated_total && (
-                  <div className="mt-4 p-3 bg-white rounded border border-green-300">
-                    <div className="flex justify-between text-sm">
-                      <span>Estimated Total</span>
-                      <span>₹{selectedDealRE.estimated_total.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-sm text-green-600 mt-1">
-                      <span>Advance Collected</span>
-                      <span>- ₹{parseFloat(advanceAmount).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between font-semibold mt-2 pt-2 border-t">
-                      <span>Balance Due</span>
-                      <span className="text-amber-700">₹{(selectedDealRE.estimated_total - parseFloat(advanceAmount)).toLocaleString()}</span>
-                    </div>
+                  <div className="mt-3 p-3 bg-white rounded border border-green-300">
+                    <div className="flex justify-between text-sm"><span>Estimated Total</span><span>{formatCurrency(selectedDealRE.estimated_total)}</span></div>
+                    <div className="flex justify-between text-sm text-green-600 mt-1"><span>Advance</span><span>- {formatCurrency(parseFloat(advanceAmount))}</span></div>
+                    <div className="flex justify-between font-semibold mt-2 pt-2 border-t"><span>Balance</span><span className="text-amber-700">{formatCurrency(selectedDealRE.estimated_total - parseFloat(advanceAmount))}</span></div>
                   </div>
                 )}
               </div>
-
-              {/* Accountant Confirmation */}
               <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
                 <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={accountantConfirmed}
-                    onChange={(e) => setAccountantConfirmed(e.target.checked)}
-                    className="w-5 h-5 rounded border-orange-300 mt-0.5"
-                  />
-                  <div>
-                    <span className="font-medium text-orange-800">Accountant Verification Required</span>
-                    <p className="text-sm text-orange-600 mt-1">
-                      I confirm the advance payment has been received and will be verified by the accounts department.
-                      The project will be created with "Pending Payment" status until accountant verifies.
-                    </p>
-                  </div>
+                  <input type="checkbox" checked={accountantConfirmed} onChange={(e) => setAccountantConfirmed(e.target.checked)} className="w-5 h-5 rounded border-orange-300 mt-0.5" />
+                  <div><span className="font-medium text-orange-800">Accountant Verification Required</span><p className="text-sm text-orange-600 mt-1">Payment will be verified by accounts department.</p></div>
                 </label>
               </div>
             </div>
           )}
-
           <DialogFooter className="gap-2 mt-4">
-            <Button variant="outline" onClick={() => setConvertDealDialog(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleConvertDeal}
-              className="bg-green-600 hover:bg-green-700"
-              disabled={!advanceAmount || parseFloat(advanceAmount) <= 0 || !advanceMode || !accountantConfirmed}
-              data-testid="confirm-convert-deal"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Create Project & Collect Advance
+            <Button variant="outline" onClick={() => setConvertDealDialog(false)}>Cancel</Button>
+            <Button onClick={handleConvertDeal} className="bg-green-600 hover:bg-green-700" disabled={!advanceAmount || parseFloat(advanceAmount) <= 0 || !advanceMode || !accountantConfirmed} data-testid="confirm-convert-deal">
+              <CheckCircle className="h-4 w-4 mr-2" />Create Project
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* View Project Dialog */}
+      {/* ==================== VIEW PROJECT DIALOG ==================== */}
       <Dialog open={viewDialog} onOpenChange={setViewDialog}>
         <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5 text-amber-600" />
-              Project Details
-            </DialogTitle>
-            <DialogDescription>
-              {selectedProject?.project_code}
-            </DialogDescription>
-          </DialogHeader>
-          
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Eye className="h-5 w-5 text-amber-600" />Project Details</DialogTitle></DialogHeader>
           {selectedProject && (
             <div className="space-y-4">
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h4 className="font-semibold text-lg mb-2">{selectedProject.name}</h4>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <span className="text-gray-500">Client:</span>
-                    <p className="font-medium">{selectedProject.client_name}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Location:</span>
-                    <p>{selectedProject.location || '-'}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Package:</span>
-                    <p>{selectedProject.package_name || '-'}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Area:</span>
-                    <p>{selectedProject.sqft?.toLocaleString()} sqft</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Status:</span>
-                    <p>{getStatusBadge(selectedProject.status)}</p>
-                  </div>
-                  <div>
-                    <span className="text-gray-500">Value:</span>
-                    <p className="font-bold text-green-600">{formatCurrency(selectedProject.total_value)}</p>
-                  </div>
+                  <div><span className="text-gray-500">Client:</span><p className="font-medium">{selectedProject.client_name}</p></div>
+                  <div><span className="text-gray-500">Location:</span><p>{selectedProject.location || '-'}</p></div>
+                  <div><span className="text-gray-500">Status:</span><p>{getStatusBadge(selectedProject.status)}</p></div>
+                  <div><span className="text-gray-500">Value:</span><p className="font-bold text-green-600">{formatCurrency(selectedProject.total_value)}</p></div>
                 </div>
               </div>
-              
-              <div className="flex gap-2">
-                <Button 
-                  className="flex-1"
-                  onClick={() => window.location.href = `/projects/${selectedProject.project_id}`}
-                >
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Full Details
-                </Button>
-              </div>
+              <Button className="w-full" onClick={() => window.location.href = `/projects/${selectedProject.project_id}`}><Eye className="h-4 w-4 mr-2" />View Full Details</Button>
             </div>
           )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialog(false)}>Close</Button>
-          </DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setViewDialog(false)}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );

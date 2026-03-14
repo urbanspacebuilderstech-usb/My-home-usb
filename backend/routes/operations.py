@@ -1055,6 +1055,132 @@ async def get_all_cro_projects(
     return projects
 
 
+@router.get("/cre/additional-payment-requests")
+async def get_cre_additional_payment_requests(user: User = Depends(get_current_user)):
+    """Get additional cost items that have payment requested - for CRE to collect"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
+    
+    pipeline = [
+        {"$match": {"payment_requested": True, "status": {"$ne": "paid"}}},
+        {"$lookup": {
+            "from": "projects",
+            "localField": "project_id",
+            "foreignField": "project_id",
+            "as": "project"
+        }},
+        {"$unwind": {"path": "$project", "preserveNullAndEmptyArrays": True}},
+        {"$project": {
+            "_id": 0,
+            "cost_id": 1,
+            "project_id": 1,
+            "project_name": "$project.name",
+            "client_name": "$project.client_name",
+            "description": 1,
+            "estimated_amount": 1,
+            "actual_amount": 1,
+            "income_received": 1,
+            "status": 1,
+            "payment_requested": 1,
+            "requested_at": 1,
+            "created_at": 1
+        }},
+        {"$sort": {"requested_at": -1}}
+    ]
+    
+    additional_requests = await db.additional_costs.aggregate(pipeline).to_list(100)
+    return additional_requests
+
+
+@router.get("/cre/income-collected")
+async def get_cre_income_collected(user: User = Depends(get_current_user)):
+    """Get all income records (payment ledger) for CRE dashboard"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
+    
+    income_records = await db.income.find(
+        {},
+        {"_id": 0, "income_id": 1, "project_id": 1, "project_name": 1,
+         "category": 1, "sub_category": 1, "amount": 1, "payment_mode": 1,
+         "payment_reference": 1, "payment_date": 1, "stage": 1,
+         "description": 1, "status": 1, "collected_by_name": 1, "created_at": 1}
+    ).sort("created_at", -1).to_list(200)
+    return income_records
+
+
+@router.get("/cre/pending-approvals")
+async def get_cre_pending_approvals(user: User = Depends(get_current_user)):
+    """Get projects with verified advance (ready to send to planning) and pending income approvals"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
+    
+    # Projects where advance is verified by accountant - CRE can send to planning
+    advance_verified = await db.projects.find(
+        {"status": {"$in": ["payment_verified", "payment_received"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1,
+         "total_value": 1, "advance_amount": 1, "status": 1, "created_at": 1}
+    ).sort("created_at", -1).to_list(50)
+    
+    # Income records pending approval (non-advance, just need confirmation)
+    pending_income = await db.income.find(
+        {"status": "pending_approval"},
+        {"_id": 0, "income_id": 1, "project_id": 1, "project_name": 1,
+         "category": 1, "sub_category": 1, "amount": 1, "payment_mode": 1,
+         "payment_reference": 1, "stage": 1, "description": 1,
+         "collected_by_name": 1, "created_at": 1}
+    ).sort("created_at", -1).to_list(100)
+    
+    return {
+        "advance_verified": advance_verified,
+        "pending_income": pending_income
+    }
+
+
+@router.post("/cre/projects/request-re")
+async def create_project_request_re(project_input: dict, user: User = Depends(get_current_user)):
+    """Create project and request Rough Estimate from Planning team"""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can create projects")
+    
+    project_id = f"proj_{uuid.uuid4().hex[:12]}"
+    project_code = await generate_project_code()
+    now = datetime.now(timezone.utc)
+    
+    project = {
+        "project_id": project_id,
+        "project_code": project_code,
+        "name": project_input.get("name", "New Project"),
+        "client_name": project_input.get("client_name", ""),
+        "client_phone": project_input.get("client_phone", ""),
+        "client_email": project_input.get("client_email", ""),
+        "location": project_input.get("location", ""),
+        "sqft": float(project_input.get("sqft", 0)) if project_input.get("sqft") else 0,
+        "building_type": project_input.get("building_type", "residential"),
+        "total_value": 0,
+        "advance_amount": 0,
+        "current_stage": "yet_to_start",
+        "status": "planning_review",
+        "re_requested": True,
+        "re_requested_at": now.isoformat(),
+        "created_by": user.user_id,
+        "created_at": now.isoformat(),
+        "start_date": now.isoformat(),
+        "expected_completion": (now + timedelta(days=365)).isoformat()
+    }
+    
+    await db.projects.insert_one(project)
+    
+    # Notify planning team
+    planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for pu in planning_users:
+        await create_notification(
+            pu["user_id"],
+            f"New project '{project['name']}' needs Rough Estimate. Client: {project['client_name']}, Location: {project['location']}"
+        )
+    
+    return {"project_id": project_id, "message": "Project created. RE requested from Planning team."}
+
+
 # ==================== PLANNING BOARD ENDPOINTS ====================
 
 @router.get("/planning/dashboard")
