@@ -40,6 +40,7 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] **Rough Estimate PDF Redesign (Mar 14, 2026)**:
   - Replaced backend PDF generation with frontend jsPDF-based approach
   - Created shared PDF utility (`/app/frontend/src/utils/pdfGenerator.js`)
+  - Updated ALL 4 pages using RE PDF: REProjectsPage, CRMSales, GMDashboard, ProjectDetail
   - Professional letterhead with logo, company name, tagline, contact info
   - Centered "ROUGH ESTIMATE" title with ref/date
   - CLIENT INFORMATION and PROJECT DETAILS in bordered boxes
