@@ -389,6 +389,10 @@ export default function ProjectDetail() {
   const [verifyDialog, setVerifyDialog] = useState({ open: false, type: '', ids: [] });
   const [verifyCode, setVerifyCode] = useState('');
   
+  // Multi-select for bulk delete
+  const [selectedScopeIds, setSelectedScopeIds] = useState([]);
+  const [selectedPaymentIds, setSelectedPaymentIds] = useState([]);
+  
   // Bulk form data
   const [bulkScopeRows, setBulkScopeRows] = useState(createEmptyRows('scope'));
   const [bulkPaymentRows, setBulkPaymentRows] = useState(createEmptyRows('payment'));
@@ -715,6 +719,45 @@ export default function ProjectDetail() {
     } catch (error) {
       toast.error('Failed to delete payment stage');
     }
+  };
+
+  const handleBulkDeleteScope = async () => {
+    if (!selectedScopeIds.length) return;
+    if (!confirm(`Delete ${selectedScopeIds.length} selected scope item(s)?`)) return;
+    try {
+      await Promise.all(selectedScopeIds.map(id => axios.delete(`${API}/scope-items/${id}`)));
+      toast.success(`Deleted ${selectedScopeIds.length} scope item(s)`);
+      setSelectedScopeIds([]);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete some items');
+    }
+  };
+
+  const handleBulkDeletePayment = async () => {
+    if (!selectedPaymentIds.length) return;
+    if (!confirm(`Delete ${selectedPaymentIds.length} selected payment stage(s)?`)) return;
+    try {
+      await Promise.all(selectedPaymentIds.map(id => axios.delete(`${API}/payment-stages/${id}`)));
+      toast.success(`Deleted ${selectedPaymentIds.length} payment stage(s)`);
+      setSelectedPaymentIds([]);
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to delete some stages');
+    }
+  };
+
+  const toggleScopeSelect = (id) => {
+    setSelectedScopeIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const toggleAllScope = () => {
+    setSelectedScopeIds(prev => prev.length === scope_items.length ? [] : scope_items.map(s => s.scope_id));
+  };
+  const togglePaymentSelect = (id) => {
+    setSelectedPaymentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const toggleAllPayment = () => {
+    setSelectedPaymentIds(prev => prev.length === payment_stages.length ? [] : payment_stages.map(p => p.stage_id));
   };
 
   const handleRequestPayment = async (stageId) => {
@@ -1348,6 +1391,17 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {selectedScopeIds.length > 0 && (
+                    <Button 
+                      data-testid="bulk-delete-scope-btn"
+                      variant="destructive"
+                      size="sm"
+                      className="gap-1 sm:gap-2 text-xs sm:text-sm"
+                      onClick={handleBulkDeleteScope}
+                    >
+                      <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />Delete Selected ({selectedScopeIds.length})
+                    </Button>
+                  )}
                   {canManage && (
                     <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
                       <DialogTrigger asChild>
@@ -1494,6 +1548,17 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      {canManage && (
+                        <th className="px-3 py-3 text-center w-10">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-300 h-4 w-4 cursor-pointer"
+                            checked={scope_items.length > 0 && selectedScopeIds.length === scope_items.length}
+                            onChange={toggleAllScope}
+                            data-testid="select-all-scope"
+                          />
+                        </th>
+                      )}
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Item</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Qty</th>
@@ -1508,7 +1573,7 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {scope_items.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 9 : 8} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 11 : 8} className="px-4 py-8 text-center text-gray-500">
                           No scope items defined yet. Click "Add Scope Items" to define project scope.
                         </td>
                       </tr>
@@ -1517,7 +1582,18 @@ export default function ProjectDetail() {
                         const isEditing = editingScopeItem === item.scope_id;
                         
                         return (
-                          <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className="hover:bg-gray-50">
+                          <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className={`hover:bg-gray-50 ${selectedScopeIds.includes(item.scope_id) ? 'bg-blue-50' : ''}`}>
+                            {canManage && (
+                              <td className="px-3 py-3 text-center">
+                                <input 
+                                  type="checkbox" 
+                                  className="rounded border-gray-300 h-4 w-4 cursor-pointer"
+                                  checked={selectedScopeIds.includes(item.scope_id)}
+                                  onChange={() => toggleScopeSelect(item.scope_id)}
+                                  data-testid={`select-scope-${item.scope_id}`}
+                                />
+                              </td>
+                            )}
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
                             <td className="px-4 py-3 font-medium">
                               {isEditing ? (
@@ -1649,7 +1725,7 @@ export default function ProjectDetail() {
                   {scope_items.length > 0 && (
                     <tfoot className="bg-amber-50 border-t-2">
                       <tr>
-                        <td colSpan="5" className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
+                        <td colSpan={canManage ? 7 : 5} className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
                         <td className="px-4 py-3 text-right font-bold text-amber-700">₹{summary.scope_total?.toLocaleString()}</td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
@@ -1667,6 +1743,17 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Create and manage milestone-based payments</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {selectedPaymentIds.length > 0 && (
+                    <Button 
+                      data-testid="bulk-delete-payment-btn"
+                      variant="destructive"
+                      size="sm"
+                      className="gap-2"
+                      onClick={handleBulkDeletePayment}
+                    >
+                      <Trash2 className="h-4 w-4" />Delete Selected ({selectedPaymentIds.length})
+                    </Button>
+                  )}
                   {canManage && (
                     <Dialog open={bulkPaymentDialog} onOpenChange={setBulkPaymentDialog}>
                       <DialogTrigger asChild>
@@ -1889,6 +1976,17 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      {canManage && (
+                        <th className="px-3 py-3 text-center w-10">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-300 h-4 w-4 cursor-pointer"
+                            checked={payment_stages.length > 0 && selectedPaymentIds.length === payment_stages.length}
+                            onChange={toggleAllPayment}
+                            data-testid="select-all-payment"
+                          />
+                        </th>
+                      )}
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">%</th>
@@ -1902,7 +2000,7 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {payment_stages.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 10 : 8} className="px-4 py-8 text-center text-gray-500">
                           No payment stages defined yet. Click "Add Payments" to define milestones.
                         </td>
                       </tr>
@@ -1927,7 +2025,18 @@ export default function ProjectDetail() {
                         }
                         
                         return (
-                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
+                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''} ${selectedPaymentIds.includes(stage.stage_id) ? 'bg-blue-50' : ''}`}>
+                            {canManage && (
+                              <td className="px-3 py-3 text-center">
+                                <input 
+                                  type="checkbox" 
+                                  className="rounded border-gray-300 h-4 w-4 cursor-pointer"
+                                  checked={selectedPaymentIds.includes(stage.stage_id)}
+                                  onChange={() => togglePaymentSelect(stage.stage_id)}
+                                  data-testid={`select-payment-${stage.stage_id}`}
+                                />
+                              </td>
+                            )}
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
                             <td className="px-4 py-3">
                               <p className="font-medium">{stage.stage_name}</p>
