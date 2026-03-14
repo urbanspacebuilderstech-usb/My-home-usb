@@ -2646,3 +2646,149 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
     }
 
 
+
+
+# ==================== PROJECT STAGES & TEMPLATES ====================
+
+class ProjectStageCreate(BaseModel):
+    stage_name: str
+    target_date: Optional[str] = None
+    status: str = "yet_to_start"  # yet_to_start, started, finished
+    remarks: Optional[str] = None
+    order: Optional[int] = None
+
+class ProjectStageUpdate(BaseModel):
+    stage_name: Optional[str] = None
+    target_date: Optional[str] = None
+    status: Optional[str] = None
+    remarks: Optional[str] = None
+    order: Optional[int] = None
+
+class StageTemplateCreate(BaseModel):
+    template_name: str
+    stages: List[ProjectStageCreate]
+
+@router.get("/projects/{project_id}/project-stages")
+async def get_project_stages(project_id: str, user: User = Depends(get_current_user)):
+    stages = await db.project_stages.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("order", 1).to_list(500)
+    return stages
+
+@router.post("/projects/{project_id}/project-stages")
+async def add_project_stage(project_id: str, data: ProjectStageCreate, user: User = Depends(get_current_user)):
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    count = await db.project_stages.count_documents({"project_id": project_id})
+    
+    stage = {
+        "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
+        "project_id": project_id,
+        "stage_name": data.stage_name,
+        "target_date": data.target_date,
+        "status": data.status,
+        "remarks": data.remarks,
+        "order": data.order if data.order is not None else count + 1,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.project_stages.insert_one(stage)
+    stage.pop("_id", None)
+    return stage
+
+@router.post("/projects/{project_id}/project-stages/bulk")
+async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCreate], user: User = Depends(get_current_user)):
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    existing = await db.project_stages.count_documents({"project_id": project_id})
+    docs = []
+    for i, s in enumerate(stages):
+        if not s.stage_name.strip():
+            continue
+        doc = {
+            "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
+            "project_id": project_id,
+            "stage_name": s.stage_name,
+            "target_date": s.target_date,
+            "status": s.status or "yet_to_start",
+            "remarks": s.remarks,
+            "order": existing + i + 1,
+            "created_by": user.user_id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        docs.append(doc)
+    
+    if docs:
+        await db.project_stages.insert_many(docs)
+        for d in docs:
+            d.pop("_id", None)
+    
+    return {"message": f"Added {len(docs)} stages", "stages": docs}
+
+@router.patch("/projects/{project_id}/project-stages/{stage_id}")
+async def update_project_stage(project_id: str, stage_id: str, data: ProjectStageUpdate, user: User = Depends(get_current_user)):
+    updates = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    updates["updated_by"] = user.user_id
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    result = await db.project_stages.update_one(
+        {"stage_id": stage_id, "project_id": project_id},
+        {"$set": updates}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    return {"message": "Stage updated"}
+
+@router.delete("/projects/{project_id}/project-stages/{stage_id}")
+async def delete_project_stage(project_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    result = await db.project_stages.delete_one({"stage_id": stage_id, "project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    return {"message": "Stage deleted"}
+
+# ---- Stage Templates ----
+
+@router.get("/stage-templates")
+async def get_stage_templates(user: User = Depends(get_current_user)):
+    templates = await db.stage_templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return templates
+
+@router.post("/stage-templates")
+async def create_stage_template(data: StageTemplateCreate, user: User = Depends(get_current_user)):
+    existing = await db.stage_templates.find_one({"template_name": data.template_name})
+    if existing:
+        # Update existing template
+        await db.stage_templates.update_one(
+            {"template_name": data.template_name},
+            {"$set": {
+                "stages": [s.model_dump() for s in data.stages if s.stage_name.strip()],
+                "updated_by": user.user_id,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        return {"message": f"Template '{data.template_name}' updated"}
+    
+    template = {
+        "template_id": f"tmpl_{uuid.uuid4().hex[:8]}",
+        "template_name": data.template_name,
+        "stages": [s.model_dump() for s in data.stages if s.stage_name.strip()],
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.stage_templates.insert_one(template)
+    template.pop("_id", None)
+    return {"message": f"Template '{data.template_name}' created", "template": template}
+
+@router.get("/stage-templates/{template_name}")
+async def get_stage_template(template_name: str, user: User = Depends(get_current_user)):
+    template = await db.stage_templates.find_one({"template_name": template_name}, {"_id": 0})
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
