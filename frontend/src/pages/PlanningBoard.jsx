@@ -6,20 +6,21 @@ import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { 
-  ClipboardList, LogOut, FileText, Clock, CheckCircle, Briefcase,
+import {
+  ClipboardList, FileText, Clock, CheckCircle, Briefcase,
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Pencil, Hammer, Home, PaintBucket, Layers, HardHat, KeyRound, Play, Calculator
+  Pencil, Hammer, Home, PaintBucket, Layers, HardHat, KeyRound, Play, Calculator,
+  Plus, Search, Trash2, Phone, Mail, Edit, ToggleLeft, ToggleRight, Truck, EyeOff, MapPin
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-// Stage icons and colors
 const STAGE_CONFIG = {
   drawing: { icon: Pencil, color: 'from-purple-50 to-purple-100', border: 'border-purple-200', text: 'text-purple-700', bg: 'bg-purple-600' },
   yet_to_start: { icon: Play, color: 'from-gray-50 to-gray-100', border: 'border-gray-200', text: 'text-gray-700', bg: 'bg-gray-600' },
@@ -31,6 +32,18 @@ const STAGE_CONFIG = {
   handover: { icon: KeyRound, color: 'from-green-50 to-green-100', border: 'border-green-200', text: 'text-green-700', bg: 'bg-green-600' }
 };
 
+const MATERIAL_CATEGORIES = [
+  'cement', 'sand', 'steel', 'bricks', 'aggregate', 'tiles',
+  'electrical', 'plumbing', 'paint', 'wood', 'hardware', 'other'
+];
+
+const MATERIAL_UNITS = ['bag', 'ton', 'kg', 'load', 'nos', 'sqft', 'cft', 'rft', 'litre', 'meter', 'bundle', 'set'];
+
+const WORK_TYPES = [
+  'Masonry', 'Plumbing', 'Electrical', 'Carpentry', 'Painting',
+  'Flooring', 'Roofing', 'HVAC', 'Civil', 'Finishing', 'Tiling', 'Waterproofing'
+];
+
 export default function PlanningBoard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -38,116 +51,125 @@ export default function PlanningBoard() {
   const [projects, setProjects] = useState([]);
   const [stages, setStages] = useState([]);
   const [stageCounts, setStageCounts] = useState({});
-  const [activeTab, setActiveTab] = useState('stages'); // Default to stages view
-  const [activeStage, setActiveStage] = useState('all');
-  
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [requestsDialog, setRequestsDialog] = useState(false);
-  const [reProjectsCount, setReProjectsCount] = useState(0);
-  
+  const [activeTab, setActiveTab] = useState('all_projects');
+
+  // Alerts
   const [paymentRequests, setPaymentRequests] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [newProjectsFromCRE, setNewProjectsFromCRE] = useState([]);
+  const [reProjectsCount, setReProjectsCount] = useState(0);
+
+  // Dialogs
+  const [stageDialog, setStageDialog] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [newStage, setNewStage] = useState('');
+  const [requestsDialog, setRequestsDialog] = useState(false);
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [rejectDialog, setRejectDialog] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
-  
-  // New projects from CRE
-  const [newProjectsFromCRE, setNewProjectsFromCRE] = useState([]);
-  const [newProjectsDialog, setNewProjectsDialog] = useState(false);
-  
-  // Stage update dialog
-  const [stageDialog, setStageDialog] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [newStage, setNewStage] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // Materials
+  const [materials, setMaterials] = useState([]);
+  const [materialSearch, setMaterialSearch] = useState('');
+  const [materialFilter, setMaterialFilter] = useState('active');
+  const [materialDialog, setMaterialDialog] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState(null);
+  const [materialForm, setMaterialForm] = useState({ name: '', category: 'cement', unit: 'bag', description: '', hsn_code: '' });
+
+  // Labour Contractors
+  const [contractors, setContractors] = useState([]);
+  const [contractorSearch, setContractorSearch] = useState('');
+  const [contractorDialog, setContractorDialog] = useState(false);
+  const [editingContractor, setEditingContractor] = useState(null);
+  const [contractorForm, setContractorForm] = useState({ name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '' });
+
+  // Suppliers (Vendors)
+  const [vendors, setVendors] = useState([]);
+  const [vendorSearch, setVendorSearch] = useState('');
+  const [vendorDialog, setVendorDialog] = useState(false);
+  const [editingVendor, setEditingVendor] = useState(null);
+  const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
+
+  // Project search
+  const [projectSearch, setProjectSearch] = useState('');
+
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes, paymentReqRes, reProjectsRes, newFromCRERes] = await Promise.all([
+      const [userRes, dashboardRes, payReqRes, reRes, newCRERes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/planning/stage-dashboard`),
         axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/crm/re-projects?status=re_requested`).catch(() => ({ data: [] })),
         axios.get(`${API}/planning/projects?status=new`).catch(() => ({ data: [] }))
       ]);
-      
+
       if (!['planning', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied. Only Planning can access this page.');
+        toast.error('Access denied');
         window.location.href = '/dashboard';
         return;
       }
-      
       setUser(userRes.data);
       setDashboard(dashboardRes.data);
       setStages(dashboardRes.data.stages || []);
       setStageCounts(dashboardRes.data.stage_counts || {});
-      setPaymentRequests(paymentReqRes.data);
-      setReProjectsCount(reProjectsRes.data.length || 0);
-      setNewProjectsFromCRE(newFromCRERes.data || []);
-      
-      // Fetch projects based on active tab
-      if (activeTab === 'stages') {
-        fetchProjectsByStage(activeStage);
-      } else {
-        fetchProjectsByStatus(activeTab);
-      }
+      setPaymentRequests(payReqRes.data);
+      setReProjectsCount(reRes.data?.length || 0);
+      setNewProjectsFromCRE(newCRERes.data || []);
+
+      // Fetch projects (all)
+      try {
+        const projRes = await axios.get(`${API}/planning/projects-by-stage`);
+        setProjects(projRes.data);
+      } catch { setProjects([]); }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
-      if (error.response?.status === 401) {
-        window.location.href = '/login';
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (error.response?.status === 401) window.location.href = '/login';
+    } finally { setLoading(false); }
   };
 
-  const fetchProjectsByStage = async (stage) => {
-    try {
-      const url = stage === 'all' 
-        ? `${API}/planning/projects-by-stage`
-        : `${API}/planning/projects-by-stage?stage=${stage}`;
-      const res = await axios.get(url);
-      setProjects(res.data);
-    } catch (error) {
-      console.error('Error fetching projects by stage:', error);
-    }
-  };
-
-  const fetchProjectsByStatus = async (status) => {
-    try {
-      const res = await axios.get(`${API}/planning/projects?status=${status}`);
-      setProjects(res.data);
-    } catch (error) {
-      console.error('Error fetching projects:', error);
-    }
-  };
-
-  const handleMainTabChange = (tab) => {
+  // Fetch tab-specific data on tab change
+  const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === 'stages') {
-      fetchProjectsByStage(activeStage);
-    } else {
-      fetchProjectsByStatus(tab);
-    }
+    if (tab === 'materials' && materials.length === 0) fetchMaterials();
+    if (tab === 'labours' && contractors.length === 0) fetchContractors();
+    if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
   };
 
-  const handleStageTabChange = (stage) => {
-    setActiveStage(stage);
-    fetchProjectsByStage(stage);
+  const fetchMaterials = async () => {
+    try {
+      const res = await axios.get(`${API}/materials?active_only=false`);
+      setMaterials(res.data);
+    } catch { toast.error('Failed to load materials'); }
   };
 
+  const fetchContractors = async () => {
+    try {
+      const res = await axios.get(`${API}/labour-contractors`);
+      setContractors(res.data);
+    } catch { toast.error('Failed to load contractors'); }
+  };
+
+  const fetchVendors = async () => {
+    try {
+      const [vendRes, matRes] = await Promise.all([
+        axios.get(`${API}/vendor-master?active_only=false`),
+        materials.length === 0 ? axios.get(`${API}/materials?active_only=false`) : Promise.resolve({ data: materials })
+      ]);
+      setVendors(vendRes.data);
+      if (materials.length === 0) setMaterials(matRes.data);
+    } catch { toast.error('Failed to load suppliers'); }
+  };
+
+  // === PROJECT HANDLERS ===
   const handleSubmitForApproval = async (projectId) => {
     try {
       await axios.patch(`${API}/planning/projects/${projectId}/submit-for-approval`);
-      toast.success('Project submitted for GM/Admin approval');
+      toast.success('Submitted for GM approval');
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
   const openStageDialog = (project) => {
@@ -158,723 +180,640 @@ export default function PlanningBoard() {
 
   const handleUpdateStage = async () => {
     if (!selectedProject || !newStage) return;
-    
     try {
       await axios.patch(`${API}/planning/projects/${selectedProject.project_id}/update-stage?stage=${newStage}`);
-      toast.success('Project stage updated successfully');
+      toast.success('Stage updated');
       setStageDialog(false);
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update stage');
-    }
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
+  // === REQUEST/PAYMENT HANDLERS ===
   const fetchPendingRequests = async () => {
     try {
-      const [materialRes, labourRes] = await Promise.all([
+      const [matRes, labRes] = await Promise.all([
         axios.get(`${API}/material-requests?status=requested`).catch(() => ({ data: [] })),
         axios.get(`${API}/labour-expenses?status=requested`).catch(() => ({ data: [] }))
       ]);
-      
-      const requests = [
-        ...materialRes.data.map(r => ({ ...r, type: 'material' })),
-        ...labourRes.data.map(r => ({ ...r, type: 'labour' }))
-      ];
-      
-      setPendingRequests(requests);
+      setPendingRequests([
+        ...matRes.data.map(r => ({ ...r, type: 'material' })),
+        ...labRes.data.map(r => ({ ...r, type: 'labour' }))
+      ]);
       setRequestsDialog(true);
-    } catch (error) {
-      console.error('Error fetching requests:', error);
-    }
+    } catch { }
   };
 
-  const handleApproveRequest = async (request) => {
+  const handleApproveRequest = async (req) => {
     try {
-      const endpoint = request.type === 'material' 
-        ? `${API}/material-requests/${request.request_id}/planning-action`
-        : `${API}/labour-expenses/${request.expense_id}/planning-action`;
-      
-      await axios.patch(endpoint, null, { params: { action: 'approve' } });
-      toast.success('Request approved');
+      const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
+      await axios.patch(ep, null, { params: { action: 'approve' } });
+      toast.success('Approved');
       fetchPendingRequests();
       fetchData();
-    } catch (error) {
-      toast.error('Failed to approve');
-    }
+    } catch { toast.error('Failed'); }
   };
 
-  const handleRejectRequest = async (request, reason = 'Rejected by Planning') => {
+  const handleRejectRequest = async (req) => {
     try {
-      const endpoint = request.type === 'material' 
-        ? `${API}/material-requests/${request.request_id}/planning-action`
-        : `${API}/labour-expenses/${request.expense_id}/planning-action`;
-      
-      await axios.patch(endpoint, null, { params: { action: 'reject', reason } });
-      toast.success('Request rejected');
+      const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
+      await axios.patch(ep, null, { params: { action: 'reject', reason: 'Rejected by Planning' } });
+      toast.success('Rejected');
       fetchPendingRequests();
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to reject');
-    }
+    } catch { toast.error('Failed'); }
   };
 
   const handleApprovePayment = async (payment) => {
     try {
       await axios.patch(`${API}/work-orders/${payment.work_order_id}/stages/${payment.stage_id}/approve-payment`);
-      toast.success('Payment approved - Sent to Accounts');
+      toast.success('Payment approved');
       fetchData();
-    } catch (error) {
-      toast.error('Failed to approve payment');
-    }
-  };
-
-  const openRejectPaymentDialog = (payment) => {
-    setSelectedPayment(payment);
-    setRejectReason('');
-    setRejectDialog(true);
+    } catch { toast.error('Failed'); }
   };
 
   const handleRejectPayment = async () => {
     if (!selectedPayment) return;
-    
     try {
-      await axios.patch(
-        `${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`,
-        null,
-        { params: { reason: rejectReason || 'Work not verified' } }
-      );
-      toast.success('Payment rejected');
+      await axios.patch(`${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`, null, { params: { reason: rejectReason || 'Work not verified' } });
+      toast.success('Rejected');
       setRejectDialog(false);
       fetchData();
-    } catch (error) {
-      toast.error('Failed to reject payment');
+    } catch { toast.error('Failed'); }
+  };
+
+  // === MATERIAL HANDLERS ===
+  const openMaterialDialog = (mat = null) => {
+    if (mat) {
+      setEditingMaterial(mat);
+      setMaterialForm({ name: mat.name, category: mat.category, unit: mat.unit, description: mat.description || '', hsn_code: mat.hsn_code || '' });
+    } else {
+      setEditingMaterial(null);
+      setMaterialForm({ name: '', category: 'cement', unit: 'bag', description: '', hsn_code: '' });
     }
+    setMaterialDialog(true);
   };
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
-  };
-
-  const handleLogout = async () => {
+  const handleSaveMaterial = async () => {
+    if (!materialForm.name.trim()) { toast.error('Name required'); return; }
     try {
-      await axios.post(`${API}/auth/logout`);
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-    window.location.href = '/login';
+      if (editingMaterial) {
+        await axios.patch(`${API}/materials/${editingMaterial.material_id}`, materialForm);
+        toast.success('Material updated');
+      } else {
+        await axios.post(`${API}/materials`, materialForm);
+        toast.success('Material created');
+      }
+      setMaterialDialog(false);
+      fetchMaterials();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
+
+  const handleToggleMaterial = async (mat) => {
+    try {
+      await axios.patch(`${API}/materials/${mat.material_id}`, { is_active: !mat.is_active });
+      toast.success(mat.is_active ? 'Material hidden' : 'Material activated');
+      fetchMaterials();
+    } catch { toast.error('Failed'); }
+  };
+
+  const handleDeleteMaterial = async (mat) => {
+    try {
+      await axios.delete(`${API}/materials/${mat.material_id}`);
+      toast.success('Material deleted');
+      fetchMaterials();
+    } catch { toast.error('Failed'); }
+  };
+
+  // === LABOUR HANDLERS ===
+  const openContractorDialog = (c = null) => {
+    if (c) {
+      setEditingContractor(c);
+      setContractorForm({ name: c.name, work_types: c.work_types || [], phone: c.phone || '', email: c.email || '', address: c.address || '', bank_name: c.bank_name || '', account_number: c.account_number || '', ifsc_code: c.ifsc_code || '' });
+    } else {
+      setEditingContractor(null);
+      setContractorForm({ name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '' });
+    }
+    setContractorDialog(true);
+  };
+
+  const handleSaveContractor = async () => {
+    if (!contractorForm.name.trim()) { toast.error('Name required'); return; }
+    try {
+      if (editingContractor) {
+        await axios.patch(`${API}/labour-contractors/${editingContractor.contractor_id}`, contractorForm);
+        toast.success('Contractor updated');
+      } else {
+        await axios.post(`${API}/labour-contractors`, contractorForm);
+        toast.success('Contractor created');
+      }
+      setContractorDialog(false);
+      fetchContractors();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleDeleteContractor = async (c) => {
+    if (!window.confirm(`Delete ${c.name}?`)) return;
+    try {
+      await axios.delete(`${API}/labour-contractors/${c.contractor_id}`);
+      toast.success('Deleted');
+      fetchContractors();
+    } catch { toast.error('Failed'); }
+  };
+
+  // === VENDOR HANDLERS ===
+  const openVendorDialog = (v = null) => {
+    if (v) {
+      setEditingVendor(v);
+      setVendorForm({ name: v.name, contact_person: v.contact_person || '', phone: v.phone || '', email: v.email || '', address: v.address || '', gst_number: v.gst_number || '', materials_supplied: v.materials_supplied || [], payment_terms: v.payment_terms || 'full', credit_limit: v.credit_limit || 0, credit_days: v.credit_days || 0 });
+    } else {
+      setEditingVendor(null);
+      setVendorForm({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
+    }
+    setVendorDialog(true);
+  };
+
+  const handleSaveVendor = async () => {
+    if (!vendorForm.name.trim()) { toast.error('Name required'); return; }
+    try {
+      if (editingVendor) {
+        await axios.patch(`${API}/vendor-master/${editingVendor.vendor_id}`, vendorForm);
+        toast.success('Supplier updated');
+      } else {
+        await axios.post(`${API}/vendor-master`, vendorForm);
+        toast.success('Supplier created');
+      }
+      setVendorDialog(false);
+      fetchVendors();
+    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleToggleVendor = async (v) => {
+    try {
+      await axios.patch(`${API}/vendor-master/${v.vendor_id}`, { is_active: !v.is_active });
+      toast.success(v.is_active ? 'Supplier hidden' : 'Supplier activated');
+      fetchVendors();
+    } catch { toast.error('Failed'); }
+  };
+
+  // === HELPERS ===
+  const formatCurrency = (amount) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
 
   const getStatusBadge = (status) => {
     const config = {
-      draft: { label: 'Draft', variant: 'secondary' },
-      in_planning: { label: 'New from CRE', variant: 'default', className: 'bg-green-600' },
-      planning_review: { label: 'New', variant: 'default' },
-      awaiting_approval: { label: 'Awaiting Approval', variant: 'outline' },
-      gm_approved: { label: 'GM Approved', variant: 'default' },
-      planning_approved: { label: 'Approved', variant: 'default' },
-      active: { label: 'Active', variant: 'default' },
-      completed: { label: 'Completed', variant: 'secondary' }
+      draft: { label: 'Draft', cls: 'bg-gray-100 text-gray-700' },
+      in_planning: { label: 'New from CRE', cls: 'bg-green-100 text-green-700' },
+      planning_review: { label: 'In Review', cls: 'bg-amber-100 text-amber-700' },
+      planning: { label: 'Planning', cls: 'bg-blue-100 text-blue-700' },
+      awaiting_approval: { label: 'Awaiting GM', cls: 'bg-yellow-100 text-yellow-700' },
+      gm_approved: { label: 'GM Approved', cls: 'bg-purple-100 text-purple-700' },
+      planning_approved: { label: 'Approved', cls: 'bg-green-100 text-green-700' },
+      active: { label: 'Active', cls: 'bg-green-100 text-green-700' },
+      completed: { label: 'Completed', cls: 'bg-gray-100 text-gray-700' }
     };
-    const c = config[status] || { label: status, variant: 'secondary' };
-    return <Badge variant={c.variant} className={c.className}>{c.label}</Badge>;
+    const c = config[status] || { label: status?.replace(/_/g, ' ') || '-', cls: 'bg-gray-100 text-gray-700' };
+    return <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.cls}`}>{c.label}</span>;
   };
 
   const getStageBadge = (stageId) => {
     const stage = stages.find(s => s.id === stageId);
     const config = STAGE_CONFIG[stageId] || STAGE_CONFIG.yet_to_start;
-    return (
-      <Badge className={`${config.bg} text-white`}>
-        {stage?.name || stageId}
-      </Badge>
-    );
+    return <Badge className={`${config.bg} text-white text-xs`}>{stage?.name || stageId?.replace(/_/g, ' ')}</Badge>;
   };
 
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
-  }
+  const getMaterialName = (id) => {
+    const m = materials.find(mat => mat.material_id === id);
+    return m ? m.name : id;
+  };
+
+  const filteredProjects = projects.filter(p => {
+    if (!projectSearch) return true;
+    const s = projectSearch.toLowerCase();
+    return (p.name || '').toLowerCase().includes(s) || (p.client_name || '').toLowerCase().includes(s);
+  });
+
+  const filteredMaterials = materials.filter(m => {
+    const matchSearch = !materialSearch || m.name.toLowerCase().includes(materialSearch.toLowerCase()) || m.category?.toLowerCase().includes(materialSearch.toLowerCase());
+    if (materialFilter === 'active') return matchSearch && m.is_active !== false;
+    if (materialFilter === 'inactive') return matchSearch && m.is_active === false;
+    return matchSearch;
+  });
+
+  const filteredContractors = contractors.filter(c => !contractorSearch || c.name.toLowerCase().includes(contractorSearch.toLowerCase()));
+
+  const filteredVendors = vendors.filter(v => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()) || v.contact_person?.toLowerCase().includes(vendorSearch.toLowerCase()));
 
   const totalStageProjects = Object.values(stageCounts).reduce((a, b) => a + b, 0);
+  const alertCount = (dashboard.pending_material_requests || 0) + (dashboard.pending_labour_requests || 0) + paymentRequests.length + reProjectsCount + newProjectsFromCRE.length;
+
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-4 gap-4 mb-6">{[...Array(4)].map((_, i) => <div key={i} className="bg-white rounded-lg border p-4 animate-pulse"><div className="h-4 bg-gray-200 rounded w-20 mb-2" /><div className="h-8 bg-gray-200 rounded w-12" /></div>)}</div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
+    <div className="min-h-screen bg-gray-50" data-testid="planning-board">
       <AppHeader user={user} />
 
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
-        {/* Dashboard Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 cursor-pointer" onClick={() => handleMainTabChange('new')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-amber-600 mb-1">
-                <FileText className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">New Projects</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-amber-700">{dashboard.new_projects || 0}</p>
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+          <Card className="border-l-4 border-l-blue-500" data-testid="card-total-projects">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Total Projects</p>
+              <p className="text-2xl font-bold">{totalStageProjects}</p>
             </CardContent>
           </Card>
-          
-          <Card className="bg-gradient-to-br from-yellow-50 to-yellow-100 cursor-pointer" onClick={() => handleMainTabChange('awaiting')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-yellow-600 mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Awaiting Approval</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-yellow-700">{dashboard.awaiting_approval || 0}</p>
+          <Card className="border-l-4 border-l-green-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">New from CRE</p>
+              <p className="text-2xl font-bold text-green-700">{dashboard.new_projects || 0}</p>
             </CardContent>
           </Card>
-          
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 cursor-pointer" onClick={() => handleMainTabChange('working')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-green-600 mb-1">
-                <Briefcase className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Working</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-green-700">{dashboard.working_projects || 0}</p>
+          <Card className="border-l-4 border-l-yellow-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Awaiting GM</p>
+              <p className="text-2xl font-bold text-yellow-700">{dashboard.awaiting_approval || 0}</p>
             </CardContent>
           </Card>
-          
-          <Card className="bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer" onClick={() => handleMainTabChange('completed')}>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 text-gray-600 mb-1">
-                <CheckCircle className="h-4 w-4" />
-                <span className="text-xs sm:text-sm">Completed</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold text-gray-700">{dashboard.completed_projects || 0}</p>
+          <Card className="border-l-4 border-l-purple-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Working</p>
+              <p className="text-2xl font-bold text-purple-700">{dashboard.working_projects || 0}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-l-4 border-l-orange-500">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500">Pending Actions</p>
+              <p className="text-2xl font-bold text-orange-700">{alertCount}</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Pending Requests Alert */}
-        {(dashboard.pending_material_requests > 0 || dashboard.pending_labour_requests > 0) && (
-          <Card className="bg-orange-50 border-orange-200 mb-6">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="bg-orange-500 p-2 rounded-full">
-                  <Users className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-orange-800">Pending Site Engineer Requests</p>
-                  <p className="text-sm text-orange-600">
-                    {dashboard.pending_material_requests || 0} material, {dashboard.pending_labour_requests || 0} labour
-                  </p>
-                </div>
-              </div>
-              <Button onClick={fetchPendingRequests} className="bg-orange-600 hover:bg-orange-700">
-                Review Requests
-              </Button>
-            </CardContent>
-          </Card>
-        )}
+        {/* Alert Banners */}
+        <div className="space-y-2 mb-4">
+          {(dashboard.pending_material_requests > 0 || dashboard.pending_labour_requests > 0) && (
+            <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm"><Users className="h-4 w-4 text-orange-600" /><span className="text-orange-800 font-medium">Site Requests:</span><span className="text-orange-600">{dashboard.pending_material_requests || 0} material, {dashboard.pending_labour_requests || 0} labour</span></div>
+              <Button size="sm" variant="outline" className="border-orange-300 text-orange-700 h-7" onClick={fetchPendingRequests}>Review</Button>
+            </div>
+          )}
+          {paymentRequests.length > 0 && (
+            <div className="flex items-center justify-between bg-purple-50 border border-purple-200 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm"><DollarSign className="h-4 w-4 text-purple-600" /><span className="text-purple-800 font-medium">{paymentRequests.length} Payment Request(s)</span><span className="text-purple-600">awaiting verification</span></div>
+              <Button size="sm" variant="outline" className="border-purple-300 text-purple-700 h-7" onClick={() => setPaymentDialog(true)}>Review</Button>
+            </div>
+          )}
+          {reProjectsCount > 0 && (
+            <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-2.5">
+              <div className="flex items-center gap-2 text-sm"><Calculator className="h-4 w-4 text-indigo-600" /><span className="text-indigo-800 font-medium">{reProjectsCount} RE Request(s)</span><span className="text-indigo-600">waiting for rough estimate</span></div>
+              <Button size="sm" variant="outline" className="border-indigo-300 text-indigo-700 h-7" onClick={() => window.location.href = '/crm/re-projects'}>Review</Button>
+            </div>
+          )}
+        </div>
 
-        {/* Payment Requests Alert */}
-        {paymentRequests.length > 0 && (
-          <Card className="bg-purple-50 border-purple-200 mb-6">
-            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="bg-purple-500 p-2 rounded-full">
-                  <DollarSign className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-purple-800">Stage Payment Requests</p>
-                  <p className="text-sm text-purple-600">
-                    {paymentRequests.length} payment(s) awaiting verification
-                  </p>
-                </div>
-              </div>
-              <Button onClick={() => setPaymentDialog(true)} className="bg-purple-600 hover:bg-purple-700">
-                Review Payments
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Rough Estimate Projects Alert */}
-        {reProjectsCount > 0 && (
-          <Card className="bg-indigo-50 border-indigo-200 mb-6">
-            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="bg-indigo-500 p-2 rounded-full">
-                  <Calculator className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-indigo-800">Rough Estimate Requests</p>
-                  <p className="text-sm text-indigo-600">
-                    {reProjectsCount} new RE project(s) waiting for rough estimate
-                  </p>
-                </div>
-              </div>
-              <Button 
-                onClick={() => window.location.href = '/crm/re-projects'} 
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                Review RE Projects
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* New Projects from CRE Alert */}
-        {newProjectsFromCRE.length > 0 && (
-          <Card className="bg-green-50 border-green-200 mb-6" data-testid="new-projects-alert">
-            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="bg-green-500 p-2 rounded-full">
-                  <Briefcase className="h-5 w-5 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-green-800">New Projects from CRE</p>
-                  <p className="text-sm text-green-600">
-                    {newProjectsFromCRE.length} project(s) sent by CRE for planning
-                  </p>
-                </div>
-              </div>
-              <Button 
-                onClick={() => setNewProjectsDialog(true)} 
-                className="bg-green-600 hover:bg-green-700"
-                data-testid="view-new-projects-btn"
-              >
-                View New Projects
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Construction Stages Cards */}
-        <Card className="mb-6">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <HardHat className="h-5 w-5 text-indigo-600" />
-              Construction Stages Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+        {/* Construction Stages Mini */}
+        <Card className="mb-4">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2 mb-2"><HardHat className="h-4 w-4 text-indigo-600" /><span className="text-sm font-medium">Construction Stages</span></div>
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
               {stages.map((stage) => {
                 const config = STAGE_CONFIG[stage.id] || STAGE_CONFIG.yet_to_start;
                 const Icon = config.icon;
-                const count = stageCounts[stage.id] || 0;
-                
                 return (
-                  <Card 
-                    key={stage.id}
-                    className={`bg-gradient-to-br ${config.color} ${config.border} cursor-pointer hover:shadow-md transition-shadow ${activeStage === stage.id ? 'ring-2 ring-indigo-500' : ''}`}
-                    onClick={() => { setActiveTab('stages'); handleStageTabChange(stage.id); }}
-                  >
-                    <CardContent className="p-3 text-center">
-                      <div className={`${config.bg} w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2`}>
-                        <Icon className="h-4 w-4 text-white" />
-                      </div>
-                      <p className="text-lg font-bold">{count}</p>
-                      <p className="text-xs truncate">{stage.name}</p>
-                    </CardContent>
-                  </Card>
+                  <div key={stage.id} className={`bg-gradient-to-br ${config.color} ${config.border} border rounded-lg p-2 text-center`}>
+                    <div className={`${config.bg} w-6 h-6 rounded-full flex items-center justify-center mx-auto mb-1`}><Icon className="h-3 w-3 text-white" /></div>
+                    <p className="text-sm font-bold">{stageCounts[stage.id] || 0}</p>
+                    <p className="text-xs truncate">{stage.name}</p>
+                  </div>
                 );
               })}
             </div>
           </CardContent>
         </Card>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1" onClick={() => window.location.href = '/materials'}>
-            <Package className="h-5 w-5" />
-            <span className="text-xs">Materials</span>
-          </Button>
-          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1" onClick={() => window.location.href = '/vendor-management'}>
-            <Building2 className="h-5 w-5" />
-            <span className="text-xs">Vendors</span>
-          </Button>
-          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1" onClick={() => window.location.href = '/labour-contractors'}>
-            <Users className="h-5 w-5" />
-            <span className="text-xs">Contractors</span>
-          </Button>
-          <Button variant="outline" className="h-auto py-3 flex flex-col gap-1 bg-indigo-50 border-indigo-200" onClick={() => window.location.href = '/work-order-management'}>
-            <ClipboardList className="h-5 w-5 text-indigo-600" />
-            <span className="text-xs font-medium">Work Orders</span>
-          </Button>
-        </div>
+        {/* Main Tabs */}
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className="bg-white border shadow-sm mb-3">
+            <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">
+              All Projects
+            </TabsTrigger>
+            <TabsTrigger value="materials" className="text-xs sm:text-sm" data-testid="tab-materials">
+              Materials
+            </TabsTrigger>
+            <TabsTrigger value="labours" className="text-xs sm:text-sm" data-testid="tab-labours">
+              Labours
+            </TabsTrigger>
+            <TabsTrigger value="suppliers" className="text-xs sm:text-sm" data-testid="tab-suppliers">
+              Suppliers
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Main Content Tabs */}
-        <Card>
-          <Tabs value={activeTab} onValueChange={handleMainTabChange}>
-            <CardHeader className="border-b p-3 sm:p-4">
-              <TabsList className="bg-transparent p-0 flex-wrap gap-1">
-                <TabsTrigger value="stages" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none text-xs sm:text-sm">
-                  <HardHat className="h-4 w-4 mr-1" />
-                  By Stage ({totalStageProjects})
-                </TabsTrigger>
-                <TabsTrigger value="new" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm" data-testid="tab-new-projects">
-                  New Projects {(dashboard.new_projects || 0) > 0 && <span className="ml-1 bg-green-500 text-white text-xs px-1.5 rounded-full">{dashboard.new_projects}</span>}
-                </TabsTrigger>
-                <TabsTrigger value="awaiting" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none text-xs sm:text-sm">
-                  Awaiting Approval
-                </TabsTrigger>
-                <TabsTrigger value="working" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none text-xs sm:text-sm">
-                  Working
-                </TabsTrigger>
-                <TabsTrigger value="completed" className="data-[state=active]:border-b-2 data-[state=active]:border-gray-600 rounded-none text-xs sm:text-sm">
-                  Completed
-                </TabsTrigger>
-              </TabsList>
-            </CardHeader>
-
-            {/* Stage Filter Tabs (when Stages tab is active) */}
-            {activeTab === 'stages' && (
-              <div className="border-b px-4 py-2 bg-gray-50 overflow-x-auto">
-                <div className="flex gap-2 min-w-max">
-                  <Button 
-                    size="sm" 
-                    variant={activeStage === 'all' ? 'default' : 'outline'}
-                    onClick={() => handleStageTabChange('all')}
-                  >
-                    All ({totalStageProjects})
-                  </Button>
-                  {stages.map((stage) => {
-                    const count = stageCounts[stage.id] || 0;
-                    return (
-                      <Button 
-                        key={stage.id}
-                        size="sm" 
-                        variant={activeStage === stage.id ? 'default' : 'outline'}
-                        onClick={() => handleStageTabChange(stage.id)}
-                        className="whitespace-nowrap"
-                      >
-                        {stage.name} ({count})
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <CardContent className="p-0">
-              {/* New Projects Tab - Dedicated CRE projects card view */}
-              <TabsContent value="new" className="m-0">
-                <div className="p-4 space-y-4" data-testid="new-projects-tab-content">
-                  {projects.length === 0 ? (
-                    <div className="py-8 text-center text-gray-500">
-                      <Briefcase className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                      <p className="font-medium">No new projects from CRE</p>
-                      <p className="text-sm">Projects sent by CRE after payment verification will appear here</p>
-                    </div>
-                  ) : (
-                    projects.map((project) => (
-                      <Card key={project.project_id} className="border-l-4 border-l-green-500" data-testid={`new-project-card-${project.project_id}`}>
-                        <CardContent className="p-4">
-                          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <h4 className="font-semibold text-lg">{project.name}</h4>
-                                {project.status === 'in_planning' && <Badge className="bg-green-600">New from CRE</Badge>}
-                                {project.status === 'planning_review' && <Badge className="bg-amber-600">In Review</Badge>}
-                                {project.status === 'planning' && <Badge className="bg-blue-600">Planning</Badge>}
-                              </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600">
-                                <div>
-                                  <p className="text-xs text-gray-500">Client</p>
-                                  <p className="font-medium">{project.client_name}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Location</p>
-                                  <p className="font-medium">{project.location || '-'}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Area</p>
-                                  <p className="font-medium">{project.sqft?.toLocaleString() || '-'} sqft</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Project Value</p>
-                                  <p className="font-medium text-green-600">{formatCurrency(project.total_value)}</p>
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600 mt-2">
-                                <div>
-                                  <p className="text-xs text-gray-500">Advance Received</p>
-                                  <p className="font-medium text-amber-600">{formatCurrency(project.advance_amount)}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Building Type</p>
-                                  <p className="font-medium capitalize">{project.building_type || 'residential'}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Phone</p>
-                                  <p className="font-medium">{project.client_phone || '-'}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-500">Email</p>
-                                  <p className="font-medium">{project.client_email || '-'}</p>
-                                </div>
-                              </div>
-                              {project.re_project_id && (
-                                <div className="mt-3 p-2 bg-amber-50 rounded-lg">
-                                  <p className="text-xs text-amber-600 font-medium">Has linked Rough Estimate</p>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                size="sm" 
-                                className="bg-secondary hover:bg-secondary/90"
-                                onClick={() => window.location.href = `/projects/${project.project_id}`}
-                                data-testid={`view-new-project-${project.project_id}`}
-                              >
-                                <Eye className="h-4 w-4 mr-1" /> View Details
-                              </Button>
-                              {project.status === 'planning_review' && (
-                                <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)} data-testid={`submit-approval-${project.project_id}`}>
-                                  <Send className="h-4 w-4 mr-1" /> Submit for Approval
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </TabsContent>
-
-              {/* Generic project view for other tabs (stages, awaiting, working, completed) */}
-              {['stages', 'awaiting', 'working', 'completed'].map((tabValue) => (
-                <TabsContent key={tabValue} value={tabValue} className="m-0">
-                  {/* Mobile Card View */}
-                  <div className="block sm:hidden divide-y">
-                    {projects.length === 0 ? (
-                      <div className="p-8 text-center text-gray-500">No projects found</div>
-                    ) : (
-                      projects.map((project) => (
-                        <div key={project.project_id} className="p-4">
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <p className="font-semibold">{project.name}</p>
-                              <p className="text-sm text-gray-500">{project.client_name}</p>
-                            </div>
-                            <div className="flex flex-col gap-1 items-end">
-                              {getStatusBadge(project.status)}
-                              {getStageBadge(project.current_stage)}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                            <div>
-                              <span className="text-gray-500">Package:</span>
-                              <span className="ml-1">{project.package_name || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Sqft:</span>
-                              <span className="ml-1">{project.sqft?.toLocaleString()}</span>
-                            </div>
-                            <div className="col-span-2 font-semibold text-green-600">
-                              {formatCurrency(project.total_value)}
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" variant="outline" className="flex-1" onClick={() => window.location.href = `/projects/${project.project_id}`}>
-                              <Eye className="h-3 w-3 mr-1" /> View
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
-                              <ArrowRight className="h-3 w-3 mr-1" /> Stage
-                            </Button>
-                            {project.status === 'planning_review' && (
-                              <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
-                                <Send className="h-3 w-3 mr-1" /> Submit
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    )}
+          {/* ==================== ALL PROJECTS ==================== */}
+          <TabsContent value="all_projects">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-indigo-600" />All Projects ({filteredProjects.length})</CardTitle>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                    <Input placeholder="Search..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
                   </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden sm:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CLIENT</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PACKAGE</th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">VALUE</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STAGE</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTIONS</th>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="projects-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredProjects.length === 0 ? (
+                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No projects found</td></tr>
+                      ) : filteredProjects.map((p) => (
+                        <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
+                          <td className="px-4 py-2.5">
+                            <p className="font-medium">{p.name}</p>
+                            <p className="text-xs text-gray-400">{p.location || '-'}</p>
+                          </td>
+                          <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
+                          <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
+                          <td className="px-4 py-2.5 text-right font-medium text-green-600">{formatCurrency(p.total_value)}</td>
+                          <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => openStageDialog(p)}><ArrowRight className="h-3 w-3" /></Button>
+                              {p.status === 'planning_review' && <Button size="sm" className="h-7 text-xs" onClick={() => handleSubmitForApproval(p.project_id)}><Send className="h-3 w-3 mr-1" />Submit</Button>}
+                            </div>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {projects.length === 0 ? (
-                          <tr>
-                            <td colSpan="7" className="px-4 py-8 text-center text-gray-500">No projects found</td>
-                          </tr>
-                        ) : (
-                          projects.map((project) => (
-                            <tr key={project.project_id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3">
-                                <p className="font-medium">{project.name}</p>
-                                <p className="text-xs text-gray-500">{project.location}</p>
-                              </td>
-                              <td className="px-4 py-3">{project.client_name}</td>
-                              <td className="px-4 py-3">
-                                <Badge variant="outline">{project.package_name || 'N/A'}</Badge>
-                              </td>
-                              <td className="px-4 py-3 text-right font-semibold text-green-600">
-                                {formatCurrency(project.total_value)}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                {getStageBadge(project.current_stage || 'yet_to_start')}
-                              </td>
-                              <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex justify-center gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
-                                    <Eye className="h-3 w-3 mr-1" /> View
-                                  </Button>
-                                  <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
-                                    <ArrowRight className="h-3 w-3" />
-                                  </Button>
-                                  {project.status === 'planning_review' && (
-                                    <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
-                                      <Send className="h-3 w-3 mr-1" /> Submit
-                                    </Button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ==================== MATERIALS ==================== */}
+          <TabsContent value="materials">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Materials</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                      {['active', 'inactive', 'all'].map(f => (
+                        <button key={f} className={`px-2 py-1 text-xs rounded-md ${materialFilter === f ? 'bg-white shadow font-medium' : 'text-gray-500'}`} onClick={() => setMaterialFilter(f)} data-testid={`filter-${f}`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+                      ))}
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" />
+                    </div>
+                    <Button size="sm" onClick={() => openMaterialDialog()} className="bg-blue-600 hover:bg-blue-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add Material</Button>
                   </div>
-                </TabsContent>
-              ))}
-            </CardContent>
-          </Tabs>
-        </Card>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="materials-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">HSN</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredMaterials.length === 0 ? (
+                        <tr><td colSpan="6" className="p-8 text-center text-gray-400"><Package className="h-8 w-8 mx-auto mb-2 opacity-50" />No materials found</td></tr>
+                      ) : filteredMaterials.map((m) => (
+                        <tr key={m.material_id} className={`hover:bg-gray-50 ${!m.is_active ? 'opacity-60' : ''}`} data-testid={`material-row-${m.material_id}`}>
+                          <td className="px-4 py-2.5">
+                            <p className="font-medium">{m.name}</p>
+                            {m.description && <p className="text-xs text-gray-400">{m.description}</p>}
+                          </td>
+                          <td className="px-4 py-2.5"><Badge variant="outline" className="capitalize text-xs">{m.category?.replace(/_/g, ' ')}</Badge></td>
+                          <td className="px-4 py-2.5 text-gray-600">{m.unit}</td>
+                          <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">{m.hsn_code || '-'}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            {m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openMaterialDialog(m)} title="Edit"><Edit className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleMaterial(m)} title={m.is_active !== false ? 'Hide' : 'Activate'}>
+                                {m.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ==================== LABOURS ==================== */}
+          <TabsContent value="labours">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4 text-amber-600" />Labour Contractors ({contractors.length})</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Search..." value={contractorSearch} onChange={(e) => setContractorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" />
+                    </div>
+                    <Button size="sm" onClick={() => openContractorDialog()} className="bg-amber-600 hover:bg-amber-700" data-testid="add-contractor-btn"><Plus className="h-4 w-4 mr-1" />Add Contractor</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="contractors-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Work Types</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Phone</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Bank</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredContractors.length === 0 ? (
+                        <tr><td colSpan="5" className="p-8 text-center text-gray-400"><Users className="h-8 w-8 mx-auto mb-2 opacity-50" />No contractors found</td></tr>
+                      ) : filteredContractors.map((c) => (
+                        <tr key={c.contractor_id} className="hover:bg-gray-50" data-testid={`contractor-row-${c.contractor_id}`}>
+                          <td className="px-4 py-2.5">
+                            <p className="font-medium">{c.name}</p>
+                            {c.address && <p className="text-xs text-gray-400">{c.address}</p>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex flex-wrap gap-1">{(c.work_types || []).slice(0, 3).map(t => <Badge key={t} variant="outline" className="text-xs">{t}</Badge>)}{(c.work_types || []).length > 3 && <Badge variant="outline" className="text-xs">+{c.work_types.length - 3}</Badge>}</div>
+                          </td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell">{c.phone || '-'}</td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell text-xs text-gray-500">{c.bank_name || '-'}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openContractorDialog(c)}><Edit className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteContractor(c)}><Trash2 className="h-3 w-3" /></Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ==================== SUPPLIERS ==================== */}
+          <TabsContent value="suppliers">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4 text-teal-600" />Suppliers / Vendors ({vendors.length})</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Search..." value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" />
+                    </div>
+                    <Button size="sm" onClick={() => openVendorDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-vendor-btn"><Plus className="h-4 w-4 mr-1" />Add Supplier</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="vendors-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Contact</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">GST</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredVendors.length === 0 ? (
+                        <tr><td colSpan="6" className="p-8 text-center text-gray-400"><Truck className="h-8 w-8 mx-auto mb-2 opacity-50" />No suppliers found</td></tr>
+                      ) : filteredVendors.map((v) => (
+                        <tr key={v.vendor_id} className={`hover:bg-gray-50 ${!v.is_active ? 'opacity-60' : ''}`} data-testid={`vendor-row-${v.vendor_id}`}>
+                          <td className="px-4 py-2.5">
+                            <p className="font-medium">{v.name}</p>
+                            {v.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{v.address}</p>}
+                          </td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell">
+                            <p className="text-xs">{v.contact_person || '-'}</p>
+                            <p className="text-xs text-gray-400">{v.phone || '-'}</p>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex flex-wrap gap-1">{(v.materials_supplied || []).slice(0, 2).map(id => <Badge key={id} variant="outline" className="text-xs">{getMaterialName(id)}</Badge>)}{(v.materials_supplied || []).length > 2 && <Badge variant="outline" className="text-xs">+{v.materials_supplied.length - 2}</Badge>}</div>
+                          </td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{v.gst_number || '-'}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            {v.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openVendorDialog(v)}><Edit className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleVendor(v)}>{v.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}</Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Update Stage Dialog */}
+      {/* ==================== DIALOGS ==================== */}
+
+      {/* Stage Update Dialog */}
       <Dialog open={stageDialog} onOpenChange={setStageDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Update Project Stage</DialogTitle>
-            <DialogDescription>
-              Move "{selectedProject?.name}" to a new construction stage
-            </DialogDescription>
-          </DialogHeader>
-          
+          <DialogHeader><DialogTitle>Update Project Stage</DialogTitle><DialogDescription>Move "{selectedProject?.name}" to a new stage</DialogDescription></DialogHeader>
           <div className="space-y-4 py-4">
+            <div><Label>Current Stage</Label><div className="mt-1">{getStageBadge(selectedProject?.current_stage || 'yet_to_start')}</div></div>
             <div>
-              <label className="text-sm font-medium mb-2 block">Current Stage</label>
-              <div className="p-3 bg-gray-100 rounded-lg">
-                {getStageBadge(selectedProject?.current_stage || 'yet_to_start')}
-              </div>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium mb-2 block">Move to Stage</label>
+              <Label>Move to</Label>
               <Select value={newStage} onValueChange={setNewStage}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select new stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {stages.map((stage) => (
-                    <SelectItem key={stage.id} value={stage.id}>
-                      <div className="flex items-center gap-2">
-                        <span>{stage.name}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{stages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
-          
           <DialogFooter>
             <Button variant="outline" onClick={() => setStageDialog(false)}>Cancel</Button>
-            <Button onClick={handleUpdateStage} className="bg-indigo-600 hover:bg-indigo-700">
-              Update Stage
-            </Button>
+            <Button onClick={handleUpdateStage} className="bg-indigo-600 hover:bg-indigo-700">Update</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Pending Requests Dialog */}
+      {/* Requests Dialog */}
       <Dialog open={requestsDialog} onOpenChange={setRequestsDialog}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Pending Site Engineer Requests</DialogTitle>
-          </DialogHeader>
-
+          <DialogHeader><DialogTitle>Pending Site Engineer Requests</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            {pendingRequests.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">No pending requests</p>
-            ) : (
-              pendingRequests.map((req) => (
-                <Card key={req.request_id || req.expense_id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Badge variant={req.type === 'material' ? 'default' : 'secondary'} className="mb-2">
-                          {req.type === 'material' ? 'Material' : 'Labour'}
-                        </Badge>
-                        <p className="font-semibold">{req.material_name || req.labour_type}</p>
-                        <p className="text-sm text-gray-500">
-                          {req.type === 'material' 
-                            ? `Qty: ${req.quantity} ${req.unit}` 
-                            : `Workers: ${req.workers_count}, Days: ${req.days}`}
-                        </p>
-                        <p className="text-xs text-gray-400">Project: {req.project_name}</p>
-                      </div>
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApproveRequest(req)}>
-                          <Check className="h-3 w-3 mr-1" /> Approve
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => handleRejectRequest(req)}>
-                          <X className="h-3 w-3 mr-1" /> Reject
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+            {pendingRequests.length === 0 ? <p className="text-center text-gray-500 py-8">No pending requests</p> :
+              pendingRequests.map(req => (
+                <div key={req.request_id || req.expense_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <Badge variant={req.type === 'material' ? 'default' : 'secondary'} className="mb-1">{req.type}</Badge>
+                    <p className="font-medium text-sm">{req.material_name || req.labour_type}</p>
+                    <p className="text-xs text-gray-500">{req.type === 'material' ? `Qty: ${req.quantity} ${req.unit}` : `Workers: ${req.workers_count}, Days: ${req.days}`} | {req.project_name}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7" onClick={() => handleApproveRequest(req)}><Check className="h-3 w-3" /></Button>
+                    <Button size="sm" variant="destructive" className="h-7" onClick={() => handleRejectRequest(req)}><X className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+              ))}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Payment Requests Dialog */}
+      {/* Payment Dialog */}
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Stage Payment Requests</DialogTitle>
-            <DialogDescription>Review and verify payment requests from Site Engineers</DialogDescription>
-          </DialogHeader>
-
+          <DialogHeader><DialogTitle>Stage Payment Requests</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            {paymentRequests.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">No payment requests</p>
-            ) : (
-              paymentRequests.map((payment) => (
-                <Card key={payment.stage_id}>
-                  <CardContent className="p-4">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">{payment.stage_name}</p>
-                        <p className="text-sm text-gray-500">Project: {payment.project_name}</p>
-                        <p className="text-lg font-bold text-green-600">{formatCurrency(payment.amount)}</p>
-                        <p className="text-xs text-gray-400">Requested by: {payment.requested_by_name}</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprovePayment(payment)}>
-                          <Check className="h-3 w-3 mr-1" /> Approve
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => openRejectPaymentDialog(payment)}>
-                          <X className="h-3 w-3 mr-1" /> Reject
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+            {paymentRequests.map(p => (
+              <div key={p.stage_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="font-medium text-sm">{p.stage_name}</p>
+                  <p className="text-xs text-gray-500">{p.project_name} | By: {p.requested_by_name}</p>
+                  <p className="font-bold text-green-600">{formatCurrency(p.amount)}</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7" onClick={() => handleApprovePayment(p)}><Check className="h-3 w-3 mr-1" />Approve</Button>
+                  <Button size="sm" variant="destructive" className="h-7" onClick={() => { setSelectedPayment(p); setRejectReason(''); setRejectDialog(true); }}><X className="h-3 w-3" /></Button>
+                </div>
+              </div>
+            ))}
           </div>
         </DialogContent>
       </Dialog>
@@ -882,115 +821,135 @@ export default function PlanningBoard() {
       {/* Reject Payment Dialog */}
       <Dialog open={rejectDialog} onOpenChange={setRejectDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Payment Request</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <label className="text-sm font-medium">Rejection Reason</label>
-            <Input 
-              placeholder="Enter reason for rejection"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              className="mt-2"
-            />
-          </div>
+          <DialogHeader><DialogTitle>Reject Payment</DialogTitle></DialogHeader>
+          <div className="py-4"><Label>Reason</Label><Input placeholder="Reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="mt-2" /></div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectDialog(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={handleRejectPayment}>Reject Payment</Button>
+            <Button variant="destructive" onClick={handleRejectPayment}>Reject</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* New Projects from CRE Dialog */}
-      <Dialog open={newProjectsDialog} onOpenChange={setNewProjectsDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Briefcase className="h-5 w-5 text-green-600" />
-              New Projects from CRE
-            </DialogTitle>
-            <DialogDescription>
-              These projects have been sent by CRE after payment verification. Review and start planning.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            {newProjectsFromCRE.map((project) => (
-              <Card key={project.project_id} className="border-l-4 border-l-green-500" data-testid={`new-project-card-${project.project_id}`}>
-                <CardContent className="p-4">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h4 className="font-semibold text-lg">{project.name}</h4>
-                        <Badge className="bg-green-600">New from CRE</Badge>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600">
-                        <div>
-                          <p className="text-xs text-gray-500">Client</p>
-                          <p className="font-medium">{project.client_name}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Location</p>
-                          <p className="font-medium">{project.location || '-'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Area</p>
-                          <p className="font-medium">{project.sqft?.toLocaleString() || '-'} sqft</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Project Value</p>
-                          <p className="font-medium text-green-600">₹{(project.total_value || 0).toLocaleString()}</p>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600 mt-2">
-                        <div>
-                          <p className="text-xs text-gray-500">Advance Received</p>
-                          <p className="font-medium text-amber-600">₹{(project.advance_amount || 0).toLocaleString()}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Building Type</p>
-                          <p className="font-medium capitalize">{project.building_type || 'residential'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Phone</p>
-                          <p className="font-medium">{project.client_phone || '-'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Email</p>
-                          <p className="font-medium">{project.client_email || '-'}</p>
-                        </div>
-                      </div>
-                      {project.re_project_id && (
-                        <div className="mt-3 p-2 bg-amber-50 rounded-lg">
-                          <p className="text-xs text-amber-600 font-medium">Has linked Rough Estimate</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="ml-4 flex flex-col gap-2">
-                      <Button 
-                        size="sm" 
-                        className="bg-secondary hover:bg-secondary/90"
-                        onClick={() => window.location.href = `/projects/${project.project_id}`}
-                        data-testid={`view-project-btn-${project.project_id}`}
-                      >
-                        <Eye className="h-4 w-4 mr-1" /> View Details
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-            {newProjectsFromCRE.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p>No new projects waiting</p>
+      {/* Material Dialog */}
+      <Dialog open={materialDialog} onOpenChange={setMaterialDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{editingMaterial ? 'Edit Material' : 'Add Material'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Name *</Label><Input value={materialForm.name} onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })} placeholder="e.g. OPC 53 Grade Cement" className="mt-1" data-testid="material-name-input" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Category</Label>
+                <Select value={materialForm.category} onValueChange={(v) => setMaterialForm({ ...materialForm, category: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{MATERIAL_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
-            )}
+              <div>
+                <Label>Unit</Label>
+                <Select value={materialForm.unit} onValueChange={(v) => setMaterialForm({ ...materialForm, unit: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>{MATERIAL_UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div><Label>Description</Label><Input value={materialForm.description} onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })} placeholder="Optional description" className="mt-1" /></div>
+            <div><Label>HSN Code</Label><Input value={materialForm.hsn_code} onChange={(e) => setMaterialForm({ ...materialForm, hsn_code: e.target.value })} placeholder="e.g. 2523" className="mt-1" /></div>
           </div>
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={() => setNewProjectsDialog(false)}>Close</Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMaterialDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveMaterial} className="bg-blue-600 hover:bg-blue-700" data-testid="save-material-btn">{editingMaterial ? 'Update' : 'Create'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Contractor Dialog */}
+      <Dialog open={contractorDialog} onOpenChange={setContractorDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{editingContractor ? 'Edit Contractor' : 'Add Contractor'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Name *</Label><Input value={contractorForm.name} onChange={(e) => setContractorForm({ ...contractorForm, name: e.target.value })} placeholder="Contractor name" className="mt-1" data-testid="contractor-name-input" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Phone</Label><Input value={contractorForm.phone} onChange={(e) => setContractorForm({ ...contractorForm, phone: e.target.value })} placeholder="+91..." className="mt-1" /></div>
+              <div><Label>Email</Label><Input value={contractorForm.email} onChange={(e) => setContractorForm({ ...contractorForm, email: e.target.value })} placeholder="email" className="mt-1" /></div>
+            </div>
+            <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} placeholder="Address" className="mt-1" /></div>
+            <div>
+              <Label>Work Types</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {WORK_TYPES.map(wt => (
+                  <button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500'}`}
+                    onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t => t !== wt) : [...contractorForm.work_types, wt] })}>
+                    {wt}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div><Label className="text-xs">Bank</Label><Input value={contractorForm.bank_name} onChange={(e) => setContractorForm({ ...contractorForm, bank_name: e.target.value })} placeholder="Bank" className="mt-1 text-xs" /></div>
+              <div><Label className="text-xs">Account No.</Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} placeholder="A/C No." className="mt-1 text-xs" /></div>
+              <div><Label className="text-xs">IFSC</Label><Input value={contractorForm.ifsc_code} onChange={(e) => setContractorForm({ ...contractorForm, ifsc_code: e.target.value })} placeholder="IFSC" className="mt-1 text-xs" /></div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setContractorDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveContractor} className="bg-amber-600 hover:bg-amber-700" data-testid="save-contractor-btn">{editingContractor ? 'Update' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Vendor Dialog */}
+      <Dialog open={vendorDialog} onOpenChange={setVendorDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>{editingVendor ? 'Edit Supplier' : 'Add Supplier'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Company Name *</Label><Input value={vendorForm.name} onChange={(e) => setVendorForm({ ...vendorForm, name: e.target.value })} placeholder="Supplier name" className="mt-1" data-testid="vendor-name-input" /></div>
+              <div><Label>Contact Person</Label><Input value={vendorForm.contact_person} onChange={(e) => setVendorForm({ ...vendorForm, contact_person: e.target.value })} placeholder="Contact person" className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Phone</Label><Input value={vendorForm.phone} onChange={(e) => setVendorForm({ ...vendorForm, phone: e.target.value })} placeholder="+91..." className="mt-1" /></div>
+              <div><Label>Email</Label><Input value={vendorForm.email} onChange={(e) => setVendorForm({ ...vendorForm, email: e.target.value })} placeholder="email" className="mt-1" /></div>
+            </div>
+            <div><Label>Address</Label><Input value={vendorForm.address} onChange={(e) => setVendorForm({ ...vendorForm, address: e.target.value })} placeholder="Address" className="mt-1" /></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>GST Number</Label><Input value={vendorForm.gst_number} onChange={(e) => setVendorForm({ ...vendorForm, gst_number: e.target.value })} placeholder="GSTIN" className="mt-1" /></div>
+              <div>
+                <Label>Payment Terms</Label>
+                <Select value={vendorForm.payment_terms} onValueChange={(v) => setVendorForm({ ...vendorForm, payment_terms: v })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="full">Full Payment</SelectItem>
+                    <SelectItem value="advance">Advance</SelectItem>
+                    <SelectItem value="credit">Credit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {vendorForm.payment_terms === 'credit' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Credit Limit</Label><Input type="number" value={vendorForm.credit_limit} onChange={(e) => setVendorForm({ ...vendorForm, credit_limit: parseFloat(e.target.value) || 0 })} className="mt-1" /></div>
+                <div><Label>Credit Days</Label><Input type="number" value={vendorForm.credit_days} onChange={(e) => setVendorForm({ ...vendorForm, credit_days: parseInt(e.target.value) || 0 })} className="mt-1" /></div>
+              </div>
+            )}
+            <div>
+              <Label>Materials Supplied</Label>
+              <div className="flex flex-wrap gap-1 mt-1 max-h-28 overflow-y-auto">
+                {materials.filter(m => m.is_active !== false).map(m => (
+                  <button key={m.material_id} type="button" className={`px-2 py-0.5 text-xs border rounded ${vendorForm.materials_supplied.includes(m.material_id) ? 'bg-teal-100 border-teal-400 text-teal-800' : 'bg-white border-gray-200 text-gray-500'}`}
+                    onClick={() => setVendorForm({ ...vendorForm, materials_supplied: vendorForm.materials_supplied.includes(m.material_id) ? vendorForm.materials_supplied.filter(id => id !== m.material_id) : [...vendorForm.materials_supplied, m.material_id] })}>
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVendorDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveVendor} className="bg-teal-600 hover:bg-teal-700" data-testid="save-vendor-btn">{editingVendor ? 'Update' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );
