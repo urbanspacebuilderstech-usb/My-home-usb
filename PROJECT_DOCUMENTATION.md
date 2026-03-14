@@ -2,7 +2,7 @@
 
 ## Application Access
 
-**Live URL:** https://expense-review-2.preview.emergentagent.com
+**Live URL:** https://slow-api-fix.preview.emergentagent.com
 
 **Demo Login Credentials (via Google OAuth):**
 - Super Admin: admin@constructionos.com
@@ -154,7 +154,7 @@
 
 ## API Endpoints
 
-**Base:** `https://expense-review-2.preview.emergentagent.com/api`
+**Base:** `https://slow-api-fix.preview.emergentagent.com/api`
 
 ### Auth
 - POST `/auth/session` - OAuth session exchange
@@ -354,7 +354,7 @@ print(token);
 
 # Test endpoint
 curl -H "Authorization: Bearer <token>" \
-  https://expense-review-2.preview.emergentagent.com/api/projects
+  https://slow-api-fix.preview.emergentagent.com/api/projects
 ```
 
 ## Next Steps

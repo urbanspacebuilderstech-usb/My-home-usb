@@ -14,7 +14,7 @@ import uuid
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 if not BASE_URL:
-    BASE_URL = "https://expense-review-2.preview.emergentagent.com"
+    BASE_URL = "https://slow-api-fix.preview.emergentagent.com"
 
 # Test data prefix for cleanup
 TEST_PREFIX = "TEST_"

@@ -104,45 +104,49 @@ export default function CREBoard() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashboardRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
-        axios.get(`${API}/cre/dashboard`)
-      ]);
       
+      // First, authenticate
+      const userRes = await axios.get(`${API}/auth/me`);
       if (!['cre', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied. Only CRE can access this page.');
         window.location.href = '/dashboard';
         return;
       }
-      
       setUser(userRes.data);
-      setDashboard(dashboardRes.data);
-      setPackages(dashboardRes.data.packages || []);
-      setProjects(dashboardRes.data.recent_projects || []);
-      setProjectStages(dashboardRes.data.project_stages || []);
-      setStageCounts(dashboardRes.data.stage_counts || {});
       
-      // Fetch new deals (closed deals from Sales)
-      try {
-        const dealsRes = await axios.get(`${API}/cre/new-deals`);
-        setNewDeals(dealsRes.data || []);
-      } catch (e) {
-        console.log('New deals endpoint not available, trying alternative');
-        // Try to get from sales leads with deal_closed status
+      // Run all data fetches in parallel
+      const [dashboardRes, dealsRes, paymentReqRes] = await Promise.allSettled([
+        axios.get(`${API}/cre/dashboard`),
+        axios.get(`${API}/cre/new-deals`),
+        axios.get(`${API}/cre/payment-requests`)
+      ]);
+      
+      // Process dashboard data
+      if (dashboardRes.status === 'fulfilled') {
+        const data = dashboardRes.value.data;
+        setDashboard(data);
+        setPackages(data.packages || []);
+        setProjects(data.recent_projects || []);
+        setProjectStages(data.project_stages || []);
+        setStageCounts(data.stage_counts || {});
+      }
+      
+      // Process deals data
+      if (dealsRes.status === 'fulfilled') {
+        setNewDeals(dealsRes.value.data || []);
+      } else {
+        // Fallback: try sales leads
         try {
           const salesRes = await axios.get(`${API}/crm/sales/leads?stage=deal_closed`);
           setNewDeals(salesRes.data?.filter(l => !l.project_created) || []);
-        } catch (e2) {
+        } catch {
           setNewDeals([]);
         }
       }
       
-      // Fetch payment requests for CRE
-      try {
-        const paymentReqRes = await axios.get(`${API}/cre/payment-requests`);
-        setPaymentRequests(paymentReqRes.data);
-      } catch (e) {
-        console.log('Payment requests endpoint not available');
+      // Process payment requests
+      if (paymentReqRes.status === 'fulfilled') {
+        setPaymentRequests(paymentReqRes.value.data || []);
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
@@ -504,7 +508,33 @@ export default function CREBoard() {
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="min-h-screen bg-gray-50" data-testid="cre-board-loading">
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="bg-white rounded-lg border p-4 animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
+                <div className="h-8 bg-gray-200 rounded w-12" />
+              </div>
+            ))}
+          </div>
+          <div className="bg-white rounded-lg border p-4 mb-4 animate-pulse">
+            <div className="h-4 bg-gray-200 rounded w-64 mx-auto" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            <div className="bg-white rounded-lg border p-4 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-40 mb-2" />
+              <div className="h-10 bg-gray-200 rounded w-20" />
+            </div>
+            <div className="bg-white rounded-lg border p-4 animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-40 mb-2" />
+              <div className="h-10 bg-gray-200 rounded w-32" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="2" failures="0" skipped="0" tests="12" time="23.852" timestamp="2026-03-14T06:30:29.609236+00:00" hostname="agent-env-f23701f7-bfd4-4f3d-9f1d-3b49400275a8"><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAPIs" name="test_cre_dashboard_returns_200" time="4.453" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAPIs" name="test_cre_new_deals_returns_200" time="2.387" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAPIs" name="test_cre_payment_requests_returns_200" time="1.909" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAPIs" name="test_dashboard_metrics_correctness" time="3.131" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAPIs" name="test_payment_requests_data_structure" time="0.078"><error message="failed on setup with &quot;requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))&quot;">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:644: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:474: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+During handling of the above exception, another exception occurred:
+backend/tests/test_cre_board_loading.py:25: in setup
+    login_response = self.session.post(
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:637: in post
+    return self.request("POST", url, data=data, json=json, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:659: in send
+    raise ConnectionError(err, request=request)
+E   requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))</error></testcase><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAuthentication" name="test_dashboard_requires_auth" time="0.231" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAuthentication" name="test_new_deals_requires_auth" time="0.133" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardAuthentication" name="test_payment_requests_requires_auth" time="0.156" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardWithSuperAdmin" name="test_super_admin_can_access_dashboard" time="3.169" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardWithSuperAdmin" name="test_super_admin_can_access_new_deals" time="2.412" /><testcase classname="backend.tests.test_cre_board_loading.TestCREBoardWithSuperAdmin" name="test_super_admin_can_access_payment_requests" time="0.385"><error message="failed on setup with &quot;AssertionError: Login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code&quot;">backend/tests/test_cre_board_loading.py:170: in setup
+    assert login_response.status_code == 200, f"Login failed: {login_response.text}"
+E   AssertionError: Login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</error></testcase><testcase classname="backend.tests.test_cre_board_loading.TestParallelPerformance" name="test_all_apis_total_time_under_threshold" time="5.214" /></testsuite></testsuites>

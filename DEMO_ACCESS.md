@@ -2,7 +2,7 @@
 
 ## Instant Login - No Google OAuth Required!
 
-**URL:** https://expense-review-2.preview.emergentagent.com/login
+**URL:** https://slow-api-fix.preview.emergentagent.com/login
 
 ### 📋 Demo Credentials
 
@@ -25,7 +25,7 @@ Just click the role you want to test:
 ## 🚀 Getting Started
 
 ### Step 1: Login
-1. Go to: https://expense-review-2.preview.emergentagent.com/login
+1. Go to: https://slow-api-fix.preview.emergentagent.com/login
 2. Select "Super Admin" from dropdown (or click quick button)
 3. Click "LOGIN AS DEMO USER"
 4. You're in! 🎉
@@ -126,10 +126,10 @@ Once logged in as Super Admin, you'll see:
 
 ## 🔗 Direct Links
 
-- **Login:** https://expense-review-2.preview.emergentagent.com/login
-- **Dashboard:** https://expense-review-2.preview.emergentagent.com/dashboard  
-- **Projects:** https://expense-review-2.preview.emergentagent.com/projects
-- **Users:** https://expense-review-2.preview.emergentagent.com/users
+- **Login:** https://slow-api-fix.preview.emergentagent.com/login
+- **Dashboard:** https://slow-api-fix.preview.emergentagent.com/dashboard  
+- **Projects:** https://slow-api-fix.preview.emergentagent.com/projects
+- **Users:** https://slow-api-fix.preview.emergentagent.com/users
 
 ## ❓ FAQ
 
@@ -150,4 +150,4 @@ A: Yes, everything is saved in MongoDB
 
 ---
 
-**🎉 Start exploring now: https://expense-review-2.preview.emergentagent.com/login**
+**🎉 Start exploring now: https://slow-api-fix.preview.emergentagent.com/login**

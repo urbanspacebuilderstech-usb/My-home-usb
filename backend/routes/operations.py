@@ -80,55 +80,31 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
-    # CRE can see all projects (not filtered by created_by)
-    # This allows them to manage projects created from CRM RE conversion
+    import asyncio
     base_query = {}
-    draft_count = await db.projects.count_documents({**base_query, "status": "draft"})
-    pending_payment_count = await db.projects.count_documents({**base_query, "status": "pending_payment"})
-    payment_received_count = await db.projects.count_documents({**base_query, "status": "payment_received"})
-    in_planning_count = await db.projects.count_documents({**base_query, "status": {"$in": ["in_planning", "planning", "planning_review"]}})
-    approved_count = await db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active", "gm_approved"]}})
     
-    # Total ongoing projects
-    total_ongoing = await db.projects.count_documents({
-        **base_query,
-        "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}
-    })
+    # Run all DB queries in parallel
+    (
+        draft_count, pending_payment_count, payment_received_count,
+        in_planning_count, approved_count, total_ongoing,
+        total_value_agg, recent_projects, packages, payments_to_collect,
+        *stage_count_results
+    ) = await asyncio.gather(
+        db.projects.count_documents({**base_query, "status": "draft"}),
+        db.projects.count_documents({**base_query, "status": "pending_payment"}),
+        db.projects.count_documents({**base_query, "status": "payment_received"}),
+        db.projects.count_documents({**base_query, "status": {"$in": ["in_planning", "planning", "planning_review"]}}),
+        db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active", "gm_approved"]}}),
+        db.projects.count_documents({**base_query, "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}}),
+        db.projects.aggregate([{"$match": base_query}, {"$group": {"_id": None, "total": {"$sum": "$total_value"}}}]).to_list(1),
+        db.projects.find(base_query, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20),
+        db.packages.find({"is_active": True}, {"_id": 0, "package_id": 1, "name": 1, "code": 1, "base_rate_per_sqft": 1, "description": 1}).to_list(10),
+        db.projects.find({**base_query, "payments_to_collect": {"$exists": True, "$ne": []}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "payments_to_collect": 1}).to_list(50),
+        *[db.projects.count_documents({**base_query, "current_stage": stage["id"], "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}}) for stage in PROJECT_STAGES]
+    )
     
-    # Total project value
-    total_value_agg = await db.projects.aggregate([
-        {"$match": base_query},
-        {"$group": {"_id": None, "total": {"$sum": "$total_value"}}}
-    ]).to_list(1)
     total_project_value = total_value_agg[0]["total"] if total_value_agg else 0
-    
-    # Get recent projects created by CRO
-    recent_projects = await db.projects.find(
-        base_query,
-        {"_id": 0}
-    ).sort("created_at", -1).limit(20).to_list(20)
-    
-    # Count projects by stage
-    stage_counts = {}
-    for stage in PROJECT_STAGES:
-        count = await db.projects.count_documents({
-            **base_query,
-            "current_stage": stage["id"],
-            "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}
-        })
-        stage_counts[stage["id"]] = count
-    
-    # Get active packages with base_rate_per_sqft
-    packages = await db.packages.find(
-        {"is_active": True}, 
-        {"_id": 0, "package_id": 1, "name": 1, "code": 1, "base_rate_per_sqft": 1, "description": 1}
-    ).to_list(10)
-    
-    # Payments to collect (projects with pending payment milestones)
-    payments_to_collect = await db.projects.find(
-        {**base_query, "payments_to_collect": {"$exists": True, "$ne": []}},
-        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "payments_to_collect": 1}
-    ).to_list(50)
+    stage_counts = {stage["id"]: count for stage, count in zip(PROJECT_STAGES, stage_count_results)}
     
     return {
         "draft_count": draft_count,

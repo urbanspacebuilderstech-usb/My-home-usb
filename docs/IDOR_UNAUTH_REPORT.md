@@ -4,7 +4,7 @@
 ---
 
 **Test Date:** March 4, 2026  
-**Target:** https://expense-review-2.preview.emergentagent.com/api  
+**Target:** https://slow-api-fix.preview.emergentagent.com/api  
 **Focus:** IDOR (Insecure Direct Object Reference) & Unauthenticated API Access  
 
 ---
