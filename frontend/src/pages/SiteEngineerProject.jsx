@@ -22,10 +22,18 @@ const API = `${BACKEND_URL}/api`;
 
 const STATUS_CONFIG = {
   requested: { label: 'Requested', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  pm_approved: { label: 'PM Approved', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
   planning_approved: { label: 'Planning OK', color: 'bg-amber-50 text-amber-800', icon: CheckCircle },
   procurement_approved: { label: 'Procurement OK', color: 'bg-purple-100 text-purple-800', icon: CheckCircle },
+  pending_accounts_approval: { label: 'Pending Accounts', color: 'bg-indigo-100 text-indigo-800', icon: Clock },
   accountant_approved: { label: 'Accounts OK', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  accounts_approved: { label: 'Accounts OK', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  vendor_selected: { label: 'Vendor Selected', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
+  waiting_payment: { label: 'Awaiting Payment', color: 'bg-amber-100 text-amber-800', icon: Clock },
+  payment_approved: { label: 'Payment OK', color: 'bg-green-100 text-green-800', icon: CheckCircle },
+  po_generated: { label: 'PO Generated', color: 'bg-cyan-100 text-cyan-800', icon: CheckCircle },
   ready_for_delivery: { label: 'Ready', color: 'bg-cyan-100 text-cyan-800', icon: Truck },
+  in_transit: { label: 'In Transit', color: 'bg-blue-100 text-blue-800', icon: Truck },
   delivered: { label: 'Delivered', color: 'bg-teal-100 text-teal-800', icon: Truck },
   received_partial: { label: 'Partial', color: 'bg-orange-100 text-orange-800', icon: Package },
   received_completed: { label: 'Complete', color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -61,7 +69,7 @@ export default function SiteEngineerProject() {
   const [receiveDialog, setReceiveDialog] = useState({ open: false, request: null });
   const [otpDialog, setOtpDialog] = useState({ open: false, receipt: null });
   
-  const [materialForm, setMaterialForm] = useState({ material_id: '', quantity: '', remarks: '' });
+  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '' });
   const [otpCode, setOtpCode] = useState('');
@@ -75,16 +83,21 @@ export default function SiteEngineerProject() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, projectRes, materialsRes, labourTypesRes] = await Promise.all([
+      const [userRes, projectRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
-        axios.get(`${API}/site-engineer/project/${projectId}`),
+        axios.get(`${API}/site-engineer/project/${projectId}`)
+      ]);
+      // Load optional data gracefully
+      const [materialsRes, labourTypesRes] = await Promise.allSettled([
         axios.get(`${API}/materials`),
         axios.get(`${API}/site-engineer/labour-types`)
       ]);
       setUser(userRes.data);
       setProjectData(projectRes.data);
-      setMaterials(materialsRes.data);
-      setLabourTypes(labourTypesRes.data);
+      setMaterials(materialsRes.status === 'fulfilled' ? materialsRes.value.data : []);
+      setLabourTypes(labourTypesRes.status === 'fulfilled' ? labourTypesRes.value.data : [
+        'Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Bar Bender', 'Tile Worker'
+      ]);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -133,21 +146,29 @@ export default function SiteEngineerProject() {
   };
 
   const handleMaterialRequest = async () => {
-    if (!materialForm.material_id || !materialForm.quantity) {
-      toast.error('Please fill all required fields');
+    if ((!materialForm.material_id && !materialForm.material_name) || !materialForm.quantity) {
+      toast.error('Please fill material name and quantity');
       return;
     }
     
     try {
-      await axios.post(`${API}/site-engineer/material-requests`, {
+      const payload = {
         project_id: projectId,
-        material_id: materialForm.material_id,
         quantity: parseFloat(materialForm.quantity),
+        unit: materialForm.unit || 'kg',
         remarks: materialForm.remarks || null
-      });
+      };
+      if (materialForm.material_id) {
+        payload.material_id = materialForm.material_id;
+      }
+      if (materialForm.material_name) {
+        payload.material_name = materialForm.material_name;
+      }
+      
+      await axios.post(`${API}/site-engineer/material-requests`, payload);
       toast.success('Material request submitted');
       setMaterialRequestDialog(false);
-      setMaterialForm({ material_id: '', quantity: '', remarks: '' });
+      setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
       fetchData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit request');
@@ -363,29 +384,63 @@ export default function SiteEngineerProject() {
                         <p><strong>Site:</strong> {project.name}</p>
                       </div>
                       <div>
-                        <Label className="text-xs sm:text-sm">Material *</Label>
-                        <Select value={materialForm.material_id} onValueChange={(v) => setMaterialForm({...materialForm, material_id: v})}>
-                          <SelectTrigger className="text-xs sm:text-sm">
-                            <SelectValue placeholder="Select material" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {materials.map(m => (
-                              <SelectItem key={m.material_id} value={m.material_id} className="text-xs sm:text-sm">
-                                {m.name} ({m.unit})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Label className="text-xs sm:text-sm">Material Name *</Label>
+                        {materials.length > 0 ? (
+                          <Select value={materialForm.material_id} onValueChange={(v) => {
+                            const mat = materials.find(m => m.material_id === v);
+                            setMaterialForm({...materialForm, material_id: v, material_name: mat?.name || '', unit: mat?.unit || 'kg'});
+                          }}>
+                            <SelectTrigger className="text-xs sm:text-sm">
+                              <SelectValue placeholder="Select material" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {materials.map(m => (
+                                <SelectItem key={m.material_id} value={m.material_id} className="text-xs sm:text-sm">
+                                  {m.name} ({m.unit})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input 
+                            value={materialForm.material_name}
+                            onChange={(e) => setMaterialForm({...materialForm, material_name: e.target.value})}
+                            placeholder="e.g., TMT Steel 12mm, Cement OPC 53, Sand River"
+                            className="text-sm"
+                            data-testid="material-name-input"
+                          />
+                        )}
                       </div>
-                      <div>
-                        <Label className="text-xs sm:text-sm">Quantity *</Label>
-                        <Input 
-                          type="number"
-                          value={materialForm.quantity}
-                          onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
-                          placeholder="Enter quantity"
-                          className="text-sm"
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs sm:text-sm">Quantity *</Label>
+                          <Input 
+                            type="number"
+                            value={materialForm.quantity}
+                            onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
+                            placeholder="Enter quantity"
+                            className="text-sm"
+                            data-testid="material-quantity-input"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs sm:text-sm">Unit</Label>
+                          <Select value={materialForm.unit} onValueChange={(v) => setMaterialForm({...materialForm, unit: v})}>
+                            <SelectTrigger className="text-xs sm:text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="kg">kg</SelectItem>
+                              <SelectItem value="ton">Ton</SelectItem>
+                              <SelectItem value="bags">Bags</SelectItem>
+                              <SelectItem value="cft">CFT</SelectItem>
+                              <SelectItem value="sqft">SqFt</SelectItem>
+                              <SelectItem value="nos">Nos</SelectItem>
+                              <SelectItem value="litre">Litre</SelectItem>
+                              <SelectItem value="bundle">Bundle</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                       <div>
                         <Label className="text-xs sm:text-sm">Remarks</Label>

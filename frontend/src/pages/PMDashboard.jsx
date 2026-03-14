@@ -93,19 +93,22 @@ export default function PMDashboard() {
     }
   };
 
-  const handleApproveRequest = async (action) => {
-    if (!selectedRequest) return;
+  const handleApproveRequest = async (action, req = null, type = null) => {
+    const request = req || selectedRequest;
+    const rType = type || requestType;
+    if (!request) return;
     
     try {
-      if (requestType === 'material') {
-        await axios.patch(`${API}/site-engineer/material-requests/${selectedRequest.request_id}/approve`, null, {
+      if (rType === 'material') {
+        await axios.patch(`${API}/site-engineer/material-requests/${request.request_id}/approve`, null, {
           params: { 
             action: action === 'approve' ? 'pm_approve' : 'reject',
             rejection_reason: action === 'reject' ? rejectReason : undefined
           }
         });
-      } else if (requestType === 'labour') {
-        await axios.patch(`${API}/pm/labour-requests/${selectedRequest.labour_expense_id}/verify`, null, {
+      } else if (rType === 'labour') {
+        const labId = request.labour_expense_id || request.request_id;
+        await axios.patch(`${API}/pm/labour-requests/${labId}/verify`, null, {
           params: { action, rejection_reason: action === 'reject' ? rejectReason : undefined }
         });
       }
@@ -356,17 +359,15 @@ export default function PMDashboard() {
                               <Button 
                                 size="sm"
                                 className="bg-green-600 hover:bg-green-700"
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setRequestType('material');
-                                  handleApproveRequest('approve');
-                                }}
+                                data-testid={`approve-material-${req.request_id}`}
+                                onClick={() => handleApproveRequest('approve', req, 'material')}
                               >
                                 <CheckCircle className="h-4 w-4 mr-1" /> Approve
                               </Button>
                               <Button 
                                 size="sm"
                                 variant="destructive"
+                                data-testid={`reject-material-${req.request_id}`}
                                 onClick={() => {
                                   setSelectedRequest(req);
                                   setRequestType('material');
@@ -407,17 +408,15 @@ export default function PMDashboard() {
                               <Button 
                                 size="sm"
                                 className="bg-green-600 hover:bg-green-700"
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setRequestType('labour');
-                                  handleApproveRequest('approve');
-                                }}
+                                data-testid={`verify-labour-${req.labour_expense_id}`}
+                                onClick={() => handleApproveRequest('approve', req, 'labour')}
                               >
                                 <CheckCircle className="h-4 w-4 mr-1" /> Verify
                               </Button>
                               <Button 
                                 size="sm"
                                 variant="destructive"
+                                data-testid={`reject-labour-${req.labour_expense_id}`}
                                 onClick={() => {
                                   setSelectedRequest(req);
                                   setRequestType('labour');

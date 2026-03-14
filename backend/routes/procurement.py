@@ -784,6 +784,7 @@ class VendorSelectionInput(BaseModel):
     discount: float = 0
     payment_type: str  # advance, partial, credit
     advance_amount: Optional[float] = None  # For partial payment
+    credit_period_days: int = 30  # Credit period in days (default 30)
     expected_delivery: Optional[str] = None
 
 
@@ -845,6 +846,7 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
         "payment_type": data.payment_type,
         "advance_amount": data.advance_amount if data.payment_type == "partial" else (total_amount if data.payment_type == "advance" else 0),
         "balance_amount": total_amount - (data.advance_amount or 0) if data.payment_type == "partial" else (0 if data.payment_type == "advance" else total_amount),
+        "credit_period_days": data.credit_period_days if data.payment_type == "credit" else 0,
         "expected_delivery": data.expected_delivery,
         "status": new_status,
         "procurement_approved_by": user.user_id,
@@ -975,8 +977,17 @@ async def generate_purchase_order_v2(request_id: str, user: User = Depends(get_c
         }}
     )
     
-    # If credit, add to credit ledger
+    # If credit, add to credit ledger with comprehensive tracking
     if request.get("payment_type") == "credit":
+        credit_period = request.get("credit_period_days", 30)
+        delivery_date = request.get("expected_delivery") or datetime.now(timezone.utc).isoformat()
+        # Calculate payment due date from delivery date
+        try:
+            delivery_dt = datetime.fromisoformat(delivery_date.replace("Z", "+00:00"))
+        except Exception:
+            delivery_dt = datetime.now(timezone.utc)
+        payment_due_dt = delivery_dt + timedelta(days=credit_period)
+        
         credit_entry = {
             "entry_id": f"cle_{uuid.uuid4().hex[:12]}",
             "vendor_id": request.get("vendor_id"),
@@ -985,14 +996,30 @@ async def generate_purchase_order_v2(request_id: str, user: User = Depends(get_c
             "project_name": project.get("name") if project else "",
             "request_id": request_id,
             "po_id": po_id,
+            "material_name": request.get("material_name"),
+            "quantity": request.get("quantity"),
+            "unit": request.get("unit"),
             "credit_amount": request.get("total_amount"),
             "paid_amount": 0,
             "balance_amount": request.get("total_amount"),
+            "credit_period_days": credit_period,
+            "delivery_date": delivery_date,
+            "payment_due_date": payment_due_dt.isoformat(),
             "status": "outstanding",
+            "payment_requested": False,
             "payment_history": [],
+            "created_by": user.user_id,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         await db.credit_ledger.insert_one(credit_entry)
+        
+        # Notify accountant about upcoming credit payment
+        accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for acc in accountants:
+            await create_notification(
+                acc["user_id"],
+                f"Credit purchase: {request.get('material_name')} from {request.get('vendor_name')} - ₹{request.get('total_amount'):,.0f} due in {credit_period} days"
+            )
     
     return {"message": "Purchase Order generated", "po_id": po_id, "po_number": po_number}
 
@@ -1242,7 +1269,7 @@ async def get_credit_ledger(
     status: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    """Get credit ledger entries"""
+    """Get credit ledger entries with overdue tracking"""
     if user.role not in [UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -1254,12 +1281,39 @@ async def get_credit_ledger(
     
     entries = await db.credit_ledger.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     
-    # Calculate totals
-    total_outstanding = sum(e.get("balance_amount", 0) for e in entries if e.get("status") != "paid")
+    now = datetime.now(timezone.utc)
+    total_outstanding = 0
+    overdue_count = 0
+    overdue_amount = 0
+    
+    for e in entries:
+        if e.get("status") != "paid":
+            balance = e.get("balance_amount", 0)
+            total_outstanding += balance
+            
+            # Check if overdue
+            due_date_str = e.get("payment_due_date")
+            if due_date_str:
+                try:
+                    due_date = datetime.fromisoformat(due_date_str.replace("Z", "+00:00"))
+                    if now > due_date:
+                        e["is_overdue"] = True
+                        e["days_overdue"] = (now - due_date).days
+                        overdue_count += 1
+                        overdue_amount += balance
+                    else:
+                        e["is_overdue"] = False
+                        e["days_until_due"] = (due_date - now).days
+                except Exception:
+                    e["is_overdue"] = False
+            else:
+                e["is_overdue"] = False
     
     return {
         "entries": entries,
         "total_outstanding": total_outstanding,
+        "overdue_count": overdue_count,
+        "overdue_amount": overdue_amount,
         "count": len(entries)
     }
 
@@ -1311,6 +1365,41 @@ async def pay_credit(entry_id: str, data: CreditPaymentInput, user: User = Depen
         "balance_amount": max(0, new_balance),
         "status": new_status
     }
+
+
+
+@router.post("/procurement/credit-ledger/{entry_id}/request-payment")
+async def request_credit_payment(entry_id: str, user: User = Depends(get_current_user)):
+    """Procurement requests payment from accountant for a credit entry that is due"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can request payment")
+    
+    entry = await db.credit_ledger.find_one({"entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    
+    if entry.get("status") == "paid":
+        raise HTTPException(status_code=400, detail="This credit is already fully paid")
+    
+    await db.credit_ledger.update_one(
+        {"entry_id": entry_id},
+        {"$set": {
+            "payment_requested": True,
+            "payment_requested_by": user.user_id,
+            "payment_requested_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for acc in accountants:
+        await create_notification(
+            acc["user_id"],
+            f"Payment requested for credit: {entry.get('vendor_name')} - {entry.get('material_name', 'Material')} - ₹{entry.get('balance_amount', 0):,.0f}"
+        )
+    
+    return {"message": "Payment request sent to accountant"}
+
 
 
 # ==================== VENDOR MASTER ENHANCED ENDPOINTS ====================

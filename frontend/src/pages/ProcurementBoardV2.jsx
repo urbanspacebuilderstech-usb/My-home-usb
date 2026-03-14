@@ -67,6 +67,7 @@ export default function ProcurementBoardV2() {
     discount: '0',
     payment_type: 'advance',
     advance_amount: '',
+    credit_period_days: '30',
     expected_delivery: ''
   });
   
@@ -223,6 +224,7 @@ export default function ProcurementBoardV2() {
         discount: parseFloat(vendorForm.discount || 0),
         payment_type: vendorForm.payment_type,
         advance_amount: vendorForm.payment_type === 'partial' ? parseFloat(vendorForm.advance_amount || 0) : null,
+        credit_period_days: vendorForm.payment_type === 'credit' ? parseInt(vendorForm.credit_period_days || 30) : 0,
         expected_delivery: vendorForm.expected_delivery || null
       });
       
@@ -827,9 +829,17 @@ export default function ProcurementBoardV2() {
             <TabsContent value="credit" className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold">Credit Ledger</h3>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Total Outstanding</p>
-                  <p className="text-2xl font-bold text-red-600">₹{creditLedger.total_outstanding?.toLocaleString()}</p>
+                <div className="flex items-center gap-4">
+                  {creditLedger.overdue_count > 0 && (
+                    <div className="text-right bg-red-50 px-3 py-1 rounded-lg">
+                      <p className="text-xs text-red-500">Overdue</p>
+                      <p className="text-sm font-bold text-red-600">{creditLedger.overdue_count} items - ₹{creditLedger.overdue_amount?.toLocaleString()}</p>
+                    </div>
+                  )}
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">Total Outstanding</p>
+                    <p className="text-2xl font-bold text-red-600">₹{creditLedger.total_outstanding?.toLocaleString()}</p>
+                  </div>
                 </div>
               </div>
               
@@ -843,46 +853,75 @@ export default function ProcurementBoardV2() {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Vendor</th>
-                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Project</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Credit</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Paid</th>
-                        <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Balance</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Status</th>
-                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Action</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600">Vendor</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600">Material</th>
+                        <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600">Project</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600">Amount</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600">Paid</th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-gray-600">Balance</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600">Delivery</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600">Due Date</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600">Status</th>
+                        <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {creditLedger.entries?.map((entry) => (
-                        <tr key={entry.entry_id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 font-medium">{entry.vendor_name}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{entry.project_name}</td>
-                          <td className="px-4 py-3 text-right">₹{entry.credit_amount?.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right text-green-600">₹{entry.paid_amount?.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-red-600">₹{entry.balance_amount?.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-center">
+                        <tr key={entry.entry_id} className={`hover:bg-gray-50 ${entry.is_overdue ? 'bg-red-50' : ''}`}>
+                          <td className="px-3 py-3 font-medium text-sm">{entry.vendor_name}</td>
+                          <td className="px-3 py-3 text-sm text-gray-600">{entry.material_name || '-'}</td>
+                          <td className="px-3 py-3 text-sm text-gray-600">{entry.project_name}</td>
+                          <td className="px-3 py-3 text-right text-sm">₹{entry.credit_amount?.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-right text-sm text-green-600">₹{entry.paid_amount?.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-right font-semibold text-sm text-red-600">₹{entry.balance_amount?.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-center text-xs">
+                            {entry.delivery_date ? new Date(entry.delivery_date).toLocaleDateString('en-IN') : '-'}
+                          </td>
+                          <td className="px-3 py-3 text-center text-xs">
+                            {entry.payment_due_date ? (
+                              <span className={entry.is_overdue ? 'text-red-600 font-bold' : ''}>
+                                {new Date(entry.payment_due_date).toLocaleDateString('en-IN')}
+                                {entry.is_overdue && <span className="block text-red-500">{entry.days_overdue}d overdue</span>}
+                                {!entry.is_overdue && entry.days_until_due != null && <span className="block text-gray-400">{entry.days_until_due}d left</span>}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-3 py-3 text-center">
                             <Badge className={
                               entry.status === 'paid' ? 'bg-green-100 text-green-700' :
                               entry.status === 'partially_paid' ? 'bg-yellow-100 text-yellow-700' :
-                              entry.status === 'overdue' ? 'bg-red-100 text-red-700' :
+                              entry.is_overdue ? 'bg-red-100 text-red-700' :
                               'bg-gray-100 text-gray-700'
                             }>
-                              {entry.status}
+                              {entry.is_overdue && entry.status !== 'paid' ? 'Overdue' : entry.status?.replace('_', ' ')}
                             </Badge>
                           </td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-3 py-3 text-center">
                             {entry.status !== 'paid' && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => {
-                                  setSelectedCredit(entry);
-                                  setCreditPayForm({ amount: '', payment_reference: '', remarks: '' });
-                                  setCreditPayDialog(true);
-                                }}
-                              >
-                                Pay
-                              </Button>
+                              <div className="flex gap-1 justify-center">
+                                {!entry.payment_requested && (
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="text-xs"
+                                    data-testid={`request-payment-${entry.entry_id}`}
+                                    onClick={async () => {
+                                      try {
+                                        await axios.post(`${API}/procurement/credit-ledger/${entry.entry_id}/request-payment`);
+                                        toast.success('Payment request sent to accountant');
+                                        fetchCreditLedger();
+                                      } catch (err) {
+                                        toast.error(err.response?.data?.detail || 'Failed');
+                                      }
+                                    }}
+                                  >
+                                    Request Pay
+                                  </Button>
+                                )}
+                                {entry.payment_requested && (
+                                  <Badge className="bg-blue-50 text-blue-700 text-xs">Requested</Badge>
+                                )}
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -1050,6 +1089,22 @@ export default function ProcurementBoardV2() {
                     Balance: ₹{(calculateTotal() - parseFloat(vendorForm.advance_amount || 0)).toLocaleString()}
                   </p>
                 )}
+              </div>
+            )}
+            
+            {vendorForm.payment_type === 'credit' && (
+              <div>
+                <Label>Credit Period (Days)</Label>
+                <Input
+                  type="number"
+                  value={vendorForm.credit_period_days}
+                  onChange={(e) => setVendorForm({...vendorForm, credit_period_days: e.target.value})}
+                  placeholder="30"
+                  data-testid="credit-period-days"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Payment due {vendorForm.credit_period_days || 30} days after delivery
+                </p>
               </div>
             )}
             

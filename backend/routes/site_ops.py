@@ -156,7 +156,7 @@ class MaterialRequest(BaseModel):
 
 
 class LabourRequest(BaseModel):
-    request_id: str = Field(default_factory=lambda: f"lreq_{uuid.uuid4().hex[:12]}")
+    labour_expense_id: str = Field(default_factory=lambda: f"lreq_{uuid.uuid4().hex[:12]}")
     order_id: str = Field(default_factory=lambda: f"LAB-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}")
     project_id: str
     site_engineer_id: str
@@ -165,6 +165,7 @@ class LabourRequest(BaseModel):
     num_days: int
     rate_per_day: float
     total_amount: float  # num_workers * num_days * rate_per_day
+    description: Optional[str] = None
     remarks: Optional[str] = None
     status: LabourRequestStatus = LabourRequestStatus.REQUESTED
     planning_approved_by: Optional[str] = None
@@ -441,10 +442,10 @@ async def get_site_engineer_projects(user: User = Depends(get_current_user)):
                 "site_engineer_id": user.user_id,
                 "status": {"$nin": ["received_completed", "rejected"]}
             })
-            labour_orders = await db.labour_requests.count_documents({
+            labour_orders = await db.labour_expenses.count_documents({
                 "project_id": a["project_id"],
                 "site_engineer_id": user.user_id,
-                "status": {"$nin": ["approved", "rejected"]}
+                "status": {"$nin": ["approved", "rejected", "accounts_approved"]}
             })
             
             # Get pending petty cash
@@ -501,7 +502,7 @@ async def get_site_engineer_project_detail(
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
     
     # Get labour requests
-    labour_requests = await db.labour_requests.find({
+    labour_requests = await db.labour_expenses.find({
         "project_id": project_id,
         "site_engineer_id": user.user_id
     }, {"_id": 0}).sort("created_at", -1).to_list(1000)
@@ -530,8 +531,11 @@ async def get_site_engineer_project_detail(
 # Material Request Endpoints
 class MaterialRequestCreate(BaseModel):
     project_id: str
-    material_id: str
+    material_id: Optional[str] = None
+    material_name: Optional[str] = None
     quantity: float
+    unit: Optional[str] = None
+    required_date: Optional[str] = None
     remarks: Optional[str] = None
 
 
@@ -554,31 +558,42 @@ async def create_material_request(
     if not assignment:
         raise HTTPException(status_code=403, detail="You are not assigned to this project")
     
-    # Get material details
-    material = await db.materials.find_one({"material_id": data.material_id}, {"_id": 0})
-    if not material:
-        raise HTTPException(status_code=404, detail="Material not found")
+    # Get material details (optional - can provide name directly)
+    mat_name = data.material_name or "Unknown Material"
+    mat_unit = data.unit or "unit"
+    
+    if data.material_id:
+        material = await db.materials.find_one({"material_id": data.material_id}, {"_id": 0})
+        if material:
+            mat_name = material.get("name", mat_name)
+            mat_unit = material.get("unit", mat_unit)
+    
+    # Get project name
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
     
     request = MaterialRequest(
         project_id=data.project_id,
         site_engineer_id=user.user_id,
-        material_id=data.material_id,
-        material_name=material["name"],
+        material_id=data.material_id or f"mat_custom_{uuid.uuid4().hex[:8]}",
+        material_name=mat_name,
         quantity=data.quantity,
-        unit=material["unit"],
+        unit=mat_unit,
         remarks=data.remarks
     )
     
     req_dict = request.model_dump()
     req_dict["status"] = req_dict["status"].value
     req_dict["created_at"] = req_dict["created_at"].isoformat()
+    req_dict["project_name"] = project["name"] if project else "Unknown"
+    req_dict["site_engineer_name"] = user.name
+    req_dict["required_date"] = data.required_date
     await db.material_requests.insert_one(req_dict)
     req_dict.pop("_id", None)
     
-    # Notify Planning department (in-app)
-    planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
-    for p in planners:
-        await create_notification(p["user_id"], f"New material request: {material['name']} x {data.quantity}")
+    # Notify PM and Procurement (in-app)
+    pm_users = await db.users.find({"role": {"$in": ["project_manager", "procurement", "planning"]}}, {"_id": 0}).to_list(100)
+    for p in pm_users:
+        await create_notification(p["user_id"], f"New material request: {mat_name} x {data.quantity}")
     
     # Send email notification (non-blocking)
     try:
@@ -587,7 +602,7 @@ async def create_material_request(
     except Exception:
         pass
     
-    await create_audit_log(user.user_id, "create", "material_request", request.request_id, {"material": material["name"], "qty": data.quantity})
+    await create_audit_log(user.user_id, "create", "material_request", request.request_id, {"material": mat_name, "qty": data.quantity})
     
     return req_dict
 
@@ -765,7 +780,7 @@ async def create_labour_request(
     user: User = Depends(get_current_user)
 ):
     """Create a new labour request"""
-    if user.role != UserRole.SITE_ENGINEER:
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can create labour requests")
     
     # Verify assignment
@@ -778,6 +793,9 @@ async def create_labour_request(
     if not assignment:
         raise HTTPException(status_code=403, detail="You are not assigned to this project")
     
+    # Get project name
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    
     total_amount = data.num_workers * data.num_days * data.rate_per_day
     
     request = LabourRequest(
@@ -788,18 +806,22 @@ async def create_labour_request(
         num_days=data.num_days,
         rate_per_day=data.rate_per_day,
         total_amount=total_amount,
+        description=f"{data.labour_type} - {data.num_workers} workers x {data.num_days} days",
         remarks=data.remarks
     )
     
     req_dict = request.model_dump()
     req_dict["status"] = req_dict["status"].value
     req_dict["created_at"] = req_dict["created_at"].isoformat()
-    await db.labour_requests.insert_one(req_dict)
+    req_dict["project_name"] = project["name"] if project else "Unknown"
+    req_dict["site_engineer_name"] = user.name
+    req_dict["amount"] = total_amount  # Alias for compatibility
+    await db.labour_expenses.insert_one(req_dict)
     req_dict.pop("_id", None)
     
-    # Notify Planning department (in-app)
-    planners = await db.users.find({"role": "planning"}, {"_id": 0}).to_list(100)
-    for p in planners:
+    # Notify PM
+    pm_users = await db.users.find({"role": "project_manager"}, {"_id": 0}).to_list(100)
+    for p in pm_users:
         await create_notification(p["user_id"], f"New labour request: {data.labour_type} x {data.num_workers} workers")
     
     # Send email notification (non-blocking)
@@ -809,7 +831,7 @@ async def create_labour_request(
     except Exception:
         pass
     
-    await create_audit_log(user.user_id, "create", "labour_request", request.request_id, {"type": data.labour_type, "workers": data.num_workers})
+    await create_audit_log(user.user_id, "create", "labour_request", request.labour_expense_id, {"type": data.labour_type, "workers": data.num_workers})
     
     return req_dict
 
@@ -832,12 +854,13 @@ async def get_labour_requests(
     if status:
         query["status"] = status
     
-    requests = await db.labour_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
     
     # Enrich with project name
     for r in requests:
-        project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
-        r["project_name"] = project["name"] if project else "Unknown"
+        if "project_name" not in r:
+            project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
+            r["project_name"] = project["name"] if project else "Unknown"
     
     return requests
 
@@ -850,10 +873,14 @@ async def approve_labour_request(
     user: User = Depends(get_current_user)
 ):
     """Approve or reject a labour request"""
-    request = await db.labour_requests.find_one({"request_id": request_id}, {"_id": 0})
+    # Try both id fields for backwards compatibility
+    request = await db.labour_expenses.find_one(
+        {"$or": [{"labour_expense_id": request_id}, {"request_id": request_id}]}, {"_id": 0}
+    )
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
+    id_field = "labour_expense_id" if "labour_expense_id" in request else "request_id"
     update_data = {}
     
     if action == "planning_approve":
@@ -869,34 +896,36 @@ async def approve_labour_request(
         # Notify accountant
         acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
         for a in acc_users:
-            await create_notification(a["user_id"], f"Labour request ready for approval: {request['labour_type']}")
+            await create_notification(a["user_id"], f"Labour request ready for approval: {request.get('labour_type', request.get('description', 'Labour'))}")
     
     elif action == "accountant_approve":
         if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
             raise HTTPException(status_code=403, detail="Permission denied")
-        if request["status"] != "planning_approved":
-            raise HTTPException(status_code=400, detail="Invalid status")
+        if request["status"] not in ["planning_approved", "pending_accounts_approval", "pm_verified"]:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {request['status']}. Expected planning_approved or pending_accounts_approval")
         update_data = {
-            "status": LabourRequestStatus.APPROVED.value,
+            "status": "accounts_approved",
             "accountant_approved_by": user.user_id,
             "accountant_approved_at": datetime.now(timezone.utc).isoformat()
         }
-        await create_notification(request["site_engineer_id"], f"Labour request approved: {request['labour_type']}")
+        se_id = request.get("site_engineer_id", "")
+        await create_notification(se_id, f"Labour request approved by accounts: {request.get('labour_type', request.get('description', 'Labour'))}")
     
     elif action == "reject":
         update_data = {
             "status": LabourRequestStatus.REJECTED.value,
             "rejection_reason": rejection_reason
         }
-        await create_notification(request["site_engineer_id"], f"Labour request rejected: {request['labour_type']}")
+        se_id = request.get("site_engineer_id", "")
+        await create_notification(se_id, f"Labour request rejected: {request.get('labour_type', request.get('description', 'Labour'))}")
     
     else:
         raise HTTPException(status_code=400, detail="Invalid action")
     
-    await db.labour_requests.update_one({"request_id": request_id}, {"$set": update_data})
+    await db.labour_expenses.update_one({id_field: request_id}, {"$set": update_data})
     await create_audit_log(user.user_id, action, "labour_request", request_id, update_data)
     
-    return await db.labour_requests.find_one({"request_id": request_id}, {"_id": 0})
+    return await db.labour_expenses.find_one({id_field: request_id}, {"_id": 0})
 
 
 # Material Receipt with OTP
@@ -1735,7 +1764,7 @@ async def pm_verify_labour_request(
     rejection_reason: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
-    """PM verifies labour request, then it goes to GM for final approval"""
+    """PM verifies labour request, then it goes to Accountant for payment approval"""
     if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Project Manager can verify")
     
@@ -1747,16 +1776,16 @@ async def pm_verify_labour_request(
         await db.labour_expenses.update_one(
             {"labour_expense_id": request_id},
             {"$set": {
-                "status": "pm_verified",
+                "status": "pending_accounts_approval",
                 "pm_verified_by": user.user_id,
                 "pm_verified_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-        # Notify GM
-        gm_users = await db.users.find({"role": "general_manager"}, {"_id": 0}).to_list(10)
-        for gm in gm_users:
-            await create_notification(gm["user_id"], f"Labour request needs GM approval: {request.get('description', 'Labour payment')}")
-        return {"message": "Labour request verified by PM, sent to GM for approval"}
+        # Notify Accountant
+        acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(10)
+        for a in acc_users:
+            await create_notification(a["user_id"], f"Labour request needs payment approval: {request.get('description', request.get('labour_type', 'Labour payment'))}")
+        return {"message": "Labour request verified by PM, sent to Accountant for approval"}
     
     elif action == "reject":
         await db.labour_expenses.update_one(
@@ -1768,6 +1797,9 @@ async def pm_verify_labour_request(
                 "pm_rejected_at": datetime.now(timezone.utc).isoformat()
             }}
         )
+        se_id = request.get("site_engineer_id", "")
+        if se_id:
+            await create_notification(se_id, f"Labour request rejected by PM: {rejection_reason or 'No reason'}")
         return {"message": "Labour request rejected by PM"}
     
     raise HTTPException(status_code=400, detail="Invalid action")
@@ -1815,6 +1847,19 @@ async def assign_team_to_project(data: TeamAssignmentCreate, user: User = Depend
     }
     
     await db.site_engineer_assignments.insert_one(assignment)
+    assignment.pop("_id", None)
+    
+    # Update project with assigned engineer
+    update_fields = {}
+    if team_member["role"] == "site_engineer":
+        update_fields["assigned_se"] = data.user_id
+        update_fields["assigned_se_name"] = team_member["name"]
+    
+    if update_fields:
+        await db.projects.update_one(
+            {"project_id": data.project_id},
+            {"$set": update_fields}
+        )
     
     # Notify team member
     await create_notification(data.user_id, f"You have been assigned to project: {project['name']}")
@@ -1830,7 +1875,7 @@ async def get_team_members(user: User = Depends(get_current_user)):
     
     team = await db.users.find({
         "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
-    }, {"_id": 0, "password": 0}).to_list(100)
+    }, {"_id": 0, "password": 0, "password_hash": 0}).to_list(100)
     
     # Add current project assignments
     for member in team:
