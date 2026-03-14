@@ -1187,7 +1187,7 @@ export default function ProjectDetail() {
       {/* Navigation */}
       <AppHeader user={user} />
 
-      <div className="max-w-[1600px] mx-auto px-4 py-4 sm:px-6 sm:py-8">
+      <div className="max-w-[1800px] mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Project Header */}
         <div className="mb-4 sm:mb-8">
           <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-4">
@@ -1363,39 +1363,37 @@ export default function ProjectDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b p-3 sm:p-6">
               <TabsList className="bg-transparent border-0 p-0 h-auto gap-0 w-full justify-start overflow-x-auto flex-nowrap">
-                <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
-                  <FileText className="h-3 w-3 mr-1" />
+                <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Estimate
                 </TabsTrigger>
-                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
+                <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Scope
                 </TabsTrigger>
-                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap" data-testid="tab-project-stages">
+                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap" data-testid="tab-project-stages">
                   Stages
                 </TabsTrigger>
-                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap" data-testid="tab-team">
+                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap" data-testid="tab-team">
                   Team
                 </TabsTrigger>
-                <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap" data-testid="tab-materials">
+                <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap" data-testid="tab-materials">
                   Materials
                 </TabsTrigger>
-                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap" data-testid="tab-labours">
+                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap" data-testid="tab-labours">
                   Labours
                 </TabsTrigger>
-                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
+                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Payments
                 </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
+                {canSeeFinancials && <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Additional
                 </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
+                {canSeeFinancials && <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Deduction
                 </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 lg:px-3 text-xs bg-green-50 whitespace-nowrap">
-                  <DollarSign className="h-3 w-3 mr-1" />
+                {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-3 lg:px-4 py-2.5 text-sm bg-green-50 whitespace-nowrap">
                   Summary
                 </TabsTrigger>}
-                <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-2 lg:px-3 text-xs whitespace-nowrap">
+                <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-3 lg:px-4 py-2.5 text-sm whitespace-nowrap">
                   Documents {projectFiles.length > 0 && <Badge variant="secondary" className="ml-1 text-xs">{projectFiles.length}</Badge>}
                 </TabsTrigger>
               </TabsList>
