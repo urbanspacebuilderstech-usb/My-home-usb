@@ -1234,8 +1234,8 @@ export default function CRMPreSales() {
                   </CardContent>
                 </Card>
                 
-                {/* Appointment Info */}
-                {selectedLead.appointment && (
+                {/* Appointment Info - only for leads in Appointment Booked (final) stage */}
+                {stages.find(s => s.is_final && s.stage_id === selectedLead.current_stage_id) && selectedLead.appointment && Object.keys(selectedLead.appointment).length > 0 && (
                   <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
@@ -1260,18 +1260,6 @@ export default function CRMPreSales() {
                           <p className="font-medium capitalize">{selectedLead.appointment.appointment_type?.replace('_', ' ')}</p>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
-                
-                {!selectedLead.appointment && (
-                  <Card>
-                    <CardContent className="py-4 text-center">
-                      <Calendar className="h-6 w-6 mx-auto mb-2 text-gray-300" />
-                      <p className="text-sm text-gray-400">No appointment booked yet</p>
-                      <Button variant="outline" size="sm" className="mt-2" onClick={openApptEdit} data-testid="book-new-appointment-btn">
-                        <Plus className="h-3 w-3 mr-1" /> Book Appointment
-                      </Button>
                     </CardContent>
                   </Card>
                 )}
