@@ -93,6 +93,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Works in Create Project, Collect Payment, and Convert Deal dialogs
   - Backend saves cheque records to `cheques` collection with income/stage linking
   - Cheque total displayed below entries
+- [x] **P0: CRE Dashboard Redesign (Mar 14, 2026)**:
+  - Redesigned with 5 clean tabs: New Deals, All Projects, Payment Req, Payment Approvals, Payment Collected
+  - Summary cards: Total Projects, Total Value, Total Collected, Pending Actions
+  - Payment Req tab: Sub-tabs for Stage Payment Requests and Additional Payments
+  - Payment Approvals: Advance → Send to Planning, Others → Just Approve
+  - Payment Collected: Full payment ledger with project name, date, category, mode, status columns
+  - Create Project: Two modes - "Full Project + Advance" and "Request RE from Planning"
+  - "Request RE" sends notification to Planning team and creates project in planning_review status
+  - New backend endpoints: /cre/additional-payment-requests, /cre/income-collected, /cre/pending-approvals, /cre/projects/request-re
 
 ## Credentials
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
