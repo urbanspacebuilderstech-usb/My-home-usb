@@ -2473,9 +2473,9 @@ class VerifyRequest(BaseModel):
 @router.post("/scope-items/verify")
 async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify scope items - requires typing VERIFY"""
-    # RBAC: Only CRE, Accountant, Admin can verify
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
-        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
+    # RBAC: Only CRE, Accountant, Planning, Admin can verify
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2496,8 +2496,8 @@ async def verify_scope_items(data: VerifyRequest, user: User = Depends(get_curre
 @router.post("/payment-stages/verify")
 async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify payment stages - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
-        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2518,8 +2518,8 @@ async def verify_payment_stages(data: VerifyRequest, user: User = Depends(get_cu
 @router.post("/additional-costs/verify")
 async def verify_additions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify additions - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
-        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
@@ -2540,8 +2540,8 @@ async def verify_additions(data: VerifyRequest, user: User = Depends(get_current
 @router.post("/deductions/verify")
 async def verify_deductions(data: VerifyRequest, user: User = Depends(get_current_user)):
     """Verify deductions - requires typing VERIFY"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT]:
-        raise HTTPException(status_code=403, detail="Only CRE, Accountant, or Admin can verify items")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only CRE, Accountant, Planning, or Admin can verify items")
     if data.verification_code != "VERIFY":
         raise HTTPException(status_code=400, detail="Invalid verification code. Type 'VERIFY' exactly.")
     
