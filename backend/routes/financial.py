@@ -463,6 +463,18 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
     
+    # If this is an advance payment, update project status to payment_verified
+    if result.get("category") == "advance_payment" and result.get("project_id"):
+        await db.projects.update_one(
+            {"project_id": result["project_id"], "status": "pending_payment"},
+            {"$set": {
+                "status": "payment_verified",
+                "accountant_verified": True,
+                "accountant_verified_by": user.user_id,
+                "accountant_verified_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    
     await create_audit_log(user.user_id, "approve", "income", income_id, {"action": "approved"})
     return {"message": "Income approved successfully"}
 
@@ -587,6 +599,19 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
             )
 
     await create_audit_log(user.user_id, "review_approve", "income", income_id, {"verification": verification})
+    
+    # If this is an advance payment, update project status to payment_verified
+    if income.get("category") == "advance_payment" and project_id:
+        await db.projects.update_one(
+            {"project_id": project_id, "status": "pending_payment"},
+            {"$set": {
+                "status": "payment_verified",
+                "accountant_verified": True,
+                "accountant_verified_by": user.user_id,
+                "accountant_verified_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    
     return {"message": "Income reviewed and approved", "verification": verification}
 
 
