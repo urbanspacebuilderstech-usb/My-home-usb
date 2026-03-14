@@ -64,15 +64,18 @@ const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 
 // Context for user role - controls masking behavior
 const MaskContext = React.createContext('accountant');
+// Global unmask context
+const UnmaskContext = React.createContext(false);
 
 // Masked value component - Super Admin always sees values, Accountant clicks to reveal for 10s
 function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '' }) {
   const role = React.useContext(MaskContext);
+  const globalUnmasked = React.useContext(UnmaskContext);
   const [visible, setVisible] = useState(false);
   const timerRef = useRef(null);
 
   // Super Admin always sees values
-  const alwaysVisible = role === 'super_admin';
+  const alwaysVisible = role === 'super_admin' || globalUnmasked;
 
   const handleClick = (e) => {
     if (alwaysVisible) return;
@@ -2094,6 +2097,8 @@ export default function AccountsBoard() {
   const [overview, setOverview] = useState(null);
   const [projects, setProjects] = useState([]);
   const [mainTab, setMainTab] = useState('cashbook');
+  const [globalUnmasked, setGlobalUnmasked] = useState(false);
+  const [unmaskDialog, setUnmaskDialog] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -2133,10 +2138,37 @@ export default function AccountsBoard() {
 
   return (
     <MaskContext.Provider value={user?.role || 'accountant'}>
+    <UnmaskContext.Provider value={globalUnmasked}>
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
       <AppHeader user={user} />
       <div className="sticky top-14 z-40 bg-gray-50 border-b border-gray-100">
         <div className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-2">
+          <div className="flex items-center justify-between mb-2">
+            <div />
+            {user?.role !== 'super_admin' && (
+              globalUnmasked ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                  onClick={() => setGlobalUnmasked(false)}
+                  data-testid="mask-all-btn"
+                >
+                  <EyeOff className="h-4 w-4 mr-1.5" /> Mask All
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                  onClick={() => setUnmaskDialog(true)}
+                  data-testid="unmask-all-btn"
+                >
+                  <Eye className="h-4 w-4 mr-1.5" /> Unmask All
+                </Button>
+              )
+            )}
+          </div>
           <Tabs value={mainTab} onValueChange={setMainTab}>
             <TabsList className="w-full grid grid-cols-4" data-testid="accounts-main-tabs">
               <TabsTrigger value="cashbook" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
@@ -2175,7 +2207,36 @@ export default function AccountsBoard() {
         </Tabs>
       </main>
       <MobileBottomNav user={user} />
+
+      {/* Unmask Confirmation Dialog */}
+      <Dialog open={unmaskDialog} onOpenChange={setUnmaskDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <Eye className="h-5 w-5" /> Unmask All Values
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-gray-600 py-2">
+            This will reveal all masked financial values. Are you sure you want to proceed?
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setUnmaskDialog(false)}>Cancel</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="confirm-unmask-btn"
+              onClick={() => {
+                setGlobalUnmasked(true);
+                setUnmaskDialog(false);
+                toast.success('All values unmasked');
+              }}
+            >
+              <Eye className="h-4 w-4 mr-1.5" /> Unmask
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+    </UnmaskContext.Provider>
     </MaskContext.Provider>
   );
 }
