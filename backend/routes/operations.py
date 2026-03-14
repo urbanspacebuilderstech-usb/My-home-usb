@@ -378,6 +378,29 @@ async def convert_deal_to_project(
             }}
         )
     
+    # Create income record for advance payment - pending accountant approval
+    if data.advance_amount and data.advance_amount > 0:
+        income_record = {
+            "income_id": f"inc_{secrets.token_hex(6)}",
+            "project_id": project_id,
+            "project_name": project_name,
+            "category": "advance_payment",
+            "sub_category": "Deal Conversion Advance",
+            "amount": data.advance_amount,
+            "payment_mode": data.payment_mode or "cash",
+            "payment_reference": data.payment_reference or "",
+            "payment_date": now.isoformat(),
+            "stage": "Advance Payment",
+            "description": f"Advance payment from deal conversion - {client_name}",
+            "remarks": f"Deal closed by CRE. Client: {client_name}",
+            "collected_by": user.user_id,
+            "collected_by_name": user.name,
+            "status": "pending_approval",
+            "source": "approval",
+            "created_at": now.isoformat()
+        }
+        await db.income.insert_one(income_record)
+    
     return {
         "success": True,
         "project_id": project_id,
@@ -501,6 +524,28 @@ async def convert_re_project_to_project(
                 "converted_by": user.user_id
             }}
         )
+    
+    # Create income record for advance payment - pending accountant approval
+    if data.advance_amount and data.advance_amount > 0:
+        income_record = {
+            "income_id": f"inc_{secrets.token_hex(6)}",
+            "project_id": project_id,
+            "project_name": project_name,
+            "category": "advance_payment",
+            "sub_category": "RE Project Conversion Advance",
+            "amount": data.advance_amount,
+            "payment_mode": data.payment_mode or "cash",
+            "payment_reference": data.payment_reference or "",
+            "payment_date": now.isoformat(),
+            "stage": "Advance Payment",
+            "description": f"Advance payment from RE project conversion - {client_name}",
+            "collected_by": user.user_id,
+            "collected_by_name": user.name,
+            "status": "pending_approval",
+            "source": "approval",
+            "created_at": now.isoformat()
+        }
+        await db.income.insert_one(income_record)
     
     return {
         "success": True,
