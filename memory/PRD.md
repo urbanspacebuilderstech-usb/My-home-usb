@@ -48,6 +48,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Auth caching eliminates duplicate /api/auth/me calls
   - Removed "Loading..." spinner between pages (was caused by ProtectedRoute re-auth)
   - Logout properly clears auth cache via interceptors
+- [x] Appointment Booking & Sales Lead Editing (Mar 14, 2026):
+  - Pre-Sales: Moving to final stage shows appointment dialog (date, time, visit type: Office/Online/Home)
+  - "Book an Appointment" button disabled until all fields filled
+  - Transfer includes appointment data (date, time, type, booked_by)
+  - Sales: Enhanced lead detail dialog with 4 tabs (Overview, Summary, Follow-ups, Remarks)
+  - Sales: Edit button for modifying lead data (name, email, phone, address, notes)
+  - Sales: Summary tab with save functionality
+  - Sales: Follow-up scheduling with date and note
+  - Sales: Remark tracking with timestamps
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
