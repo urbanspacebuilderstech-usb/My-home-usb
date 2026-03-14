@@ -204,6 +204,24 @@ export default function CREBoard() {
   const handleConvertDeal = async () => {
     if (!selectedDeal) return;
     
+    // Validate required fields
+    const projectName = form.name || selectedDeal.project_name || selectedDeal.name;
+    const clientName = form.client_name || selectedDeal.client_name || selectedDeal.name;
+    const location = form.location || selectedDealRE?.location || selectedDeal.city;
+    
+    if (!projectName?.trim()) {
+      toast.error('Project name is required');
+      return;
+    }
+    if (!clientName?.trim()) {
+      toast.error('Client name is required');
+      return;
+    }
+    if (!location?.trim()) {
+      toast.error('Location is required');
+      return;
+    }
+    
     if (!advanceAmount || parseFloat(advanceAmount) <= 0) {
       toast.error('Please enter advance amount');
       return;
@@ -313,8 +331,8 @@ export default function CREBoard() {
   };
 
   const handleCreateProject = async () => {
-    if (!form.name || !form.client_name || !form.package_id) {
-      toast.error('Please fill all required fields');
+    if (!form.name?.trim() || !form.client_name?.trim() || !form.package_id) {
+      toast.error('Please fill all required fields (Project Name, Client Name, Package)');
       return;
     }
 
@@ -1465,16 +1483,18 @@ export default function CREBoard() {
                       placeholder="Enter project name"
                       className="mt-1"
                       data-testid="project-name-input"
+                      required
                     />
                   </div>
                   
                   <div>
-                    <Label>Location</Label>
+                    <Label>Location <span className="text-red-500">*</span></Label>
                     <Input
                       value={form.location || selectedDealRE?.location || selectedDeal.city || ''}
                       onChange={(e) => setForm({...form, location: e.target.value})}
                       placeholder="Project location"
                       className="mt-1"
+                      required
                     />
                   </div>
                   
@@ -1558,6 +1578,7 @@ export default function CREBoard() {
                       onChange={(e) => setForm({...form, client_name: e.target.value})}
                       placeholder="Client name"
                       className="mt-1"
+                      required
                     />
                   </div>
                   
