@@ -34,7 +34,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 resend.api_key = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://estimate-redesign.preview.emergentagent.com")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://crm-workflow-v2.preview.emergentagent.com")
 
 
 def hash_password(password: str) -> str:

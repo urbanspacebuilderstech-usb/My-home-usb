@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://estimate-redesign.preview.emergentagent.com
-- Backend API: https://estimate-redesign.preview.emergentagent.com/api
+- Frontend: https://crm-workflow-v2.preview.emergentagent.com
+- Backend API: https://crm-workflow-v2.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

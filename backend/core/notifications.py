@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 resend.api_key = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://estimate-redesign.preview.emergentagent.com')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://crm-workflow-v2.preview.emergentagent.com')
 
 
 def _email_wrapper(subject: str, body_html: str) -> str:

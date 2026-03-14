@@ -82,6 +82,8 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     
     import asyncio
     base_query = {}
+    if user.role == UserRole.CRE:
+        base_query["created_by"] = user.user_id
     
     # Run all DB queries in parallel
     (
@@ -92,7 +94,7 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     ) = await asyncio.gather(
         db.projects.count_documents({**base_query, "status": "draft"}),
         db.projects.count_documents({**base_query, "status": "pending_payment"}),
-        db.projects.count_documents({**base_query, "status": "payment_received"}),
+        db.projects.count_documents({**base_query, "status": {"$in": ["payment_received", "payment_verified"]}}),
         db.projects.count_documents({**base_query, "status": {"$in": ["in_planning", "planning", "planning_review"]}}),
         db.projects.count_documents({**base_query, "status": {"$in": ["planning_approved", "active", "gm_approved"]}}),
         db.projects.count_documents({**base_query, "status": {"$nin": ["draft", "pending_payment", "completed", "cancelled"]}}),
@@ -235,6 +237,17 @@ async def convert_deal_to_project(
     # Check if already converted
     if lead.get("project_created"):
         raise HTTPException(status_code=400, detail="Deal already converted to project")
+    
+    # Also check if a project already exists for this lead
+    existing_project = await db.projects.find_one({"lead_id": lead_id})
+    if existing_project:
+        raise HTTPException(status_code=400, detail="A project already exists for this lead")
+    
+    # Check if a project exists for the linked RE project
+    if lead.get("re_project_id"):
+        existing_re_project = await db.projects.find_one({"re_project_id": lead["re_project_id"]})
+        if existing_re_project:
+            raise HTTPException(status_code=400, detail="A project already exists for the linked RE Project")
     
     now = datetime.now(timezone.utc)
     
@@ -408,9 +421,13 @@ async def convert_re_project_to_project(
     if re_project.get("status") not in ["re_approved", "deal_closed"]:
         raise HTTPException(status_code=400, detail="RE Project must be approved by GM first")
     
-    # Check if already converted
+    # Check if already converted (check both RE project flag and existing project records)
     if re_project.get("converted_to_project") or re_project.get("status") == "converted":
         raise HTTPException(status_code=400, detail="RE Project already converted to a project")
+    
+    existing_project = await db.projects.find_one({"re_project_id": re_project_id})
+    if existing_project:
+        raise HTTPException(status_code=400, detail="A project already exists for this RE Project")
     
     now = datetime.now(timezone.utc)
     

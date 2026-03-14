@@ -503,8 +503,8 @@ export default function PlanningBoard() {
                   <HardHat className="h-4 w-4 mr-1" />
                   By Stage ({totalStageProjects})
                 </TabsTrigger>
-                <TabsTrigger value="new" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm">
-                  New Projects
+                <TabsTrigger value="new" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none text-xs sm:text-sm" data-testid="tab-new-projects">
+                  New Projects {(dashboard.new_projects || 0) > 0 && <span className="ml-1 bg-green-500 text-white text-xs px-1.5 rounded-full">{dashboard.new_projects}</span>}
                 </TabsTrigger>
                 <TabsTrigger value="awaiting" className="data-[state=active]:border-b-2 data-[state=active]:border-yellow-600 rounded-none text-xs sm:text-sm">
                   Awaiting Approval
@@ -548,112 +548,203 @@ export default function PlanningBoard() {
             )}
 
             <CardContent className="p-0">
-              {/* Mobile Card View */}
-              <div className="block sm:hidden divide-y">
-                {projects.length === 0 ? (
-                  <div className="p-8 text-center text-gray-500">No projects found</div>
-                ) : (
-                  projects.map((project) => (
-                    <div key={project.project_id} className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <p className="font-semibold">{project.name}</p>
-                          <p className="text-sm text-gray-500">{project.client_name}</p>
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                          {getStatusBadge(project.status)}
-                          {getStageBadge(project.current_stage)}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm mb-3">
-                        <div>
-                          <span className="text-gray-500">Package:</span>
-                          <span className="ml-1">{project.package_name || 'N/A'}</span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500">Sqft:</span>
-                          <span className="ml-1">{project.sqft?.toLocaleString()}</span>
-                        </div>
-                        <div className="col-span-2 font-semibold text-green-600">
-                          {formatCurrency(project.total_value)}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="flex-1" onClick={() => window.location.href = `/projects/${project.project_id}`}>
-                          <Eye className="h-3 w-3 mr-1" /> View
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
-                          <ArrowRight className="h-3 w-3 mr-1" /> Stage
-                        </Button>
-                        {project.status === 'planning_review' && (
-                          <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
-                            <Send className="h-3 w-3 mr-1" /> Submit
-                          </Button>
-                        )}
-                      </div>
+              {/* New Projects Tab - Dedicated CRE projects card view */}
+              <TabsContent value="new" className="m-0">
+                <div className="p-4 space-y-4" data-testid="new-projects-tab-content">
+                  {projects.length === 0 ? (
+                    <div className="py-8 text-center text-gray-500">
+                      <Briefcase className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p className="font-medium">No new projects from CRE</p>
+                      <p className="text-sm">Projects sent by CRE after payment verification will appear here</p>
                     </div>
-                  ))
-                )}
-              </div>
-
-              {/* Desktop Table View */}
-              <div className="hidden sm:block overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CLIENT</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PACKAGE</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">VALUE</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STAGE</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {projects.length === 0 ? (
-                      <tr>
-                        <td colSpan="7" className="px-4 py-8 text-center text-gray-500">No projects found</td>
-                      </tr>
-                    ) : (
-                      projects.map((project) => (
-                        <tr key={project.project_id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <p className="font-medium">{project.name}</p>
-                            <p className="text-xs text-gray-500">{project.location}</p>
-                          </td>
-                          <td className="px-4 py-3">{project.client_name}</td>
-                          <td className="px-4 py-3">
-                            <Badge variant="outline">{project.package_name || 'N/A'}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold text-green-600">
-                            {formatCurrency(project.total_value)}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {getStageBadge(project.current_stage || 'yet_to_start')}
-                          </td>
-                          <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex justify-center gap-2">
-                              <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
-                                <Eye className="h-3 w-3 mr-1" /> View
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
-                                <ArrowRight className="h-3 w-3" />
+                  ) : (
+                    projects.map((project) => (
+                      <Card key={project.project_id} className="border-l-4 border-l-green-500" data-testid={`new-project-card-${project.project_id}`}>
+                        <CardContent className="p-4">
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <h4 className="font-semibold text-lg">{project.name}</h4>
+                                {project.status === 'in_planning' && <Badge className="bg-green-600">New from CRE</Badge>}
+                                {project.status === 'planning_review' && <Badge className="bg-amber-600">In Review</Badge>}
+                                {project.status === 'planning' && <Badge className="bg-blue-600">Planning</Badge>}
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600">
+                                <div>
+                                  <p className="text-xs text-gray-500">Client</p>
+                                  <p className="font-medium">{project.client_name}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Location</p>
+                                  <p className="font-medium">{project.location || '-'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Area</p>
+                                  <p className="font-medium">{project.sqft?.toLocaleString() || '-'} sqft</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Project Value</p>
+                                  <p className="font-medium text-green-600">{formatCurrency(project.total_value)}</p>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm text-gray-600 mt-2">
+                                <div>
+                                  <p className="text-xs text-gray-500">Advance Received</p>
+                                  <p className="font-medium text-amber-600">{formatCurrency(project.advance_amount)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Building Type</p>
+                                  <p className="font-medium capitalize">{project.building_type || 'residential'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Phone</p>
+                                  <p className="font-medium">{project.client_phone || '-'}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-gray-500">Email</p>
+                                  <p className="font-medium">{project.client_email || '-'}</p>
+                                </div>
+                              </div>
+                              {project.re_project_id && (
+                                <div className="mt-3 p-2 bg-amber-50 rounded-lg">
+                                  <p className="text-xs text-amber-600 font-medium">Has linked Rough Estimate</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                className="bg-secondary hover:bg-secondary/90"
+                                onClick={() => window.location.href = `/projects/${project.project_id}`}
+                                data-testid={`view-new-project-${project.project_id}`}
+                              >
+                                <Eye className="h-4 w-4 mr-1" /> View Details
                               </Button>
                               {project.status === 'planning_review' && (
-                                <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
-                                  <Send className="h-3 w-3 mr-1" /> Submit
+                                <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)} data-testid={`submit-approval-${project.project_id}`}>
+                                  <Send className="h-4 w-4 mr-1" /> Submit for Approval
                                 </Button>
                               )}
                             </div>
-                          </td>
-                        </tr>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* Generic project view for other tabs (stages, awaiting, working, completed) */}
+              {['stages', 'awaiting', 'working', 'completed'].map((tabValue) => (
+                <TabsContent key={tabValue} value={tabValue} className="m-0">
+                  {/* Mobile Card View */}
+                  <div className="block sm:hidden divide-y">
+                    {projects.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500">No projects found</div>
+                    ) : (
+                      projects.map((project) => (
+                        <div key={project.project_id} className="p-4">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="font-semibold">{project.name}</p>
+                              <p className="text-sm text-gray-500">{project.client_name}</p>
+                            </div>
+                            <div className="flex flex-col gap-1 items-end">
+                              {getStatusBadge(project.status)}
+                              {getStageBadge(project.current_stage)}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm mb-3">
+                            <div>
+                              <span className="text-gray-500">Package:</span>
+                              <span className="ml-1">{project.package_name || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Sqft:</span>
+                              <span className="ml-1">{project.sqft?.toLocaleString()}</span>
+                            </div>
+                            <div className="col-span-2 font-semibold text-green-600">
+                              {formatCurrency(project.total_value)}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => window.location.href = `/projects/${project.project_id}`}>
+                              <Eye className="h-3 w-3 mr-1" /> View
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
+                              <ArrowRight className="h-3 w-3 mr-1" /> Stage
+                            </Button>
+                            {project.status === 'planning_review' && (
+                              <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
+                                <Send className="h-3 w-3 mr-1" /> Submit
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden sm:block overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CLIENT</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PACKAGE</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">VALUE</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STAGE</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTIONS</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {projects.length === 0 ? (
+                          <tr>
+                            <td colSpan="7" className="px-4 py-8 text-center text-gray-500">No projects found</td>
+                          </tr>
+                        ) : (
+                          projects.map((project) => (
+                            <tr key={project.project_id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <p className="font-medium">{project.name}</p>
+                                <p className="text-xs text-gray-500">{project.location}</p>
+                              </td>
+                              <td className="px-4 py-3">{project.client_name}</td>
+                              <td className="px-4 py-3">
+                                <Badge variant="outline">{project.package_name || 'N/A'}</Badge>
+                              </td>
+                              <td className="px-4 py-3 text-right font-semibold text-green-600">
+                                {formatCurrency(project.total_value)}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {getStageBadge(project.current_stage || 'yet_to_start')}
+                              </td>
+                              <td className="px-4 py-3 text-center">{getStatusBadge(project.status)}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex justify-center gap-2">
+                                  <Button size="sm" variant="outline" onClick={() => window.location.href = `/projects/${project.project_id}`}>
+                                    <Eye className="h-3 w-3 mr-1" /> View
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => openStageDialog(project)}>
+                                    <ArrowRight className="h-3 w-3" />
+                                  </Button>
+                                  {project.status === 'planning_review' && (
+                                    <Button size="sm" onClick={() => handleSubmitForApproval(project.project_id)}>
+                                      <Send className="h-3 w-3 mr-1" /> Submit
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </TabsContent>
+              ))}
             </CardContent>
           </Tabs>
         </Card>

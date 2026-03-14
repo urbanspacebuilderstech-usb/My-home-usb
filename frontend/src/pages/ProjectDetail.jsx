@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
-  Building2, LogOut, ArrowLeft, Plus, Edit, Trash2, Save, X,
+  Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
   ArrowDownRight, ArrowUpRight, RefreshCw, Eye
@@ -497,6 +497,35 @@ export default function ProjectDetail() {
     } catch (err) {
       console.error('PDF generation error:', err);
       toast.error('Failed to generate PDF');
+    }
+  };
+
+  const handleConvertToScope = async () => {
+    if (!reProject?.scope_items?.length) {
+      toast.error('No scope items in the Rough Estimate to convert');
+      setActiveTab('scope');
+      return;
+    }
+    
+    try {
+      const items = reProject.scope_items.map(item => ({
+        item_name: item.item_name,
+        quantity: parseFloat(item.quantity) || 1,
+        unit: item.unit || 'Nos',
+        unit_rate: parseFloat(item.unit_rate) || 0,
+        remarks: `From RE: ${reProject.project_name || ''}`
+      }));
+      
+      await axios.post(`${API}/scope-items/bulk`, {
+        project_id: projectId,
+        items
+      });
+      
+      toast.success(`Converted ${items.length} RE items to project scope`);
+      await fetchData();
+      setActiveTab('scope');
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to convert to scope');
     }
   };
 
@@ -1149,14 +1178,24 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Original rough estimate from Planning department</p>
                 </div>
                 {reProject && (
-                  <Button 
-                    onClick={handleGenerateREPDF} 
-                    className="bg-purple-600 hover:bg-purple-700"
-                    data-testid="download-re-pdf"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download PDF
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button 
+                      onClick={handleConvertToScope} 
+                      className="bg-green-600 hover:bg-green-700"
+                      data-testid="convert-to-scope-btn"
+                    >
+                      <ArrowRight className="h-4 w-4 mr-2" />
+                      Convert to Scope
+                    </Button>
+                    <Button 
+                      onClick={handleGenerateREPDF} 
+                      className="bg-purple-600 hover:bg-purple-700"
+                      data-testid="download-re-pdf"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download PDF
+                    </Button>
+                  </div>
                 )}
               </div>
               
