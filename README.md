@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://slow-api-fix.preview.emergentagent.com
-- Backend API: https://slow-api-fix.preview.emergentagent.com/api
+- Frontend: https://estimate-redesign.preview.emergentagent.com
+- Backend API: https://estimate-redesign.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

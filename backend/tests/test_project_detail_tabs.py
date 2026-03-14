@@ -16,7 +16,7 @@ if env_path.exists():
                 key, value = line.strip().split('=', 1)
                 os.environ[key] = value
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://slow-api-fix.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://estimate-redesign.preview.emergentagent.com').rstrip('/')
 PROJECT_ID = "proj_classic001"
 
 class TestAuth:
