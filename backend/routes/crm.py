@@ -875,6 +875,33 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     return {"message": "Lead updated successfully"}
 
 
+
+class AppointmentInput(BaseModel):
+    appointment_date: str
+    appointment_time: str
+    appointment_type: str  # office_visit, online, home_visit
+
+@router.patch("/crm/leads/{lead_id}/appointment")
+async def update_lead_appointment(lead_id: str, data: AppointmentInput, user: User = Depends(get_current_user)):
+    """Add or edit appointment on a lead"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    appointment = {
+        "appointment_date": data.appointment_date,
+        "appointment_time": data.appointment_time,
+        "appointment_type": data.appointment_type,
+        "booked_by": user.user_id,
+        "booked_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.leads.update_one({"lead_id": lead_id}, {"$set": {"appointment": appointment, "updated_at": datetime.now(timezone.utc)}})
+    
+    return {"message": "Appointment updated", "appointment": appointment}
+
+
+
 @router.post("/crm/leads/{lead_id}/remarks")
 async def add_lead_remark(lead_id: str, data: LeadRemarkInput, user: User = Depends(get_current_user)):
     """Add a remark/note to a lead"""

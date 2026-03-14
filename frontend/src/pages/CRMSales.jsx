@@ -13,7 +13,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit
+  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -66,6 +66,8 @@ export default function CRMSales() {
   const [remarkForm, setRemarkForm] = useState('');
   const [detailTab, setDetailTab] = useState('overview');
   const [leadDetail, setLeadDetail] = useState(null);
+  const [apptDialog, setApptDialog] = useState(false);
+  const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
   const [draggedLead, setDraggedLead] = useState(null);
 
@@ -227,6 +229,38 @@ export default function CRMSales() {
       setLeadDetail(res.data);
     } catch (error) {
       toast.error('Failed to add remark');
+    }
+  };
+
+  const openApptDialog = () => {
+    const appt = (leadDetail || selectedLead)?.appointment;
+    setApptForm({
+      date: appt?.appointment_date || '',
+      time: appt?.appointment_time || '',
+      type: appt?.appointment_type || ''
+    });
+    setApptDialog(true);
+  };
+
+  const handleSaveAppointment = async () => {
+    if (!apptForm.date || !apptForm.time || !apptForm.type) {
+      toast.error('Please fill all appointment fields');
+      return;
+    }
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}/appointment`, {
+        appointment_date: apptForm.date,
+        appointment_time: apptForm.time,
+        appointment_type: apptForm.type
+      });
+      toast.success('Appointment saved');
+      setApptDialog(false);
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setLeadDetail(res.data);
+      setSelectedLead(res.data);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to save appointment');
     }
   };
 
@@ -841,15 +875,25 @@ export default function CRMSales() {
                 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-3">
-                  {(leadDetail || selectedLead)?.appointment && (
+                  {/* Appointment Section */}
+                  {(leadDetail || selectedLead)?.appointment ? (
                     <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                      <p className="text-xs font-semibold text-green-700 mb-1">Appointment Details</p>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-semibold text-green-700">Appointment Details</p>
+                        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs text-green-700 hover:text-green-900" onClick={openApptDialog} data-testid="edit-appointment-btn">
+                          <Edit className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-3 gap-3 text-sm">
                         <div><span className="text-xs text-green-600">Date</span><p className="font-medium">{(leadDetail || selectedLead).appointment.appointment_date}</p></div>
                         <div><span className="text-xs text-green-600">Time</span><p className="font-medium">{(leadDetail || selectedLead).appointment.appointment_time}</p></div>
                         <div><span className="text-xs text-green-600">Type</span><p className="font-medium capitalize">{(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')}</p></div>
                       </div>
                     </div>
+                  ) : (
+                    <Button variant="outline" size="sm" className="w-full border-dashed border-green-400 text-green-600 hover:bg-green-50" onClick={openApptDialog} data-testid="add-appointment-btn">
+                      <Calendar className="h-4 w-4 mr-2" /> Add Appointment
+                    </Button>
                   )}
                   
                   <div className="grid grid-cols-2 gap-3">
@@ -966,6 +1010,51 @@ export default function CRMSales() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialog(false)}>Cancel</Button>
             <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleUpdateLead} data-testid="save-lead-btn">Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Appointment Dialog */}
+      <Dialog open={apptDialog} onOpenChange={setApptDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-green-600" />
+              {(leadDetail || selectedLead)?.appointment ? 'Edit Appointment' : 'Book Appointment'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-sm font-medium">Date *</Label>
+              <Input type="date" value={apptForm.date} onChange={(e) => setApptForm({...apptForm, date: e.target.value})} min={new Date().toISOString().split('T')[0]} className="mt-1" data-testid="sales-appt-date" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Time *</Label>
+              <Input type="time" value={apptForm.time} onChange={(e) => setApptForm({...apptForm, time: e.target.value})} className="mt-1" data-testid="sales-appt-time" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Visit Type *</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {[
+                  { value: 'office_visit', label: 'Office Visit', icon: '🏢' },
+                  { value: 'online', label: 'Online', icon: '💻' },
+                  { value: 'home_visit', label: 'Home Visit', icon: '🏠' }
+                ].map(opt => (
+                  <button key={opt.value} type="button" data-testid={`sales-appt-type-${opt.value}`}
+                    className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all text-sm ${apptForm.type === opt.value ? 'border-green-500 bg-green-50 text-green-700 font-medium' : 'border-gray-200 hover:border-gray-300 text-gray-600'}`}
+                    onClick={() => setApptForm({...apptForm, type: opt.value})}>
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className="text-xs">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setApptDialog(false)}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleSaveAppointment} disabled={!apptForm.date || !apptForm.time || !apptForm.type} data-testid="save-appointment-btn">
+              <Calendar className="h-4 w-4 mr-2" /> Save Appointment
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

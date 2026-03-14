@@ -57,6 +57,7 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Sales: Summary tab with save functionality
   - Sales: Follow-up scheduling with date and note
   - Sales: Remark tracking with timestamps
+  - Sales: Add/Edit appointment dialog (date, time, visit type) from lead detail
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
