@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://multi-cheque-entry.preview.emergentagent.com
-- Backend API: https://multi-cheque-entry.preview.emergentagent.com/api
+- Frontend: https://project-manager-hub-5.preview.emergentagent.com
+- Backend API: https://project-manager-hub-5.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
