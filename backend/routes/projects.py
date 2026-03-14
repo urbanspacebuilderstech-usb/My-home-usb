@@ -2713,6 +2713,7 @@ async def get_pending_approvals(user: User = Depends(get_current_user)):
 
 class ProjectStageCreate(BaseModel):
     stage_name: str
+    start_date: Optional[str] = None
     target_date: Optional[str] = None
     status: str = "yet_to_start"  # yet_to_start, started, finished
     remarks: Optional[str] = None
@@ -2720,6 +2721,7 @@ class ProjectStageCreate(BaseModel):
 
 class ProjectStageUpdate(BaseModel):
     stage_name: Optional[str] = None
+    start_date: Optional[str] = None
     target_date: Optional[str] = None
     status: Optional[str] = None
     remarks: Optional[str] = None
@@ -2748,6 +2750,7 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
         "project_id": project_id,
         "stage_name": data.stage_name,
+        "start_date": data.start_date,
         "target_date": data.target_date,
         "status": data.status,
         "remarks": data.remarks,
@@ -2774,6 +2777,7 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
             "project_id": project_id,
             "stage_name": s.stage_name,
+            "start_date": s.start_date,
             "target_date": s.target_date,
             "status": s.status or "yet_to_start",
             "remarks": s.remarks,

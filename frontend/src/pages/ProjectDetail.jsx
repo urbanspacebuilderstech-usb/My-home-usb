@@ -19,6 +19,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { FileUpload, FileList } from '../components/FileUpload';
 import { AppHeader } from '../components/AppHeader';
+import GanttChart from '../components/GanttChart';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -398,11 +399,12 @@ export default function ProjectDetail() {
   const [stageTemplates, setStageTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showAddStages, setShowAddStages] = useState(false);
-  const [newStages, setNewStages] = useState([{ stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
   const [saveTemplateDialog, setSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
   const [editStageData, setEditStageData] = useState({});
+  const [stagesView, setStagesView] = useState('table'); // 'table' or 'gantt'
   
   // Bulk form data
   const [bulkScopeRows, setBulkScopeRows] = useState(createEmptyRows('scope'));
@@ -803,6 +805,7 @@ export default function ProjectDetail() {
       const res = await axios.get(`${API}/stage-templates/${encodeURIComponent(name)}`);
       const tmplStages = (res.data.stages || []).map(s => ({
         stage_name: s.stage_name || '',
+        start_date: s.start_date || '',
         target_date: s.target_date || '',
         status: s.status || 'yet_to_start',
         remarks: s.remarks || ''
@@ -816,7 +819,7 @@ export default function ProjectDetail() {
   };
 
   const addNewStageRow = () => {
-    setNewStages(prev => [...prev, { stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+    setNewStages(prev => [...prev, { stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
   };
   const removeNewStageRow = (idx) => {
     setNewStages(prev => prev.filter((_, i) => i !== idx));
@@ -832,7 +835,7 @@ export default function ProjectDetail() {
       await axios.post(`${API}/projects/${projectId}/project-stages/bulk`, valid);
       toast.success(`Added ${valid.length} stages`);
       setShowAddStages(false);
-      setNewStages([{ stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+      setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
       fetchData();
     } catch (error) { toast.error('Failed to add stages'); }
   };
@@ -1238,7 +1241,7 @@ export default function ProjectDetail() {
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />Value
@@ -1248,9 +1251,9 @@ export default function ProjectDetail() {
               <div className="text-sm sm:text-lg font-bold text-amber-700">{formatCurrency(summary.project_value)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">Scope Total</p>
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 border-cyan-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 border-cyan-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <Plus className="h-3 w-3" />Additions
@@ -1260,7 +1263,7 @@ export default function ProjectDetail() {
               <div className="text-sm sm:text-lg font-bold text-cyan-700">{formatCurrency(summary.additions_total)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">Extra Work</p>
             </CardContent>
-          </Card>
+          </Card>}
 
           {canSeeFinancials && <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
@@ -1877,6 +1880,12 @@ export default function ProjectDetail() {
                     <p className="text-xs sm:text-sm text-gray-500">Track construction stages and milestones</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {projectStages.length > 0 && (
+                      <div className="flex border rounded-lg overflow-hidden" data-testid="stages-view-toggle">
+                        <button className={`px-3 py-1.5 text-xs font-medium transition-colors ${stagesView === 'table' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`} onClick={() => setStagesView('table')}>Table</button>
+                        <button className={`px-3 py-1.5 text-xs font-medium transition-colors ${stagesView === 'gantt' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`} onClick={() => setStagesView('gantt')} data-testid="gantt-view-btn">Gantt</button>
+                      </div>
+                    )}
                     {!showAddStages && canManage && (
                       <Button data-testid="add-stages-btn" className="gap-2 bg-secondary hover:bg-secondary/90" onClick={() => setShowAddStages(true)}>
                         <Plus className="h-4 w-4" /> Add Stages
@@ -1920,12 +1929,24 @@ export default function ProjectDetail() {
                               onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
                               data-testid={`stage-name-input-${idx}`}
                             />
-                            <input
-                              type="date"
-                              className="border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.target_date}
-                              onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
-                            />
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-400">Start</label>
+                              <input
+                                type="date"
+                                className="border rounded-lg px-2 py-1.5 text-sm"
+                                value={stage.start_date}
+                                onChange={(e) => updateNewStage(idx, 'start_date', e.target.value)}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <label className="text-[10px] text-gray-400">End</label>
+                              <input
+                                type="date"
+                                className="border rounded-lg px-2 py-1.5 text-sm"
+                                value={stage.target_date}
+                                onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
+                              />
+                            </div>
                             <select
                               className={`border rounded-lg px-3 py-1.5 text-sm ${stageStatusConfig[stage.status]?.color || ''}`}
                               value={stage.status}
@@ -1961,7 +1982,7 @@ export default function ProjectDetail() {
                         <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveStages} data-testid="save-stages-btn">
                           <Check className="h-3 w-3 mr-1" /> Save Stages
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]); }}>
+                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]); }}>
                           Cancel
                         </Button>
                       </div>
@@ -1990,14 +2011,18 @@ export default function ProjectDetail() {
                   </Card>
                 )}
 
-                {/* Existing Stages Table */}
+                {/* Existing Stages - Table or Gantt View */}
                 {projectStages.length > 0 ? (
+                  stagesView === 'gantt' ? (
+                    <GanttChart stages={projectStages} />
+                  ) : (
                   <div className="overflow-x-auto border rounded-lg">
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b">
                         <tr>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage Name</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Start Date</th>
                           <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Target Date</th>
                           <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
@@ -2013,6 +2038,13 @@ export default function ProjectDetail() {
                                 <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
                               ) : (
                                 <span className="font-medium">{stage.stage_name}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {editingStageId === stage.stage_id ? (
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => setEditStageData(d => ({...d, start_date: e.target.value}))} />
+                              ) : (
+                                <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -2052,7 +2084,7 @@ export default function ProjectDetail() {
                                   </div>
                                 ) : (
                                   <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, target_date: stage.target_date || '', status: stage.status, remarks: stage.remarks || '' }); }}>
+                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', status: stage.status, remarks: stage.remarks || '' }); }}>
                                       <Edit className="h-3 w-3" />
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
@@ -2067,6 +2099,7 @@ export default function ProjectDetail() {
                       </tbody>
                     </table>
                   </div>
+                  )
                 ) : !showAddStages && (
                   <div className="text-center py-12 text-gray-500">
                     <Folder className="h-12 w-12 mx-auto mb-3 text-gray-300" />
