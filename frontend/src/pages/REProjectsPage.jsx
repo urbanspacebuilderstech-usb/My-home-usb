@@ -634,13 +634,26 @@ export default function REProjectsPage() {
             </div>
           )}
           
-          <DialogFooter>
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEditDialog(false)}>
               {canEdit ? 'Cancel' : 'Close'}
             </Button>
-            {canEdit && ['re_requested', 're_in_progress'].includes(selectedProject?.status) && (
-              <Button onClick={handleSaveProject} className="bg-purple-600 hover:bg-purple-700">
-                <Save className="h-4 w-4 mr-1" /> Save Changes
+            {canEdit && ['re_requested', 're_in_progress', 're_rejected'].includes(selectedProject?.status) && (
+              <Button onClick={handleSaveProject} variant="outline">
+                <Save className="h-4 w-4 mr-1" /> Save
+              </Button>
+            )}
+            {canEdit && selectedProject?.status === 're_rejected' && (
+              <Button 
+                className="bg-purple-600 hover:bg-purple-700"
+                data-testid="save-and-resubmit-btn"
+                onClick={async () => {
+                  await handleSaveProject();
+                  await handleSubmitForApproval(selectedProject.re_project_id);
+                  setEditDialog(false);
+                }}
+              >
+                <Send className="h-4 w-4 mr-1" /> Save & Resubmit
               </Button>
             )}
           </DialogFooter>
