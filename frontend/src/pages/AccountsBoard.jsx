@@ -1625,6 +1625,16 @@ function ApprovalsTab() {
   const [activeTab, setActiveTab] = useState('income');
   const [rejectDialog, setRejectDialog] = useState({ open: false, type: '', id: '', reason: '' });
   const [processing, setProcessing] = useState(null);
+  // Income review dialog
+  const [reviewDialog, setReviewDialog] = useState({ open: false, income: null });
+  const [reviewForm, setReviewForm] = useState({
+    verification_mode: '',
+    denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
+    cheque_number: '',
+    transaction_id: '',
+    dt_id: '',
+    notes: ''
+  });
 
   const fetchApprovals = useCallback(async () => {
     try {
@@ -1687,6 +1697,73 @@ function ApprovalsTab() {
   };
 
   const getApprovalAction = (status, type) => {
+
+  const openReviewDialog = (income) => {
+    const mode = classifyMode(income.payment_mode);
+    let verificationMode = 'cash';
+    if (mode === 'cheque' || income.payment_mode === 'cheque') verificationMode = 'cheque';
+    else if (['current_account', 'savings_account'].includes(mode) || ['bank_transfer', 'neft', 'upi'].includes(income.payment_mode)) verificationMode = 'bank';
+    else if (mode === 'direct_transfer' || income.payment_mode === 'direct_transfer') verificationMode = 'dt';
+
+    setReviewForm({
+      verification_mode: verificationMode,
+      denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
+      cheque_number: income.cheque_number || '',
+      transaction_id: income.transaction_id || '',
+      dt_id: '',
+      notes: ''
+    });
+    setReviewDialog({ open: true, income });
+  };
+
+  const denominationTotal = Object.entries(reviewForm.denomination).reduce((sum, [note, count]) => sum + (parseInt(note) * (parseInt(count) || 0)), 0);
+
+  const handleSubmitReview = async () => {
+    const inc = reviewDialog.income;
+    if (!inc) return;
+
+    if (reviewForm.verification_mode === 'cash' && denominationTotal !== inc.amount) {
+      toast.error(`Denomination total (₹${denominationTotal.toLocaleString('en-IN')}) doesn't match amount (₹${inc.amount.toLocaleString('en-IN')})`);
+      return;
+    }
+    if (reviewForm.verification_mode === 'cheque' && !reviewForm.cheque_number.trim()) {
+      toast.error('Please enter cheque number');
+      return;
+    }
+    if (reviewForm.verification_mode === 'bank' && !reviewForm.transaction_id.trim()) {
+      toast.error('Please enter transaction ID');
+      return;
+    }
+    if (reviewForm.verification_mode === 'dt' && !reviewForm.dt_id.trim()) {
+      toast.error('Please enter DT payment ID');
+      return;
+    }
+
+    setProcessing(inc.income_id);
+    try {
+      const payload = {
+        verification_mode: reviewForm.verification_mode,
+        notes: reviewForm.notes || undefined
+      };
+      if (reviewForm.verification_mode === 'cash') {
+        const denom = {};
+        Object.entries(reviewForm.denomination).forEach(([k, v]) => { if (parseInt(v) > 0) denom[k] = parseInt(v); });
+        payload.denomination = denom;
+      }
+      if (reviewForm.verification_mode === 'cheque') payload.cheque_number = reviewForm.cheque_number;
+      if (reviewForm.verification_mode === 'bank') payload.transaction_id = reviewForm.transaction_id;
+      if (reviewForm.verification_mode === 'dt') payload.dt_id = reviewForm.dt_id;
+
+      await axios.post(`${API}/approvals/income/${inc.income_id}/review`, payload);
+      toast.success('Income reviewed & approved');
+      setReviewDialog({ open: false, income: null });
+      fetchApprovals();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to review');
+    } finally {
+      setProcessing(null);
+    }
+  };
     if (status === 'requested') return 'planning-approval';
     if (status === 'planning_approved') return type === 'material' ? 'procurement-pricing' : 'accounts-approval';
     if (status === 'procurement_priced') return 'accounts-approval';
@@ -1816,19 +1893,12 @@ function ApprovalsTab() {
                             <Badge className="bg-amber-100 text-amber-700">{inc.status?.replace(/_/g, ' ')}</Badge>
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 gap-1 px-2"
-                                disabled={processing === inc.income_id}
-                                onClick={() => handleApproveIncome(inc.income_id)}
-                                data-testid={`approve-income-btn-${inc.income_id}`}>
-                                {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve
-                              </Button>
-                              <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-200 gap-1 px-2"
-                                onClick={() => setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' })}
-                                data-testid={`reject-income-btn-${inc.income_id}`}>
-                                <ThumbsDown className="h-3 w-3" /> Reject
-                              </Button>
-                            </div>
+                            <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 gap-1 px-3"
+                              disabled={processing === inc.income_id}
+                              onClick={() => openReviewDialog(inc)}
+                              data-testid={`review-income-btn-${inc.income_id}`}>
+                              {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Add Review
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -1886,6 +1956,126 @@ function ApprovalsTab() {
           />
         </TabsContent>
       </Tabs>
+
+      {/* Income Review Dialog */}
+      <Dialog open={reviewDialog.open} onOpenChange={(open) => { if (!open) setReviewDialog({ open: false, income: null }); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700">
+              <ClipboardCheck className="h-5 w-5" /> Review Income
+            </DialogTitle>
+          </DialogHeader>
+          {reviewDialog.income && (
+            <div className="space-y-4">
+              <div className="bg-green-50 rounded-lg p-3 border border-green-100">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-green-600">Project</p>
+                    <p className="font-medium text-sm">{reviewDialog.income.project_name || 'N/A'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-green-600">Amount</p>
+                    <p className="font-bold text-lg text-green-700">₹{reviewDialog.income.amount?.toLocaleString('en-IN')}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-green-500 mt-1">{reviewDialog.income.stage || reviewDialog.income.remarks || 'Payment'} • {MODE_LABELS[classifyMode(reviewDialog.income.payment_mode)] || reviewDialog.income.payment_mode}</p>
+              </div>
+
+              {/* Cash - Denomination */}
+              {reviewForm.verification_mode === 'cash' && (
+                <div data-testid="review-cash-section">
+                  <Label className="text-sm font-semibold mb-2 block">Cash Denomination</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['2000', '500', '200', '100', '50', '20', '10', '5', '2', '1'].map(note => (
+                      <div key={note} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
+                        <span className="text-xs font-medium text-gray-600 w-10">₹{note}</span>
+                        <span className="text-gray-400 text-xs">×</span>
+                        <Input
+                          type="number" min="0"
+                          className="h-7 text-xs text-center flex-1"
+                          value={reviewForm.denomination[note] || ''}
+                          onChange={(e) => setReviewForm({
+                            ...reviewForm,
+                            denomination: { ...reviewForm.denomination, [note]: parseInt(e.target.value) || 0 }
+                          })}
+                          data-testid={`denom-${note}`}
+                        />
+                        <span className="text-[10px] text-gray-400 w-14 text-right">= ₹{((parseInt(reviewForm.denomination[note]) || 0) * parseInt(note)).toLocaleString('en-IN')}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className={`mt-2 p-2 rounded text-center text-sm font-bold ${denominationTotal === reviewDialog.income.amount ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    Total: ₹{denominationTotal.toLocaleString('en-IN')} {denominationTotal === reviewDialog.income.amount ? '✓ Matches' : `≠ ₹${reviewDialog.income.amount?.toLocaleString('en-IN')}`}
+                  </div>
+                </div>
+              )}
+
+              {/* Cheque - Re-enter number */}
+              {reviewForm.verification_mode === 'cheque' && (
+                <div data-testid="review-cheque-section">
+                  <Label className="text-sm font-semibold">Re-enter Cheque Number</Label>
+                  <Input
+                    value={reviewForm.cheque_number}
+                    onChange={(e) => setReviewForm({ ...reviewForm, cheque_number: e.target.value })}
+                    placeholder="Enter cheque number"
+                    className="mt-1"
+                    data-testid="review-cheque-input"
+                  />
+                </div>
+              )}
+
+              {/* Bank - Transaction ID */}
+              {reviewForm.verification_mode === 'bank' && (
+                <div data-testid="review-bank-section">
+                  <Label className="text-sm font-semibold">Transaction ID</Label>
+                  <Input
+                    value={reviewForm.transaction_id}
+                    onChange={(e) => setReviewForm({ ...reviewForm, transaction_id: e.target.value })}
+                    placeholder="Enter bank transaction ID"
+                    className="mt-1"
+                    data-testid="review-txn-input"
+                  />
+                </div>
+              )}
+
+              {/* DT - Payment DT ID */}
+              {reviewForm.verification_mode === 'dt' && (
+                <div data-testid="review-dt-section">
+                  <Label className="text-sm font-semibold">Payment DT ID</Label>
+                  <Input
+                    value={reviewForm.dt_id}
+                    onChange={(e) => setReviewForm({ ...reviewForm, dt_id: e.target.value })}
+                    placeholder="Enter DT payment ID"
+                    className="mt-1"
+                    data-testid="review-dt-input"
+                  />
+                </div>
+              )}
+
+              <div>
+                <Label className="text-sm">Notes (optional)</Label>
+                <Textarea
+                  value={reviewForm.notes}
+                  onChange={(e) => setReviewForm({ ...reviewForm, notes: e.target.value })}
+                  placeholder="Any additional notes..."
+                  rows={2}
+                  className="mt-1"
+                />
+              </div>
+
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700"
+                onClick={handleSubmitReview}
+                disabled={processing}
+                data-testid="submit-review-btn"
+              >
+                {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                Submit Review & Approve
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialog.open} onOpenChange={(open) => { if (!open) setRejectDialog({ open: false, type: '', id: '', reason: '' }); }}>

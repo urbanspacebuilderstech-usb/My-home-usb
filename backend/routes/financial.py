@@ -485,6 +485,81 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
     return {"message": "Income rejected"}
 
 
+class IncomeReviewRequest(BaseModel):
+    verification_mode: str  # cash, cheque, bank, dt
+    denomination: Optional[Dict[str, int]] = None  # for cash: {"2000": 1, "500": 4, ...}
+    cheque_number: Optional[str] = None  # for cheque
+    transaction_id: Optional[str] = None  # for bank
+    dt_id: Optional[str] = None  # for dt
+    notes: Optional[str] = None
+
+
+@router.post("/approvals/income/{income_id}/review")
+async def review_income(income_id: str, data: IncomeReviewRequest, user: User = Depends(get_current_user)):
+    """Accountant reviews and verifies an income entry with payment verification details"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant/Admin can review income")
+
+    income = await db.income.find_one({"income_id": income_id, "status": "pending_approval"})
+    if not income:
+        raise HTTPException(status_code=404, detail="Income entry not found or already processed")
+
+    # Build verification record
+    verification = {
+        "verification_mode": data.verification_mode,
+        "verified_by": user.user_id,
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if data.denomination:
+        verification["denomination"] = data.denomination
+        denomination_total = sum(int(k) * v for k, v in data.denomination.items())
+        verification["denomination_total"] = denomination_total
+    if data.cheque_number:
+        verification["cheque_number"] = data.cheque_number
+    if data.transaction_id:
+        verification["transaction_id"] = data.transaction_id
+    if data.dt_id:
+        verification["dt_id"] = data.dt_id
+    if data.notes:
+        verification["notes"] = data.notes
+
+    # Approve the income with verification data
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "status": "approved",
+            "approved_by": user.user_id,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "verification": verification,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    # Update payment stage collected amount if linked to a stage
+    project_id = income.get("project_id")
+    stage_id = income.get("stage_id")
+    amount = income.get("amount", 0)
+
+    if project_id and stage_id:
+        stage = await db.payment_stages.find_one({"stage_id": stage_id, "project_id": project_id})
+        if stage:
+            current_collected = stage.get("collected", 0)
+            new_collected = current_collected + amount
+            stage_amount = stage.get("amount", 0)
+            update_fields = {
+                "collected": new_collected,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            if new_collected >= stage_amount:
+                update_fields["status"] = "paid"
+                update_fields["completed_date"] = datetime.now(timezone.utc).isoformat()
+            await db.payment_stages.update_one(
+                {"stage_id": stage_id, "project_id": project_id},
+                {"$set": update_fields}
+            )
+
+    await create_audit_log(user.user_id, "review_approve", "income", income_id, {"verification": verification})
+    return {"message": "Income reviewed and approved", "verification": verification}
 
 
 # ==================== CASHBOOK ENDPOINTS ====================
