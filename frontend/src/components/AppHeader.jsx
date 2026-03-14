@@ -66,6 +66,9 @@ const ROLE_NAV = {
     { label: 'Dashboard', path: '/site-engineer' },
     { label: 'Material Receipt', path: '/site-engineer/material-receipt' },
   ],
+  architect: [
+    { label: 'My Projects', path: '/architect-dashboard' },
+  ],
 };
 
 // ═══ SUB-MENUS (used by super_admin and accountant) ═══
