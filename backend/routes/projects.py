@@ -2857,3 +2857,174 @@ async def get_stage_template(template_name: str, user: User = Depends(get_curren
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
+
+
+
+# ==================== PROJECT TEAM, MATERIALS, LABOURS ====================
+
+@router.get("/projects/{project_id}/team")
+async def get_project_team(project_id: str, user: User = Depends(get_current_user)):
+    """Get team members assigned to a project"""
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Get assignments
+    assignments = await db.site_engineer_assignments.find(
+        {"project_id": project_id, "is_active": True}, {"_id": 0}
+    ).to_list(50)
+
+    # Build team list
+    team = {
+        "project_manager": None,
+        "sr_site_engineers": [],
+        "site_engineers": [],
+    }
+
+    # PM from project
+    if project.get("assigned_pm"):
+        pm_user = await db.users.find_one(
+            {"user_id": project["assigned_pm"]},
+            {"_id": 0, "password_hash": 0}
+        )
+        if pm_user:
+            team["project_manager"] = {
+                "user_id": pm_user["user_id"],
+                "name": pm_user.get("name", ""),
+                "phone": pm_user.get("phone", ""),
+                "email": pm_user.get("email", ""),
+                "role": pm_user.get("role", ""),
+            }
+
+    for a in assignments:
+        member = {
+            "user_id": a["user_id"],
+            "name": a.get("user_name", ""),
+            "role": a.get("user_role", ""),
+            "assignment_id": a["assignment_id"],
+            "assigned_at": a.get("created_at", ""),
+        }
+        # Get full user info
+        u = await db.users.find_one({"user_id": a["user_id"]}, {"_id": 0, "password_hash": 0})
+        if u:
+            member["phone"] = u.get("phone", "")
+            member["email"] = u.get("email", "")
+
+        if a.get("user_role") == "sr_site_engineer":
+            team["sr_site_engineers"].append(member)
+        elif a.get("user_role") in ["site_engineer"]:
+            team["site_engineers"].append(member)
+        else:
+            team["site_engineers"].append(member)
+
+    return team
+
+
+@router.get("/projects/{project_id}/materials-summary")
+async def get_project_materials(project_id: str, user: User = Depends(get_current_user)):
+    """Get all material requests for a project with summary stats"""
+    is_pm = user.role in ["project_manager", "associate_pm"]
+
+    materials = await db.material_requests.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    # Compute stats
+    total_requests = len(materials)
+    requested = sum(1 for m in materials if m.get("status") == "requested")
+    pm_approved = sum(1 for m in materials if m.get("status") == "pm_approved")
+    delivered = sum(1 for m in materials if m.get("status") in ["received_partial", "delivered", "received"])
+    approved = sum(1 for m in materials if m.get("status") in ["accounts_approved", "payment_approved"])
+    in_progress = total_requests - requested - delivered - approved
+
+    total_cost = 0
+    if not is_pm:
+        total_cost = sum(float(m.get("total_amount", 0) or 0) for m in materials)
+
+    # Strip financial fields for PM
+    clean_materials = []
+    for m in materials:
+        item = {
+            "request_id": m.get("request_id"),
+            "material_name": m.get("material_name"),
+            "quantity": m.get("quantity"),
+            "unit": m.get("unit"),
+            "stage": m.get("stage"),
+            "status": m.get("status"),
+            "remarks": m.get("remarks"),
+            "site_engineer_name": m.get("site_engineer_name"),
+            "vendor_name": m.get("vendor_name"),
+            "required_date": m.get("required_date"),
+            "expected_delivery": m.get("expected_delivery"),
+            "received_qty": m.get("received_qty"),
+            "created_at": m.get("created_at"),
+        }
+        if not is_pm:
+            item["unit_rate"] = m.get("unit_rate")
+            item["total_amount"] = m.get("total_amount")
+        clean_materials.append(item)
+
+    summary = {
+        "total_requests": total_requests,
+        "requested": requested,
+        "pm_approved": pm_approved,
+        "in_progress": in_progress,
+        "delivered": delivered,
+        "approved": approved,
+    }
+    if not is_pm:
+        summary["total_cost"] = total_cost
+
+    return {"summary": summary, "materials": clean_materials}
+
+
+@router.get("/projects/{project_id}/labours-summary")
+async def get_project_labours(project_id: str, user: User = Depends(get_current_user)):
+    """Get all labour requests for a project with summary stats"""
+    is_pm = user.role in ["project_manager", "associate_pm"]
+
+    labours = await db.labour_expenses.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    total = len(labours)
+    requested = sum(1 for l in labours if l.get("status") == "requested")
+    approved = sum(1 for l in labours if l.get("status") in ["accounts_approved", "payment_approved", "pm_approved"])
+    total_workers = sum(int(l.get("num_workers", 0) or 0) for l in labours)
+    total_days = sum(int(l.get("num_days", 0) or 0) for l in labours)
+
+    total_cost = 0
+    if not is_pm:
+        total_cost = sum(float(l.get("total_amount", 0) or 0) for l in labours)
+
+    # Strip financial fields for PM
+    clean_labours = []
+    for l in labours:
+        item = {
+            "labour_expense_id": l.get("labour_expense_id"),
+            "contractor_name": l.get("contractor_name"),
+            "description": l.get("description"),
+            "labour_type": l.get("labour_type"),
+            "num_workers": l.get("num_workers"),
+            "num_days": l.get("num_days"),
+            "status": l.get("status"),
+            "requested_by_name": l.get("requested_by_name"),
+            "work_order_id": l.get("work_order_id"),
+            "created_at": l.get("created_at"),
+        }
+        if not is_pm:
+            item["daily_rate"] = l.get("daily_rate")
+            item["total_amount"] = l.get("total_amount")
+        clean_labours.append(item)
+
+    summary = {
+        "total": total,
+        "requested": requested,
+        "approved": approved,
+        "total_workers": total_workers,
+        "total_days": total_days,
+    }
+    if not is_pm:
+        summary["total_cost"] = total_cost
+
+    return {"summary": summary, "labours": clean_labours}

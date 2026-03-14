@@ -1,0 +1,59 @@
+{
+  "summary": "Tested new Team, Materials, Labours tabs in ProjectDetail page. All backend endpoints working correctly. PM cost hiding implemented correctly - costs hidden in both Materials and Labours tabs for PM role.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_project_team_materials_labours.py",
+    "/app/test_reports/pytest/pytest_team_materials_labours.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_project_team_materials_labours.py"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 tests passed)",
+    "frontend": "100%"
+  },
+  "seed_data_creation": "Used existing proj_murugan_001 project with 3 materials and 6 labours",
+  "test_credentials": {
+    "super_admin": "admin@constructionos.com / Demo@1234",
+    "project_manager": "pm@constructionos.com / Demo@1234"
+  },
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Team/Materials/Labours tabs all working in ProjectDetail. PM cost hiding verified - PM sees only counts (Total Requests, Pending, etc) without Total Cost card and without Amount column in tables. Admin sees full costs. PM can create Site Engineers and Sr. Site Engineers from PM Dashboard Team tab.",
+  "features_tested": {
+    "team_tab": {
+      "status": "PASS",
+      "details": "Shows PM (Vikram Singh), Sr. Site Engineers section, Site Engineers section. Data loads from /api/projects/{id}/team endpoint."
+    },
+    "materials_tab": {
+      "status": "PASS",
+      "details": "Shows summary cards (Total Requests, Pending, In Progress, Delivered) + Total Cost for admin. PM does NOT see Total Cost card or Amount column."
+    },
+    "labours_tab": {
+      "status": "PASS",
+      "details": "Shows summary cards (Total Requests, Pending, Approved, Total Workers) + Total Cost for admin. PM does NOT see Total Cost card or Amount column."
+    },
+    "pm_cost_hiding": {
+      "status": "PASS",
+      "details": "Verified via both backend API tests and UI tests. PM role (is_pm=true) gets response without total_cost, unit_rate, total_amount fields."
+    },
+    "pm_create_sr_site_engineer": {
+      "status": "PASS",
+      "details": "PM Dashboard Team tab has 'Create Site Engineer' button with role dropdown showing both 'Site Engineer' and 'Sr. Site Engineer' options. Backend POST /api/pm/create-site-engineer accepts role='sr_site_engineer'."
+    },
+    "pm_assign_team": {
+      "status": "PASS",
+      "details": "Backend POST /api/pm/assign-team endpoint working. Requires project_id, user_id, and role fields."
+    }
+  }
+}

@@ -5,7 +5,7 @@ import {
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
-  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers
+  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -436,6 +436,9 @@ export default function ProjectDetail() {
   const [reProject, setReProject] = useState(null);
   const [projectFiles, setProjectFiles] = useState([]);
   const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
+  const [teamData, setTeamData] = useState({ project_manager: null, sr_site_engineers: [], site_engineers: [] });
+  const [materialsData, setMaterialsData] = useState({ summary: {}, materials: [] });
+  const [laboursData, setLaboursData] = useState({ summary: {}, labours: [] });
 
   useEffect(() => {
     fetchData();
@@ -477,6 +480,9 @@ export default function ProjectDetail() {
       // Fetch project files
       fetchProjectFiles();
       fetchDesignData();
+      fetchTeamData();
+      fetchMaterialsData();
+      fetchLaboursData();
       
       // Fetch project stages and templates
       try {
@@ -513,6 +519,27 @@ export default function ProjectDetail() {
     } catch {
       // Design data may not exist
     }
+  };
+
+  const fetchTeamData = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/team`);
+      setTeamData(res.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
+    } catch { /* No team data */ }
+  };
+
+  const fetchMaterialsData = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/materials-summary`);
+      setMaterialsData(res.data || { summary: {}, materials: [] });
+    } catch { /* No materials data */ }
+  };
+
+  const fetchLaboursData = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/labours-summary`);
+      setLaboursData(res.data || { summary: {}, labours: [] });
+    } catch { /* No labours data */ }
   };
 
   const handleLogout = async () => {
@@ -1346,6 +1373,18 @@ export default function ProjectDetail() {
                 <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-project-stages">
                   <Folder className="h-3 w-3 mr-1" />
                   Project Stages
+                </TabsTrigger>
+                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-team">
+                  <Users className="h-3 w-3 mr-1" />
+                  Team
+                </TabsTrigger>
+                <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-materials">
+                  <Package className="h-3 w-3 mr-1" />
+                  Materials
+                </TabsTrigger>
+                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-labours">
+                  <HardHat className="h-3 w-3 mr-1" />
+                  Labours
                 </TabsTrigger>
                 {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Payment Schedule
@@ -2906,6 +2945,233 @@ export default function ProjectDetail() {
             </TabsContent>
 
 
+
+            {/* ==================== TEAM TAB ==================== */}
+            <TabsContent value="team" className="p-3 sm:p-6">
+              <div className="space-y-4">
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Users className="h-5 w-5 text-indigo-600" />Project Team
+                </h3>
+
+                {/* Project Manager */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Project Manager</p>
+                  {teamData.project_manager ? (
+                    <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200" data-testid="team-pm">
+                      <div className="h-9 w-9 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">
+                        {teamData.project_manager.name?.charAt(0) || 'P'}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{teamData.project_manager.name}</p>
+                        <p className="text-xs text-gray-500">{teamData.project_manager.phone || teamData.project_manager.email || '-'}</p>
+                      </div>
+                    </div>
+                  ) : <p className="text-sm text-gray-400">Not assigned</p>}
+                </div>
+
+                {/* Sr. Site Engineers */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Sr. Site Engineers ({teamData.sr_site_engineers.length})</p>
+                  {teamData.sr_site_engineers.length === 0 ? (
+                    <p className="text-sm text-gray-400">None assigned</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {teamData.sr_site_engineers.map(m => (
+                        <div key={m.user_id} className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200" data-testid={`team-sr-se-${m.user_id}`}>
+                          <div className="h-9 w-9 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'S'}</div>
+                          <div>
+                            <p className="font-medium text-sm">{m.name}</p>
+                            <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Site Engineers */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Site Engineers ({teamData.site_engineers.length})</p>
+                  {teamData.site_engineers.length === 0 ? (
+                    <p className="text-sm text-gray-400">None assigned</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {teamData.site_engineers.map(m => (
+                        <div key={m.user_id} className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200" data-testid={`team-se-${m.user_id}`}>
+                          <div className="h-9 w-9 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'E'}</div>
+                          <div>
+                            <p className="font-medium text-sm">{m.name}</p>
+                            <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* ==================== MATERIALS TAB ==================== */}
+            <TabsContent value="materials" className="p-3 sm:p-6">
+              <div className="space-y-4">
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Package className="h-5 w-5 text-orange-600" />Materials
+                </h3>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="materials-summary">
+                  <div className="rounded-lg p-3 text-center border bg-gray-50">
+                    <p className="text-xl font-bold">{materialsData.summary.total_requests || 0}</p>
+                    <p className="text-xs text-gray-500">Total Requests</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
+                    <p className="text-xl font-bold text-amber-700">{materialsData.summary.requested || 0}</p>
+                    <p className="text-xs text-gray-500">Pending</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                    <p className="text-xl font-bold text-blue-700">{materialsData.summary.in_progress || 0}</p>
+                    <p className="text-xs text-gray-500">In Progress</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                    <p className="text-xl font-bold text-green-700">{materialsData.summary.delivered || 0}</p>
+                    <p className="text-xs text-gray-500">Delivered</p>
+                  </div>
+                  {!isPM && materialsData.summary.total_cost !== undefined && (
+                    <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
+                      <p className="text-xl font-bold text-purple-700">{formatCurrency(materialsData.summary.total_cost || 0)}</p>
+                      <p className="text-xs text-gray-500">Total Cost</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Materials Table */}
+                {materialsData.materials.length > 0 ? (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm" data-testid="materials-table">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
+                          {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {materialsData.materials.map(m => (
+                          <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
+                            <td className="px-3 py-2.5">
+                              <p className="font-medium">{m.material_name}</p>
+                              {m.remarks && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.remarks}</p>}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">{m.quantity} {m.unit || ''}</td>
+                            <td className="px-3 py-2.5 text-center text-xs">{m.stage || '-'}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <Badge variant="outline" className={`text-xs capitalize ${
+                                m.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                ['delivered','received','received_partial'].includes(m.status) ? 'border-green-300 text-green-700 bg-green-50' :
+                                ['accounts_approved','payment_approved'].includes(m.status) ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                                'border-gray-300'
+                              }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs">{m.vendor_name || '-'}</td>
+                            <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
+                            {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No material requests for this project</p>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            {/* ==================== LABOURS TAB ==================== */}
+            <TabsContent value="labours" className="p-3 sm:p-6">
+              <div className="space-y-4">
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <HardHat className="h-5 w-5 text-teal-600" />Labours
+                </h3>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="labours-summary">
+                  <div className="rounded-lg p-3 text-center border bg-gray-50">
+                    <p className="text-xl font-bold">{laboursData.summary.total || 0}</p>
+                    <p className="text-xs text-gray-500">Total Requests</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
+                    <p className="text-xl font-bold text-amber-700">{laboursData.summary.requested || 0}</p>
+                    <p className="text-xs text-gray-500">Pending</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                    <p className="text-xl font-bold text-green-700">{laboursData.summary.approved || 0}</p>
+                    <p className="text-xs text-gray-500">Approved</p>
+                  </div>
+                  <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                    <p className="text-xl font-bold text-blue-700">{laboursData.summary.total_workers || 0}</p>
+                    <p className="text-xs text-gray-500">Total Workers</p>
+                  </div>
+                  {!isPM && laboursData.summary.total_cost !== undefined && (
+                    <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
+                      <p className="text-xl font-bold text-purple-700">{formatCurrency(laboursData.summary.total_cost || 0)}</p>
+                      <p className="text-xs text-gray-500">Total Cost</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Labours Table */}
+                {laboursData.labours.length > 0 ? (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm" data-testid="labours-table">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Contractor</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Workers</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Days</th>
+                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
+                          {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {laboursData.labours.map(l => (
+                          <tr key={l.labour_expense_id} className="hover:bg-gray-50" data-testid={`lab-row-${l.labour_expense_id}`}>
+                            <td className="px-3 py-2.5">
+                              <p className="font-medium">{l.description || l.labour_type || '-'}</p>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs">{l.contractor_name || '-'}</td>
+                            <td className="px-3 py-2.5 text-center font-medium">{l.num_workers || '-'}</td>
+                            <td className="px-3 py-2.5 text-center">{l.num_days || '-'}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <Badge variant="outline" className={`text-xs capitalize ${
+                                l.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                ['accounts_approved','payment_approved','pm_approved'].includes(l.status) ? 'border-green-300 text-green-700 bg-green-50' :
+                                'border-gray-300'
+                              }`}>{(l.status || '').replace(/_/g, ' ')}</Badge>
+                            </td>
+                            <td className="px-3 py-2.5 text-xs">{l.requested_by_name || '-'}</td>
+                            {!isPM && <td className="px-3 py-2.5 text-right font-medium">{l.total_amount ? formatCurrency(l.total_amount) : '-'}</td>}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-400">
+                    <HardHat className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">No labour requests for this project</p>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
 
             {/* ==================== DOCUMENTS TAB ==================== */}
             <TabsContent value="documents" className="p-3 sm:p-6">
