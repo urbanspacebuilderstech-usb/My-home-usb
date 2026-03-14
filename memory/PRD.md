@@ -60,6 +60,23 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Added appointment display card in lead detail overview (date, time, type)
   - Added Edit Appointment dialog pre-filled with existing data
   - Added "Book Appointment" option for leads without appointments
+- [x] **P0: Fix Duplicate Projects on CRE Dashboard (Mar 14, 2026)**:
+  - Root cause: Dashboard endpoint returned ALL projects (no created_by filter), so projects created by sales AND CRE for same RE showed up twice
+  - Added `created_by` filter to `/api/cre/dashboard` for CRE users
+  - Fixed `payment_received_count` to include both `payment_received` and `payment_verified` statuses
+  - Added duplicate prevention in both `convert-deal` and `convert-re-project` endpoints (checks existing projects by `re_project_id` and `lead_id`)
+  - Cleaned up duplicate project data in MongoDB
+- [x] **P1: Planning Board "New Projects" Tab (Mar 14, 2026)**:
+  - Added dedicated TabsContent for "New Projects" tab with rich card-based view
+  - Shows project details: client, location, area, value, advance, building type, phone, email
+  - Includes count badge on tab when new projects exist
+  - Shows "New from CRE" / "In Review" / "Planning" status badges
+  - Includes "View Details" and "Submit for Approval" action buttons
+- [x] **P2: "Convert to Scope" Button (Mar 14, 2026)**:
+  - Added "Convert to Scope" button in ProjectDetail Rough Estimate tab
+  - Copies RE scope items to project's actual scope items via `/api/scope-items/bulk`
+  - Auto-switches to the "Scope" tab after conversion
+  - Handles edge case when RE has no scope items
 
 ## Credentials
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
