@@ -56,6 +56,7 @@ import CSVImportPage from '@/pages/CSVImportPage';
 import GMDashboard from '@/pages/GMDashboard';
 import MarketingBoard from '@/pages/MarketingBoard';
 import PMDashboard from '@/pages/PMDashboard';
+import ArchitectDashboard from '@/pages/ArchitectDashboard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -139,6 +140,7 @@ function AppRouter() {
       <Route path="/crm/import-csv" element={<ProtectedRoute><CSVImportPage /></ProtectedRoute>} />
       <Route path="/gm-dashboard" element={<ProtectedRoute><GMDashboard /></ProtectedRoute>} />
       <Route path="/pm-dashboard" element={<ProtectedRoute><PMDashboard /></ProtectedRoute>} />
+      <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
@@ -161,6 +163,7 @@ function getRoleRedirect(role) {
     client: '/client-portal',
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
+    architect: '/architect-dashboard',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';

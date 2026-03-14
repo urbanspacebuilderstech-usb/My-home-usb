@@ -81,6 +81,7 @@ from routes.procurement import router as procurement_router
 from routes.operations import router as operations_router
 from routes.crm import router as crm_router
 from routes.files import router as files_router
+from routes.architect import router as architect_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -90,6 +91,7 @@ app.include_router(procurement_router, prefix="/api")
 app.include_router(operations_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
+app.include_router(architect_router, prefix="/api")
 
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)

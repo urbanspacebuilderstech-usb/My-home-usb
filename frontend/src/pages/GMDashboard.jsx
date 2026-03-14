@@ -39,6 +39,7 @@ const GMDashboard = () => {
   const [paymentRequests, setPaymentRequests] = useState([]);
   const [accountantRequests, setAccountantRequests] = useState([]);
   const [suspenseRequests, setSuspenseRequests] = useState([]);
+  const [designApprovals, setDesignApprovals] = useState([]);
   
   // Approval Dialog
   const [approvalDialog, setApprovalDialog] = useState(false);
@@ -60,13 +61,14 @@ const GMDashboard = () => {
   const fetchAllData = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const [userRes, projectsRes, reProjectsRes, siteReqRes, paymentReqRes, suspenseRes] = await Promise.all([
+      const [userRes, projectsRes, reProjectsRes, siteReqRes, paymentReqRes, suspenseRes, designRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
         axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
         axios.get(`${API}/site-engineer/requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
-        axios.get(`${API}/suspense/entries`).catch(() => ({ data: [] }))
+        axios.get(`${API}/suspense/entries`).catch(() => ({ data: [] })),
+        axios.get(`${API}/architect/pending-approvals`).catch(() => ({ data: [] }))
       ]);
       
       if (!['general_manager', 'super_admin'].includes(userRes.data.role)) {
@@ -81,6 +83,7 @@ const GMDashboard = () => {
       setSiteRequests(siteReqRes.data || []);
       setPaymentRequests(paymentReqRes.data || []);
       setSuspenseRequests(suspenseRes.data || []);
+      setDesignApprovals(designRes.data || []);
       
       // Calculate stats - RE projects pending approval have status 're_submitted'
       const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_submitted').length;
@@ -88,6 +91,7 @@ const GMDashboard = () => {
       const pendingSiteRequests = (siteReqRes.data || []).filter(r => r.status === 'pending').length;
       const pendingPayments = (paymentReqRes.data || []).filter(p => p.status === 'pending').length;
       const pendingSuspense = (suspenseRes.data || []).filter(s => s.status === 'pending_approval').length;
+      const pendingDesignApprovals = (designRes.data || []).length;
       
       setStats({
         totalProjects: (projectsRes.data || []).length,
@@ -98,6 +102,7 @@ const GMDashboard = () => {
         pendingSiteRequests,
         pendingPayments,
         pendingSuspense,
+        pendingDesignApprovals,
         completedProjects: (projectsRes.data || []).filter(p => p.status === 'completed').length
       });
       
@@ -123,6 +128,20 @@ const GMDashboard = () => {
       month: 'short',
       year: 'numeric'
     });
+  };
+
+  const handleDesignApproval = async (plan, approved) => {
+    try {
+      const reason = approved ? '' : window.prompt('Rejection reason:');
+      if (!approved && !reason) return;
+      await axios.patch(`${API}/architect/site-plans/${plan.plan_id}/approve`, null, {
+        params: { approved, rejection_reason: reason || '' }
+      });
+      toast.success(approved ? 'Design approved' : 'Design rejected');
+      fetchAllData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed');
+    }
   };
 
   const getStatusBadge = (status) => {
@@ -309,7 +328,7 @@ const GMDashboard = () => {
           value={activeTab} 
           onValueChange={(value) => {
             // Only change tab if it's a valid tab value from explicit tab click
-            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accounts'];
+            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design'];
             if (validTabs.includes(value)) {
               lastActiveTabRef.current = value;
               setActiveTab(value);
@@ -343,6 +362,12 @@ const GMDashboard = () => {
               <DollarSign className="h-4 w-4" /> Accounts
               {stats.pendingSuspense > 0 && (
                 <Badge className="bg-orange-500 text-white text-xs ml-1">{stats.pendingSuspense}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="design" className="flex items-center gap-2" data-testid="gm-tab-design">
+              <FileText className="h-4 w-4" /> Design
+              {stats.pendingDesignApprovals > 0 && (
+                <Badge className="bg-purple-500 text-white text-xs ml-1">{stats.pendingDesignApprovals}</Badge>
               )}
             </TabsTrigger>
           </TabsList>
@@ -777,6 +802,69 @@ const GMDashboard = () => {
                       <p className="text-center py-4 text-gray-500">No payment requests</p>
                     )}
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Design Tab */}
+          <TabsContent value="design" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-purple-600" />
+                  Site Plan Approvals
+                </CardTitle>
+                <CardDescription>Design submissions from Architect awaiting your approval</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {designApprovals.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500" data-testid="no-design-approvals">
+                      <CheckCircle className="h-12 w-12 mx-auto mb-2 text-green-300" />
+                      No pending design approvals
+                    </div>
+                  ) : (
+                    designApprovals.map(plan => (
+                      <div
+                        key={plan.plan_id}
+                        className="p-4 rounded-lg border bg-purple-50 border-purple-200"
+                        data-testid={`design-approval-${plan.plan_id}`}
+                      >
+                        <div className="flex items-start justify-between flex-wrap gap-3">
+                          <div>
+                            <p className="font-semibold text-gray-900">{plan.floor_name}</p>
+                            <p className="text-sm text-gray-600">Project: {plan.project_name || plan.project_id}</p>
+                            {plan.client_name && <p className="text-xs text-gray-400">Client: {plan.client_name}</p>}
+                            {plan.drive_link && (
+                              <a href={plan.drive_link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-1">
+                                <Eye className="h-3 w-3" /> View on Google Drive
+                              </a>
+                            )}
+                            <p className="text-xs text-gray-400 mt-1">Submitted: {formatDate(plan.submitted_at)}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700"
+                              onClick={() => handleDesignApproval(plan, true)}
+                              data-testid={`approve-design-${plan.plan_id}`}
+                            >
+                              <CheckCircle className="h-4 w-4 mr-1" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDesignApproval(plan, false)}
+                              data-testid={`reject-design-${plan.plan_id}`}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" /> Reject
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

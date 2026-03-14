@@ -28,6 +28,7 @@ function getRoleRedirect(role) {
     client: '/client-portal',
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
+    architect: '/architect-dashboard',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';
@@ -44,6 +45,7 @@ const DEMO_USERS = [
   { email: 'engineer@constructionos.com', name: 'Site Engineer', role: 'site_engineer' },
   { email: 'presales@constructionos.com', name: 'Pre-Sales', role: 'pre_sales' },
   { email: 'sales@constructionos.com', name: 'Sales', role: 'sales' },
+  { email: 'architect@constructionos.com', name: 'Architect', role: 'architect' },
 ];
 
 export default function Login() {
@@ -242,7 +244,7 @@ export default function Login() {
                 <div className="border-t border-slate-200/50 mt-3 pt-3">
                   <p className="text-xs text-center text-slate-400 mb-2">Quick Access:</p>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {DEMO_USERS.slice(0, 8).map((quick) => (
+                    {DEMO_USERS.slice(0, 11).map((quick) => (
                       <Button
                         key={quick.email}
                         data-testid={`quick-${quick.name.toLowerCase().replace(/\s/g, '-')}`}

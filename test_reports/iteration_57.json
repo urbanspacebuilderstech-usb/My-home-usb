@@ -1,0 +1,134 @@
+{
+  "summary": "Architect Role & Dashboard feature complete. All features tested and working: Backend APIs (100% pass), Frontend UI (100% pass). Fixed GM Dashboard Design tab switching issue (missing 'design' in validTabs array).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "fixes_applied": [
+      {
+        "file": "/app/frontend/src/pages/GMDashboard.jsx",
+        "issue": "Design tab not switching when clicked - 'design' was missing from validTabs array",
+        "fix": "Added 'design' to validTabs array in onValueChange handler"
+      }
+    ]
+  },
+  "test_results": {
+    "Backend_API_Tests": {
+      "POST /api/auth/login (architect)": "PASS - Architect role login works",
+      "POST /api/auth/login (gm)": "PASS - GM role login works",
+      "GET /api/architect/projects": "PASS - Returns projects without financial data",
+      "GET /api/architect/projects?status=filter": "PASS - Status filter works",
+      "GET /api/architect/projects/{id}/site-plans": "PASS - Returns site plans with status workflow",
+      "POST /api/architect/projects/{id}/site-plans": "PASS - Creates site plan with yet_to_start status",
+      "PATCH /api/architect/projects/{id}/site-plans/{id}": "PASS - Updates site plan",
+      "POST /api/architect/projects/{id}/site-plans/{id}/submit": "PASS - Submits for approval (status=approval_waiting)",
+      "DELETE /api/architect/projects/{id}/site-plans/{id}": "PASS - Deletes site plan",
+      "GET /api/architect/projects/{id}/design-files": "PASS - Returns 3D photos and elevations",
+      "POST /api/architect/projects/{id}/design-files": "PASS - Creates 3D photo or elevation",
+      "PATCH /api/architect/projects/{id}/design-files/{id}": "PASS - Updates design file",
+      "DELETE /api/architect/projects/{id}/design-files/{id}": "PASS - Deletes design file",
+      "GET /api/architect/pending-approvals (GM only)": "PASS - Returns pending site plan approvals",
+      "PATCH /api/architect/site-plans/{id}/approve (GM only)": "PASS - Approves/rejects site plan",
+      "GET /api/architect/projects/{id}/all-design-data": "PASS - Returns combined site plans + design files"
+    },
+    "Frontend_UI_Tests": {
+      "Architect_Dashboard": {
+        "Login via Demo Access -> Architect": "PASS",
+        "Redirects to /architect-dashboard": "PASS",
+        "Projects table shows: Project, Client, Type/Area, Site Plans, Design Files, Status, Actions": "PASS",
+        "NO financial data (Value column) shown": "PASS",
+        "Search filter works": "PASS",
+        "Status filter dropdown works": "PASS",
+        "Pending approval badge (red) shows count": "PASS",
+        "Open button navigates to project detail": "PASS"
+      },
+      "Architect_Project_Detail": {
+        "Site Plans tab loads with table": "PASS",
+        "Table shows: S.No, Floor Name, Google Drive Link, Status, Remarks, Actions": "PASS",
+        "Status badges color-coded (gray/blue/amber/green)": "PASS",
+        "Status summary cards at bottom": "PASS",
+        "Add Floor button opens dialog": "PASS",
+        "Add Floor dialog has: Floor Name, Google Drive Link, Remarks fields": "PASS",
+        "Edit button works": "PASS",
+        "Submit button changes status to approval_waiting": "PASS",
+        "Delete button works": "PASS",
+        "3D & Elevations tab shows 3D Photos and Elevation Photos sections": "PASS",
+        "Add 3D Photo button works": "PASS",
+        "Add Elevation button works": "PASS",
+        "Drive links open in new tab": "PASS"
+      },
+      "GM_Dashboard_Design_Tab": {
+        "Design tab visible with badge count": "PASS",
+        "Design tab clicking shows Site Plan Approvals section": "PASS",
+        "Pending approvals displayed with project info": "PASS",
+        "Approve button visible": "PASS",
+        "Reject button visible": "PASS",
+        "Google Drive link visible": "PASS"
+      },
+      "ProjectDetail_Documents_Tab": {
+        "Architect Designs section visible": "PASS",
+        "Site Plans subsection with table": "PASS",
+        "3D Photos & Elevations subsection": "PASS",
+        "Drive links with Open Drive buttons": "PASS"
+      }
+    }
+  },
+  "features_verified": [
+    "✅ Architect user can log in (architect@constructionos.com / Demo@1234) and lands on /architect-dashboard",
+    "✅ Architect dashboard shows all projects with no financial data (no project value/payments shown)",
+    "✅ Projects table shows Site Plans count, Design Files count, pending approval badge",
+    "✅ Search and Status filter work on architect dashboard",
+    "✅ Clicking 'Open' on a project shows project detail with Site Plans and 3D & Elevations tabs",
+    "✅ Site Plans tab: shows floor list with S.No, Floor Name, Google Drive Link, Status, Remarks, Actions",
+    "✅ Site Plans: Add Floor dialog creates new site plan with floor_name, drive_link, remarks",
+    "✅ Site Plans: Edit action opens edit dialog and saves changes",
+    "✅ Site Plans: Delete action removes the plan",
+    "✅ Site Plans: Submit action changes status to 'approval_waiting'",
+    "✅ Site Plans: Status can be changed from 'yet_to_start' to 'design'",
+    "✅ Site Plans: Status summary cards shown below table",
+    "✅ 3D & Elevations tab: Shows 3D Photos section and Elevation Photos section separately",
+    "✅ 3D & Elevations: Add 3D Photo and Add Elevation buttons work",
+    "✅ Design files have Google Drive link field and it opens in new tab",
+    "✅ GM Dashboard: New 'Design' tab with badge count shows pending site plan approvals",
+    "✅ GM Dashboard: Can approve/reject site plans from the Design tab",
+    "✅ ProjectDetail Documents tab: Shows architect design data (site plans + design files) below regular documents",
+    "✅ Backend API: POST/GET/PATCH/DELETE for /api/architect/projects/{id}/site-plans",
+    "✅ Backend API: POST/GET/PATCH/DELETE for /api/architect/projects/{id}/design-files",
+    "✅ Backend API: POST /api/architect/projects/{id}/site-plans/{id}/submit",
+    "✅ Backend API: GET /api/architect/pending-approvals (GM only)",
+    "✅ Backend API: PATCH /api/architect/site-plans/{id}/approve (GM only)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_architect.py",
+    "/app/test_reports/pytest/pytest_architect.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Code quality is excellent. Clean separation between Architect and GM approval workflows.",
+    "Status workflow (yet_to_start → design → approval_waiting → approved) is well implemented.",
+    "Financial data correctly excluded from architect projects endpoint.",
+    "GM Dashboard validTabs array fix applied - was missing 'design' causing tab not to switch."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/GMDashboard.jsx - Fixed validTabs to include 'design'"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 API endpoints tested)",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "Architect": "architect@constructionos.com / Demo@1234 or Demo Access tab",
+    "GM": "gm@constructionos.com / Demo@1234 or Demo Access tab",
+    "Super Admin": "admin@constructionos.com / Demo@1234 or Demo Access tab",
+    "Test Project": "proj_murugan_001 (Villa Murugan - Vadapalani) with 3 site plans and 2 design files"
+  },
+  "seed_data_creation": "Used existing Villa Murugan project with pre-seeded site plans (Ground Floor, First Floor, Terrace) and design files (3D Render, Elevation)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Architect role fully implemented and tested. Test project: proj_murugan_001. Site plan status workflow: yet_to_start → design → approval_waiting → approved. GM can approve/reject from Design tab. Documents tab shows Architect Designs section with all site plans and design files.",
+  "rca_of_issue": "Fixed GM Dashboard Design tab not switching - 'design' was missing from validTabs array in onValueChange handler (line 331). Changed 'accounts' to 'accountant' and added 'design' to the array."
+}

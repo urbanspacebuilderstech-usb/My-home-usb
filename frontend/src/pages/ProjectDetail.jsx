@@ -5,7 +5,7 @@ import {
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
-  ArrowDownRight, ArrowUpRight, RefreshCw, Eye
+  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -435,6 +435,7 @@ export default function ProjectDetail() {
   // Rough Estimate state
   const [reProject, setReProject] = useState(null);
   const [projectFiles, setProjectFiles] = useState([]);
+  const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
 
   useEffect(() => {
     fetchData();
@@ -475,6 +476,7 @@ export default function ProjectDetail() {
       
       // Fetch project files
       fetchProjectFiles();
+      fetchDesignData();
       
       // Fetch project stages and templates
       try {
@@ -501,6 +503,15 @@ export default function ProjectDetail() {
       setProjectFiles(res.data);
     } catch {
       // Files endpoint may not have data yet
+    }
+  };
+
+  const fetchDesignData = async () => {
+    try {
+      const res = await axios.get(`${API}/architect/projects/${projectId}/all-design-data`);
+      setDesignData(res.data || { site_plans: [], design_files: [] });
+    } catch {
+      // Design data may not exist
     }
   };
 
@@ -2918,6 +2929,78 @@ export default function ProjectDetail() {
                   onDelete={fetchProjectFiles}
                   canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
                 />
+
+                {/* Architect Design Data */}
+                {(designData.site_plans.length > 0 || designData.design_files.length > 0) && (
+                  <div className="space-y-4 mt-6 pt-6 border-t">
+                    <h3 className="text-base font-bold flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-indigo-600" />
+                      Architect Designs
+                    </h3>
+
+                    {/* Site Plans */}
+                    {designData.site_plans.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-2">Site Plans ({designData.site_plans.length})</p>
+                        <div className="overflow-x-auto border rounded-lg">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Floor</th>
+                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Status</th>
+                                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Drive Link</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Remarks</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {designData.site_plans.map(plan => (
+                                <tr key={plan.plan_id} className="hover:bg-gray-50" data-testid={`doc-site-plan-${plan.plan_id}`}>
+                                  <td className="px-3 py-2 font-medium">{plan.floor_name}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+                                      plan.status === 'approved' ? 'bg-green-100 text-green-700 border-green-300' :
+                                      plan.status === 'approval_waiting' ? 'bg-amber-100 text-amber-700 border-amber-300' :
+                                      plan.status === 'design' ? 'bg-blue-100 text-blue-700 border-blue-300' :
+                                      'bg-gray-100 text-gray-700 border-gray-300'
+                                    }`}>
+                                      {plan.status === 'yet_to_start' ? 'Yet to Start' : plan.status === 'approval_waiting' ? 'Approval Waiting' : plan.status.charAt(0).toUpperCase() + plan.status.slice(1)}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    {plan.drive_link ? <a href={plan.drive_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs">Open</a> : '-'}
+                                  </td>
+                                  <td className="px-3 py-2 text-xs text-gray-500">{plan.remarks || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Design Files (3D + Elevations) */}
+                    {designData.design_files.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-2">3D Photos & Elevations ({designData.design_files.length})</p>
+                        <div className="grid gap-2">
+                          {designData.design_files.map(file => (
+                            <div key={file.file_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border" data-testid={`doc-design-file-${file.file_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{file.file_name}</p>
+                                <p className="text-xs text-gray-400">{file.file_type === '3d_photo' ? '3D Photo' : 'Elevation'} {file.remarks ? `- ${file.remarks}` : ''}</p>
+                              </div>
+                              {file.drive_link && (
+                                <a href={file.drive_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs border border-blue-200 rounded px-2 py-1">
+                                  Open Drive
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

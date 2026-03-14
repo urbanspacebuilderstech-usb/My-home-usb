@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="13" skipped="0" tests="21" time="30.246" timestamp="2026-03-14T14:29:48.401605+00:00" hostname="agent-env-5a33c0b4-0cf0-4c04-b379-2d0e25192099"><testcase classname="backend.tests.test_architect.TestArchitectAuth" name="test_architect_login" time="1.210" /><testcase classname="backend.tests.test_architect.TestArchitectAuth" name="test_gm_login" time="1.095" /><testcase classname="backend.tests.test_architect.TestArchitectProjects" name="test_get_projects_no_financial_data" time="3.979" /><testcase classname="backend.tests.test_architect.TestArchitectProjects" name="test_get_projects_with_status_filter" time="2.549" /><testcase classname="backend.tests.test_architect.TestArchitectProjects" name="test_project_has_required_fields" time="3.984" /><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_get_site_plans" time="1.860" /><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_create_site_plan" time="2.847" /><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_update_site_plan" time="0.410"><failure message="KeyError: 'plan_id'">backend/tests/test_architect.py:167: in test_update_site_plan
+    plan_id = create_response.json()["plan_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'plan_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_change_status_to_design" time="0.422"><failure message="KeyError: 'plan_id'">backend/tests/test_architect.py:193: in test_change_status_to_design
+    plan_id = create_response.json()["plan_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'plan_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_submit_for_approval" time="0.393"><failure message="KeyError: 'plan_id'">backend/tests/test_architect.py:214: in test_submit_for_approval
+    plan_id = create_response.json()["plan_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'plan_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestSitePlans" name="test_delete_site_plan" time="0.443"><failure message="KeyError: 'plan_id'">backend/tests/test_architect.py:244: in test_delete_site_plan
+    plan_id = create_response.json()["plan_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'plan_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestDesignFiles" name="test_get_design_files" time="0.404"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:268: in test_get_design_files
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestDesignFiles" name="test_create_3d_photo" time="0.402"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:290: in test_create_3d_photo
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestDesignFiles" name="test_create_elevation" time="0.399"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:311: in test_create_elevation
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestDesignFiles" name="test_update_design_file" time="0.398"><failure message="KeyError: 'file_id'">backend/tests/test_architect.py:326: in test_update_design_file
+    file_id = create_response.json()["file_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'file_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestDesignFiles" name="test_delete_design_file" time="0.421"><failure message="KeyError: 'file_id'">backend/tests/test_architect.py:346: in test_delete_design_file
+    file_id = create_response.json()["file_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'file_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestGMApproval" name="test_gm_get_pending_approvals" time="0.756"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:375: in test_gm_get_pending_approvals
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestGMApproval" name="test_gm_approve_site_plan" time="3.731"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:406: in test_gm_approve_site_plan
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestGMApproval" name="test_gm_reject_site_plan" time="0.773"><failure message="KeyError: 'plan_id'">backend/tests/test_architect.py:430: in test_gm_reject_site_plan
+    plan_id = create_response.json()["plan_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'plan_id'</failure></testcase><testcase classname="backend.tests.test_architect.TestGMApproval" name="test_architect_cannot_access_approval_endpoint" time="1.517"><failure message="assert 401 == 403&#10; +  where 401 = &lt;Response [401]&gt;.status_code">backend/tests/test_architect.py:461: in test_architect_cannot_access_approval_endpoint
+    assert response.status_code == 403
+E   assert 401 == 403
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_architect.TestAllDesignData" name="test_get_all_design_data" time="2.072" /></testsuite></testsuites>
