@@ -2910,29 +2910,10 @@ export default function ProjectDetail() {
             {/* ==================== DOCUMENTS TAB ==================== */}
             <TabsContent value="documents" className="p-3 sm:p-6">
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                    <Folder className="h-5 w-5 text-amber-600" />
-                    Project Documents
-                  </h3>
-                  <Badge variant="outline">{projectFiles.length} file(s)</Badge>
-                </div>
 
-                <FileUpload
-                  projectId={projectId}
-                  category="project-documents"
-                  onUploadComplete={fetchProjectFiles}
-                />
-
-                <FileList
-                  files={projectFiles}
-                  onDelete={fetchProjectFiles}
-                  canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
-                />
-
-                {/* Architect Design Data */}
+                {/* Architect Design Data - FIRST */}
                 {(designData.site_plans.length > 0 || designData.design_files.length > 0) && (
-                  <div className="space-y-4 mt-6 pt-6 border-t">
+                  <div className="space-y-4">
                     <h3 className="text-base font-bold flex items-center gap-2">
                       <Layers className="h-5 w-5 text-indigo-600" />
                       Architect Designs
@@ -3001,6 +2982,29 @@ export default function ProjectDetail() {
                     )}
                   </div>
                 )}
+
+                {/* Project Documents - compact with upload button */}
+                <div className={designData.site_plans.length > 0 || designData.design_files.length > 0 ? 'pt-4 border-t' : ''}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base font-bold flex items-center gap-2">
+                      <Folder className="h-5 w-5 text-amber-600" />
+                      Project Documents
+                      <Badge variant="outline" className="ml-1">{projectFiles.length}</Badge>
+                    </h3>
+                    <FileUpload
+                      projectId={projectId}
+                      category="project-documents"
+                      onUploadComplete={fetchProjectFiles}
+                      compact
+                    />
+                  </div>
+
+                  <FileList
+                    files={projectFiles}
+                    onDelete={fetchProjectFiles}
+                    canDelete={user && ['super_admin', 'planning', 'project_manager'].includes(user.role)}
+                  />
+                </div>
               </div>
             </TabsContent>
           </Tabs>

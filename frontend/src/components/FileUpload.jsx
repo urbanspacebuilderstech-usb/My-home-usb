@@ -20,7 +20,7 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function FileUpload({ projectId, category = 'general', onUploadComplete }) {
+export function FileUpload({ projectId, category = 'general', onUploadComplete, compact = false }) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
@@ -64,6 +64,20 @@ export function FileUpload({ projectId, category = 'general', onUploadComplete }
     setDragOver(false);
     handleUpload(e.dataTransfer.files);
   };
+
+  if (compact) {
+    return (
+      <div>
+        <input ref={inputRef} type="file" multiple className="hidden"
+          accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt"
+          onChange={(e) => handleUpload(e.target.files)} data-testid="file-upload-input" />
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => !uploading && inputRef.current?.click()} disabled={uploading} data-testid="file-upload-btn">
+          {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          {uploading ? 'Uploading...' : 'Upload'}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div
