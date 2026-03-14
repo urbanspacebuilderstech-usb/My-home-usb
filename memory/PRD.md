@@ -33,6 +33,7 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] Super Admin auto-creation (urbanspacebuilderstech@gmail.com)
 - [x] Forgot Password + Role-based access control
 - [x] 360° seed data for Murugan Vadapalani project
+- [x] CRE Dashboard loading fix - parallelized API/DB calls, skeleton loader (Mar 14, 2026)
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
