@@ -488,10 +488,36 @@ async def reject_income(income_id: str, reason: str = "", user: User = Depends(g
 class IncomeReviewRequest(BaseModel):
     verification_mode: str  # cash, cheque, bank, dt
     denomination: Optional[Dict[str, int]] = None  # for cash: {"2000": 1, "500": 4, ...}
-    cheque_number: Optional[str] = None  # for cheque
+    cheque_number: Optional[str] = None  # for single cheque
+    cheque_verifications: Optional[List[Dict[str, str]]] = None  # for multiple cheques: [{"cheque_id": "...", "entered_number": "..."}]
     transaction_id: Optional[str] = None  # for bank
     dt_id: Optional[str] = None  # for dt
     notes: Optional[str] = None
+
+
+@router.get("/approvals/income/{income_id}/cheques")
+async def get_income_cheques(income_id: str, user: User = Depends(get_current_user)):
+    """Get all cheques linked to this income entry"""
+    income = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not income:
+        raise HTTPException(status_code=404, detail="Income not found")
+    
+    # First try to find cheques linked directly to the income
+    cheques = await db.cheques.find(
+        {"income_id": income_id, "cheque_type": "incoming"},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    # If no direct link, get all incoming cheques for the project
+    if not cheques:
+        project_id = income.get("project_id")
+        if project_id:
+            cheques = await db.cheques.find(
+                {"project_id": project_id, "cheque_type": "incoming"},
+                {"_id": 0}
+            ).sort("created_at", -1).to_list(50)
+    
+    return {"cheques": cheques}
 
 
 @router.post("/approvals/income/{income_id}/review")
@@ -516,6 +542,8 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
         verification["denomination_total"] = denomination_total
     if data.cheque_number:
         verification["cheque_number"] = data.cheque_number
+    if data.cheque_verifications:
+        verification["cheque_verifications"] = data.cheque_verifications
     if data.transaction_id:
         verification["transaction_id"] = data.transaction_id
     if data.dt_id:

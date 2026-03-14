@@ -1703,7 +1703,10 @@ function ApprovalsTab() {
     return null;
   };
 
-  const openReviewDialog = (income) => {
+  const [projectCheques, setProjectCheques] = useState([]);
+  const [chequeVerifications, setChequeVerifications] = useState({});
+
+  const openReviewDialog = async (income) => {
     const mode = classifyMode(income.payment_mode);
     let verificationMode = 'cash';
     if (mode === 'cheque' || income.payment_mode === 'cheque') verificationMode = 'cheque';
@@ -1713,11 +1716,20 @@ function ApprovalsTab() {
     setReviewForm({
       verification_mode: verificationMode,
       denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
-      cheque_number: income.cheque_number || '',
-      transaction_id: income.transaction_id || '',
-      dt_id: '',
-      notes: ''
+      cheque_number: '', transaction_id: income.transaction_id || '',
+      dt_id: '', notes: ''
     });
+    if (verificationMode === 'cheque') {
+      try {
+        const res = await axios.get(`${API}/approvals/income/${income.income_id}/cheques`);
+        setProjectCheques(res.data.cheques || []);
+        const verMap = {};
+        (res.data.cheques || []).forEach(c => { verMap[c.cheque_id] = ''; });
+        setChequeVerifications(verMap);
+      } catch { setProjectCheques([]); setChequeVerifications({}); }
+    } else {
+      setProjectCheques([]); setChequeVerifications({});
+    }
     setReviewDialog({ open: true, income });
   };
 
@@ -1731,9 +1743,9 @@ function ApprovalsTab() {
       toast.error(`Denomination total (₹${denominationTotal.toLocaleString('en-IN')}) doesn't match amount (₹${inc.amount.toLocaleString('en-IN')})`);
       return;
     }
-    if (reviewForm.verification_mode === 'cheque' && !reviewForm.cheque_number.trim()) {
-      toast.error('Please enter cheque number');
-      return;
+    if (reviewForm.verification_mode === 'cheque') {
+      const allVerified = projectCheques.length > 0 && projectCheques.every(c => chequeVerifications[c.cheque_id]?.trim());
+      if (!allVerified) { toast.error('Please re-enter all cheque numbers'); return; }
     }
     if (reviewForm.verification_mode === 'bank' && !reviewForm.transaction_id.trim()) {
       toast.error('Please enter transaction ID');
@@ -1755,7 +1767,12 @@ function ApprovalsTab() {
         Object.entries(reviewForm.denomination).forEach(([k, v]) => { if (parseInt(v) > 0) denom[k] = parseInt(v); });
         payload.denomination = denom;
       }
-      if (reviewForm.verification_mode === 'cheque') payload.cheque_number = reviewForm.cheque_number;
+      if (reviewForm.verification_mode === 'cheque') {
+        payload.cheque_verifications = projectCheques.map(c => ({
+          cheque_id: c.cheque_id, cheque_number: c.cheque_number,
+          entered_number: chequeVerifications[c.cheque_id] || '', amount: c.amount, bank: c.bank_name
+        }));
+      }
       if (reviewForm.verification_mode === 'bank') payload.transaction_id = reviewForm.transaction_id;
       if (reviewForm.verification_mode === 'dt') payload.dt_id = reviewForm.dt_id;
 
@@ -2010,30 +2027,44 @@ function ApprovalsTab() {
                 </div>
               )}
 
-              {/* Cheque - Show existing + re-enter */}
+              {/* Cheque - Show all project cheques for verification */}
               {reviewForm.verification_mode === 'cheque' && (
                 <div data-testid="review-cheque-section">
-                  <Label className="text-sm font-semibold mb-2 block">Cheque Verification</Label>
-                  {reviewDialog.income?.cheque_number && (
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
-                      <p className="text-xs text-blue-500 mb-1">Existing Cheque on Record</p>
-                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.cheque_number}</p>
-                    </div>
+                  <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
+                  {projectCheques.length === 0 && (
+                    <p className="text-sm text-gray-400 italic py-2">No cheques found for this project</p>
                   )}
-                  {reviewDialog.income?.reference_number && reviewDialog.income.reference_number !== reviewDialog.income.cheque_number && (
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
-                      <p className="text-xs text-blue-500 mb-1">Reference Number</p>
-                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.reference_number}</p>
-                    </div>
-                  )}
-                  <Label className="text-sm font-medium">Re-enter Cheque Number to Verify</Label>
-                  <Input
-                    value={reviewForm.cheque_number}
-                    onChange={(e) => setReviewForm({ ...reviewForm, cheque_number: e.target.value })}
-                    placeholder="Re-enter cheque number"
-                    className="mt-1"
-                    data-testid="review-cheque-input"
-                  />
+                  <div className="space-y-3">
+                    {projectCheques.map((cheque, idx) => (
+                      <div key={cheque.cheque_id} className="border rounded-lg p-3 bg-blue-50/50">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="text-xs text-blue-500">Cheque {idx + 1} • {cheque.bank_name || 'Bank'}</p>
+                            <p className="font-bold text-blue-800 text-lg tracking-wider">{cheque.cheque_number}</p>
+                          </div>
+                          <Badge variant="outline" className="text-green-700 border-green-300">
+                            ₹{parseInt(cheque.amount).toLocaleString('en-IN')}
+                          </Badge>
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-500">Re-enter cheque number to verify</Label>
+                          <Input
+                            value={chequeVerifications[cheque.cheque_id] || ''}
+                            onChange={(e) => setChequeVerifications({ ...chequeVerifications, [cheque.cheque_id]: e.target.value })}
+                            placeholder="Re-enter cheque number"
+                            className={`mt-1 h-8 text-sm ${chequeVerifications[cheque.cheque_id] === cheque.cheque_number ? 'border-green-400 bg-green-50' : ''}`}
+                            data-testid={`verify-cheque-${cheque.cheque_id}`}
+                          />
+                          {chequeVerifications[cheque.cheque_id] && chequeVerifications[cheque.cheque_id] === cheque.cheque_number && (
+                            <p className="text-xs text-green-600 mt-1">✓ Verified</p>
+                          )}
+                          {chequeVerifications[cheque.cheque_id] && chequeVerifications[cheque.cheque_id] !== cheque.cheque_number && (
+                            <p className="text-xs text-red-500 mt-1">✗ Does not match</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
