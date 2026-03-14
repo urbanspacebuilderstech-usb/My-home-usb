@@ -1305,6 +1305,10 @@ export default function ProjectDetail() {
                 <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Scope
                 </TabsTrigger>
+                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-project-stages">
+                  <Folder className="h-3 w-3 mr-1" />
+                  Project Stages
+                </TabsTrigger>
                 <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Payment Schedule
                 </TabsTrigger>
@@ -1317,10 +1321,6 @@ export default function ProjectDetail() {
                 <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
                   <DollarSign className="h-3 w-3 mr-1" />
                   Payment Summary
-                </TabsTrigger>
-                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm" data-testid="tab-project-stages">
-                  <Folder className="h-3 w-3 mr-1" />
-                  Project Stages
                 </TabsTrigger>
                 <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   <Folder className="h-3 w-3 mr-1" />
@@ -1843,6 +1843,233 @@ export default function ProjectDetail() {
               </div>
             </TabsContent>
 
+            {/* ==================== PROJECT STAGES TAB ==================== */}
+            <TabsContent value="project-stages" className="p-3 sm:p-6">
+              <div className="space-y-6" data-testid="project-stages-tab">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold">Project Stages</h3>
+                    <p className="text-xs sm:text-sm text-gray-500">Track construction stages and milestones</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {!showAddStages && canManage && (
+                      <Button data-testid="add-stages-btn" className="gap-2 bg-secondary hover:bg-secondary/90" onClick={() => setShowAddStages(true)}>
+                        <Plus className="h-4 w-4" /> Add Stages
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Template Selector */}
+                {showAddStages && (
+                  <Card className="border-2 border-blue-200 bg-blue-50/30">
+                    <CardContent className="p-4 space-y-4">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <h4 className="font-semibold text-blue-800">Add Project Stages</h4>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-600">Load Template:</span>
+                          <select 
+                            className="border rounded-lg px-3 py-1.5 text-sm bg-white"
+                            value={selectedTemplate}
+                            onChange={(e) => handleLoadTemplate(e.target.value)}
+                            data-testid="template-selector"
+                          >
+                            <option value="">-- Select Template --</option>
+                            {stageTemplates.map(t => (
+                              <option key={t.template_id || t.template_name} value={t.template_name}>{t.template_name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Stage Rows */}
+                      <div className="space-y-2">
+                        {newStages.map((stage, idx) => (
+                          <div key={idx} className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-lg border" data-testid={`new-stage-row-${idx}`}>
+                            <span className="text-sm font-medium text-gray-500 w-6">{idx + 1}.</span>
+                            <input
+                              type="text"
+                              placeholder="Stage name"
+                              className="flex-1 min-w-[150px] border rounded-lg px-3 py-1.5 text-sm"
+                              value={stage.stage_name}
+                              onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
+                              data-testid={`stage-name-input-${idx}`}
+                            />
+                            <input
+                              type="date"
+                              className="border rounded-lg px-3 py-1.5 text-sm"
+                              value={stage.target_date}
+                              onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
+                            />
+                            <select
+                              className={`border rounded-lg px-3 py-1.5 text-sm ${stageStatusConfig[stage.status]?.color || ''}`}
+                              value={stage.status}
+                              onChange={(e) => updateNewStage(idx, 'status', e.target.value)}
+                            >
+                              <option value="yet_to_start">Yet to Start</option>
+                              <option value="started">Started</option>
+                              <option value="finished">Finished</option>
+                            </select>
+                            <input
+                              type="text"
+                              placeholder="Remarks"
+                              className="flex-1 min-w-[100px] border rounded-lg px-3 py-1.5 text-sm"
+                              value={stage.remarks}
+                              onChange={(e) => updateNewStage(idx, 'remarks', e.target.value)}
+                            />
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => removeNewStageRow(idx)}>
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Add row + Action buttons */}
+                      <div className="flex flex-wrap gap-2 pt-2">
+                        <Button variant="outline" size="sm" onClick={addNewStageRow} data-testid="add-stage-row-btn">
+                          <Plus className="h-3 w-3 mr-1" /> Add Row
+                        </Button>
+                        <div className="flex-1" />
+                        <Button variant="outline" size="sm" onClick={() => { setSaveTemplateDialog(true); }} data-testid="save-as-template-btn">
+                          <Save className="h-3 w-3 mr-1" /> Save as Template
+                        </Button>
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveStages} data-testid="save-stages-btn">
+                          <Check className="h-3 w-3 mr-1" /> Save Stages
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]); }}>
+                          Cancel
+                        </Button>
+                      </div>
+
+                      {/* Save as Template Dialog */}
+                      {saveTemplateDialog && (
+                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm font-medium text-amber-800 mb-2">Save as Template (e.g., G+1, G+2)</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Template name (e.g., G+2)"
+                              className="flex-1 border rounded-lg px-3 py-1.5 text-sm"
+                              value={templateName}
+                              onChange={(e) => setTemplateName(e.target.value)}
+                              data-testid="template-name-input"
+                            />
+                            <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={handleSaveAsTemplate} data-testid="confirm-save-template-btn">
+                              Save Template
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setSaveTemplateDialog(false)}>Cancel</Button>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Existing Stages Table */}
+                {projectStages.length > 0 ? (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage Name</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Target Date</th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                          {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {projectStages.map((stage, idx) => (
+                          <tr key={stage.stage_id} className="hover:bg-gray-50" data-testid={`project-stage-row-${stage.stage_id}`}>
+                            <td className="px-4 py-3 text-sm font-medium">{idx + 1}</td>
+                            <td className="px-4 py-3">
+                              {editingStageId === stage.stage_id ? (
+                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
+                              ) : (
+                                <span className="font-medium">{stage.stage_name}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {editingStageId === stage.stage_id ? (
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => setEditStageData(d => ({...d, target_date: e.target.value}))} />
+                              ) : (
+                                <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {editingStageId === stage.stage_id ? (
+                                <select className="border rounded px-2 py-1 text-sm" value={editStageData.status || 'yet_to_start'} onChange={e => setEditStageData(d => ({...d, status: e.target.value}))}>
+                                  <option value="yet_to_start">Yet to Start</option>
+                                  <option value="started">Started</option>
+                                  <option value="finished">Finished</option>
+                                </select>
+                              ) : (
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${stageStatusConfig[stage.status]?.color || 'bg-gray-100 text-gray-600'}`}>
+                                  {stage.status === 'finished' && <Check className="h-3 w-3 mr-1" />}
+                                  {stageStatusConfig[stage.status]?.label || stage.status}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {editingStageId === stage.stage_id ? (
+                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.remarks || ''} onChange={e => setEditStageData(d => ({...d, remarks: e.target.value}))} />
+                              ) : (
+                                stage.remarks || '-'
+                              )}
+                            </td>
+                            {canManage && (
+                              <td className="px-4 py-3 text-center">
+                                {editingStageId === stage.stage_id ? (
+                                  <div className="flex justify-center gap-1">
+                                    <Button size="sm" variant="outline" className="h-7 text-green-600" onClick={() => handleUpdateStage(stage.stage_id)}><Check className="h-3 w-3" /></Button>
+                                    <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingStageId(null)}><X className="h-3 w-3" /></Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex justify-center gap-1">
+                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, target_date: stage.target_date || '', status: stage.status, remarks: stage.remarks || '' }); }}>
+                                      <Edit className="h-3 w-3" />
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : !showAddStages && (
+                  <div className="text-center py-12 text-gray-500">
+                    <Folder className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p className="font-medium">No project stages defined</p>
+                    <p className="text-sm mt-1">Click "Add Stages" to create stages or load from a template</p>
+                  </div>
+                )}
+
+                {/* Progress Summary */}
+                {projectStages.length > 0 && (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-gray-50 rounded-lg p-3 text-center border">
+                      <p className="text-2xl font-bold text-gray-600">{projectStages.filter(s => s.status === 'yet_to_start').length}</p>
+                      <p className="text-xs text-gray-500">Yet to Start</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
+                      <p className="text-2xl font-bold text-amber-600">{projectStages.filter(s => s.status === 'started').length}</p>
+                      <p className="text-xs text-amber-600">In Progress</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 text-center border border-green-200">
+                      <p className="text-2xl font-bold text-green-600">{projectStages.filter(s => s.status === 'finished').length}</p>
+                      <p className="text-xs text-green-600">Finished</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
@@ -2565,233 +2792,6 @@ export default function ProjectDetail() {
             </TabsContent>
 
 
-            {/* ==================== PROJECT STAGES TAB ==================== */}
-            <TabsContent value="project-stages" className="p-3 sm:p-6">
-              <div className="space-y-6" data-testid="project-stages-tab">
-                {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base sm:text-lg font-bold">Project Stages</h3>
-                    <p className="text-xs sm:text-sm text-gray-500">Track construction stages and milestones</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {!showAddStages && canManage && (
-                      <Button data-testid="add-stages-btn" className="gap-2 bg-secondary hover:bg-secondary/90" onClick={() => setShowAddStages(true)}>
-                        <Plus className="h-4 w-4" /> Add Stages
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Template Selector */}
-                {showAddStages && (
-                  <Card className="border-2 border-blue-200 bg-blue-50/30">
-                    <CardContent className="p-4 space-y-4">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                        <h4 className="font-semibold text-blue-800">Add Project Stages</h4>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm text-gray-600">Load Template:</span>
-                          <select 
-                            className="border rounded-lg px-3 py-1.5 text-sm bg-white"
-                            value={selectedTemplate}
-                            onChange={(e) => handleLoadTemplate(e.target.value)}
-                            data-testid="template-selector"
-                          >
-                            <option value="">-- Select Template --</option>
-                            {stageTemplates.map(t => (
-                              <option key={t.template_id || t.template_name} value={t.template_name}>{t.template_name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Stage Rows */}
-                      <div className="space-y-2">
-                        {newStages.map((stage, idx) => (
-                          <div key={idx} className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-lg border" data-testid={`new-stage-row-${idx}`}>
-                            <span className="text-sm font-medium text-gray-500 w-6">{idx + 1}.</span>
-                            <input
-                              type="text"
-                              placeholder="Stage name"
-                              className="flex-1 min-w-[150px] border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.stage_name}
-                              onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
-                              data-testid={`stage-name-input-${idx}`}
-                            />
-                            <input
-                              type="date"
-                              className="border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.target_date}
-                              onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
-                            />
-                            <select
-                              className={`border rounded-lg px-3 py-1.5 text-sm ${stageStatusConfig[stage.status]?.color || ''}`}
-                              value={stage.status}
-                              onChange={(e) => updateNewStage(idx, 'status', e.target.value)}
-                            >
-                              <option value="yet_to_start">Yet to Start</option>
-                              <option value="started">Started</option>
-                              <option value="finished">Finished</option>
-                            </select>
-                            <input
-                              type="text"
-                              placeholder="Remarks"
-                              className="flex-1 min-w-[100px] border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.remarks}
-                              onChange={(e) => updateNewStage(idx, 'remarks', e.target.value)}
-                            />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => removeNewStageRow(idx)}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Add row + Action buttons */}
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        <Button variant="outline" size="sm" onClick={addNewStageRow} data-testid="add-stage-row-btn">
-                          <Plus className="h-3 w-3 mr-1" /> Add Row
-                        </Button>
-                        <div className="flex-1" />
-                        <Button variant="outline" size="sm" onClick={() => { setSaveTemplateDialog(true); }} data-testid="save-as-template-btn">
-                          <Save className="h-3 w-3 mr-1" /> Save as Template
-                        </Button>
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveStages} data-testid="save-stages-btn">
-                          <Check className="h-3 w-3 mr-1" /> Save Stages
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', target_date: '', status: 'yet_to_start', remarks: '' }]); }}>
-                          Cancel
-                        </Button>
-                      </div>
-
-                      {/* Save as Template Dialog */}
-                      {saveTemplateDialog && (
-                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                          <p className="text-sm font-medium text-amber-800 mb-2">Save as Template (e.g., G+1, G+2)</p>
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="Template name (e.g., G+2)"
-                              className="flex-1 border rounded-lg px-3 py-1.5 text-sm"
-                              value={templateName}
-                              onChange={(e) => setTemplateName(e.target.value)}
-                              data-testid="template-name-input"
-                            />
-                            <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={handleSaveAsTemplate} data-testid="confirm-save-template-btn">
-                              Save Template
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => setSaveTemplateDialog(false)}>Cancel</Button>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Existing Stages Table */}
-                {projectStages.length > 0 ? (
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage Name</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Target Date</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
-                          {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {projectStages.map((stage, idx) => (
-                          <tr key={stage.stage_id} className="hover:bg-gray-50" data-testid={`project-stage-row-${stage.stage_id}`}>
-                            <td className="px-4 py-3 text-sm font-medium">{idx + 1}</td>
-                            <td className="px-4 py-3">
-                              {editingStageId === stage.stage_id ? (
-                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
-                              ) : (
-                                <span className="font-medium">{stage.stage_name}</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => setEditStageData(d => ({...d, target_date: e.target.value}))} />
-                              ) : (
-                                <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              {editingStageId === stage.stage_id ? (
-                                <select className="border rounded px-2 py-1 text-sm" value={editStageData.status || 'yet_to_start'} onChange={e => setEditStageData(d => ({...d, status: e.target.value}))}>
-                                  <option value="yet_to_start">Yet to Start</option>
-                                  <option value="started">Started</option>
-                                  <option value="finished">Finished</option>
-                                </select>
-                              ) : (
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${stageStatusConfig[stage.status]?.color || 'bg-gray-100 text-gray-600'}`}>
-                                  {stage.status === 'finished' && <Check className="h-3 w-3 mr-1" />}
-                                  {stageStatusConfig[stage.status]?.label || stage.status}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {editingStageId === stage.stage_id ? (
-                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.remarks || ''} onChange={e => setEditStageData(d => ({...d, remarks: e.target.value}))} />
-                              ) : (
-                                stage.remarks || '-'
-                              )}
-                            </td>
-                            {canManage && (
-                              <td className="px-4 py-3 text-center">
-                                {editingStageId === stage.stage_id ? (
-                                  <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="outline" className="h-7 text-green-600" onClick={() => handleUpdateStage(stage.stage_id)}><Check className="h-3 w-3" /></Button>
-                                    <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingStageId(null)}><X className="h-3 w-3" /></Button>
-                                  </div>
-                                ) : (
-                                  <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, target_date: stage.target_date || '', status: stage.status, remarks: stage.remarks || '' }); }}>
-                                      <Edit className="h-3 w-3" />
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : !showAddStages && (
-                  <div className="text-center py-12 text-gray-500">
-                    <Folder className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p className="font-medium">No project stages defined</p>
-                    <p className="text-sm mt-1">Click "Add Stages" to create stages or load from a template</p>
-                  </div>
-                )}
-
-                {/* Progress Summary */}
-                {projectStages.length > 0 && (
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-3 text-center border">
-                      <p className="text-2xl font-bold text-gray-600">{projectStages.filter(s => s.status === 'yet_to_start').length}</p>
-                      <p className="text-xs text-gray-500">Yet to Start</p>
-                    </div>
-                    <div className="bg-amber-50 rounded-lg p-3 text-center border border-amber-200">
-                      <p className="text-2xl font-bold text-amber-600">{projectStages.filter(s => s.status === 'started').length}</p>
-                      <p className="text-xs text-amber-600">In Progress</p>
-                    </div>
-                    <div className="bg-green-50 rounded-lg p-3 text-center border border-green-200">
-                      <p className="text-2xl font-bold text-green-600">{projectStages.filter(s => s.status === 'finished').length}</p>
-                      <p className="text-xs text-green-600">Finished</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </TabsContent>
 
             {/* ==================== DOCUMENTS TAB ==================== */}
             <TabsContent value="documents" className="p-3 sm:p-6">
