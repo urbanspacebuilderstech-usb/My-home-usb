@@ -78,6 +78,9 @@ export default function CRMPreSales() {
     time: '',
     type: ''
   });
+  // Appointment edit
+  const [apptEditDialog, setApptEditDialog] = useState(false);
+  const [apptEditForm, setApptEditForm] = useState({ date: '', time: '', type: '' });
   
   // Lead Form
   const [leadForm, setLeadForm] = useState({
@@ -339,6 +342,37 @@ export default function CRMPreSales() {
     
     setAppointmentDialog(false);
     await handleStageChange(appointmentLeadId, finalStage.stage_id, appointmentForm);
+  };
+
+  const openApptEdit = () => {
+    const appt = selectedLead?.appointment;
+    setApptEditForm({
+      date: appt?.appointment_date || '',
+      time: appt?.appointment_time || '',
+      type: appt?.appointment_type || ''
+    });
+    setApptEditDialog(true);
+  };
+
+  const handleSaveApptEdit = async () => {
+    if (!apptEditForm.date || !apptEditForm.time || !apptEditForm.type) {
+      toast.error('Please fill all appointment fields');
+      return;
+    }
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}/appointment`, {
+        appointment_date: apptEditForm.date,
+        appointment_time: apptEditForm.time,
+        appointment_type: apptEditForm.type
+      });
+      toast.success('Appointment updated');
+      setApptEditDialog(false);
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setSelectedLead(res.data);
+      fetchLeads();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update appointment');
+    }
   };
 
   // ============ LEAD DETAILS & REMARKS ============
@@ -1200,6 +1234,48 @@ export default function CRMPreSales() {
                   </CardContent>
                 </Card>
                 
+                {/* Appointment Info */}
+                {selectedLead.appointment && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+                        <span className="flex items-center gap-2"><Calendar className="h-4 w-4" /> Appointment</span>
+                        <Button variant="outline" size="sm" onClick={openApptEdit} data-testid="edit-appointment-btn">
+                          <Edit2 className="h-3 w-3 mr-1" /> Edit
+                        </Button>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-green-50 rounded-lg p-3">
+                          <span className="text-xs text-green-600">Date</span>
+                          <p className="font-medium">{selectedLead.appointment.appointment_date}</p>
+                        </div>
+                        <div className="bg-green-50 rounded-lg p-3">
+                          <span className="text-xs text-green-600">Time</span>
+                          <p className="font-medium">{selectedLead.appointment.appointment_time}</p>
+                        </div>
+                        <div className="bg-green-50 rounded-lg p-3">
+                          <span className="text-xs text-green-600">Type</span>
+                          <p className="font-medium capitalize">{selectedLead.appointment.appointment_type?.replace('_', ' ')}</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+                
+                {!selectedLead.appointment && (
+                  <Card>
+                    <CardContent className="py-4 text-center">
+                      <Calendar className="h-6 w-6 mx-auto mb-2 text-gray-300" />
+                      <p className="text-sm text-gray-400">No appointment booked yet</p>
+                      <Button variant="outline" size="sm" className="mt-2" onClick={openApptEdit} data-testid="book-new-appointment-btn">
+                        <Plus className="h-3 w-3 mr-1" /> Book Appointment
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+                
                 {/* Custom Fields */}
                 {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
                   <Card>
@@ -1717,6 +1793,81 @@ export default function CRMPreSales() {
               data-testid="confirm-delete-btn"
             >
               <Trash2 className="h-4 w-4 mr-1" /> Delete Field
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Appointment Edit Dialog */}
+      <Dialog open={apptEditDialog} onOpenChange={setApptEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-green-600" />
+              {selectedLead?.appointment ? 'Edit Appointment' : 'Book Appointment'}
+            </DialogTitle>
+            <DialogDescription>
+              Update the appointment details for this lead
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-sm font-medium">Appointment Date *</Label>
+              <Input 
+                type="date"
+                value={apptEditForm.date}
+                onChange={(e) => setApptEditForm({...apptEditForm, date: e.target.value})}
+                min={new Date().toISOString().split('T')[0]}
+                className="mt-1"
+                data-testid="edit-appt-date"
+              />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Appointment Time *</Label>
+              <Input 
+                type="time"
+                value={apptEditForm.time}
+                onChange={(e) => setApptEditForm({...apptEditForm, time: e.target.value})}
+                className="mt-1"
+                data-testid="edit-appt-time"
+              />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Visit Type *</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {[
+                  { value: 'office_visit', label: 'Office Visit', icon: '🏢' },
+                  { value: 'online', label: 'Online', icon: '💻' },
+                  { value: 'home_visit', label: 'Home Visit', icon: '🏠' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    data-testid={`edit-appt-type-${opt.value}`}
+                    className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all text-sm ${
+                      apptEditForm.type === opt.value 
+                        ? 'border-green-500 bg-green-50 text-green-700 font-medium' 
+                        : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                    }`}
+                    onClick={() => setApptEditForm({...apptEditForm, type: opt.value})}
+                  >
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className="text-xs">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setApptEditDialog(false)}>Cancel</Button>
+            <Button 
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleSaveApptEdit}
+              disabled={!apptEditForm.date || !apptEditForm.time || !apptEditForm.type}
+              data-testid="save-appointment-edit-btn"
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Save Appointment
             </Button>
           </DialogFooter>
         </DialogContent>

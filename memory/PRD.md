@@ -56,7 +56,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Planning sees rejection reason prominently on rejected projects
   - Planning can Edit and Resubmit rejected REs for re-approval
   - Backend updated to allow editing/resubmitting rejected projects
-- Super Admin: `admin@constructionos.com` / `Demo@1234`
+- [x] **Pre-Sales Appointment Edit Module (Mar 14, 2026)**:
+  - Added appointment display card in lead detail overview (date, time, type)
+  - Added Edit Appointment dialog pre-filled with existing data
+  - Added "Book Appointment" option for leads without appointments
+
+## Credentials
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
 - CRE: `cre@constructionos.com` / `Demo@1234`
 - GM: `gm@constructionos.com` / `Demo@1234`
