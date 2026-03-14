@@ -2350,7 +2350,7 @@ async def create_bulk_scope_items(
             unit_rate=item.unit_rate,
             total_amount=item.quantity * item.unit_rate,
             remarks=item.remarks,
-            workflow_status="draft",
+            workflow_status="approved",
             created_by=user.user_id
         )
         scope_dict = scope_item.model_dump()
@@ -2384,7 +2384,7 @@ async def create_bulk_payment_stages(
             percentage=item.percentage,
             amount=item.amount,
             due_date=datetime.fromisoformat(item.due_date) if item.due_date else None,
-            workflow_status="draft",
+            workflow_status="approved",
             created_by=user.user_id
         )
         stage_dict = stage.model_dump()
@@ -2418,7 +2418,7 @@ async def create_bulk_additions(
             project_id=data.project_id,
             description=item.description,
             estimated_amount=item.estimated_amount,
-            workflow_status="draft",
+            workflow_status="approved",
             created_by=user.user_id
         )
         add_dict = addition.model_dump()
@@ -2451,7 +2451,7 @@ async def create_bulk_deductions(
             description=item.description,
             amount=item.amount,
             remarks=item.remarks,
-            workflow_status="draft",
+            workflow_status="approved",
             created_by=user.user_id
         )
         ded_dict = deduction.model_dump()

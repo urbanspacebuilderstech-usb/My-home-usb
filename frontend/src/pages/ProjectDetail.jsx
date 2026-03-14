@@ -1156,16 +1156,16 @@ export default function ProjectDetail() {
                   Rough Estimate
                 </TabsTrigger>
                 <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Scope {draftScopeItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftScopeItems.length}</Badge>}
+                  Scope
                 </TabsTrigger>
                 <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Payment Schedule {draftPaymentItems.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftPaymentItems.length}</Badge>}
+                  Payment Schedule
                 </TabsTrigger>
                 <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Additional {draftAdditions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftAdditions.length}</Badge>}
+                  Additional
                 </TabsTrigger>
                 <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
-                  Deduction {draftDeductions.length > 0 && <Badge variant="secondary" className="ml-1 sm:ml-2 text-xs">{draftDeductions.length}</Badge>}
+                  Deduction
                 </TabsTrigger>
                 <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
                   <DollarSign className="h-3 w-3 mr-1" />
@@ -1348,36 +1348,6 @@ export default function ProjectDetail() {
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {draftScopeItems.length > 0 && (
-                    <Button 
-                      data-testid="verify-scope-btn"
-                      variant="outline"
-                      size="sm"
-                      className="gap-1 sm:gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50 text-xs sm:text-sm"
-                      onClick={() => openVerifyDialog('scope', draftScopeItems.map(s => s.scope_id))}
-                    >
-                      <CheckCircle2 className="h-3 w-3 sm:h-4 sm:w-4" />Verify ({draftScopeItems.length})
-                    </Button>
-                  )}
-                  {isSuperAdmin && pendingApprovalScope.length > 0 && (
-                    <>
-                      <Button 
-                        size="sm"
-                        className="gap-1 sm:gap-2 bg-green-600 hover:bg-green-700 text-xs sm:text-sm"
-                        onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'approve')}
-                      >
-                        <Check className="h-3 w-3 sm:h-4 sm:w-4" />Approve ({pendingApprovalScope.length})
-                      </Button>
-                      <Button 
-                        variant="destructive"
-                        size="sm"
-                        className="gap-1 sm:gap-2 text-xs sm:text-sm"
-                        onClick={() => handleApprove('scope', pendingApprovalScope.map(s => s.scope_id), 'reject')}
-                      >
-                        <XCircle className="h-3 w-3 sm:h-4 sm:w-4" />Reject
-                      </Button>
-                    </>
-                  )}
                   {canManage && (
                     <Dialog open={bulkScopeDialog} onOpenChange={setBulkScopeDialog}>
                       <DialogTrigger asChild>
@@ -1697,64 +1667,6 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Create and manage milestone-based payments</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {/* Submit Schedule button - only show if there are draft items */}
-                  {canManage && draftPaymentItems.length > 0 && (
-                    <Dialog open={submitScheduleDialog} onOpenChange={setSubmitScheduleDialog}>
-                      <DialogTrigger asChild>
-                        <Button 
-                          data-testid="submit-schedule-btn"
-                          className="gap-2 bg-green-600 hover:bg-green-700"
-                        >
-                          <Upload className="h-4 w-4" />Submit Schedule ({draftPaymentItems.length})
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Submit Payment Schedule</DialogTitle>
-                          <DialogDescription>
-                            This will submit all {draftPaymentItems.length} draft payment stages for collection.
-                            Once submitted, these stages will be visible to CRE for payment collection.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="py-4">
-                          <div className="bg-amber-50 border border-blue-200 rounded-lg p-4">
-                            <p className="text-sm text-amber-700 font-medium">Summary:</p>
-                            <ul className="mt-2 text-sm text-amber-600 space-y-1">
-                              <li>• {draftPaymentItems.length} payment stages will be submitted</li>
-                              <li>• Total amount: ₹{draftPaymentItems.reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString()}</li>
-                            </ul>
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setSubmitScheduleDialog(false)}>Cancel</Button>
-                          <Button 
-                            data-testid="confirm-submit-schedule-btn"
-                            className="bg-green-600 hover:bg-green-700"
-                            onClick={handleSubmitPaymentSchedule}
-                          >
-                            Submit Schedule
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                  {isSuperAdmin && pendingApprovalPayment.length > 0 && (
-                    <>
-                      <Button 
-                        className="gap-2 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleApprove('payment', pendingApprovalPayment.map(p => p.stage_id), 'approve')}
-                      >
-                        <Check className="h-4 w-4" />Approve All ({pendingApprovalPayment.length})
-                      </Button>
-                      <Button 
-                        variant="destructive"
-                        className="gap-2"
-                        onClick={() => handleApprove('payment', pendingApprovalPayment.map(p => p.stage_id), 'reject')}
-                      >
-                        <XCircle className="h-4 w-4" />Reject
-                      </Button>
-                    </>
-                  )}
                   {canManage && (
                     <Dialog open={bulkPaymentDialog} onOpenChange={setBulkPaymentDialog}>
                       <DialogTrigger asChild>
@@ -2122,32 +2034,6 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Track extra work and variations</p>
                 </div>
                 <div className="flex gap-2">
-                  {draftAdditions.length > 0 && (
-                    <Button 
-                      variant="outline"
-                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
-                      onClick={() => openVerifyDialog('addition', draftAdditions.map(a => a.cost_id))}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />Verify ({draftAdditions.length})
-                    </Button>
-                  )}
-                  {isSuperAdmin && pendingApprovalAdditions.length > 0 && (
-                    <>
-                      <Button 
-                        className="gap-2 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleApprove('addition', pendingApprovalAdditions.map(a => a.cost_id), 'approve')}
-                      >
-                        <Check className="h-4 w-4" />Approve All ({pendingApprovalAdditions.length})
-                      </Button>
-                      <Button 
-                        variant="destructive"
-                        className="gap-2"
-                        onClick={() => handleApprove('addition', pendingApprovalAdditions.map(a => a.cost_id), 'reject')}
-                      >
-                        <XCircle className="h-4 w-4" />Reject
-                      </Button>
-                    </>
-                  )}
                   {canManage && (
                     <Dialog open={bulkAdditionDialog} onOpenChange={setBulkAdditionDialog}>
                       <DialogTrigger asChild>
@@ -2312,32 +2198,6 @@ export default function ProjectDetail() {
                   <p className="text-sm text-gray-500">Track penalties, discounts, and adjustments</p>
                 </div>
                 <div className="flex gap-2">
-                  {draftDeductions.length > 0 && (
-                    <Button 
-                      variant="outline"
-                      className="gap-2 border-yellow-500 text-yellow-700 hover:bg-yellow-50"
-                      onClick={() => openVerifyDialog('deduction', draftDeductions.map(d => d.deduction_id))}
-                    >
-                      <CheckCircle2 className="h-4 w-4" />Verify ({draftDeductions.length})
-                    </Button>
-                  )}
-                  {isSuperAdmin && pendingApprovalDeductions.length > 0 && (
-                    <>
-                      <Button 
-                        className="gap-2 bg-green-600 hover:bg-green-700"
-                        onClick={() => handleApprove('deduction', pendingApprovalDeductions.map(d => d.deduction_id), 'approve')}
-                      >
-                        <Check className="h-4 w-4" />Approve All ({pendingApprovalDeductions.length})
-                      </Button>
-                      <Button 
-                        variant="destructive"
-                        className="gap-2"
-                        onClick={() => handleApprove('deduction', pendingApprovalDeductions.map(d => d.deduction_id), 'reject')}
-                      >
-                        <XCircle className="h-4 w-4" />Reject
-                      </Button>
-                    </>
-                  )}
                   {canManage && (
                     <Dialog open={bulkDeductionDialog} onOpenChange={setBulkDeductionDialog}>
                       <DialogTrigger asChild>
