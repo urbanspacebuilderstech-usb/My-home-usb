@@ -178,12 +178,7 @@ const GMDashboard = () => {
       
       switch (approvalType) {
         case 're_project':
-          if (approvalAction === 'approve') {
-            endpoint = `${API}/crm/re-projects/${selectedItem.re_project_id}/approve`;
-          } else {
-            endpoint = `${API}/crm/re-projects/${selectedItem.re_project_id}/reject`;
-            payload = { reason: rejectionReason };
-          }
+          endpoint = `${API}/crm/re-projects/${selectedItem.re_project_id}/approve`;
           break;
         case 'project':
           if (approvalAction === 'approve') {
