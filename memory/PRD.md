@@ -77,6 +77,22 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Copies RE scope items to project's actual scope items via `/api/scope-items/bulk`
   - Auto-switches to the "Scope" tab after conversion
   - Handles edge case when RE has no scope items
+- [x] **P0: Approval Workflow Removal (Mar 14, 2026)**:
+  - Removed multi-step approval workflow for Scope, Payment Stages, Additional Costs, Deductions
+  - Items created in "approved" state by default
+- [x] **P1: Multi-Select Delete (Mar 14, 2026)**:
+  - Added checkboxes and "Delete Selected" to Scope and Payment Schedule tables
+- [x] **P2: Project Stages with Templates (Mar 14, 2026)**:
+  - Full project stages tab with create, edit, delete, status tracking, and template system
+- [x] **P2: Payment Schedule Balance Logic (Mar 14, 2026)**:
+  - Payment schedule calculated on balance (Total - Advance) not total value
+- [x] **P2: Request Payment for Additional Work (Mar 14, 2026)**:
+  - "Req Payment" button added to Additional Costs table
+- [x] **P0: Dynamic Cheque Entry (Mar 14, 2026)**:
+  - "No. of Cheques" input dynamically generates cheque detail rows (No., Bank, Amount, Date)
+  - Works in Create Project, Collect Payment, and Convert Deal dialogs
+  - Backend saves cheque records to `cheques` collection with income/stage linking
+  - Cheque total displayed below entries
 
 ## Credentials
 - Accountant: `accountant@constructionos.com` / `Demo@1234`
