@@ -8,80 +8,83 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - **Backend**: FastAPI (Python), MongoDB Atlas
 - **Integrations**: Google Sheets API, Resend, Emergent Object Storage, Leaflet/OpenStreetMap
 
-## Current Seed Data
-**Single Project: Villa Murugan - Vadapalani (PROJ-2026-001)**
-- Client: Mr. Murugan, Vadapalani Chennai
-- Value: Rs.55,00,000 | 2400 sqft | 3BHK G+1 Villa
-- Income: Rs.9,00,000 (2 approved + 1 pending)
-- Expenses: Rs.2,80,300
-- 13 Payment stages (2 paid, 11 pending)
-- 4 Work Orders | 8 Vendors | 12 BOQ Items
-- 6 Material Requests | 3 Labour | 2 Vendor Expenses
-- 3 Petty Cash | 4 Cheques | 4 Site Stages
-- 6 Pending Approvals for Accountant
-- 9 Project Stages with start_date & target_date (for Gantt chart)
+## Roles
+| Role | Dashboard Route | Key Capabilities |
+|------|----------------|-------------------|
+| Super Admin | /dashboard | Full access |
+| General Manager | /gm-dashboard | Approvals (RE, projects, payments, design) |
+| CRE | /cre-board | Deals, payments, collections |
+| Accountant | /accounts-board | Finance, cheques, cashbook |
+| Project Manager | /pm-dashboard | Projects (no financials), team, requests |
+| Planning | /planning-board | Materials, labour, vendors |
+| Procurement | /procurement-board-v2 | Purchase orders |
+| Site Engineer | /site-engineer | On-site ops, mini cashbook |
+| Pre-Sales | /crm-pre-sales | CRM pipeline |
+| Sales | /crm-sales | Sales pipeline |
+| **Architect** | **/architect-dashboard** | **Site plans, 3D/elevation, design workflow** |
 
 ## What's Implemented
 - [x] Full CRM pipeline with Google Sheets auto-sync
-- [x] Pre-Sales -> Sales transfer (any is_final stage)
-- [x] RNR Stage + Pipeline Stage Management (CRUD)
+- [x] Pre-Sales -> Sales transfer, RNR Stage + Pipeline Stage Management
 - [x] Deal conversion, project creation, work orders
 - [x] Material request/procurement/approval workflow
 - [x] Site Engineer Mini Cashbook + Petty Cash
 - [x] Accountant Cashbook, Cheque Management, Project Summary
 - [x] Income/Expense Approval System
-- [x] Masked Financial Values (Super Admin=visible, Accountant=Rs.*****)
-- [x] Super Admin auto-creation (urbanspacebuilderstech@gmail.com)
+- [x] Masked Financial Values, Super Admin auto-creation
 - [x] Forgot Password + Role-based access control
 - [x] 360 degree seed data for Murugan Vadapalani project
-- [x] CRE Dashboard loading fix - parallelized API/DB calls, skeleton loader
-- [x] End-to-End Workflow Fix
-- [x] Login Loading & Super Admin Flash Fix
-- [x] Appointment Booking & Sales Lead Editing
-- [x] Rough Estimate PDF Redesign (jsPDF-based, professional letterhead)
-- [x] RE Rejection -> Re-edit -> Resubmit Flow
-- [x] Pre-Sales Appointment Edit Module
-- [x] Fix Duplicate Projects on CRE Dashboard
-- [x] Planning Board "New Projects" Tab
-- [x] "Convert to Scope" Button
-- [x] Approval Workflow Removal (items created in "approved" state)
-- [x] Multi-Select Delete for Scope and Payment Schedule
-- [x] Project Stages with Templates
-- [x] Payment Schedule Balance Logic
-- [x] Request Payment for Additional Work
-- [x] Dynamic Cheque Entry (multiple cheques per payment)
-- [x] CRE Dashboard Redesign (5-tab layout)
-- [x] Planning Board Redesign (simplified tabs-only)
-- [x] **PM Dashboard & Permissions (Mar 14, 2026)**:
-  - Tab-based dashboard for Project Managers (All Projects, Requests, Team)
-  - Create Site Engineer users, assign team to projects
-  - Material & Labour request approval/rejection
-  - Financial data completely hidden from PM role in ProjectDetail
-- [x] **Gantt Chart for Project Timelines (Mar 14, 2026)**:
-  - Added `start_date` field to project stages (backend model + API)
-  - Custom GanttChart component with horizontal timeline bars
-  - Color-coded bars: gray=yet_to_start, amber=started, green=finished
-  - TODAY marker, zoom in/out controls, legend
-  - Month & day column headers with weekend shading
-  - Hover tooltips showing stage details (name, dates, duration, status)
-  - Table/Gantt view toggle in Project Stages tab
-  - Table view updated with Start Date + Target Date columns
-  - Add/Edit stage forms include start_date field
+- [x] CRE Dashboard 5-tab redesign
+- [x] Planning Board simplification (tabs-only)
+- [x] Dynamic Cheque Entry
+- [x] PM Dashboard & Permissions (financial data hidden)
+- [x] Gantt Chart for Project Timelines (Mar 14, 2026)
+- [x] **Architect Dashboard & Design Workflow (Mar 14, 2026)**:
+  - New "architect" role with dedicated dashboard
+  - All Projects view (no financial data) with search & status filter
+  - **Site Plans tab**: Floor-wise list with status workflow (yet_to_start → design → approval_waiting → approved)
+  - **3D Photos & Elevations tab**: Simple file management with Google Drive links
+  - Every entry supports Google Drive link
+  - Submit for GM approval workflow
+  - **GM Dashboard**: New "Design" tab for approving/rejecting site plans
+  - **Project Documents tab**: Architect designs visible to all roles
 
 ## Credentials
-- Accountant: `accountant@constructionos.com` / `Demo@1234`
-- CRE: `cre@constructionos.com` / `Demo@1234`
+- Super Admin: `admin@constructionos.com` / `Demo@1234`
 - GM: `gm@constructionos.com` / `Demo@1234`
+- CRE: `cre@constructionos.com` / `Demo@1234`
+- Accountant: `accountant@constructionos.com` / `Demo@1234`
 - Project Manager: `pm@constructionos.com` / `Demo@1234`
 - Planning: `planning@constructionos.com` / `Demo@1234`
 - Procurement: `procurement@constructionos.com` / `Demo@1234`
 - Site Engineer: `engineer@constructionos.com` / `Demo@1234`
 - Pre-Sales: `presales@constructionos.com` / `Demo@1234`
 - Sales: `sales@constructionos.com` / `Demo@1234`
-- Production: `urbanspacebuilderstech@gmail.com` (Forgot Password)
+- **Architect**: `architect@constructionos.com` / `Demo@1234`
+
+## Key API Endpoints - Architect
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /api/architect/projects | All projects (no financials) |
+| GET | /api/architect/projects/{id}/site-plans | Floor-wise site plans |
+| POST | /api/architect/projects/{id}/site-plans | Add site plan |
+| PATCH | /api/architect/projects/{id}/site-plans/{id} | Update site plan |
+| POST | /api/architect/projects/{id}/site-plans/{id}/submit | Submit for GM approval |
+| DELETE | /api/architect/projects/{id}/site-plans/{id} | Delete site plan |
+| GET | /api/architect/projects/{id}/design-files | 3D photos & elevations |
+| POST | /api/architect/projects/{id}/design-files | Add design file |
+| PATCH | /api/architect/projects/{id}/design-files/{id} | Update design file |
+| DELETE | /api/architect/projects/{id}/design-files/{id} | Delete design file |
+| GET | /api/architect/pending-approvals | GM: pending site plan approvals |
+| PATCH | /api/architect/site-plans/{id}/approve | GM: approve/reject |
+| GET | /api/architect/projects/{id}/all-design-data | Combined data for Documents tab |
+
+## DB Collections - Architect
+- `site_plans`: plan_id, project_id, floor_name, drive_link, status, remarks, created_by, submitted_at, approved_by
+- `design_files`: file_id, project_id, file_name, file_type (3d_photo/elevation), drive_link, remarks, created_by
 
 ## Backlog
 - [ ] Aadhar Document Upload with encrypted storage (P2)
-- [ ] UI/UX review continuation
+- [ ] UI/UX review across all screens
 - [ ] Production deployment guidance
 - [ ] Optimize /api/cre/dashboard-summary endpoint (~3.5s response time)
