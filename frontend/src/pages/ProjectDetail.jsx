@@ -1108,6 +1108,8 @@ export default function ProjectDetail() {
 
   const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning';
   const isSuperAdmin = user?.role === 'super_admin';
+  const isPM = user?.role === 'project_manager';
+  const canSeeFinancials = !isPM;
 
   if (loading) {
     return (
@@ -1260,7 +1262,7 @@ export default function ProjectDetail() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <FileText className="h-3 w-3" />Total
@@ -1270,9 +1272,9 @@ export default function ProjectDetail() {
               <div className="text-sm sm:text-lg font-bold text-purple-700">{formatCurrency(summary.total_value)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">Scope + Add</p>
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <TrendingUp className="h-3 w-3" />Income
@@ -1286,9 +1288,9 @@ export default function ProjectDetail() {
                 </span>
               </p>
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <MinusCircle className="h-3 w-3" />Deductions
@@ -1298,9 +1300,9 @@ export default function ProjectDetail() {
               <div className="text-sm sm:text-lg font-bold text-orange-700">{formatCurrency(summary.deductions_total)}</div>
               <p className="text-xs text-gray-500 hidden sm:block">Adjustments</p>
             </CardContent>
-          </Card>
+          </Card>}
 
-          <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
+          {canSeeFinancials && <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
             <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
                 <Wallet className="h-3 w-3" />Balance
@@ -1312,7 +1314,7 @@ export default function ProjectDetail() {
               </div>
               <p className="text-xs text-gray-500 hidden sm:block">Pending</p>
             </CardContent>
-          </Card>
+          </Card>}
         </div>
 
         {/* Main Tabs */}
@@ -1331,19 +1333,19 @@ export default function ProjectDetail() {
                   <Folder className="h-3 w-3 mr-1" />
                   Project Stages
                 </TabsTrigger>
-                <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Payment Schedule
-                </TabsTrigger>
-                <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                </TabsTrigger>}
+                {canSeeFinancials && <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Additional
-                </TabsTrigger>
-                <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
+                </TabsTrigger>}
+                {canSeeFinancials && <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   Deduction
-                </TabsTrigger>
-                <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
+                </TabsTrigger>}
+                {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm bg-green-50">
                   <DollarSign className="h-3 w-3 mr-1" />
                   Payment Summary
-                </TabsTrigger>
+                </TabsTrigger>}
                 <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-2 sm:px-4 text-xs sm:text-sm">
                   <Folder className="h-3 w-3 mr-1" />
                   Documents {projectFiles.length > 0 && <Badge variant="secondary" className="ml-1 text-xs">{projectFiles.length}</Badge>}

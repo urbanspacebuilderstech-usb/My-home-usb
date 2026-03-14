@@ -1328,9 +1328,9 @@ async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depend
 
 @router.patch("/planning/projects/{project_id}/update-stage")
 async def update_project_stage(project_id: str, stage: str, user: User = Depends(get_current_user)):
-    """Update project construction stage - Planning can move projects through stages"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning can update project stage")
+    """Update project construction stage - Planning/PM can move projects through stages"""
+    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning or PM can update project stage")
     
     # Validate stage
     valid_stages = [s["id"] for s in PROJECT_STAGES]

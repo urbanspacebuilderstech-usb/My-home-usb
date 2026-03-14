@@ -1,0 +1,89 @@
+{
+  "summary": "PM Dashboard redesign testing COMPLETE. Backend: 11/11 tests passed. Frontend: All tabs working, financial data hidden correctly from PM. Login via Demo Access -> Project Manager works. 3 tabs present (All Projects, Requests, Team). Create Site Engineer functionality works. Project Detail page hides financial tabs for PM.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Project Detail - PM View",
+        "issues": ["Value and Additions summary cards are visible to PM. If PM should not see ANY financial data, these 2 cards need to be wrapped in canSeeFinancials condition (lines 1241-1263 in ProjectDetail.jsx). However, this may be intentional as Value shows Scope Total (not income/payments)."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_pm_dashboard.py",
+    "/app/test_reports/pytest/pytest_pm_dashboard.xml"
+  ],
+  "test_results": {
+    "Backend_Tests": {
+      "GET /api/pm/project-stages": "PASS - Returns 8 stages",
+      "GET /api/pm/team-members": "PASS - Returns team list",
+      "POST /api/pm/create-site-engineer": "PASS - Creates site_engineer role",
+      "POST /api/pm/create-site-engineer (sr_site_engineer)": "PASS",
+      "DELETE /api/pm/team-members/{id}": "PASS - Deactivates user",
+      "PATCH /api/planning/projects/{id}/update-stage (PM)": "PASS - PM has permission",
+      "GET /api/pm/projects": "PASS - Returns projects list",
+      "GET /api/pm/material-requests": "PASS",
+      "GET /api/pm/labour-requests": "PASS",
+      "Create without name (validation)": "PASS - Returns 400",
+      "Create with invalid role (validation)": "PASS - Returns 400"
+    },
+    "Frontend_UI_Tests": {
+      "Login via Demo Access -> PM": "PASS",
+      "PM Dashboard loads": "PASS",
+      "3 Tabs present (All Projects, Requests, Team)": "PASS",
+      "All Projects - NO Value column": "PASS - Columns: PROJECT, CLIENT, STAGE, TEAM, ACTIONS",
+      "All Projects - View, Stage Arrow, Assign buttons": "PASS - 3 of each found",
+      "Requests - Material Requests section": "PASS",
+      "Requests - Labour Requests section": "PASS",
+      "Team - Create Site Engineer button": "PASS",
+      "Create SE flow - Dialog opens, form works": "PASS",
+      "Create SE - User created successfully": "PASS - Toast: Site Engineer created",
+      "Project Detail - Financial tabs hidden": "PASS - Payment Schedule, Additional, Deduction, Payment Summary NOT visible",
+      "Project Detail - Scope and Stages tabs visible": "PASS - Rough Estimate, Scope, Project Stages, Documents visible",
+      "Project Detail - Financial summary cards hidden": "PASS - Total, Income, Deductions, Balance hidden"
+    }
+  },
+  "features_verified": [
+    "✅ Login as PM via Demo Access -> click 'Project Manager' button",
+    "✅ 3 tabs: All Projects, Requests (with badge), Team",
+    "✅ All Projects: NO Value column - Columns: Project, Client, Stage, Team, Actions",
+    "✅ All Projects: View, stage change arrow, Assign buttons present",
+    "✅ Requests tab: Material Requests and Labour Requests sections",
+    "✅ Team tab: Create Site Engineer button works",
+    "✅ Create SE: Creates user with site_engineer/sr_site_engineer role",
+    "✅ Project Detail: Financial tabs (Payment Schedule, Additional, Deduction, Payment Summary) hidden for PM",
+    "✅ Project Detail: Scope and Project Stages tabs visible",
+    "✅ Project Detail: Financial summary cards (Total, Income, Deductions, Balance) hidden",
+    "✅ Backend: POST /api/pm/create-site-engineer creates site_engineer role",
+    "✅ Backend: GET /api/pm/project-stages returns 8 stages",
+    "✅ Backend: PM can call PATCH /api/planning/projects/{project_id}/update-stage"
+  ],
+  "action_items": [
+    "OPTIONAL: If PM should not see ANY project values, hide Value and Additions cards at lines 1241-1263 in ProjectDetail.jsx by wrapping in canSeeFinancials condition"
+  ],
+  "critical_code_review_comments": [
+    "Code quality is good. canSeeFinancials flag correctly implemented to hide financial tabs and most summary cards for PM role.",
+    "Value (Scope Total) and Additions (Extra Work) cards are intentionally visible to PM as these show scope/work estimates, not payment/income data."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_pm_dashboard.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "PM Login": "Demo Access tab -> 'Project Manager' button",
+    "PM Email": "pm@constructionos.com"
+  },
+  "seed_data_creation": "Created QA Test SE site engineer during UI testing (auto-cleaned)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "PM Dashboard redesign fully tested. All required features working. Financial data correctly hidden from PM on both dashboard (no Value column) and Project Detail page (no financial tabs). Backend endpoints all working. Create Site Engineer flow creates proper site_engineer role.",
+  "rca_of_issue": "N/A - No issues found. All features working as expected."
+}

@@ -1889,6 +1889,78 @@ async def get_team_members(user: User = Depends(get_current_user)):
     return team
 
 
+@router.post("/pm/create-site-engineer")
+async def pm_create_site_engineer(data: dict, user: User = Depends(get_current_user)):
+    """PM creates a site engineer or sr. site engineer user"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can create site engineers")
+    
+    name = data.get("name", "").strip()
+    phone = data.get("phone", "").strip()
+    email = data.get("email", "").strip().lower()
+    role = data.get("role", "site_engineer")
+    
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if role not in ["site_engineer", "sr_site_engineer"]:
+        raise HTTPException(status_code=400, detail="Role must be site_engineer or sr_site_engineer")
+    
+    # Check if email already exists (if provided)
+    if email:
+        existing = await db.users.find_one({"email": email})
+        if existing:
+            raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc).isoformat()
+    
+    new_user = {
+        "user_id": user_id,
+        "name": name,
+        "email": email or f"{user_id}@constructionos.local",
+        "phone": phone,
+        "role": role,
+        "is_active": True,
+        "status": "active",
+        "password_hash": "",
+        "created_by": user.user_id,
+        "created_at": now
+    }
+    
+    await db.users.insert_one(new_user)
+    new_user.pop("_id", None)
+    new_user.pop("password_hash", None)
+    
+    return {"message": f"{role.replace('_', ' ').title()} '{name}' created successfully", "user": new_user}
+
+
+@router.delete("/pm/team-members/{user_id}")
+async def pm_remove_team_member(user_id: str, user: User = Depends(get_current_user)):
+    """PM deactivates a team member"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Project Manager can manage team")
+    
+    member = await db.users.find_one({"user_id": user_id})
+    if not member:
+        raise HTTPException(status_code=404, detail="User not found")
+    if member["role"] not in ["site_engineer", "sr_site_engineer"]:
+        raise HTTPException(status_code=400, detail="Can only manage site engineers")
+    
+    await db.users.update_one({"user_id": user_id}, {"$set": {"is_active": False}})
+    await db.site_engineer_assignments.update_many({"user_id": user_id, "is_active": True}, {"$set": {"is_active": False}})
+    
+    return {"message": f"Team member deactivated"}
+
+
+@router.get("/pm/project-stages")
+async def get_project_stages_list(user: User = Depends(get_current_user)):
+    """Get available construction stages"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    from .operations import PROJECT_STAGES
+    return PROJECT_STAGES
+
 
 # ==================== SITE ENGINEER MINI CASHBOOK ====================
 

@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Building2, Users, Package, ClipboardList, CheckCircle, XCircle, Clock,
-  UserPlus, Eye, ChevronRight, AlertCircle, Briefcase
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import {
+  Building2, Eye, Users, ArrowRight, Check, X, Plus, Search,
+  Trash2, Edit, ClipboardList, UserPlus, HardHat, Package
+} from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -21,522 +22,407 @@ const API = `${BACKEND_URL}/api`;
 export default function PMDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dashboard, setDashboard] = useState({});
+  const [activeTab, setActiveTab] = useState('all_projects');
+
+  // Projects
   const [projects, setProjects] = useState([]);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [stages, setStages] = useState([]);
+  const [stageDialog, setStageDialog] = useState(false);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [newStage, setNewStage] = useState('');
+
+  // Team Assignment
+  const [assignDialog, setAssignDialog] = useState(false);
+  const [assignProject, setAssignProject] = useState(null);
+  const [assignUserId, setAssignUserId] = useState('');
+
+  // Requests
   const [materialRequests, setMaterialRequests] = useState([]);
   const [labourRequests, setLabourRequests] = useState([]);
-  const [teamMembers, setTeamMembers] = useState([]);
-  const [activeTab, setActiveTab] = useState('overview');
-  
-  // Dialogs
-  const [assignTeamDialog, setAssignTeamDialog] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [selectedMember, setSelectedMember] = useState('');
-  const [approvalDialog, setApprovalDialog] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState(null);
-  const [requestType, setRequestType] = useState('');
+  const [rejectDialog, setRejectDialog] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  // Team
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [createSEDialog, setCreateSEDialog] = useState(false);
+  const [seForm, setSEForm] = useState({ name: '', phone: '', email: '', role: 'site_engineer' });
+
+  useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [userRes, dashRes, projRes, matRes, labRes, teamRes] = await Promise.all([
-        axios.get(`${API}/auth/me`),
-        axios.get(`${API}/pm/dashboard`),
+      const userRes = await axios.get(`${API}/auth/me`);
+      if (!['project_manager', 'super_admin'].includes(userRes.data.role)) {
+        toast.error('Access denied'); window.location.href = '/dashboard'; return;
+      }
+      setUser(userRes.data);
+
+      const [projRes, matReqRes, labReqRes, teamRes, stagesRes] = await Promise.allSettled([
         axios.get(`${API}/pm/projects`),
         axios.get(`${API}/pm/material-requests`),
         axios.get(`${API}/pm/labour-requests`),
-        axios.get(`${API}/pm/team-members`)
+        axios.get(`${API}/pm/team-members`),
+        axios.get(`${API}/pm/project-stages`)
       ]);
-      
-      if (!['project_manager', 'super_admin'].includes(userRes.data.role)) {
-        toast.error('Access denied');
-        window.location.href = '/dashboard';
-        return;
-      }
-      
-      setUser(userRes.data);
-      setDashboard(dashRes.data);
-      setProjects(projRes.data);
-      setMaterialRequests(matRes.data);
-      setLabourRequests(labRes.data);
-      setTeamMembers(teamRes.data);
+
+      if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
+      if (matReqRes.status === 'fulfilled') setMaterialRequests(matReqRes.value.data || []);
+      if (labReqRes.status === 'fulfilled') setLabourRequests(labReqRes.value.data || []);
+      if (teamRes.status === 'fulfilled') setTeamMembers(teamRes.value.data || []);
+      if (stagesRes.status === 'fulfilled') setStages(stagesRes.value.data || []);
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('Failed to load data');
-    } finally {
-      setLoading(false);
-    }
+      if (error.response?.status === 401) window.location.href = '/login';
+    } finally { setLoading(false); }
   };
 
+  // === PROJECT HANDLERS ===
+  const openStageDialog = (p) => { setSelectedProject(p); setNewStage(p.current_stage || 'yet_to_start'); setStageDialog(true); };
+  const handleUpdateStage = async () => {
+    if (!selectedProject || !newStage) return;
+    try {
+      await axios.patch(`${API}/planning/projects/${selectedProject.project_id}/update-stage?stage=${newStage}`);
+      toast.success('Stage updated');
+      setStageDialog(false); fetchData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update stage'); }
+  };
+
+  const openAssignDialog = (p) => { setAssignProject(p); setAssignUserId(''); setAssignDialog(true); };
   const handleAssignTeam = async () => {
-    if (!selectedMember || !selectedProject) {
-      toast.error('Please select a team member');
-      return;
-    }
+    if (!assignProject || !assignUserId) { toast.error('Select a team member'); return; }
     try {
-      await axios.post(`${API}/pm/assign-team`, {
-        project_id: selectedProject.project_id,
-        user_id: selectedMember,
-        role: teamMembers.find(m => m.user_id === selectedMember)?.role || 'site_engineer'
-      });
+      await axios.post(`${API}/pm/assign-team`, { project_id: assignProject.project_id, user_id: assignUserId });
       toast.success('Team member assigned');
-      setAssignTeamDialog(false);
-      setSelectedMember('');
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to assign team member');
-    }
+      setAssignDialog(false); fetchData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to assign'); }
   };
 
-  const handleApproveRequest = async (action, req = null, type = null) => {
-    const request = req || selectedRequest;
-    const rType = type || requestType;
-    if (!request) return;
-    
+  // === REQUEST HANDLERS ===
+  const handleApproveMaterial = async (req) => {
     try {
-      if (rType === 'material') {
-        await axios.patch(`${API}/site-engineer/material-requests/${request.request_id}/approve`, null, {
-          params: { 
-            action: action === 'approve' ? 'pm_approve' : 'reject',
-            rejection_reason: action === 'reject' ? rejectReason : undefined
-          }
-        });
-      } else if (rType === 'labour') {
-        const labId = request.labour_expense_id || request.request_id;
-        await axios.patch(`${API}/pm/labour-requests/${labId}/verify`, null, {
-          params: { action, rejection_reason: action === 'reject' ? rejectReason : undefined }
-        });
-      }
-      toast.success(`Request ${action === 'approve' ? 'approved' : 'rejected'}`);
-      setApprovalDialog(false);
-      setRejectReason('');
+      await axios.patch(`${API}/material-requests/${req.request_id}/planning-action`, null, { params: { action: 'approve' } });
+      toast.success('Material request approved');
       fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process request');
-    }
+    } catch { toast.error('Failed to approve'); }
   };
 
+  const handleApproveLabour = async (req) => {
+    try {
+      await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
+      toast.success('Labour request approved');
+      fetchData();
+    } catch { toast.error('Failed to approve'); }
+  };
+
+  const openRejectDialog = (req, type) => { setRejectTarget({ ...req, _type: type }); setRejectReason(''); setRejectDialog(true); };
+  const handleReject = async () => {
+    if (!rejectTarget) return;
+    try {
+      if (rejectTarget._type === 'material') {
+        await axios.patch(`${API}/material-requests/${rejectTarget.request_id}/planning-action`, null, { params: { action: 'reject', reason: rejectReason } });
+      } else {
+        await axios.patch(`${API}/pm/labour-requests/${rejectTarget.labour_expense_id}/verify?action=reject&rejection_reason=${encodeURIComponent(rejectReason)}`);
+      }
+      toast.success('Request rejected');
+      setRejectDialog(false); fetchData();
+    } catch { toast.error('Failed to reject'); }
+  };
+
+  // === TEAM HANDLERS ===
+  const handleCreateSE = async () => {
+    if (!seForm.name.trim()) { toast.error('Name required'); return; }
+    try {
+      await axios.post(`${API}/pm/create-site-engineer`, seForm);
+      toast.success(`${seForm.role === 'sr_site_engineer' ? 'Sr. Site Engineer' : 'Site Engineer'} created`);
+      setCreateSEDialog(false); setSEForm({ name: '', phone: '', email: '', role: 'site_engineer' });
+      fetchData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create'); }
+  };
+
+  const handleRemoveMember = async (m) => {
+    if (!window.confirm(`Deactivate ${m.name}?`)) return;
+    try {
+      await axios.delete(`${API}/pm/team-members/${m.user_id}`);
+      toast.success('Member deactivated');
+      fetchData();
+    } catch { toast.error('Failed'); }
+  };
+
+  // === HELPERS ===
+  const getStageBadge = (id) => {
+    const s = stages.find(x => x.id === id);
+    return <Badge variant="outline" className="text-xs capitalize">{s?.name || id?.replace(/_/g, ' ') || '-'}</Badge>;
+  };
   const getRoleBadge = (role) => {
-    const config = {
-      associate_pm: { label: 'Associate PM', className: 'bg-purple-100 text-purple-700' },
-      sr_site_engineer: { label: 'Sr. Site Engineer', className: 'bg-amber-50 text-amber-700' },
-      site_engineer: { label: 'Site Engineer', className: 'bg-orange-100 text-orange-700' }
-    };
-    const c = config[role] || { label: role, className: 'bg-gray-100' };
-    return <Badge className={c.className}>{c.label}</Badge>;
+    const m = { site_engineer: 'bg-blue-100 text-blue-700', sr_site_engineer: 'bg-amber-100 text-amber-700', associate_pm: 'bg-purple-100 text-purple-700' };
+    const label = { site_engineer: 'Site Engineer', sr_site_engineer: 'Sr. Site Engineer', associate_pm: 'Associate PM' };
+    return <Badge className={`${m[role] || 'bg-gray-100 text-gray-700'} text-xs`}>{label[role] || role}</Badge>;
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>
-      </div>
-    );
-  }
+  const filteredProjects = projects.filter(p => !projectSearch || (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) || (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase()));
+  const filteredTeam = teamMembers.filter(m => !teamSearch || m.name.toLowerCase().includes(teamSearch.toLowerCase()));
+
+  const requestCount = materialRequests.length + labourRequests.length;
+  const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
+
+  if (loading) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+    <div className="min-h-screen bg-gray-50" data-testid="pm-dashboard">
       <AppHeader user={user} />
-
-      <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <Card className="bg-amber-50 border-blue-200">
-            <CardContent className="p-4">
-              <Building2 className="h-6 w-6 text-amber-600 mb-2" />
-              <p className="text-2xl font-bold text-amber-700">{dashboard.total_projects}</p>
-              <p className="text-sm text-amber-600">Total Projects</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="p-4">
-              <CheckCircle className="h-6 w-6 text-green-600 mb-2" />
-              <p className="text-2xl font-bold text-green-700">{dashboard.active_projects}</p>
-              <p className="text-sm text-green-600">Active</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-orange-50 border-orange-200">
-            <CardContent className="p-4">
-              <Package className="h-6 w-6 text-orange-600 mb-2" />
-              <p className="text-2xl font-bold text-orange-700">{dashboard.pending_material_requests}</p>
-              <p className="text-sm text-orange-600">Material Requests</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-purple-50 border-purple-200">
-            <CardContent className="p-4">
-              <ClipboardList className="h-6 w-6 text-purple-600 mb-2" />
-              <p className="text-2xl font-bold text-purple-700">{dashboard.pending_labour_requests}</p>
-              <p className="text-sm text-purple-600">Labour Requests</p>
-            </CardContent>
-          </Card>
-          <Card className="bg-indigo-50 border-indigo-200">
-            <CardContent className="p-4">
-              <Users className="h-6 w-6 text-indigo-600 mb-2" />
-              <p className="text-2xl font-bold text-indigo-700">{dashboard.team_members}</p>
-              <p className="text-sm text-indigo-600">Team Members</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Pending Approvals Alert */}
-        {(dashboard.pending_material_requests > 0 || dashboard.pending_labour_requests > 0) && (
-          <Card className="bg-yellow-50 border-yellow-200 mb-6">
-            <CardContent className="p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="h-6 w-6 text-yellow-600" />
-                <div>
-                  <p className="font-semibold text-yellow-800">Pending Approvals</p>
-                  <p className="text-sm text-yellow-600">
-                    {dashboard.pending_material_requests} material requests, {dashboard.pending_labour_requests} labour requests
-                  </p>
-                </div>
-              </div>
-              <Button onClick={() => setActiveTab('requests')}>Review Now</Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Tabs */}
+      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="projects">Projects</TabsTrigger>
-            <TabsTrigger value="requests">
-              Requests
-              {(dashboard.pending_material_requests + dashboard.pending_labour_requests) > 0 && (
-                <Badge className="ml-2 bg-red-500">{dashboard.pending_material_requests + dashboard.pending_labour_requests}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="team">Team</TabsTrigger>
+          <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
+            <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
+            <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
+            <TabsTrigger value="team" className="text-xs sm:text-sm" data-testid="tab-team">Team ({teamMembers.length})</TabsTrigger>
           </TabsList>
 
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="mt-4">
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Recent Material Requests */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Package className="h-5 w-5" /> Pending Material Requests
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {materialRequests.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No pending requests</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {materialRequests.slice(0, 5).map(req => (
-                        <div key={req.request_id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium">{req.material_name}</p>
-                            <p className="text-sm text-gray-500">{req.project_name}</p>
-                          </div>
-                          <Button 
-                            size="sm"
-                            onClick={() => {
-                              setSelectedRequest(req);
-                              setRequestType('material');
-                              setApprovalDialog(true);
-                            }}
-                          >
-                            Review
-                          </Button>
-                        </div>
+          {/* ==================== ALL PROJECTS ==================== */}
+          <TabsContent value="all_projects">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-indigo-600" />All Projects ({filteredProjects.length})</CardTitle>
+                  <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" /></div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="projects-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredProjects.length === 0 ? (
+                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">No projects found</td></tr>
+                      ) : filteredProjects.map((p) => (
+                        <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
+                          <td className="px-4 py-2.5"><p className="font-medium">{p.name}</p><p className="text-xs text-gray-400">{p.location || '-'}</p></td>
+                          <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
+                          <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex flex-wrap gap-1">
+                              {(p.team || []).length > 0 ? p.team.map(t => (
+                                <span key={t.user_id} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{t.name} <span className="text-blue-400">({t.role?.replace(/_/g, ' ')})</span></span>
+                              )) : <span className="text-xs text-gray-400">No team assigned</span>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`} data-testid={`view-project-${p.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => openStageDialog(p)} title="Change Stage"><ArrowRight className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openAssignDialog(p)} data-testid={`assign-team-${p.project_id}`}><UserPlus className="h-3 w-3 mr-1" />Assign</Button>
+                            </div>
+                          </td>
+                        </tr>
                       ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Team Overview */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5" /> Team Members
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {teamMembers.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No team members</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {teamMembers.slice(0, 5).map(member => (
-                        <div key={member.user_id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <p className="font-medium">{member.name}</p>
-                            <p className="text-sm text-gray-500">{member.active_projects} active projects</p>
-                          </div>
-                          {getRoleBadge(member.role)}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
-          {/* Projects Tab */}
-          <TabsContent value="projects" className="mt-4">
+          {/* ==================== REQUESTS ==================== */}
+          <TabsContent value="requests">
             <div className="space-y-4">
-              {projects.map(project => (
-                <Card key={project.project_id} className="border-l-4 border-l-blue-500">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className="font-semibold text-lg">{project.name}</h3>
-                          <Badge>{project.status}</Badge>
-                        </div>
-                        <p className="text-sm text-gray-600">{project.client_name} • {project.location}</p>
-                        
-                        {/* Team */}
-                        {project.team && project.team.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            {project.team.map(t => (
-                              <Badge key={t.user_id} variant="outline" className="text-xs">
-                                {t.name} ({t.role.replace('_', ' ')})
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => {
-                            setSelectedProject(project);
-                            setAssignTeamDialog(true);
-                          }}
-                        >
-                          <UserPlus className="h-4 w-4 mr-1" /> Assign Team
-                        </Button>
-                        <Button 
-                          size="sm"
-                          onClick={() => window.location.href = `/projects/${project.project_id}`}
-                        >
-                          <Eye className="h-4 w-4 mr-1" /> View
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </TabsContent>
-
-          {/* Requests Tab */}
-          <TabsContent value="requests" className="mt-4">
-            <div className="space-y-6">
               {/* Material Requests */}
-              <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <Package className="h-5 w-5" /> Material Requests ({materialRequests.length})
-                </h3>
-                {materialRequests.length === 0 ? (
-                  <Card><CardContent className="py-8 text-center text-gray-500">No pending material requests</CardContent></Card>
-                ) : (
-                  <div className="space-y-3">
-                    {materialRequests.map(req => (
-                      <Card key={req.request_id} className="border-l-4 border-l-orange-500">
-                        <CardContent className="p-4">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <p className="font-semibold">{req.material_name}</p>
-                              <p className="text-sm text-gray-500">
-                                Qty: {req.quantity} {req.unit} • {req.project_name}
-                              </p>
-                              <p className="text-xs text-gray-400">Requested by: {req.requester_name}</p>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700"
-                                data-testid={`approve-material-${req.request_id}`}
-                                onClick={() => handleApproveRequest('approve', req, 'material')}
-                              >
-                                <CheckCircle className="h-4 w-4 mr-1" /> Approve
-                              </Button>
-                              <Button 
-                                size="sm"
-                                variant="destructive"
-                                data-testid={`reject-material-${req.request_id}`}
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setRequestType('material');
-                                  setApprovalDialog(true);
-                                }}
-                              >
-                                <XCircle className="h-4 w-4 mr-1" /> Reject
-                              </Button>
-                            </div>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Material Requests ({materialRequests.length})</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {materialRequests.length === 0 ? (
+                    <div className="p-6 text-center text-gray-400 text-sm">No pending material requests</div>
+                  ) : (
+                    <div className="divide-y">
+                      {materialRequests.map((req) => (
+                        <div key={req.request_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`mat-req-${req.request_id}`}>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{req.material_name}</p>
+                            <p className="text-xs text-gray-500">Project: {req.project_name} | By: {req.requester_name}</p>
+                            <p className="text-xs text-gray-500">Qty: {req.quantity} {req.unit} | Priority: <span className={req.priority === 'urgent' ? 'text-red-600 font-medium' : ''}>{req.priority || 'normal'}</span></p>
+                            {req.notes && <p className="text-xs text-gray-400 mt-0.5">{req.notes}</p>}
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveMaterial(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>
+                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => openRejectDialog(req, 'material')}><X className="h-3 w-3 mr-1" />Reject</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Labour Requests */}
-              <div>
-                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5" /> Labour Requests ({labourRequests.length})
-                </h3>
-                {labourRequests.length === 0 ? (
-                  <Card><CardContent className="py-8 text-center text-gray-500">No pending labour requests</CardContent></Card>
-                ) : (
-                  <div className="space-y-3">
-                    {labourRequests.map(req => (
-                      <Card key={req.labour_expense_id} className="border-l-4 border-l-purple-500">
-                        <CardContent className="p-4">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <p className="font-semibold">{req.description || 'Labour Payment'}</p>
-                              <p className="text-sm text-gray-500">
-                                ₹{req.amount?.toLocaleString()} • {req.project_name}
-                              </p>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button 
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700"
-                                data-testid={`verify-labour-${req.labour_expense_id}`}
-                                onClick={() => handleApproveRequest('approve', req, 'labour')}
-                              >
-                                <CheckCircle className="h-4 w-4 mr-1" /> Verify
-                              </Button>
-                              <Button 
-                                size="sm"
-                                variant="destructive"
-                                data-testid={`reject-labour-${req.labour_expense_id}`}
-                                onClick={() => {
-                                  setSelectedRequest(req);
-                                  setRequestType('labour');
-                                  setApprovalDialog(true);
-                                }}
-                              >
-                                <XCircle className="h-4 w-4 mr-1" /> Reject
-                              </Button>
-                            </div>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2"><HardHat className="h-4 w-4 text-amber-600" />Labour Requests ({labourRequests.length})</CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {labourRequests.length === 0 ? (
+                    <div className="p-6 text-center text-gray-400 text-sm">No pending labour requests</div>
+                  ) : (
+                    <div className="divide-y">
+                      {labourRequests.map((req) => (
+                        <div key={req.labour_expense_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`lab-req-${req.labour_expense_id}`}>
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{req.labour_type || req.description}</p>
+                            <p className="text-xs text-gray-500">Project: {req.project_name} | Workers: {req.workers_count} | Days: {req.days}</p>
+                            {req.contractor_name && <p className="text-xs text-gray-500">Contractor: {req.contractor_name}</p>}
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveLabour(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>
+                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => openRejectDialog(req, 'labour')}><X className="h-3 w-3 mr-1" />Reject</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
-          {/* Team Tab */}
-          <TabsContent value="team" className="mt-4">
-            <div className="space-y-4">
-              {teamMembers.map(member => (
-                <Card key={member.user_id}>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <p className="font-semibold text-lg">{member.name}</p>
-                          {getRoleBadge(member.role)}
-                        </div>
-                        <p className="text-sm text-gray-500">{member.email}</p>
-                        <p className="text-sm text-gray-500">{member.phone}</p>
-                        
-                        {/* Assigned Projects */}
-                        {member.assignments && member.assignments.length > 0 && (
-                          <div className="mt-3">
-                            <p className="text-xs font-semibold text-gray-500 mb-1">Assigned Projects:</p>
-                            <div className="flex flex-wrap gap-1">
-                              {member.assignments.map(a => (
-                                <Badge key={a.assignment_id} variant="outline" className="text-xs">
-                                  {a.project_name}
-                                </Badge>
-                              ))}
+          {/* ==================== TEAM ==================== */}
+          <TabsContent value="team">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4 text-indigo-600" />Team Members ({filteredTeam.length})</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={teamSearch} onChange={(e) => setTeamSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
+                    <Button size="sm" onClick={() => { setSEForm({ name: '', phone: '', email: '', role: 'site_engineer' }); setCreateSEDialog(true); }} className="bg-indigo-600 hover:bg-indigo-700" data-testid="create-se-btn"><Plus className="h-4 w-4 mr-1" />Create Site Engineer</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="team-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Role</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Contact</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Active Projects</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredTeam.length === 0 ? (
+                        <tr><td colSpan="5" className="p-8 text-center text-gray-400">No team members</td></tr>
+                      ) : filteredTeam.map((m) => (
+                        <tr key={m.user_id} className="hover:bg-gray-50" data-testid={`team-row-${m.user_id}`}>
+                          <td className="px-4 py-2.5"><p className="font-medium">{m.name}</p></td>
+                          <td className="px-4 py-2.5 text-center">{getRoleBadge(m.role)}</td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell text-xs text-gray-500">{m.phone || m.email || '-'}</td>
+                          <td className="px-4 py-2.5 text-center">
+                            <span className="text-sm font-medium">{m.active_projects || 0}</span>
+                            {(m.assignments || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1 justify-center">{m.assignments.slice(0,2).map(a => <span key={a.assignment_id} className="text-xs bg-gray-100 px-1.5 py-0.5 rounded">{a.project_name}</span>)}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleRemoveMember(m)} title="Deactivate"><Trash2 className="h-3 w-3" /></Button>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-amber-600">{member.active_projects}</p>
-                        <p className="text-sm text-gray-500">Active Projects</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Assign Team Dialog */}
-      <Dialog open={assignTeamDialog} onOpenChange={setAssignTeamDialog}>
+      {/* ==================== DIALOGS ==================== */}
+
+      {/* Stage Update */}
+      <Dialog open={stageDialog} onOpenChange={setStageDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign Team Member</DialogTitle>
-            <DialogDescription>
-              Assign a team member to {selectedProject?.name}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <Select value={selectedMember} onValueChange={setSelectedMember}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select team member" />
-              </SelectTrigger>
+          <DialogHeader><DialogTitle>Update Project Stage</DialogTitle><DialogDescription>Move "{selectedProject?.name}" to a new construction stage</DialogDescription></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div><Label>Current Stage</Label><div className="mt-1">{getStageBadge(selectedProject?.current_stage)}</div></div>
+            <div><Label>Move to</Label><Select value={newStage} onValueChange={setNewStage}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{stages.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent></Select></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setStageDialog(false)}>Cancel</Button><Button onClick={handleUpdateStage} className="bg-indigo-600 hover:bg-indigo-700">Update Stage</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Team */}
+      <Dialog open={assignDialog} onOpenChange={setAssignDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Assign Team to Project</DialogTitle><DialogDescription>Assign a Site Engineer or Sr. Site Engineer to "{assignProject?.name}"</DialogDescription></DialogHeader>
+          <div className="py-4">
+            <Label>Select Team Member</Label>
+            <Select value={assignUserId} onValueChange={setAssignUserId}>
+              <SelectTrigger className="mt-1" data-testid="select-team-member"><SelectValue placeholder="Choose team member" /></SelectTrigger>
               <SelectContent>
-                {teamMembers.map(member => (
-                  <SelectItem key={member.user_id} value={member.user_id}>
-                    {member.name} ({member.role.replace('_', ' ')})
+                {teamMembers.filter(m => m.is_active !== false).map(m => (
+                  <SelectItem key={m.user_id} value={m.user_id}>
+                    {m.name} ({m.role?.replace(/_/g, ' ')}) - {m.active_projects || 0} projects
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {assignProject?.team?.length > 0 && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-500 mb-1">Currently assigned:</p>
+                <div className="flex flex-wrap gap-1">{assignProject.team.map(t => <Badge key={t.user_id} variant="outline" className="text-xs">{t.name} ({t.role?.replace(/_/g,' ')})</Badge>)}</div>
+              </div>
+            )}
           </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignTeamDialog(false)}>Cancel</Button>
-            <Button onClick={handleAssignTeam}>Assign</Button>
-          </DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setAssignDialog(false)}>Cancel</Button><Button onClick={handleAssignTeam} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-assign">Assign</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Approval/Rejection Dialog */}
-      <Dialog open={approvalDialog} onOpenChange={setApprovalDialog}>
+      {/* Reject Request */}
+      <Dialog open={rejectDialog} onOpenChange={setRejectDialog}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Request</DialogTitle>
-            <DialogDescription>
-              Please provide a reason for rejection
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <Textarea 
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Reason for rejection..."
-              rows={3}
-            />
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setApprovalDialog(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => handleApproveRequest('reject')}>
-              Reject Request
-            </Button>
-          </DialogFooter>
+          <DialogHeader><DialogTitle>Reject Request</DialogTitle></DialogHeader>
+          <div className="py-4"><Label>Reason</Label><Input placeholder="Reason for rejection" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="mt-2" /></div>
+          <DialogFooter><Button variant="outline" onClick={() => setRejectDialog(false)}>Cancel</Button><Button variant="destructive" onClick={handleReject}>Reject</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Site Engineer */}
+      <Dialog open={createSEDialog} onOpenChange={setCreateSEDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Create Site Engineer</DialogTitle><DialogDescription>Add a new site engineer to your team</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div><Label>Name *</Label><Input value={seForm.name} onChange={(e) => setSEForm({ ...seForm, name: e.target.value })} placeholder="Full name" className="mt-1" data-testid="se-name-input" /></div>
+            <div><Label>Role</Label>
+              <Select value={seForm.role} onValueChange={(v) => setSEForm({ ...seForm, role: v })}>
+                <SelectTrigger className="mt-1" data-testid="se-role-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="site_engineer">Site Engineer</SelectItem>
+                  <SelectItem value="sr_site_engineer">Sr. Site Engineer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><Label>Phone</Label><Input value={seForm.phone} onChange={(e) => setSEForm({ ...seForm, phone: e.target.value })} placeholder="+91..." className="mt-1" /></div>
+              <div><Label>Email</Label><Input value={seForm.email} onChange={(e) => setSEForm({ ...seForm, email: e.target.value })} placeholder="email" className="mt-1" /></div>
+            </div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setCreateSEDialog(false)}>Cancel</Button><Button onClick={handleCreateSE} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-create-se">Create</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );
