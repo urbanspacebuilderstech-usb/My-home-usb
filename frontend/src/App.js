@@ -243,7 +243,7 @@ function App() {
     <div className="App">
       <BrowserRouter>
         <AppRouter />
-        <Toaster position="top-right" />
+        <Toaster position="top-center" closeButton richColors />
       </BrowserRouter>
     </div>
   );

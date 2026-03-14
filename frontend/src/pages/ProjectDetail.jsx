@@ -508,6 +508,16 @@ export default function ProjectDetail() {
       return;
     }
     
+    // Check if already converted (scope items from RE already exist)
+    const existingFromRE = (projectData?.scope_items || []).filter(
+      s => s.remarks && s.remarks.includes('From RE:')
+    );
+    if (existingFromRE.length > 0) {
+      toast.error('Scope items already converted from Rough Estimate');
+      setActiveTab('scope');
+      return;
+    }
+    
     try {
       const items = scopeItems.map(item => ({
         item_name: item.name || item.item_name,
@@ -1180,14 +1190,25 @@ export default function ProjectDetail() {
                 </div>
                 {reProject && (
                   <div className="flex gap-2">
-                    <Button 
-                      onClick={handleConvertToScope} 
-                      className="bg-green-600 hover:bg-green-700"
-                      data-testid="convert-to-scope-btn"
-                    >
-                      <ArrowRight className="h-4 w-4 mr-2" />
-                      Convert to Scope
-                    </Button>
+                    {(projectData?.scope_items || []).some(s => s.remarks?.includes('From RE:')) ? (
+                      <Button 
+                        disabled
+                        className="bg-gray-400 cursor-not-allowed"
+                        data-testid="convert-to-scope-btn"
+                      >
+                        <Check className="h-4 w-4 mr-2" />
+                        Already Converted
+                      </Button>
+                    ) : (
+                      <Button 
+                        onClick={handleConvertToScope} 
+                        className="bg-green-600 hover:bg-green-700"
+                        data-testid="convert-to-scope-btn"
+                      >
+                        <ArrowRight className="h-4 w-4 mr-2" />
+                        Convert to Scope
+                      </Button>
+                    )}
                     <Button 
                       onClick={handleGenerateREPDF} 
                       className="bg-purple-600 hover:bg-purple-700"
