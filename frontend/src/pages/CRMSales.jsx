@@ -13,11 +13,12 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List, Settings
+  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { AppHeader } from '../components/AppHeader';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -58,6 +59,13 @@ export default function CRMSales() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [reProjectDialog, setReProjectDialog] = useState(false);
   const [selectedREProject, setSelectedREProject] = useState(null);
+  const [editDialog, setEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', address: '', city: '', state: '', notes: '' });
+  const [summary, setSummary] = useState('');
+  const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
+  const [remarkForm, setRemarkForm] = useState('');
+  const [detailTab, setDetailTab] = useState('overview');
+  const [leadDetail, setLeadDetail] = useState(null);
   
   const [draggedLead, setDraggedLead] = useState(null);
 
@@ -123,6 +131,102 @@ export default function CRMSales() {
       setReProjectDialog(true);
     } catch (error) {
       toast.error('Failed to load RE project');
+    }
+  };
+
+  const openLeadDetail = async (lead) => {
+    setSelectedLead(lead);
+    setDetailTab('overview');
+    setViewLeadDialog(true);
+    // Fetch full lead detail
+    try {
+      const res = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
+      setLeadDetail(res.data);
+      setSummary(res.data.summary || '');
+    } catch {
+      setLeadDetail(lead);
+      setSummary(lead.summary || '');
+    }
+  };
+
+  const openEditDialog = (lead) => {
+    setEditForm({
+      name: lead.name || '',
+      email: lead.email || '',
+      phone: lead.phone || '',
+      address: lead.address || '',
+      city: lead.city || '',
+      state: lead.state || '',
+      notes: lead.notes || ''
+    });
+    setEditDialog(true);
+  };
+
+  const handleUpdateLead = async () => {
+    if (!editForm.name.trim()) { toast.error('Name is required'); return; }
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, editForm);
+      toast.success('Lead updated');
+      setEditDialog(false);
+      fetchData();
+      // Refresh detail
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setLeadDetail(res.data);
+      setSelectedLead(res.data);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to update');
+    }
+  };
+
+  const handleSaveSummary = async () => {
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, { summary });
+      toast.success('Summary saved');
+    } catch (error) {
+      toast.error('Failed to save summary');
+    }
+  };
+
+  const handleAddFollowUp = async () => {
+    if (!followUpForm.date) { toast.error('Date is required'); return; }
+    try {
+      await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/follow-ups`, {
+        scheduled_date: followUpForm.date,
+        note: followUpForm.note
+      });
+      toast.success('Follow-up scheduled');
+      setFollowUpForm({ date: '', note: '' });
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setLeadDetail(res.data);
+    } catch (error) {
+      toast.error('Failed to add follow-up');
+    }
+  };
+
+  const handleCompleteFollowUp = async (fuId) => {
+    try {
+      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}/follow-ups/${fuId}/complete`);
+      toast.success('Follow-up completed');
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setLeadDetail(res.data);
+    } catch (error) {
+      toast.error('Failed to complete follow-up');
+    }
+  };
+
+  const handleAddRemark = async () => {
+    if (!remarkForm.trim()) { toast.error('Remark is empty'); return; }
+    try {
+      await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/remarks`, {
+        remark: remarkForm,
+        remark_type: 'general'
+      });
+      toast.success('Remark added');
+      setRemarkForm('');
+      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+      setLeadDetail(res.data);
+    } catch (error) {
+      toast.error('Failed to add remark');
     }
   };
 
@@ -520,7 +624,7 @@ export default function CRMSales() {
                     <tr 
                       key={lead.lead_id} 
                       className="hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => { setSelectedLead(lead); setViewLeadDialog(true); }}
+                      onClick={() => openLeadDetail(lead)}
                     >
                       <td className="px-2 py-2">
                         <div className="flex items-center gap-2">
@@ -575,7 +679,7 @@ export default function CRMSales() {
                         <Button 
                           variant="ghost" 
                           size="sm"
-                          onClick={(e) => { e.stopPropagation(); setSelectedLead(lead); setViewLeadDialog(true); }}
+                          onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -677,7 +781,7 @@ export default function CRMSales() {
                           <Button 
                             variant="ghost" 
                             size="sm"
-                            onClick={() => { setSelectedLead(lead); setViewLeadDialog(true); }}
+                            onClick={() => openLeadDetail(lead)}
                           >
                             <Eye className="h-3 w-3" />
                           </Button>
@@ -700,92 +804,168 @@ export default function CRMSales() {
       </div>
 
       {/* View Lead Dialog */}
+      {/* Lead Detail Dialog */}
       <Dialog open={viewLeadDialog} onOpenChange={setViewLeadDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold">
                 {selectedLead?.name?.charAt(0)?.toUpperCase()}
               </div>
-              {selectedLead?.name}
+              <div>
+                <span>{selectedLead?.name}</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="outline" className="text-xs">{getStageName(selectedLead?.current_stage_id)}</Badge>
+                  {(leadDetail || selectedLead)?.appointment && (
+                    <Badge className="bg-green-100 text-green-700 text-xs">
+                      {(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')} - {(leadDetail || selectedLead).appointment.appointment_date} {(leadDetail || selectedLead).appointment.appointment_time}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <Button variant="ghost" size="sm" className="ml-auto" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn">
+                <Edit className="h-4 w-4" />
+              </Button>
             </DialogTitle>
           </DialogHeader>
           
           {selectedLead && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">{getStageName(selectedLead.current_stage_id)}</Badge>
-                {selectedLead.re_project_id && (
-                  <Badge 
-                    className="bg-purple-100 text-purple-700 cursor-pointer"
-                    onClick={() => {
-                      handleViewREProject(selectedLead.re_project_id);
-                      setViewLeadDialog(false);
-                    }}
-                  >
-                    <FileText className="h-3 w-3 mr-1" /> View RE Project
-                  </Badge>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                {selectedLead.email && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Email</Label>
-                    <p className="text-sm flex items-center gap-1">
-                      <Mail className="h-4 w-4 text-gray-400" /> {selectedLead.email}
-                    </p>
+              <Tabs value={detailTab} onValueChange={setDetailTab}>
+                <TabsList className="w-full grid grid-cols-4">
+                  <TabsTrigger value="overview" className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
+                  <TabsTrigger value="summary" className="text-xs" data-testid="tab-summary">Summary</TabsTrigger>
+                  <TabsTrigger value="followups" className="text-xs" data-testid="tab-followups">Follow-ups</TabsTrigger>
+                  <TabsTrigger value="remarks" className="text-xs" data-testid="tab-remarks">Remarks</TabsTrigger>
+                </TabsList>
+                
+                {/* Overview Tab */}
+                <TabsContent value="overview" className="space-y-4 mt-3">
+                  {(leadDetail || selectedLead)?.appointment && (
+                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
+                      <p className="text-xs font-semibold text-green-700 mb-1">Appointment Details</p>
+                      <div className="grid grid-cols-3 gap-3 text-sm">
+                        <div><span className="text-xs text-green-600">Date</span><p className="font-medium">{(leadDetail || selectedLead).appointment.appointment_date}</p></div>
+                        <div><span className="text-xs text-green-600">Time</span><p className="font-medium">{(leadDetail || selectedLead).appointment.appointment_time}</p></div>
+                        <div><span className="text-xs text-green-600">Type</span><p className="font-medium capitalize">{(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')}</p></div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    {selectedLead.email && (<div><Label className="text-xs text-gray-500">Email</Label><p className="text-sm flex items-center gap-1"><Mail className="h-3 w-3 text-gray-400" /> {selectedLead.email}</p></div>)}
+                    {selectedLead.phone && (<div><Label className="text-xs text-gray-500">Phone</Label><p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-gray-400" /> {selectedLead.phone}</p></div>)}
+                    {selectedLead.address && (<div className="col-span-2"><Label className="text-xs text-gray-500">Address</Label><p className="text-sm">{selectedLead.address}{selectedLead.city ? `, ${selectedLead.city}` : ''}</p></div>)}
+                    {selectedLead.source && (<div><Label className="text-xs text-gray-500">Source</Label><p className="text-sm">{selectedLead.source}</p></div>)}
+                    {selectedLead.assigned_to_name && (<div><Label className="text-xs text-gray-500">Assigned To</Label><p className="text-sm">{selectedLead.assigned_to_name}</p></div>)}
+                    {selectedLead.pre_sales_person_name && (<div><Label className="text-xs text-gray-500">Pre-Sales</Label><p className="text-sm">{selectedLead.pre_sales_person_name}</p></div>)}
                   </div>
-                )}
-                {selectedLead.phone && (
-                  <div>
-                    <Label className="text-xs text-gray-500">Phone</Label>
-                    <p className="text-sm flex items-center gap-1">
-                      <Phone className="h-4 w-4 text-gray-400" /> {selectedLead.phone}
-                    </p>
+                  
+                  {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-2 block">Details</Label>
+                      <div className="grid grid-cols-2 gap-2 bg-gray-50 rounded-lg p-3">
+                        {Object.entries(selectedLead.custom_fields).map(([key, value]) => (<div key={key}><span className="text-xs text-gray-500 capitalize">{key.replace('_', ' ')}</span><p className="text-sm font-medium">{value || '-'}</p></div>))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {selectedLead.re_project_id && (
+                    <Badge className="bg-purple-100 text-purple-700 cursor-pointer" onClick={() => { handleViewREProject(selectedLead.re_project_id); setViewLeadDialog(false); }}><FileText className="h-3 w-3 mr-1" /> View RE Project</Badge>
+                  )}
+                  
+                  <div className="border-t pt-3">
+                    <Label className="text-xs text-gray-500 mb-2 block">Move to Stage</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {stages.map(stage => (
+                        <Button key={stage.stage_id} variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'} size="sm" className="text-xs"
+                          onClick={() => { handleStageChange(selectedLead.lead_id, stage.stage_id); setViewLeadDialog(false); }}
+                          style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}>
+                          {stage.name}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
-                )}
-              </div>
-              
-              {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
-                <div>
-                  <Label className="text-xs text-gray-500 mb-2 block">Details</Label>
-                  <div className="grid grid-cols-2 gap-2 bg-gray-50 rounded-lg p-3">
-                    {Object.entries(selectedLead.custom_fields).map(([key, value]) => (
-                      <div key={key}>
-                        <span className="text-xs text-gray-500 capitalize">{key.replace('_', ' ')}</span>
-                        <p className="text-sm font-medium">{value || '-'}</p>
+                </TabsContent>
+                
+                {/* Summary Tab */}
+                <TabsContent value="summary" className="space-y-3 mt-3">
+                  <div>
+                    <Label className="text-xs text-gray-500 mb-1 block">Lead Summary</Label>
+                    <textarea value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Write a summary about this lead..." className="w-full rounded-md border p-3 text-sm min-h-[120px] resize-y focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500" data-testid="lead-summary-input" />
+                  </div>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleSaveSummary} data-testid="save-summary-btn">Save Summary</Button>
+                  {selectedLead.notes && (<div className="bg-gray-50 rounded-lg p-3"><Label className="text-xs text-gray-500 block mb-1">Notes</Label><p className="text-sm">{selectedLead.notes}</p></div>)}
+                </TabsContent>
+                
+                {/* Follow-ups Tab */}
+                <TabsContent value="followups" className="space-y-3 mt-3">
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <Label className="text-xs font-medium">Schedule Follow-up</Label>
+                    <div className="flex gap-2">
+                      <Input type="date" value={followUpForm.date} onChange={(e) => setFollowUpForm({...followUpForm, date: e.target.value})} className="text-sm flex-1" min={new Date().toISOString().split('T')[0]} data-testid="followup-date" />
+                      <Input value={followUpForm.note} onChange={(e) => setFollowUpForm({...followUpForm, note: e.target.value})} placeholder="Note..." className="text-sm flex-[2]" data-testid="followup-note" />
+                      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleAddFollowUp} data-testid="add-followup-btn">Add</Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {(leadDetail?.follow_ups || []).length === 0 && <p className="text-sm text-gray-400 text-center py-4">No follow-ups scheduled</p>}
+                    {(leadDetail?.follow_ups || []).map((fu, i) => (
+                      <div key={fu.follow_up_id || i} className={`flex items-center justify-between p-3 rounded-lg border ${fu.status === 'completed' ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+                        <div><p className="text-sm font-medium">{fu.scheduled_date}</p><p className="text-xs text-gray-500">{fu.note || 'No note'}</p></div>
+                        {fu.status !== 'completed' ? (
+                          <Button size="sm" variant="outline" className="text-xs" onClick={() => handleCompleteFollowUp(fu.follow_up_id)}><CheckCircle className="h-3 w-3 mr-1" /> Done</Button>
+                        ) : (<Badge className="bg-green-100 text-green-600 text-xs">Completed</Badge>)}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-              
-              {/* Stage Change */}
-              <div className="border-t pt-4">
-                <Label className="text-xs text-gray-500 mb-2 block">Move to Stage</Label>
-                <div className="flex flex-wrap gap-2">
-                  {stages.map(stage => (
-                    <Button
-                      key={stage.stage_id}
-                      variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => {
-                        handleStageChange(selectedLead.lead_id, stage.stage_id);
-                        setViewLeadDialog(false);
-                      }}
-                      style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}
-                    >
-                      {stage.name}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+                </TabsContent>
+                
+                {/* Remarks Tab */}
+                <TabsContent value="remarks" className="space-y-3 mt-3">
+                  <div className="flex gap-2">
+                    <Input value={remarkForm} onChange={(e) => setRemarkForm(e.target.value)} placeholder="Add a remark..." className="text-sm" data-testid="remark-input" />
+                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleAddRemark} data-testid="add-remark-btn">Add</Button>
+                  </div>
+                  <div className="space-y-2">
+                    {(leadDetail?.remarks || []).length === 0 && <p className="text-sm text-gray-400 text-center py-4">No remarks yet</p>}
+                    {(leadDetail?.remarks || []).map((r, i) => (
+                      <div key={i} className="p-3 rounded-lg bg-gray-50 border"><p className="text-sm">{r.remark}</p><p className="text-xs text-gray-400 mt-1">{r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : ''} {r.created_by_name ? `by ${r.created_by_name}` : ''}</p></div>
+                    ))}
+                  </div>
+                </TabsContent>
+              </Tabs>
             </div>
           )}
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewLeadDialog(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Lead Dialog */}
+      <Dialog open={editDialog} onOpenChange={setEditDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Lead</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div><Label className="text-xs">Name *</Label><Input value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="text-sm" data-testid="edit-name" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs">Email</Label><Input value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})} className="text-sm" data-testid="edit-email" /></div>
+              <div><Label className="text-xs">Phone</Label><Input value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})} className="text-sm" data-testid="edit-phone" /></div>
+            </div>
+            <div><Label className="text-xs">Address</Label><Input value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="text-sm" data-testid="edit-address" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs">City</Label><Input value={editForm.city} onChange={(e) => setEditForm({...editForm, city: e.target.value})} className="text-sm" /></div>
+              <div><Label className="text-xs">State</Label><Input value={editForm.state} onChange={(e) => setEditForm({...editForm, state: e.target.value})} className="text-sm" /></div>
+            </div>
+            <div><Label className="text-xs">Notes</Label><textarea value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} className="w-full rounded-md border p-2 text-sm min-h-[60px]" data-testid="edit-notes" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialog(false)}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleUpdateLead} data-testid="save-lead-btn">Save Changes</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

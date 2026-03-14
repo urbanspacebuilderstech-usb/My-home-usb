@@ -532,6 +532,10 @@ class LeadStageUpdate(BaseModel):
     advance_amount: Optional[float] = None
     payment_mode: Optional[str] = None
     payment_reference: Optional[str] = None
+    # Appointment booking fields (for pre-sales → sales transfer)
+    appointment_date: Optional[str] = None
+    appointment_time: Optional[str] = None
+    appointment_type: Optional[str] = None  # office_visit, online, home_visit
 
 
 @router.patch("/crm/leads/{lead_id}/stage")
@@ -587,6 +591,17 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             assigned_sales_user = await db.users.find_one({"user_id": assigned_sales_user_id}, {"_id": 0})
             assigned_sales_user_name = assigned_sales_user.get("name") if assigned_sales_user else None
         
+        # Build appointment info
+        appointment_info = {}
+        if data.appointment_date:
+            appointment_info = {
+                "appointment_date": data.appointment_date,
+                "appointment_time": data.appointment_time,
+                "appointment_type": data.appointment_type,
+                "booked_by": user.user_id,
+                "booked_at": datetime.now(timezone.utc).isoformat()
+            }
+        
         new_lead = Lead(
             name=lead["name"],
             email=lead.get("email"),
@@ -620,6 +635,13 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         new_lead_dict["assigned_to_name"] = assigned_sales_user_name
         new_lead_dict["pre_sales_person_id"] = lead.get("assigned_to")
         new_lead_dict["pre_sales_person_name"] = lead.get("assigned_to_name")
+        new_lead_dict["summary"] = lead.get("summary", "")
+        new_lead_dict["follow_ups"] = lead.get("follow_ups", [])
+        
+        # Store appointment info
+        if appointment_info:
+            new_lead_dict["appointment"] = appointment_info
+        
         await db.leads.insert_one(new_lead_dict)
         
         # Update original lead with transfer info

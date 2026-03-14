@@ -70,6 +70,15 @@ export default function CRMPreSales() {
   const [fieldToDelete, setFieldToDelete] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
+  // Appointment booking
+  const [appointmentDialog, setAppointmentDialog] = useState(false);
+  const [appointmentLeadId, setAppointmentLeadId] = useState(null);
+  const [appointmentForm, setAppointmentForm] = useState({
+    date: '',
+    time: '',
+    type: ''
+  });
+  
   // Lead Form
   const [leadForm, setLeadForm] = useState({
     name: '',
@@ -282,12 +291,29 @@ export default function CRMPreSales() {
     }
   };
 
-  const handleStageChange = async (leadId, newStageId) => {
+  const handleStageChange = async (leadId, newStageId, appointmentData = null) => {
     try {
-      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, { stage_id: newStageId });
+      // Check if the target stage is a final stage (triggers transfer)
+      const targetStage = stages.find(s => s.stage_id === newStageId);
+      if (targetStage?.is_final && !appointmentData) {
+        // Show appointment booking dialog
+        setAppointmentLeadId(leadId);
+        setAppointmentForm({ date: '', time: '', type: '' });
+        setAppointmentDialog(true);
+        return;
+      }
+      
+      const payload = { stage_id: newStageId };
+      if (appointmentData) {
+        payload.appointment_date = appointmentData.date;
+        payload.appointment_time = appointmentData.time;
+        payload.appointment_type = appointmentData.type;
+      }
+      
+      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, payload);
       
       if (result.data.transferred_to_sales) {
-        toast.success('Lead transferred to Sales CRM! 🎉');
+        toast.success('Appointment booked & lead transferred to Sales!');
       } else {
         toast.success('Lead stage updated');
       }
@@ -296,6 +322,23 @@ export default function CRMPreSales() {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     }
+  };
+  
+  const handleBookAppointment = async () => {
+    if (!appointmentForm.date || !appointmentForm.time || !appointmentForm.type) {
+      toast.error('Please fill all appointment details');
+      return;
+    }
+    
+    // Get the final stage id
+    const finalStage = stages.find(s => s.is_final);
+    if (!finalStage) {
+      toast.error('No final stage found');
+      return;
+    }
+    
+    setAppointmentDialog(false);
+    await handleStageChange(appointmentLeadId, finalStage.stage_id, appointmentForm);
   };
 
   // ============ LEAD DETAILS & REMARKS ============
@@ -1678,6 +1721,86 @@ export default function CRMPreSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Appointment Booking Dialog */}
+      <Dialog open={appointmentDialog} onOpenChange={setAppointmentDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-green-600" />
+              Book an Appointment
+            </DialogTitle>
+            <DialogDescription>
+              Fill in the appointment details to transfer this lead to the Sales team
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-2">
+            <div>
+              <Label className="text-sm font-medium">Appointment Date *</Label>
+              <Input 
+                type="date"
+                value={appointmentForm.date}
+                onChange={(e) => setAppointmentForm({...appointmentForm, date: e.target.value})}
+                min={new Date().toISOString().split('T')[0]}
+                className="mt-1"
+                data-testid="appointment-date"
+              />
+            </div>
+            
+            <div>
+              <Label className="text-sm font-medium">Appointment Time *</Label>
+              <Input 
+                type="time"
+                value={appointmentForm.time}
+                onChange={(e) => setAppointmentForm({...appointmentForm, time: e.target.value})}
+                className="mt-1"
+                data-testid="appointment-time"
+              />
+            </div>
+            
+            <div>
+              <Label className="text-sm font-medium">Visit Type *</Label>
+              <div className="grid grid-cols-3 gap-2 mt-2">
+                {[
+                  { value: 'office_visit', label: 'Office Visit', icon: '🏢' },
+                  { value: 'online', label: 'Online', icon: '💻' },
+                  { value: 'home_visit', label: 'Home Visit', icon: '🏠' }
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    data-testid={`appointment-type-${opt.value}`}
+                    className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-all text-sm ${
+                      appointmentForm.type === opt.value 
+                        ? 'border-green-500 bg-green-50 text-green-700 font-medium' 
+                        : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                    }`}
+                    onClick={() => setAppointmentForm({...appointmentForm, type: opt.value})}
+                  >
+                    <span className="text-xl">{opt.icon}</span>
+                    <span className="text-xs">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setAppointmentDialog(false)}>Cancel</Button>
+            <Button 
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleBookAppointment}
+              disabled={!appointmentForm.date || !appointmentForm.time || !appointmentForm.type}
+              data-testid="book-appointment-btn"
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Book an Appointment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );
