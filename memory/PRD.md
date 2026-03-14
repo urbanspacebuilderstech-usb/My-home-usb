@@ -21,7 +21,7 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | Site Engineer | /site-engineer | On-site ops, mini cashbook |
 | Pre-Sales | /crm-pre-sales | CRM pipeline |
 | Sales | /crm-sales | Sales pipeline |
-| **Architect** | **/architect-dashboard** | **Site plans, 3D/elevation, design workflow** |
+| Architect | /architect-dashboard | Site plans, 3D/elevation, design workflow |
 
 ## What's Implemented
 - [x] Full CRM pipeline with Google Sheets auto-sync
@@ -38,16 +38,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] Planning Board simplification (tabs-only)
 - [x] Dynamic Cheque Entry
 - [x] PM Dashboard & Permissions (financial data hidden)
-- [x] Gantt Chart for Project Timelines (Mar 14, 2026)
-- [x] **Architect Dashboard & Design Workflow (Mar 14, 2026)**:
-  - New "architect" role with dedicated dashboard
-  - All Projects view (no financial data) with search & status filter
-  - **Site Plans tab**: Floor-wise list with status workflow (yet_to_start → design → approval_waiting → approved)
-  - **3D Photos & Elevations tab**: Simple file management with Google Drive links
-  - Every entry supports Google Drive link
-  - Submit for GM approval workflow
-  - **GM Dashboard**: New "Design" tab for approving/rejecting site plans
-  - **Project Documents tab**: Architect designs visible to all roles
+- [x] Gantt Chart for Project Timelines
+- [x] Architect Dashboard & Design Workflow
+- [x] **Project Detail - Team, Materials, Labours Tabs (Mar 14, 2026)**:
+  - Team tab: Shows PM, Sr. Site Engineers, Site Engineers with colored role cards
+  - Materials tab: Summary dashboard (Total/Pending/In Progress/Delivered/Cost) + detailed table
+  - Labours tab: Summary dashboard (Total/Pending/Approved/Workers/Cost) + detailed table
+  - PM role: Financial data (costs, amounts) completely hidden
+  - PM can create both Site Engineers and Sr. Site Engineers
+  - PM can assign both roles to projects
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
@@ -60,28 +59,14 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - Site Engineer: `engineer@constructionos.com` / `Demo@1234`
 - Pre-Sales: `presales@constructionos.com` / `Demo@1234`
 - Sales: `sales@constructionos.com` / `Demo@1234`
-- **Architect**: `architect@constructionos.com` / `Demo@1234`
+- Architect: `architect@constructionos.com` / `Demo@1234`
 
-## Key API Endpoints - Architect
+## Key API Endpoints - New
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/architect/projects | All projects (no financials) |
-| GET | /api/architect/projects/{id}/site-plans | Floor-wise site plans |
-| POST | /api/architect/projects/{id}/site-plans | Add site plan |
-| PATCH | /api/architect/projects/{id}/site-plans/{id} | Update site plan |
-| POST | /api/architect/projects/{id}/site-plans/{id}/submit | Submit for GM approval |
-| DELETE | /api/architect/projects/{id}/site-plans/{id} | Delete site plan |
-| GET | /api/architect/projects/{id}/design-files | 3D photos & elevations |
-| POST | /api/architect/projects/{id}/design-files | Add design file |
-| PATCH | /api/architect/projects/{id}/design-files/{id} | Update design file |
-| DELETE | /api/architect/projects/{id}/design-files/{id} | Delete design file |
-| GET | /api/architect/pending-approvals | GM: pending site plan approvals |
-| PATCH | /api/architect/site-plans/{id}/approve | GM: approve/reject |
-| GET | /api/architect/projects/{id}/all-design-data | Combined data for Documents tab |
-
-## DB Collections - Architect
-- `site_plans`: plan_id, project_id, floor_name, drive_link, status, remarks, created_by, submitted_at, approved_by
-- `design_files`: file_id, project_id, file_name, file_type (3d_photo/elevation), drive_link, remarks, created_by
+| GET | /api/projects/{id}/team | Project team (PM, Sr SE, SE) |
+| GET | /api/projects/{id}/materials-summary | Materials with stats (cost hidden for PM) |
+| GET | /api/projects/{id}/labours-summary | Labours with stats (cost hidden for PM) |
 
 ## Backlog
 - [ ] Aadhar Document Upload with encrypted storage (P2)
