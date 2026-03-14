@@ -1697,6 +1697,11 @@ function ApprovalsTab() {
   };
 
   const getApprovalAction = (status, type) => {
+    if (status === 'requested') return 'planning-approval';
+    if (status === 'planning_approved') return type === 'material' ? 'procurement-pricing' : 'accounts-approval';
+    if (status === 'procurement_priced') return 'accounts-approval';
+    return null;
+  };
 
   const openReviewDialog = (income) => {
     const mode = classifyMode(income.payment_mode);
@@ -1763,11 +1768,6 @@ function ApprovalsTab() {
     } finally {
       setProcessing(null);
     }
-  };
-    if (status === 'requested') return 'planning-approval';
-    if (status === 'planning_approved') return type === 'material' ? 'procurement-pricing' : 'accounts-approval';
-    if (status === 'procurement_priced') return 'accounts-approval';
-    return null;
   };
 
   const s = data.summary || {};
@@ -1897,7 +1897,7 @@ function ApprovalsTab() {
                               disabled={processing === inc.income_id}
                               onClick={() => openReviewDialog(inc)}
                               data-testid={`review-income-btn-${inc.income_id}`}>
-                              {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Add Review
+                              {processing === inc.income_id ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ClipboardCheck className="h-3 w-3" />} Review
                             </Button>
                           </td>
                         </tr>
@@ -2010,14 +2010,27 @@ function ApprovalsTab() {
                 </div>
               )}
 
-              {/* Cheque - Re-enter number */}
+              {/* Cheque - Show existing + re-enter */}
               {reviewForm.verification_mode === 'cheque' && (
                 <div data-testid="review-cheque-section">
-                  <Label className="text-sm font-semibold">Re-enter Cheque Number</Label>
+                  <Label className="text-sm font-semibold mb-2 block">Cheque Verification</Label>
+                  {reviewDialog.income?.cheque_number && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-blue-500 mb-1">Existing Cheque on Record</p>
+                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.cheque_number}</p>
+                    </div>
+                  )}
+                  {reviewDialog.income?.reference_number && reviewDialog.income.reference_number !== reviewDialog.income.cheque_number && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-blue-500 mb-1">Reference Number</p>
+                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.reference_number}</p>
+                    </div>
+                  )}
+                  <Label className="text-sm font-medium">Re-enter Cheque Number to Verify</Label>
                   <Input
                     value={reviewForm.cheque_number}
                     onChange={(e) => setReviewForm({ ...reviewForm, cheque_number: e.target.value })}
-                    placeholder="Enter cheque number"
+                    placeholder="Re-enter cheque number"
                     className="mt-1"
                     data-testid="review-cheque-input"
                   />
@@ -2070,7 +2083,7 @@ function ApprovalsTab() {
                 data-testid="submit-review-btn"
               >
                 {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-                Submit Review & Approve
+                Record Payment
               </Button>
             </div>
           )}

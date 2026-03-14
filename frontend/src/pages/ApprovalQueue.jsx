@@ -251,7 +251,7 @@ export default function ApprovalQueue() {
                           <Badge className={statusColor(inc.status)}>{inc.status}</Badge>
                           <div className="flex gap-1.5">
                             <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-8" onClick={() => openReviewDialog(inc)} data-testid={`review-income-${inc.income_id}`}>
-                              {processing === inc.income_id ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5 mr-1" />}Add Review
+                              {processing === inc.income_id ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5 mr-1" />}Review
                             </Button>
                           </div>
                         </div>
@@ -337,8 +337,21 @@ export default function ApprovalQueue() {
 
               {reviewForm.verification_mode === 'cheque' && (
                 <div>
-                  <Label className="text-sm font-semibold">Re-enter Cheque Number</Label>
-                  <Input value={reviewForm.cheque_number} onChange={(e) => setReviewForm({ ...reviewForm, cheque_number: e.target.value })} placeholder="Enter cheque number" className="mt-1" data-testid="review-cheque-input" />
+                  <Label className="text-sm font-semibold mb-2 block">Cheque Verification</Label>
+                  {reviewDialog.income.cheque_number && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-blue-500 mb-1">Existing Cheque on Record</p>
+                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.cheque_number}</p>
+                    </div>
+                  )}
+                  {reviewDialog.income.reference_number && reviewDialog.income.reference_number !== reviewDialog.income.cheque_number && (
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-3">
+                      <p className="text-xs text-blue-500 mb-1">Reference Number</p>
+                      <p className="font-bold text-blue-800 text-lg tracking-wider">{reviewDialog.income.reference_number}</p>
+                    </div>
+                  )}
+                  <Label className="text-sm font-medium">Re-enter Cheque Number to Verify</Label>
+                  <Input value={reviewForm.cheque_number} onChange={(e) => setReviewForm({ ...reviewForm, cheque_number: e.target.value })} placeholder="Re-enter cheque number" className="mt-1" data-testid="review-cheque-input" />
                 </div>
               )}
 
@@ -363,7 +376,7 @@ export default function ApprovalQueue() {
 
               <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSubmitReview} disabled={processing} data-testid="submit-review-btn">
                 {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-                Submit Review & Approve
+                Record Payment
               </Button>
             </div>
           )}
