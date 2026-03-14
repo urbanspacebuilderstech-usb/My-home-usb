@@ -34,6 +34,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] Forgot Password + Role-based access control
 - [x] 360° seed data for Murugan Vadapalani project
 - [x] CRE Dashboard loading fix - parallelized API/DB calls, skeleton loader (Mar 14, 2026)
+- [x] End-to-End Workflow Fix (Mar 14, 2026):
+  - Fixed labour collection mismatch (standardized to `labour_expenses`)
+  - Fixed PM assign-team ObjectId serialization bug + now updates project's assigned_se
+  - Material requests now accept free-text `material_name` (no need for materials catalog)
+  - PM verify labour → status `pending_accounts_approval` → Accountant approve
+  - Credit ledger enhanced: delivery_date, payment_due_date, credit_period_days, overdue tracking
+  - Procurement can "Request Payment" for credit entries → notifies Accountant
+  - Fixed React state bug in PM approve/verify buttons (async state race condition)
+  - Added comprehensive status badges in Site Engineer project page
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
