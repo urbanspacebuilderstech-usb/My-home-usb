@@ -897,6 +897,16 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleRequestAdditionPayment = async (costId) => {
+    try {
+      await axios.patch(`${API}/additional-costs/${costId}/request-payment`);
+      toast.success('Payment requested for additional work - sent to CRE');
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to request payment');
+    }
+  };
+
   const handleDeleteDeduction = async (deductionId) => {
     if (!confirm('Delete this deduction?')) return;
     try {
@@ -2645,6 +2655,20 @@ export default function ProjectDetail() {
                             {canManage && (
                               <td className="px-4 py-3 text-center">
                                 <div className="flex items-center justify-center gap-1">
+                                  {balance > 0 && !cost.payment_requested && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 gap-1 border-green-500 text-green-700 hover:bg-green-50 text-xs"
+                                      onClick={() => handleRequestAdditionPayment(cost.cost_id)}
+                                      data-testid={`req-payment-addition-${cost.cost_id}`}
+                                    >
+                                      <Send className="h-3 w-3" /> Req Payment
+                                    </Button>
+                                  )}
+                                  {cost.payment_requested && balance > 0 && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Requested</span>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"

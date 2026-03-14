@@ -2127,6 +2127,42 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
     return {"message": "Additional cost deleted"}
 
 
+@router.patch("/additional-costs/{cost_id}/request-payment")
+async def request_additional_payment(cost_id: str, user: User = Depends(get_current_user)):
+    """Request payment for additional work - notifies CRE"""
+    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning/PM can request payments")
+    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0})
+    
+    balance = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0)) - (cost.get("income_received", 0) or 0)
+    
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "payment_requested": True,
+            "payment_requested_by": user.user_id,
+            "payment_requested_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    # Notify CRE users
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(10)
+    for cre in cre_users:
+        await create_notification(
+            cre["user_id"],
+            f"Additional Payment Request: ₹{balance:,.0f} for {project.get('name', 'Project')} - {cost.get('description', 'Additional Work')}"
+        )
+    
+    await create_audit_log(user.user_id, "request_payment", "additional_cost", cost_id, {"amount": balance})
+    return {"message": "Payment request sent to CRE", "cost_id": cost_id}
+
+
+
 # ==================== SCOPE ITEMS CRUD ====================
 
 class ScopeItemCreate(BaseModel):
