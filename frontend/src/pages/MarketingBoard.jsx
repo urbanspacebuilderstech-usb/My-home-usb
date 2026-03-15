@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -205,6 +206,7 @@ export default function MarketingBoard() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchDashboard, 15000);
 
   const fetchAllLeads = async () => {
     try {
@@ -824,7 +826,7 @@ export default function MarketingBoard() {
     }).format(amount || 0);
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <RefreshCw className="h-8 w-8 animate-spin text-indigo-600" />

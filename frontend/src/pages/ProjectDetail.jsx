@@ -20,6 +20,7 @@ import { generateREPDF } from '../utils/pdfGenerator';
 import { FileUpload, FileList } from '../components/FileUpload';
 import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -502,6 +503,7 @@ export default function ProjectDetail() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const fetchProjectFiles = async () => {
     try {
@@ -1152,7 +1154,7 @@ export default function ProjectDetail() {
   const isPM = user?.role === 'project_manager';
   const canSeeFinancials = !isPM;
 
-  if (loading) {
+  if (loading && !project) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading project...</div>

@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -67,6 +68,7 @@ export default function VendorManagement() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleLogout = async () => {
     try {

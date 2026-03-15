@@ -16,6 +16,7 @@ import MobileBottomNav from '../components/MobileBottomNav';import {
   Clock, AlertCircle, Navigation, QrCode, ShieldCheck, Eye, 
   LogOut, Mail, RefreshCw, Loader2
 } from 'lucide-react';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -92,6 +93,7 @@ export default function MaterialReceipt() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch {}
@@ -186,7 +188,7 @@ export default function MaterialReceipt() {
     }
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600"></div>

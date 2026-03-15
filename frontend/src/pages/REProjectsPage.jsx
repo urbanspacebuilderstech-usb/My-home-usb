@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -85,6 +86,7 @@ export default function REProjectsPage() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch (e) {}
@@ -205,7 +207,7 @@ export default function REProjectsPage() {
   const canEdit = user?.role === 'planning' || user?.role === 'super_admin';
   const canApprove = user?.role === 'general_manager' || user?.role === 'super_admin';
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <RefreshCw className="h-6 w-6 animate-spin text-purple-600" />

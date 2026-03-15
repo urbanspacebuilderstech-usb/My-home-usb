@@ -18,6 +18,7 @@ import {
   ArrowLeft, Plus, RefreshCw, Search, Calculator
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -99,6 +100,7 @@ export default function HRPortal() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch (e) {}
@@ -278,7 +280,7 @@ export default function HRPortal() {
     return <Badge className={c.class}>{c.label}</Badge>;
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <RefreshCw className="h-6 w-6 animate-spin text-violet-600" />

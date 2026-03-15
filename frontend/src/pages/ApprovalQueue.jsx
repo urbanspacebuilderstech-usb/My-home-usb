@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -70,6 +71,7 @@ export default function ApprovalQueue() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleApproveIncome = async (incomeId) => {
     try {
@@ -182,7 +184,7 @@ export default function ApprovalQueue() {
     } finally { setProcessing(null); }
   };
 
-  if (loading) return (
+  if (loading && !user) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-10 h-10 border-3 border-amber-500 border-t-transparent rounded-full animate-spin" />
     </div>

@@ -168,7 +168,7 @@ export default function ComprehensiveProjectView() {
 
   const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant';
 
-  if (loading) {
+  if (loading && !project) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading project data...</div>

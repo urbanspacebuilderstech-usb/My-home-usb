@@ -18,6 +18,7 @@ import {
   Wallet, Building, Receipt, BarChart3, Users
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -143,6 +144,7 @@ export default function ProcurementBoardV2() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const fetchRequests = async (status) => {
     try {
@@ -339,7 +341,7 @@ export default function ProcurementBoardV2() {
     return <Badge className={statusConfig.color}>{statusConfig.label}</Badge>;
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-500"></div>

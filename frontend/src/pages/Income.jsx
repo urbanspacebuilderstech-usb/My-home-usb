@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -73,6 +74,7 @@ export default function Income() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const fetchFilteredIncome = async () => {
     try {
@@ -184,7 +186,7 @@ export default function Income() {
 
   const canManage = user?.role === 'super_admin' || user?.role === 'accountant' || user?.role === 'project_manager';
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading income data...</div>

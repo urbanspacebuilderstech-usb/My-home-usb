@@ -18,6 +18,7 @@ import {
   LayoutGrid, List, MoreVertical
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -161,6 +162,7 @@ export default function CRMPreSales() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`); } catch (e) {}
@@ -508,7 +510,7 @@ export default function CRMPreSales() {
     return stage?.name || stageId;
   };
 
-  if (loading) {
+  if (loading && !dashboard) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <RefreshCw className="h-6 w-6 animate-spin text-indigo-600" />

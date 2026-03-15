@@ -20,6 +20,7 @@ import {
   AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -1790,7 +1791,7 @@ function ApprovalsTab() {
   const s = data.summary || {};
   const totalPending = (s.income_count || 0) + (s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0);
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex justify-center py-12">
         <RefreshCw className="h-6 w-6 animate-spin text-purple-600" />
@@ -2358,6 +2359,7 @@ export default function AccountsBoard() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchAll, 15000);
 
   if (loading) {
     return (

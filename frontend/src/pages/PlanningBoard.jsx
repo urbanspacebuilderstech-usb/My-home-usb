@@ -15,6 +15,7 @@ import {
   Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -101,6 +102,7 @@ export default function PlanningBoard() {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally { setLoading(false); }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -236,7 +238,7 @@ export default function PlanningBoard() {
 
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
 
-  if (loading) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
+  if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="planning-board">

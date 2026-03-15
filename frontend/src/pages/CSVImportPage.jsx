@@ -182,7 +182,7 @@ export default function CSVImportPage() {
 
   const allColumns = [...(template?.standard_columns || []), ...(template?.custom_field_columns || [])];
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <RefreshCw className="h-6 w-6 animate-spin text-indigo-600" />

@@ -17,6 +17,7 @@ import {
   ArrowRight, CreditCard, TrendingUp
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -85,6 +86,7 @@ export default function ProcurementDashboard() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const fetchDashboard = async () => {
     try {
@@ -278,7 +280,7 @@ export default function ProcurementDashboard() {
     return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
-  if (loading) {
+  if (loading && !user) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 

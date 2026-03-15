@@ -13,6 +13,7 @@ import {
   Banknote, X
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -70,6 +71,7 @@ export default function LabourContractorManagement() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const resetForm = () => {
     setForm({
@@ -161,7 +163,7 @@ export default function LabourContractorManagement() {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount || 0);
   };
 
-  if (loading) {
+  if (loading && !user) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 

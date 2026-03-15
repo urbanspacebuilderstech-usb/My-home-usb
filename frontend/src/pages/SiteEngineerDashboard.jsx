@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { Label } from '@/components/ui/label';
 import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye } from 'lucide-react';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -308,6 +309,7 @@ export default function SiteEngineerDashboard() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
   
   // Petty Cash Functions
   const handleRequestPettyCash = async () => {
@@ -445,7 +447,7 @@ export default function SiteEngineerDashboard() {
     return <span className={`px-2 py-0.5 rounded text-xs font-medium ${c.className}`}>{c.label}</span>;
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading...</div>

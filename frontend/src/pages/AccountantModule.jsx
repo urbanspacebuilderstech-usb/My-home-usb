@@ -353,7 +353,7 @@ export default function AccountantModule() {
     );
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <RefreshCw className="h-6 w-6 animate-spin text-emerald-600" />

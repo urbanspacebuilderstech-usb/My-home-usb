@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -112,6 +113,7 @@ const GMDashboard = () => {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchAllData, 15000);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
@@ -260,7 +262,7 @@ const GMDashboard = () => {
     }
   };
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

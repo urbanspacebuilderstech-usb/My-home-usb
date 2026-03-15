@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -95,6 +96,7 @@ export default function ExpenseManagement() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const fetchAllExpenses = async () => {
     try {
@@ -289,7 +291,7 @@ export default function ExpenseManagement() {
   const canApproveAsProcurement = user?.role === 'procurement' || user?.role === 'super_admin';
   const canApproveAsAccounts = user?.role === 'accountant' || user?.role === 'super_admin';
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading expense management...</div>

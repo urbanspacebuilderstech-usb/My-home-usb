@@ -17,6 +17,7 @@ import {
   Receipt, Banknote, ClipboardList
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -137,6 +138,7 @@ export default function CREBoard() {
       setLoading(false);
     }
   };
+  useAutoRefresh(fetchData, 15000);
 
   // ==================== HANDLERS ====================
   const openConvertDealDialog = async (deal) => {
@@ -341,7 +343,7 @@ export default function CREBoard() {
     return (p.name || '').toLowerCase().includes(s) || (p.client_name || '').toLowerCase().includes(s) || (p.location || '').toLowerCase().includes(s);
   });
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="min-h-screen bg-gray-50" data-testid="cre-board-loading">
         <div className="max-w-7xl mx-auto px-4 py-6">

@@ -15,6 +15,7 @@ import {
   Send, ExternalLink, Layers, Image, FileText, Filter, ArrowLeft
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -67,6 +68,7 @@ export default function ArchitectDashboard() {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally { setLoading(false); }
   };
+  useAutoRefresh(fetchData, 15000);
 
   const openProjectDetail = async (project) => {
     setSelectedProject(project);
@@ -172,7 +174,7 @@ export default function ArchitectDashboard() {
   const photos3d = designFiles.filter(f => f.file_type === '3d_photo');
   const elevations = designFiles.filter(f => f.file_type === 'elevation');
 
-  if (loading) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
+  if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
 
   // ==================== PROJECT DETAIL VIEW ====================
   if (selectedProject) {
