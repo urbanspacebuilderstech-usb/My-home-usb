@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://project-manager-hub-5.preview.emergentagent.com
-- Backend API: https://project-manager-hub-5.preview.emergentagent.com/api
+- Frontend: https://crew-manage-1.preview.emergentagent.com
+- Backend API: https://crew-manage-1.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

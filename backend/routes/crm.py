@@ -3132,7 +3132,7 @@ async def get_auto_sync_config(user: User = Depends(get_current_user)):
 
 @router.post("/sheets/auto-sync/run")
 async def run_auto_sync(user: User = Depends(get_current_user)):
-    """Sync all connected sheets — only imports NEW rows added since last sync"""
+    """Sync all connected sheets — discovers NEW tabs and imports NEW rows"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
@@ -3159,7 +3159,70 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
         tab_configs = sheet_doc.get("tab_configs", [])
         old_row_counts = sheet_doc.get("tab_row_counts", {})
         new_row_counts = {}
+        known_tab_names = {tc.get("tab_name") for tc in tab_configs}
         
+        # === DISCOVER NEW TABS in the spreadsheet ===
+        try:
+            meta = service.spreadsheets().get(spreadsheetId=sid).execute()
+            all_sheet_tabs = [s["properties"]["title"] for s in meta.get("sheets", [])]
+        except Exception as e:
+            logger.error(f"Auto-sync: Failed to get spreadsheet metadata: {e}")
+            all_sheet_tabs = list(known_tab_names)
+        
+        # For new tabs, auto-detect column mapping from header row
+        for tab_title in all_sheet_tabs:
+            if tab_title not in known_tab_names:
+                # Read header row to auto-map columns
+                try:
+                    result = service.spreadsheets().values().get(
+                        spreadsheetId=sid, range=f"'{tab_title}'!1:1"
+                    ).execute()
+                    headers = result.get('values', [[]])[0]
+                    if not headers:
+                        continue
+                    
+                    # Auto-map columns by matching header names to known fields
+                    auto_mapping = {}
+                    field_keywords = {
+                        "name": ["name", "client", "customer", "lead name", "full name", "client name"],
+                        "phone": ["phone", "mobile", "contact", "number", "cell", "tel"],
+                        "email": ["email", "mail", "e-mail"],
+                        "city": ["city", "location", "area", "place"],
+                        "budget": ["budget", "amount", "value", "price"],
+                        "notes": ["notes", "remarks", "comment", "description", "requirement"],
+                        "address": ["address", "addr"],
+                        "sqft": ["sqft", "sq ft", "area", "square feet", "sq.ft"],
+                        "state": ["state"],
+                    }
+                    
+                    for col_idx, header in enumerate(headers):
+                        header_lower = header.strip().lower()
+                        col_letter = chr(65 + col_idx) if col_idx < 26 else chr(64 + col_idx // 26) + chr(65 + col_idx % 26)
+                        for field_name, keywords in field_keywords.items():
+                            if any(kw in header_lower for kw in keywords):
+                                if field_name not in auto_mapping.values():
+                                    auto_mapping[col_letter] = field_name
+                                break
+                        else:
+                            # Map unknown headers as custom fields
+                            if header.strip():
+                                auto_mapping[col_letter] = header.strip().lower().replace(" ", "_")
+                    
+                    if auto_mapping:
+                        new_tab_config = {
+                            "tab_name": tab_title,
+                            "column_mapping": auto_mapping,
+                            "new_custom_fields": [],
+                            "auto_discovered": True,
+                        }
+                        tab_configs.append(new_tab_config)
+                        known_tab_names.add(tab_title)
+                        logger.info(f"Auto-sync: Discovered new tab '{tab_title}' with {len(auto_mapping)} columns")
+                except Exception as e:
+                    logger.error(f"Auto-sync: Failed to read new tab '{tab_title}': {e}")
+                    continue
+        
+        # === SYNC ALL TABS (existing + newly discovered) ===
         for tc in tab_configs:
             tab_name = tc.get("tab_name")
             col_mapping = tc.get("column_mapping", {})
@@ -3250,10 +3313,11 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
             total_new += tab_new
             total_skipped += tab_skipped
         
-        # Update row counts
+        # Update row counts AND tab_configs (includes newly discovered tabs)
         await db.connected_sheets.update_one(
             {"spreadsheet_id": sid, "user_id": user.user_id},
             {"$set": {
+                "tab_configs": tab_configs,
                 "tab_row_counts": new_row_counts,
                 "last_synced": datetime.now(timezone.utc).isoformat()
             }}

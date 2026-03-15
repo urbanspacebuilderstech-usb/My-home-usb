@@ -40,13 +40,14 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] PM Dashboard & Permissions (financial data hidden)
 - [x] Gantt Chart for Project Timelines
 - [x] Architect Dashboard & Design Workflow
-- [x] **Project Detail - Team, Materials, Labours Tabs (Mar 14, 2026)**:
-  - Team tab: Shows PM, Sr. Site Engineers, Site Engineers with colored role cards
-  - Materials tab: Summary dashboard (Total/Pending/In Progress/Delivered/Cost) + detailed table
-  - Labours tab: Summary dashboard (Total/Pending/Approved/Workers/Cost) + detailed table
-  - PM role: Financial data (costs, amounts) completely hidden
-  - PM can create both Site Engineers and Sr. Site Engineers
-  - PM can assign both roles to projects
+- [x] Project Detail - Team, Materials, Labours Tabs
+- [x] Production-Ready Setup Wizard (SetupWizard.jsx)
+- [x] **Google Sheets Sync Fix (Mar 15, 2026)**:
+  - New tabs in connected Google Sheets are auto-discovered during sync
+  - Auto-sync interval reduced to 1 minute (background task)
+  - Manual sync trigger discovers + syncs new tabs
+  - Frontend displays all tabs including auto-discovered ones
+  - Auto-Sync card shows accurate "Every 1 min (background)" label
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
@@ -67,9 +68,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | GET | /api/projects/{id}/team | Project team (PM, Sr SE, SE) |
 | GET | /api/projects/{id}/materials-summary | Materials with stats (cost hidden for PM) |
 | GET | /api/projects/{id}/labours-summary | Labours with stats (cost hidden for PM) |
+| POST | /api/sheets/auto-sync/run | Manual sync trigger - discovers new tabs |
+| GET | /api/sheets/connected | List connected sheets with tab configs |
 
 ## Backlog
-- [ ] Aadhar Document Upload with encrypted storage (P2)
-- [ ] UI/UX review across all screens
-- [ ] Production deployment guidance
+- [ ] Aadhar Document Upload with encrypted storage (P1)
+- [ ] UI/UX review across all screens (P2)
+- [ ] Convert to SaaS model (multi-tenancy, subscriptions) (P2)
+- [ ] Production deployment guidance (P2)
 - [ ] Optimize /api/cre/dashboard-summary endpoint (~3.5s response time)

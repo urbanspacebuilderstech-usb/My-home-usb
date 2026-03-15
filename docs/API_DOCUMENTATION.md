@@ -33,7 +33,7 @@ ConstructionOS API is a RESTful API that provides access to all platform feature
 ### Base URL
 ```
 Production: https://your-domain.com/api
-Preview: https://project-manager-hub-5.preview.emergentagent.com/api
+Preview: https://crew-manage-1.preview.emergentagent.com/api
 ```
 
 ### Request Format

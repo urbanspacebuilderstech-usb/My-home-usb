@@ -1726,7 +1726,7 @@ export default function MarketingBoard() {
                           </div>
                           <div>
                             <h3 className="font-semibold text-gray-900 text-sm">Auto-Sync</h3>
-                            <p className="text-xs text-gray-500">{autoSyncConfig?.enabled ? `Every ${autoSyncConfig.interval_hours}h` : 'Disabled'}</p>
+                            <p className="text-xs text-gray-500">{autoSyncConfig?.enabled ? 'Every 1 min (background)' : 'Disabled'}</p>
                           </div>
                         </div>
                         <Switch
