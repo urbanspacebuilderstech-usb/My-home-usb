@@ -1154,7 +1154,7 @@ export default function ProjectDetail() {
   const isPM = user?.role === 'project_manager';
   const canSeeFinancials = !isPM;
 
-  if (loading && !project) {
+  if (loading && !projectData) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-lg font-semibold text-gray-600">Loading project...</div>

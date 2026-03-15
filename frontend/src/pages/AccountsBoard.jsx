@@ -1791,7 +1791,7 @@ function ApprovalsTab() {
   const s = data.summary || {};
   const totalPending = (s.income_count || 0) + (s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0);
 
-  if (loading && !user) {
+  if (loading && !data.summary) {
     return (
       <div className="flex justify-center py-12">
         <RefreshCw className="h-6 w-6 animate-spin text-purple-600" />
