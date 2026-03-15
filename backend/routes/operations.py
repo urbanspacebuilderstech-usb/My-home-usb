@@ -83,8 +83,7 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
     
     import asyncio
     base_query = {}
-    if user.role == UserRole.CRE:
-        base_query["created_by"] = user.user_id
+    # CRE sees all projects (they manage customer relationships for all)
     
     # Run all DB queries in parallel
     (
@@ -1026,8 +1025,7 @@ async def get_all_cro_projects(
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
     query = {}
-    if user.role == UserRole.CRE:
-        query["created_by"] = user.user_id
+    # CRE sees all projects
     
     if status:
         statuses = status.split(",")
