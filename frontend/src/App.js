@@ -225,6 +225,19 @@ function ProtectedRoute({ children }) {
       });
   }, []);
 
+  useEffect(() => {
+    if (user?.role) {
+      const roleLabels = {
+        super_admin: 'Super Admin', general_manager: 'General Manager', cre: 'CRE',
+        accountant: 'Accountant', project_manager: 'Project Manager', planning: 'Planning',
+        procurement: 'Procurement', site_engineer: 'Site Engineer', sr_site_engineer: 'Sr. Site Engineer',
+        pre_sales: 'Pre Sales', sales: 'Sales', architect: 'Architect',
+        marketing_head: 'Marketing Head', client: 'Client', vendor: 'Vendor',
+      };
+      document.title = `${roleLabels[user.role] || user.role} | My Home USB`;
+    }
+  }, [user]);
+
   if (isAuthenticated === null) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50" data-testid="auth-loading">
