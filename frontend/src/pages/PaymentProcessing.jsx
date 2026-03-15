@@ -132,7 +132,7 @@ export default function PaymentProcessing() {
       setVerifyDialog(true);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to initiate payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to initiate payment');
     }
   };
 
@@ -153,7 +153,7 @@ export default function PaymentProcessing() {
       setCompleteDialog(true);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Invalid OTP');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Invalid OTP');
     }
   };
 
@@ -179,7 +179,7 @@ export default function PaymentProcessing() {
       setCompleteForm({ transaction_id: '', payment_method: 'bank_transfer', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to complete payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to complete payment');
     }
   };
 

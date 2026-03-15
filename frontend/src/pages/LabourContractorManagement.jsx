@@ -126,7 +126,7 @@ export default function LabourContractorManagement() {
       setEditDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save contractor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save contractor');
     }
   };
 

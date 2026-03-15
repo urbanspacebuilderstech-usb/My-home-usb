@@ -183,7 +183,7 @@ export default function HRPortal() {
       setStaffDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save staff');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save staff');
     }
   };
 
@@ -195,7 +195,7 @@ export default function HRPortal() {
       toast.success('Staff terminated');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to terminate staff');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to terminate staff');
     }
   };
 
@@ -206,7 +206,7 @@ export default function HRPortal() {
       setPayrollDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to generate payroll');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to generate payroll');
     }
   };
 
@@ -216,7 +216,7 @@ export default function HRPortal() {
       toast.success('Payroll approved');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to approve payroll');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve payroll');
     }
   };
 
@@ -238,7 +238,7 @@ export default function HRPortal() {
       setPaymentDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to process payment');
     }
   };
 

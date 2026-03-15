@@ -338,7 +338,7 @@ export default function MarketingBoard() {
       
       toast.success(`Found ${res.data.total_rows} rows`);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to preview sheet');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to preview sheet');
     } finally {
       setIsPreviewLoading(false);
     }
@@ -373,7 +373,7 @@ export default function MarketingBoard() {
       setColumnMapping({});
       setCustomFieldsToCreate([]);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add source');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add source');
     }
   };
 
@@ -413,7 +413,7 @@ export default function MarketingBoard() {
       setSheetPreview(null);
       setColumnMapping({});
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to import leads');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to import leads');
     } finally {
       setIsImporting(false);
     }
@@ -446,7 +446,7 @@ export default function MarketingBoard() {
       fetchDashboard(false);
       fetchSheetsConfig();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to import leads');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to import leads');
     } finally {
       setIsImporting(false);
     }
@@ -478,7 +478,7 @@ export default function MarketingBoard() {
       }
       setShowExportDialog(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to export leads');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to export leads');
     } finally {
       setIsExporting(false);
     }
@@ -509,7 +509,7 @@ export default function MarketingBoard() {
       toast.success(`Synced ${res.data.imported || 0} leads from ${res.data.sources?.length || 0} tabs`);
       fetchDashboard(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Sync failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Sync failed');
     } finally {
       setIsSyncing(false);
     }
@@ -538,7 +538,7 @@ export default function MarketingBoard() {
       setZapNewFields(newFields);
       setZapStep('mapping');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to read spreadsheet');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to read spreadsheet');
     } finally {
       setZapLoading(false);
     }
@@ -577,7 +577,7 @@ export default function MarketingBoard() {
       fetchDashboard(false);
       fetchConnectedSheets();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Import failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Import failed');
     } finally {
       setZapLoading(false);
     }
@@ -606,7 +606,7 @@ export default function MarketingBoard() {
       }
       fetchConnectedSheets();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Sync failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Sync failed');
     } finally {
       setSyncingSheet(false);
     }
@@ -699,7 +699,7 @@ export default function MarketingBoard() {
       fetchAllLeads();
       fetchDashboard(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create lead');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create lead');
     }
   };
 
@@ -715,7 +715,7 @@ export default function MarketingBoard() {
       setNewMember({ name: '', email: '', role: 'pre_sales', phone: '' });
       fetchDashboard(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add team member');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add team member');
     }
   };
 
@@ -774,7 +774,7 @@ export default function MarketingBoard() {
         setSelectedLead(null);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete lead');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete lead');
     }
   };
 

@@ -73,7 +73,7 @@ export default function ProjectMaterials() {
       resetForm();
       fetchMaterials(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add material');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add material');
     }
   };
 
@@ -85,7 +85,7 @@ export default function ProjectMaterials() {
       resetForm();
       fetchMaterials(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update material');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update material');
     }
   };
 
@@ -96,7 +96,7 @@ export default function ProjectMaterials() {
       setDeleteDialog(false);
       fetchMaterials(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete material');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete material');
     }
   };
 
@@ -108,7 +108,7 @@ export default function ProjectMaterials() {
       setUnlockReason('');
       fetchMaterials(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to request unlock');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request unlock');
     }
   };
 

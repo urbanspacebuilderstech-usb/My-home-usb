@@ -68,7 +68,7 @@ function MiniCashbookSection({ projects }) {
       setNewExpense({ project_id: '', category: 'material', amount: '', description: '', vendor_name: '' });
       fetchCashbook(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record expense');
     }
   };
 
@@ -329,7 +329,7 @@ export default function SiteEngineerDashboard() {
       setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to request petty cash');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request petty cash');
     }
   };
   
@@ -351,7 +351,7 @@ export default function SiteEngineerDashboard() {
       setExpenseForm({ amount: '', expense_type: '', description: '', date: new Date().toISOString().split('T')[0] });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add expense');
     }
   };
   
@@ -361,7 +361,7 @@ export default function SiteEngineerDashboard() {
       toast.success('Petty cash submitted for settlement');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit petty cash');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit petty cash');
     }
   };
   
@@ -417,7 +417,7 @@ export default function SiteEngineerDashboard() {
       setPaymentDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to request payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
     }
   };
 

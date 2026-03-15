@@ -125,7 +125,7 @@ export default function VendorManagement() {
       setDialogOpen(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save vendor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save vendor');
     }
   };
 
@@ -135,7 +135,7 @@ export default function VendorManagement() {
       toast.success('Vendor deleted');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete vendor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete vendor');
     }
   };
 

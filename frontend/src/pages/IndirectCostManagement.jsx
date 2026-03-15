@@ -129,7 +129,7 @@ export default function IndirectCostManagement() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create entry');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create entry');
     }
   };
 
@@ -145,7 +145,7 @@ export default function IndirectCostManagement() {
       setRejectionReason('');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to process');
     }
   };
 
@@ -167,7 +167,7 @@ export default function IndirectCostManagement() {
       setConfirmForm({ payment_date: '', reference_number: '', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to confirm payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to confirm payment');
     }
   };
 

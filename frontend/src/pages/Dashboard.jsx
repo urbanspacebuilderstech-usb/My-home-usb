@@ -98,7 +98,7 @@ export default function Dashboard() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create project');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create project');
     }
   };
 

@@ -152,7 +152,7 @@ export default function MaterialReceipt() {
         }
       }
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to send OTP');
+      toast.error(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Failed to send OTP');
       setOtpStatus('error');
     }
     setOtpSending(false);

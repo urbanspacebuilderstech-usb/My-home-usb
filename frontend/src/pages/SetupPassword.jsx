@@ -49,7 +49,7 @@ export default function SetupPassword() {
       setDone(true);
       toast.success('Account setup complete!');
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Setup failed');
+      toast.error(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Setup failed');
     } finally {
       setIsSubmitting(false);
     }

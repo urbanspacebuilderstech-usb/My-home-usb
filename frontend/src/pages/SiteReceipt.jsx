@@ -146,7 +146,7 @@ export default function SiteReceipt() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit receipt');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit receipt');
     }
   };
 

@@ -79,7 +79,7 @@ export default function ApprovalQueue() {
       toast.success('Income approved');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to approve');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     }
   };
 
@@ -90,7 +90,7 @@ export default function ApprovalQueue() {
       toast.success(`${type} expense approved`);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to approve');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     }
   };
 
@@ -107,7 +107,7 @@ export default function ApprovalQueue() {
       setRejectDialog({ open: false, type: '', id: '', reason: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to reject');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to reject');
     }
   };
 
@@ -180,7 +180,7 @@ export default function ApprovalQueue() {
       setReviewDialog({ open: false, income: null });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to review');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to review');
     } finally { setProcessing(null); }
   };
 

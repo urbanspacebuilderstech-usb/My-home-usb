@@ -233,7 +233,7 @@ export default function ProcurementDashboard() {
       toast.success('Vendor added');
     } catch (error) {
       console.error('Error adding vendor:', error);
-      toast.error(error.response?.data?.detail || 'Failed to add vendor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add vendor');
     }
   };
 

@@ -82,7 +82,7 @@ export default function Login() {
       const target = getRoleRedirect(user.role);
       navigate(target, { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Login failed');
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +98,7 @@ export default function Login() {
       const target = getRoleRedirect(user.role);
       navigate(target, { replace: true });
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Login failed');
     } finally {
       setIsLoading(false);
     }

@@ -173,7 +173,7 @@ export default function SiteEngineerProject() {
       setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit request');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit request');
     }
   };
 
@@ -197,7 +197,7 @@ export default function SiteEngineerProject() {
       setLabourForm({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit request');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit request');
     }
   };
 
@@ -235,7 +235,7 @@ export default function SiteEngineerProject() {
         toast.info(`Demo OTP: ${response.data.test_otp}`);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to initiate receipt');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to initiate receipt');
     }
   };
 
@@ -255,7 +255,7 @@ export default function SiteEngineerProject() {
       setOtpCode('');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Invalid OTP');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Invalid OTP');
     }
   };
 

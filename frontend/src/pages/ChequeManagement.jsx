@@ -166,7 +166,7 @@ export default function ChequeManagement() {
       setAddDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add cheque');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add cheque');
     }
   };
 
@@ -186,7 +186,7 @@ export default function ChequeManagement() {
       setStatusDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update status');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update status');
     }
   };
 

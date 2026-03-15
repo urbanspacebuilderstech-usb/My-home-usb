@@ -224,7 +224,7 @@ export default function AccountantModule() {
       setVerifyDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to verify');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to verify');
     }
   };
 
@@ -263,7 +263,7 @@ export default function AccountantModule() {
       setRejectDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to reject');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to reject');
     }
   };
 
@@ -293,7 +293,7 @@ export default function AccountantModule() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record expense');
     }
   };
 
@@ -324,7 +324,7 @@ export default function AccountantModule() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add to suspense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add to suspense');
     }
   };
 

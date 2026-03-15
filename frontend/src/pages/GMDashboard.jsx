@@ -234,7 +234,7 @@ const GMDashboard = () => {
       setApprovalDialog(false);
       fetchAllData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Action failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Action failed');
     }
   };
 

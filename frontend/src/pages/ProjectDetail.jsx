@@ -596,7 +596,7 @@ export default function ProjectDetail() {
       await fetchData(false);
       setActiveTab('scope');
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to convert to scope');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to convert to scope');
     }
   };
 
@@ -624,7 +624,7 @@ export default function ProjectDetail() {
       setBulkScopeRows(createEmptyRows('scope'));
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add scope items');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add scope items');
     }
   };
 
@@ -662,7 +662,7 @@ export default function ProjectDetail() {
       setBulkPaymentRows(createEmptyRows('payment'));
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add payment stages');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add payment stages');
     }
   };
 
@@ -686,7 +686,7 @@ export default function ProjectDetail() {
       setBulkAdditionRows(createEmptyRows('addition'));
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add additions');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add additions');
     }
   };
 
@@ -711,7 +711,7 @@ export default function ProjectDetail() {
       setBulkDeductionRows(createEmptyRows('deduction'));
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add deductions');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add deductions');
     }
   };
 
@@ -744,7 +744,7 @@ export default function ProjectDetail() {
       setVerifyDialog({ open: false, type: '', ids: [] });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Verification failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Verification failed');
     }
   };
 
@@ -916,7 +916,7 @@ export default function ProjectDetail() {
       toast.success('Payment requested - sent to CRE');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to request payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
     }
   };
 
@@ -937,7 +937,7 @@ export default function ProjectDetail() {
       toast.success('Payment requested for additional work - sent to CRE');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to request payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
     }
   };
 
@@ -992,7 +992,7 @@ export default function ProjectDetail() {
       setEditPaymentStage(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update payment stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update payment stage');
     }
   };
 
@@ -1004,7 +1004,7 @@ export default function ProjectDetail() {
       setSubmitScheduleDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit payment schedule');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit payment schedule');
     }
   };
 
@@ -1046,7 +1046,7 @@ export default function ProjectDetail() {
       setEditingScopeItem(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update scope item');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update scope item');
     }
   };
 
@@ -1069,7 +1069,7 @@ export default function ProjectDetail() {
       // Redirect to projects list
       window.location.href = '/projects';
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete project');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete project');
     }
   };
 
@@ -1102,7 +1102,7 @@ export default function ProjectDetail() {
       setCollectPaymentDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to collect payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
     }
   };
 
@@ -1112,7 +1112,7 @@ export default function ProjectDetail() {
       toast.success('Payment schedule generated');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to generate schedule');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to generate schedule');
     }
   };
 

@@ -85,7 +85,7 @@ export default function StageManagement() {
       setNewStage({ name: '', color: '#6366f1', is_final: false });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create stage');
     } finally {
       setSaving(false);
     }
@@ -105,7 +105,7 @@ export default function StageManagement() {
       setEditingStage(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update stage');
     } finally {
       setSaving(false);
     }
@@ -119,7 +119,7 @@ export default function StageManagement() {
       setDeleteDialog(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete stage');
     } finally {
       setSaving(false);
     }

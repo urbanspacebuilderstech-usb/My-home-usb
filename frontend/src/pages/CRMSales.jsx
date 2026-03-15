@@ -113,7 +113,7 @@ export default function CRMSales() {
       
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update stage');
     }
   };
   const handleViewREProject = async (reProjectId) => {
@@ -166,7 +166,7 @@ export default function CRMSales() {
       setLeadDetail(res.data);
       setSelectedLead(res.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update');
     }
   };
 
@@ -250,7 +250,7 @@ export default function CRMSales() {
       setSelectedLead(res.data);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save appointment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save appointment');
     }
   };
 

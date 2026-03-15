@@ -234,7 +234,7 @@ export default function ProcurementBoardV2() {
       setVendorDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to select vendor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to select vendor');
     }
   };
 
@@ -245,7 +245,7 @@ export default function ProcurementBoardV2() {
       toast.success(`PO Generated: ${res.data.po_number}`);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to generate PO');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to generate PO');
     }
   };
 
@@ -274,7 +274,7 @@ export default function ProcurementBoardV2() {
       setDispatchDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to mark as dispatched');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to mark as dispatched');
     }
   };
 
@@ -302,7 +302,7 @@ export default function ProcurementBoardV2() {
       const vendorsRes = await axios.get(`${API}/vendor-master`);
       setVendors(vendorsRes.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create vendor');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create vendor');
     }
   };
 
@@ -323,7 +323,7 @@ export default function ProcurementBoardV2() {
       setCreditPayDialog(false);
       fetchCreditLedger();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record payment');
     }
   };
 
@@ -913,7 +913,7 @@ export default function ProcurementBoardV2() {
                                         toast.success('Payment request sent to accountant');
                                         fetchCreditLedger();
                                       } catch (err) {
-                                        toast.error(err.response?.data?.detail || 'Failed');
+                                        toast.error(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Failed');
                                       }
                                     }}
                                   >

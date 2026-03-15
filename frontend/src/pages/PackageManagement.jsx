@@ -138,7 +138,7 @@ export default function PackageManagement() {
       setEditDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save package');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save package');
     }
   };
 

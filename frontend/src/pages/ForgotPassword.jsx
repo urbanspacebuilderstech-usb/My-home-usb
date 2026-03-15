@@ -23,7 +23,7 @@ export default function ForgotPassword() {
       await axios.post(`${API}/auth/forgot-password`, { email });
       setSent(true);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Something went wrong');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Something went wrong');
     } finally {
       setIsLoading(false);
     }

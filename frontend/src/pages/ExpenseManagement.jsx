@@ -135,7 +135,7 @@ export default function ExpenseManagement() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create request');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create request');
     }
   };
 
@@ -156,7 +156,7 @@ export default function ExpenseManagement() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create expense');
     }
   };
 
@@ -174,7 +174,7 @@ export default function ExpenseManagement() {
       });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create expense');
     }
   };
 
@@ -200,7 +200,7 @@ export default function ExpenseManagement() {
       setSelectedExpense(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Approval failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Approval failed');
     }
   };
 
@@ -232,7 +232,7 @@ export default function ExpenseManagement() {
       setSelectedExpense(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit pricing');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit pricing');
     }
   };
 
@@ -251,7 +251,7 @@ export default function ExpenseManagement() {
       setSelectedExpense(null);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Payment failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Payment failed');
     }
   };
 

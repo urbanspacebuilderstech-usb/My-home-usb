@@ -96,7 +96,7 @@ export default function Settings() {
       toast.success('Company settings saved successfully');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save settings');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save settings');
     } finally {
       setSaving(false);
     }

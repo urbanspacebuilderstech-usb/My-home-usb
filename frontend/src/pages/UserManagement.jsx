@@ -146,7 +146,7 @@ export default function UserManagement() {
       setDialogOpen(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save user');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save user');
     }
   };
 
@@ -156,7 +156,7 @@ export default function UserManagement() {
       toast.success('User deleted');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete user');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete user');
     }
   };
 

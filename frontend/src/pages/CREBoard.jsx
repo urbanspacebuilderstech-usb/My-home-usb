@@ -196,7 +196,7 @@ export default function CREBoard() {
       setConvertDealDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create project');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create project');
     }
   };
 
@@ -216,7 +216,7 @@ export default function CREBoard() {
         toast.success('Project created! RE requested from Planning team.');
         setCreateDialog(false); resetForm(); fetchData(false);
       } catch (error) {
-        toast.error(error.response?.data?.detail || 'Failed to create project');
+        toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create project');
       }
       return;
     }
@@ -231,7 +231,7 @@ export default function CREBoard() {
       toast.success(`Project created! ID: ${res.data.project_id}`);
       setCreateDialog(false); resetForm(); fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create project');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create project');
     }
   };
 
@@ -240,7 +240,7 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/submit`);
       toast.success('Project submitted for payment verification');
       fetchData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to submit'); }
+    } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit'); }
   };
 
   const handleSubmitToPlanning = async (projectId) => {
@@ -248,7 +248,7 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/send-to-planning`);
       toast.success('Project sent to Planning Department');
       fetchData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
+    } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed'); }
   };
 
   const handleMoveToDrawing = async (projectId) => {
@@ -256,7 +256,7 @@ export default function CREBoard() {
       await axios.patch(`${API}/cre/projects/${projectId}/move-to-drawing`);
       toast.success('Project moved to Drawing Stage');
       fetchData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
+    } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed'); }
   };
 
   const resetForm = () => {
@@ -296,7 +296,7 @@ export default function CREBoard() {
       setCollectForm({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to collect payment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
     }
   };
 

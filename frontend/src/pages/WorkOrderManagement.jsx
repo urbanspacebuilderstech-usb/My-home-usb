@@ -175,7 +175,7 @@ export default function WorkOrderManagement() {
       resetForms();
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create work order');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create work order');
     }
   };
 
@@ -198,7 +198,7 @@ export default function WorkOrderManagement() {
       resetForms();
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create order');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create order');
     }
   };
 

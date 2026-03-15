@@ -125,7 +125,7 @@ export default function MaterialManagement() {
       setDialogOpen(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save material');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to save material');
     }
   };
 
@@ -135,7 +135,7 @@ export default function MaterialManagement() {
       toast.success('Material deleted');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete material');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete material');
     }
   };
 

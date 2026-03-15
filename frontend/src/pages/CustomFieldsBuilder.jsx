@@ -144,7 +144,7 @@ export default function CustomFieldsBuilder() {
       resetForm();
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create field');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create field');
     }
   };
 
@@ -155,7 +155,7 @@ export default function CustomFieldsBuilder() {
       setEditDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update field');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update field');
     }
   };
 
@@ -167,7 +167,7 @@ export default function CustomFieldsBuilder() {
       toast.success('Custom field deleted');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete field');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete field');
     }
   };
 

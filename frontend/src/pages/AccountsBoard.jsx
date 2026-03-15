@@ -303,7 +303,7 @@ function PettyCashManagement({ onBack }) {
       setData(res.data);
       if (selectedSE) fetchSECashbook(selectedSE);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to issue');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to issue');
     }
   };
 
@@ -668,7 +668,7 @@ function CashbookTab({ overview, projects }) {
       setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
       fetchCashbook(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to record expense');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record expense');
     } finally {
       setSubmittingExpense(false);
     }
@@ -1202,7 +1202,7 @@ function ChequeManagementTab({ projects }) {
       toast.success('Cheque record added');
       setAddDialog(false);
       fetchChequeData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to add cheque'); }
+    } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add cheque'); }
   };
 
   const handleUpdateStatus = async () => {
@@ -1218,7 +1218,10 @@ function ChequeManagementTab({ projects }) {
       toast.success('Cheque status updated');
       setStatusDialog(false);
       fetchChequeData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Failed to update status'); }
+    } catch (error) {
+      const detail = error.response?.data?.detail;
+      toast.error(typeof detail === 'string' ? detail : 'Failed to update cheque status');
+    }
   };
 
   const checkVendorSuspense = async (vendorName) => {
@@ -1246,7 +1249,7 @@ function ChequeManagementTab({ projects }) {
       setSuspenseAlert(null);
       setSmartPayForm({ cheque_id: '', expense_project_id: '', expense_category: 'material', expense_description: '', expense_amount: '', vendor_name: '', use_suspense: false, suspense_amount_to_use: 0, remarks: '' });
       fetchChequeData(false);
-    } catch (error) { toast.error(error.response?.data?.detail || 'Payment failed'); }
+    } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Payment failed'); }
   };
 
   const getStatusBadge = (status) => {
@@ -1658,7 +1661,7 @@ function ApprovalsTab() {
       toast.success('Income approved');
       fetchApprovals(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to approve');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     } finally {
       setProcessing(null);
     }
@@ -1671,7 +1674,7 @@ function ApprovalsTab() {
       toast.success('Expense approved');
       fetchApprovals(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to approve');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     } finally {
       setProcessing(null);
     }
@@ -1691,7 +1694,7 @@ function ApprovalsTab() {
       setRejectDialog({ open: false, type: '', id: '', reason: '' });
       fetchApprovals(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to reject');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to reject');
     } finally {
       setProcessing(null);
     }
@@ -1782,7 +1785,7 @@ function ApprovalsTab() {
       setReviewDialog({ open: false, income: null });
       fetchApprovals(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to review');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to review');
     } finally {
       setProcessing(null);
     }

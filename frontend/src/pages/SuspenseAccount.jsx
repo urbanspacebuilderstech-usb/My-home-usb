@@ -62,7 +62,7 @@ export default function SuspenseAccountPage() {
       toast.success('Petty cash settled');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to settle');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to settle');
     }
   };
 
@@ -90,7 +90,7 @@ export default function SuspenseAccountPage() {
       setPayForm({ payment_type: 'labour', vendor_or_contractor: '', requested_amount: '', cheque_amount: '', payment_method: 'cheque', remarks: '', allocations: [{ project_id: '', amount: '' }] });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
     }
   };
 

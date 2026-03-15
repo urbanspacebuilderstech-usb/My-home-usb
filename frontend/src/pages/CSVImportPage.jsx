@@ -161,7 +161,7 @@ export default function CSVImportPage() {
       setStep(4);
       toast.success(`Imported ${result.data.imported_count} leads`);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Import failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Import failed');
     } finally {
       setImporting(false);
     }

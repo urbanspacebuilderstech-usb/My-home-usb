@@ -122,7 +122,7 @@ export default function REProjectsPage() {
       setEditDialog(false);
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update project');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update project');
     }
   };
 
@@ -132,7 +132,7 @@ export default function REProjectsPage() {
       toast.success('Submitted for GM approval');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to submit');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit');
     }
   };
 
@@ -158,7 +158,7 @@ export default function REProjectsPage() {
       setRejectionReason('');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to process approval');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to process approval');
     }
   };
 

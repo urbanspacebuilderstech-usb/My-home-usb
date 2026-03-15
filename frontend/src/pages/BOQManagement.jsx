@@ -125,7 +125,7 @@ export default function BOQManagement() {
       toast.success('BOQ item deleted');
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete BOQ item');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete BOQ item');
     }
   };
 

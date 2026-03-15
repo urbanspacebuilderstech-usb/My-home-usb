@@ -69,7 +69,7 @@ export default function Cashbook() {
       setExpForm({ project_id: '', category: 'other', description: '', amount: '', payment_method: 'cash', vendor_name: '', remarks: '' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
     }
   };
 

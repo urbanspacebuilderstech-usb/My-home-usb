@@ -206,7 +206,7 @@ export default function CRMPreSales() {
       resetLeadForm();
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create lead');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create lead');
     }
   };
 
@@ -242,7 +242,7 @@ export default function CRMPreSales() {
       const fieldsRes = await axios.get(`${API}/crm/custom-fields`);
       setCustomFields(fieldsRes.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to add field');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to add field');
     }
   };
 
@@ -270,7 +270,7 @@ export default function CRMPreSales() {
       const fieldsRes = await axios.get(`${API}/crm/custom-fields`);
       setCustomFields(fieldsRes.data);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete field');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete field');
     }
   };
 
@@ -292,7 +292,7 @@ export default function CRMPreSales() {
       setStageForm({ name: '', color: '#6366f1' });
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to create stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create stage');
     }
   };
 
@@ -325,7 +325,7 @@ export default function CRMPreSales() {
       
       fetchData(false);
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update stage');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update stage');
     }
   };
   
@@ -373,7 +373,7 @@ export default function CRMPreSales() {
       setSelectedLead(res.data);
       fetchLeads();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update appointment');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update appointment');
     }
   };
 
@@ -416,7 +416,7 @@ export default function CRMPreSales() {
         setSelectedLead(updatedLead.data);
       }
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to update lead');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update lead');
     }
   };
 
