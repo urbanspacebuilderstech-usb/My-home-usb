@@ -240,9 +240,11 @@ async def convert_deal_to_project(
         raise HTTPException(status_code=400, detail="Deal already converted to project")
     
     # Also check if a project already exists for this lead
-    existing_project = await db.projects.find_one({"lead_id": lead_id})
+    existing_project = await db.projects.find_one({"lead_id": lead_id}, {"_id": 0, "project_id": 1, "name": 1})
     if existing_project:
-        raise HTTPException(status_code=400, detail="A project already exists for this lead")
+        # Auto-fix the lead flag if it wasn't set
+        await db.leads.update_one({"lead_id": lead_id}, {"$set": {"project_created": True, "project_id": existing_project["project_id"]}})
+        raise HTTPException(status_code=400, detail=f"A project already exists for this lead: {existing_project.get('name', existing_project['project_id'])}")
     
     # Check if a project exists for the linked RE project
     if lead.get("re_project_id"):
