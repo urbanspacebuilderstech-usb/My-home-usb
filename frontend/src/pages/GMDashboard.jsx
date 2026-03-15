@@ -62,13 +62,14 @@ const GMDashboard = () => {
   const fetchAllData = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const [userRes, projectsRes, reProjectsRes, siteReqRes, paymentReqRes, suspenseRes, designRes] = await Promise.all([
+      const [userRes, projectsRes, reProjectsRes, materialReqRes, labourReqRes, paymentReqRes, suspenseRes, designRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
         axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
-        axios.get(`${API}/site-engineer/requests`).catch(() => ({ data: [] })),
+        axios.get(`${API}/site-engineer/material-requests`).catch(() => ({ data: [] })),
+        axios.get(`${API}/site-engineer/labour-requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
-        axios.get(`${API}/suspense/entries`).catch(() => ({ data: [] })),
+        axios.get(`${API}/financial/suspense`).catch(() => ({ data: [] })),
         axios.get(`${API}/architect/pending-approvals`).catch(() => ({ data: [] }))
       ]);
       
@@ -81,7 +82,8 @@ const GMDashboard = () => {
       setUser(userRes.data);
       setProjects(projectsRes.data || []);
       setReProjects(reProjectsRes.data || []);
-      setSiteRequests(siteReqRes.data || []);
+      const allSiteReqs = [...(materialReqRes.data || []), ...(labourReqRes.data || [])];
+      setSiteRequests(allSiteReqs);
       setPaymentRequests(paymentReqRes.data || []);
       setSuspenseRequests(suspenseRes.data || []);
       setDesignApprovals(designRes.data || []);
@@ -89,7 +91,7 @@ const GMDashboard = () => {
       // Calculate stats - RE projects pending approval have status 're_submitted'
       const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_submitted').length;
       const pendingProjectApprovals = (projectsRes.data || []).filter(p => p.status === 'awaiting_approval' && !p.gm_approved_by).length;
-      const pendingSiteRequests = (siteReqRes.data || []).filter(r => r.status === 'pending').length;
+      const pendingSiteRequests = allSiteReqs.filter(r => r.status === 'pending').length;
       const pendingPayments = (paymentReqRes.data || []).filter(p => p.status === 'pending').length;
       const pendingSuspense = (suspenseRes.data || []).filter(s => s.status === 'pending_approval').length;
       const pendingDesignApprovals = (designRes.data || []).length;

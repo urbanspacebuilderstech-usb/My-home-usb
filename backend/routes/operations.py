@@ -2011,8 +2011,8 @@ async def get_work_orders(
 @router.get("/work-orders/payment-requests")
 async def get_work_order_payment_requests_v2(user: User = Depends(get_current_user)):
     """Get all payment requests for Planning to review - placed before parameterized route"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
-        raise HTTPException(status_code=403, detail="Only Planning can view payment requests")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning/GM can view payment requests")
     
     # Find work orders with payment_requested stages
     work_orders = await db.work_orders.find(

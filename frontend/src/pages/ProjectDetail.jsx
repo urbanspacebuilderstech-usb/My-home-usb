@@ -457,44 +457,35 @@ export default function ProjectDetail() {
         return;
       }
       
-      const projectRes = await axios.get(`${API}/projects/${projectId}/full-details`);
-      setProjectData(projectRes.data);
+      // Run ALL data fetches in parallel
+      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes] = await Promise.all([
+        axios.get(`${API}/projects/${projectId}/full-details`),
+        axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
+        axios.get(`${API}/stage-templates`).catch(() => null),
+        axios.get(`${API}/files?project_id=${projectId}`, { withCredentials: true }).catch(() => null),
+        axios.get(`${API}/architect/projects/${projectId}/all-design-data`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/team`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/materials-summary`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/labours-summary`).catch(() => null),
+      ]);
       
-      // Fetch Rough Estimate (RE) project if available
+      setProjectData(projectRes.data);
+      if (summaryRes) setPaymentSummary(summaryRes.data);
+      if (stagesRes) setProjectStages(stagesRes.data);
+      if (templatesRes) setStageTemplates(templatesRes.data);
+      if (filesRes) setProjectFiles(filesRes.data);
+      if (designRes) setDesignData(designRes.data || { site_plans: [], design_files: [] });
+      if (teamRes) setTeamData(teamRes.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
+      if (materialsRes) setMaterialsData(materialsRes.data || { summary: {}, materials: [] });
+      if (laboursRes) setLaboursData(laboursRes.data || { summary: {}, labours: [] });
+      
+      // Fetch RE project if available (depends on projectRes)
       if (projectRes.data.project?.re_project_id) {
         try {
           const reRes = await axios.get(`${API}/crm/re-projects/${projectRes.data.project.re_project_id}`);
           setReProject(reRes.data);
-        } catch (e) {
-          console.log('RE project not available');
-        }
-      }
-      
-      // Fetch payment summary
-      try {
-        const summaryRes = await axios.get(`${API}/projects/${projectId}/payment-summary`);
-        setPaymentSummary(summaryRes.data);
-      } catch (e) {
-        console.log('Payment summary not available');
-      }
-      
-      // Fetch project files
-      fetchProjectFiles();
-      fetchDesignData();
-      fetchTeamData();
-      fetchMaterialsData();
-      fetchLaboursData();
-      
-      // Fetch project stages and templates
-      try {
-        const [stagesRes, templatesRes] = await Promise.all([
-          axios.get(`${API}/projects/${projectId}/project-stages`),
-          axios.get(`${API}/stage-templates`)
-        ]);
-        setProjectStages(stagesRes.data);
-        setStageTemplates(templatesRes.data);
-      } catch (e) {
-        console.log('Stages not available');
+        } catch (e) { /* RE project not available */ }
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
