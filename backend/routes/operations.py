@@ -1316,13 +1316,12 @@ async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depend
     if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
-    query = {"status": {"$in": ["in_planning", "planning_review", "planning_approved", "active", "gm_approved"]}}
+    query = {"status": {"$in": ["planning", "in_planning", "planning_review", "planning_approved", "active", "gm_approved", "awaiting_approval", "working"]}}
     
     if stage and stage != "all":
         query["current_stage"] = stage
     
     projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
-    return projects
     return projects
 
 
