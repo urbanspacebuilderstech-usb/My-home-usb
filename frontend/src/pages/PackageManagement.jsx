@@ -56,9 +56,9 @@ export default function PackageManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, packagesRes, materialsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/packages`),
@@ -134,7 +134,7 @@ export default function PackageManagement() {
         toast.success('Package created');
       }
       setEditDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save package');
     }
@@ -146,7 +146,7 @@ export default function PackageManagement() {
     try {
       await axios.delete(`${API}/packages/${packageId}`);
       toast.success('Package deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete package');
     }

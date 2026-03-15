@@ -35,9 +35,9 @@ export default function AccountantDashboard() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/accountant/comprehensive-dashboard`),

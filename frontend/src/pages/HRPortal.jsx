@@ -72,9 +72,9 @@ export default function HRPortal() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, staffRes, payrollRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/hr/staff`),
@@ -179,7 +179,7 @@ export default function HRPortal() {
       }
       
       setStaffDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save staff');
     }
@@ -191,7 +191,7 @@ export default function HRPortal() {
     try {
       await axios.delete(`${API}/hr/staff/${staffId}`);
       toast.success('Staff terminated');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to terminate staff');
     }
@@ -202,7 +202,7 @@ export default function HRPortal() {
       await axios.post(`${API}/hr/payroll/generate`, payrollGenForm);
       toast.success('Payroll generated');
       setPayrollDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to generate payroll');
     }
@@ -212,7 +212,7 @@ export default function HRPortal() {
     try {
       await axios.patch(`${API}/hr/payroll/${payrollId}/approve`);
       toast.success('Payroll approved');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to approve payroll');
     }
@@ -234,7 +234,7 @@ export default function HRPortal() {
       await axios.patch(`${API}/hr/payroll/${selectedPayroll.payroll_id}/pay`, paymentForm);
       toast.success('Payroll paid');
       setPaymentDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to process payment');
     }

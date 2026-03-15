@@ -56,9 +56,9 @@ export default function ProcurementDashboard() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, vendorsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/procurement/dashboard`),

@@ -61,9 +61,9 @@ export default function UserManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, usersRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/users`)
@@ -144,7 +144,7 @@ export default function UserManagement() {
         }
       }
       setDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save user');
     }
@@ -154,7 +154,7 @@ export default function UserManagement() {
     try {
       await axios.delete(`${API}/users/${userId}`);
       toast.success('User deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete user');
     }

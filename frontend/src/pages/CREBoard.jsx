@@ -93,9 +93,9 @@ export default function CREBoard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       if (!['cre', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied. Only CRE can access this page.');
@@ -192,7 +192,7 @@ export default function CREBoard() {
       });
       toast.success('Project created successfully!');
       setConvertDealDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create project');
     }
@@ -212,7 +212,7 @@ export default function CREBoard() {
           location: form.location, sqft: form.sqft, building_type: form.building_type
         });
         toast.success('Project created! RE requested from Planning team.');
-        setCreateDialog(false); resetForm(); fetchData();
+        setCreateDialog(false); resetForm(); fetchData(false);
       } catch (error) {
         toast.error(error.response?.data?.detail || 'Failed to create project');
       }
@@ -227,7 +227,7 @@ export default function CREBoard() {
       }
       const res = await axios.post(`${API}/cre/projects`, payload);
       toast.success(`Project created! ID: ${res.data.project_id}`);
-      setCreateDialog(false); resetForm(); fetchData();
+      setCreateDialog(false); resetForm(); fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create project');
     }
@@ -237,7 +237,7 @@ export default function CREBoard() {
     try {
       await axios.patch(`${API}/cre/projects/${projectId}/submit`);
       toast.success('Project submitted for payment verification');
-      fetchData();
+      fetchData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to submit'); }
   };
 
@@ -245,7 +245,7 @@ export default function CREBoard() {
     try {
       await axios.patch(`${API}/cre/projects/${projectId}/send-to-planning`);
       toast.success('Project sent to Planning Department');
-      fetchData();
+      fetchData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
@@ -253,7 +253,7 @@ export default function CREBoard() {
     try {
       await axios.patch(`${API}/cre/projects/${projectId}/move-to-drawing`);
       toast.success('Project moved to Drawing Stage');
-      fetchData();
+      fetchData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed'); }
   };
 
@@ -292,7 +292,7 @@ export default function CREBoard() {
       toast.success('Payment collected successfully');
       setCollectDialog(false);
       setCollectForm({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to collect payment');
     }

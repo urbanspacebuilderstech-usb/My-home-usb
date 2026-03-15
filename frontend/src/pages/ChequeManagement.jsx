@@ -73,9 +73,9 @@ export default function ChequeManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, chequesRes, remindersRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/accountant/cheques`),
@@ -162,7 +162,7 @@ export default function ChequeManagement() {
       await axios.post(`${API}/accountant/cheques`, payload);
       toast.success('Cheque record added');
       setAddDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add cheque');
     }
@@ -182,7 +182,7 @@ export default function ChequeManagement() {
       await axios.patch(`${API}/accountant/cheques/${selectedCheque.cheque_id}/status`, payload);
       toast.success('Cheque status updated');
       setStatusDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update status');
     }

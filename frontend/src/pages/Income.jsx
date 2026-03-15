@@ -52,9 +52,9 @@ export default function Income() {
     fetchFilteredIncome();
   }, [filterProject, filterMode, filterStartDate, filterEndDate]);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, summaryRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/income/summary`),
@@ -135,7 +135,7 @@ export default function Income() {
         reference_number: '',
         remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to record income');
     }
@@ -146,7 +146,7 @@ export default function Income() {
     try {
       await axios.delete(`${API}/income/${incomeId}`);
       toast.success('Income entry deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete income entry');
     }

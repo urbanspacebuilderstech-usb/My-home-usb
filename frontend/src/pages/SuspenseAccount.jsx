@@ -38,9 +38,9 @@ export default function SuspenseAccountPage() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, susRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/suspense/overview`).catch(() => ({ data: null })),
@@ -60,7 +60,7 @@ export default function SuspenseAccountPage() {
     try {
       await axios.post(`${API}/suspense/petty-cash/${pcId}/settle`);
       toast.success('Petty cash settled');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to settle');
     }
@@ -88,7 +88,7 @@ export default function SuspenseAccountPage() {
       toast.success('Payment processed with suspense tracking');
       setPaymentDialog(false);
       setPayForm({ payment_type: 'labour', vendor_or_contractor: '', requested_amount: '', cheque_amount: '', payment_method: 'cheque', remarks: '', allocations: [{ project_id: '', amount: '' }] });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed');
     }

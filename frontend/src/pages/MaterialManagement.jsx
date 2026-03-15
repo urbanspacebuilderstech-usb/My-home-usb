@@ -59,9 +59,9 @@ export default function MaterialManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, materialsRes, categoriesRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/materials?active_only=false`),
@@ -121,7 +121,7 @@ export default function MaterialManagement() {
         toast.success('Material created successfully');
       }
       setDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save material');
     }
@@ -131,7 +131,7 @@ export default function MaterialManagement() {
     try {
       await axios.delete(`${API}/materials/${materialId}`);
       toast.success('Material deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete material');
     }

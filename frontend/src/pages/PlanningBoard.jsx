@@ -70,9 +70,9 @@ export default function PlanningBoard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       if (!['planning', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied'); window.location.href = '/dashboard'; return;
@@ -125,33 +125,33 @@ export default function PlanningBoard() {
 
   // === PROJECT HANDLERS ===
   const handleSubmitForApproval = async (id) => {
-    try { await axios.patch(`${API}/planning/projects/${id}/submit-for-approval`); toast.success('Submitted for GM approval'); fetchData(); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    try { await axios.patch(`${API}/planning/projects/${id}/submit-for-approval`); toast.success('Submitted for GM approval'); fetchData(false); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
   const openStageDialog = (p) => { setSelectedProject(p); setNewStage(p.current_stage || 'yet_to_start'); setStageDialog(true); };
   const handleUpdateStage = async () => {
     if (!selectedProject || !newStage) return;
-    try { await axios.patch(`${API}/planning/projects/${selectedProject.project_id}/update-stage?stage=${newStage}`); toast.success('Stage updated'); setStageDialog(false); fetchData(); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    try { await axios.patch(`${API}/planning/projects/${selectedProject.project_id}/update-stage?stage=${newStage}`); toast.success('Stage updated'); setStageDialog(false); fetchData(false); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
   // === REQUEST HANDLERS ===
   const handleApproveRequest = async (req) => {
     try {
       const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
-      await axios.patch(ep, null, { params: { action: 'approve' } }); toast.success('Approved'); fetchData();
+      await axios.patch(ep, null, { params: { action: 'approve' } }); toast.success('Approved'); fetchData(false);
     } catch { toast.error('Failed'); }
   };
   const handleRejectRequest = async (req) => {
     try {
       const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
-      await axios.patch(ep, null, { params: { action: 'reject', reason: 'Rejected by Planning' } }); toast.success('Rejected'); fetchData();
+      await axios.patch(ep, null, { params: { action: 'reject', reason: 'Rejected by Planning' } }); toast.success('Rejected'); fetchData(false);
     } catch { toast.error('Failed'); }
   };
   const handleApprovePayment = async (p) => {
-    try { await axios.patch(`${API}/work-orders/${p.work_order_id}/stages/${p.stage_id}/approve-payment`); toast.success('Payment approved'); fetchData(); } catch { toast.error('Failed'); }
+    try { await axios.patch(`${API}/work-orders/${p.work_order_id}/stages/${p.stage_id}/approve-payment`); toast.success('Payment approved'); fetchData(false); } catch { toast.error('Failed'); }
   };
   const handleRejectPayment = async () => {
     if (!selectedPayment) return;
-    try { await axios.patch(`${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`, null, { params: { reason: rejectReason || 'Not verified' } }); toast.success('Rejected'); setRejectDialog(false); fetchData(); } catch { toast.error('Failed'); }
+    try { await axios.patch(`${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`, null, { params: { reason: rejectReason || 'Not verified' } }); toast.success('Rejected'); setRejectDialog(false); fetchData(false); } catch { toast.error('Failed'); }
   };
 
   // === MATERIAL HANDLERS ===

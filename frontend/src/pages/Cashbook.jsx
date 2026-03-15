@@ -38,9 +38,9 @@ export default function Cashbook() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, cbRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/cashbook`).catch(() => ({ data: null })),
@@ -65,7 +65,7 @@ export default function Cashbook() {
       toast.success('Expense recorded');
       setAddExpenseOpen(false);
       setExpForm({ project_id: '', category: 'other', description: '', amount: '', payment_method: 'cash', vendor_name: '', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed');
     }

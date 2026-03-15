@@ -36,7 +36,7 @@ export default function SiteReceipt() {
     getLocation();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, posRes, woRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -144,7 +144,7 @@ export default function SiteReceipt() {
         lorry_image_id: '',
         material_image_ids: []
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit receipt');
     }

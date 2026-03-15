@@ -45,9 +45,9 @@ export default function LabourContractorManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, contractorsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/labour-contractors`)
@@ -122,7 +122,7 @@ export default function LabourContractorManagement() {
         toast.success('Contractor created');
       }
       setEditDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save contractor');
     }
@@ -134,7 +134,7 @@ export default function LabourContractorManagement() {
     try {
       await axios.delete(`${API}/labour-contractors/${contractorId}`);
       toast.success('Contractor deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete contractor');
     }

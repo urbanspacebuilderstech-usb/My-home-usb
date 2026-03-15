@@ -123,9 +123,9 @@ export default function ProcurementBoardV2() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, vendorsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/procurement/dashboard`),
@@ -230,7 +230,7 @@ export default function ProcurementBoardV2() {
       
       toast.success('Vendor selected successfully');
       setVendorDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to select vendor');
     }
@@ -241,7 +241,7 @@ export default function ProcurementBoardV2() {
     try {
       const res = await axios.post(`${API}/procurement/v2/generate-po/${request.request_id}`);
       toast.success(`PO Generated: ${res.data.po_number}`);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to generate PO');
     }
@@ -270,7 +270,7 @@ export default function ProcurementBoardV2() {
       const res = await axios.patch(`${API}/procurement/v2/dispatch/${selectedRequest.request_id}`, dispatchForm);
       toast.success(`Dispatched! OTP for receipt: ${res.data.otp}`);
       setDispatchDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to mark as dispatched');
     }

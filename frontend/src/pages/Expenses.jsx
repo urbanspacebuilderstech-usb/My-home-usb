@@ -33,7 +33,7 @@ export default function Expenses() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, expensesRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -94,7 +94,7 @@ export default function Expenses() {
       }
       setDialogOpen(false);
       resetForm();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(editingExpense ? 'Failed to update expense' : 'Failed to add expense');
     }
@@ -105,7 +105,7 @@ export default function Expenses() {
     try {
       await axios.delete(`${API}/expenses/${expenseId}`);
       toast.success('Expense deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete expense');
     }

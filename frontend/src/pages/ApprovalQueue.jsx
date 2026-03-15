@@ -53,9 +53,9 @@ export default function ApprovalQueue() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, approvalsRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/approvals/unified`).catch(() => ({ data: { income: [], materials: [], labour: [], vendor: [], summary: {} } })),
@@ -75,7 +75,7 @@ export default function ApprovalQueue() {
     try {
       await axios.post(`${API}/approvals/income/${incomeId}/approve`);
       toast.success('Income approved');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to approve');
     }
@@ -86,7 +86,7 @@ export default function ApprovalQueue() {
       const endpoint = `${API}/expenses/${type}/${id}/${action}`;
       await axios.patch(endpoint, { action: 'approved' });
       toast.success(`${type} expense approved`);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to approve');
     }
@@ -103,7 +103,7 @@ export default function ApprovalQueue() {
       }
       toast.success('Rejected');
       setRejectDialog({ open: false, type: '', id: '', reason: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to reject');
     }
@@ -176,7 +176,7 @@ export default function ApprovalQueue() {
       await axios.post(`${API}/approvals/income/${inc.income_id}/review`, payload);
       toast.success('Income reviewed & approved');
       setReviewDialog({ open: false, income: null });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to review');
     } finally { setProcessing(null); }

@@ -49,9 +49,9 @@ export default function Settings() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, settingsRes, summaryRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/settings/company`),
@@ -94,7 +94,7 @@ export default function Settings() {
       setSaving(true);
       await axios.post(`${API}/settings/company`, companySettings);
       toast.success('Company settings saved successfully');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save settings');
     } finally {

@@ -47,7 +47,7 @@ export default function FinancialOverview() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, financialRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -98,7 +98,7 @@ export default function FinancialOverview() {
       });
       toast.success('Project updated successfully');
       setEditDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update project');
     }

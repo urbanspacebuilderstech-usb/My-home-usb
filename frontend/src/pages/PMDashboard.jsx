@@ -52,9 +52,9 @@ export default function PMDashboard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       if (!['project_manager', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied'); window.location.href = '/dashboard'; return;
@@ -86,7 +86,7 @@ export default function PMDashboard() {
     try {
       await axios.patch(`${API}/planning/projects/${selectedProject.project_id}/update-stage?stage=${newStage}`);
       toast.success('Stage updated');
-      setStageDialog(false); fetchData();
+      setStageDialog(false); fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update stage'); }
   };
 
@@ -96,7 +96,7 @@ export default function PMDashboard() {
     try {
       await axios.post(`${API}/pm/assign-team`, { project_id: assignProject.project_id, user_id: assignUserId });
       toast.success('Team member assigned');
-      setAssignDialog(false); fetchData();
+      setAssignDialog(false); fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to assign'); }
   };
 
@@ -105,7 +105,7 @@ export default function PMDashboard() {
     try {
       await axios.patch(`${API}/material-requests/${req.request_id}/planning-action`, null, { params: { action: 'approve' } });
       toast.success('Material request approved');
-      fetchData();
+      fetchData(false);
     } catch { toast.error('Failed to approve'); }
   };
 
@@ -113,7 +113,7 @@ export default function PMDashboard() {
     try {
       await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
       toast.success('Labour request approved');
-      fetchData();
+      fetchData(false);
     } catch { toast.error('Failed to approve'); }
   };
 
@@ -127,7 +127,7 @@ export default function PMDashboard() {
         await axios.patch(`${API}/pm/labour-requests/${rejectTarget.labour_expense_id}/verify?action=reject&rejection_reason=${encodeURIComponent(rejectReason)}`);
       }
       toast.success('Request rejected');
-      setRejectDialog(false); fetchData();
+      setRejectDialog(false); fetchData(false);
     } catch { toast.error('Failed to reject'); }
   };
 
@@ -138,7 +138,7 @@ export default function PMDashboard() {
       await axios.post(`${API}/pm/create-site-engineer`, seForm);
       toast.success(`${seForm.role === 'sr_site_engineer' ? 'Sr. Site Engineer' : 'Site Engineer'} created`);
       setCreateSEDialog(false); setSEForm({ name: '', phone: '', email: '', role: 'site_engineer' });
-      fetchData();
+      fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create'); }
   };
 
@@ -147,7 +147,7 @@ export default function PMDashboard() {
     try {
       await axios.delete(`${API}/pm/team-members/${m.user_id}`);
       toast.success('Member deactivated');
-      fetchData();
+      fetchData(false);
     } catch { toast.error('Failed'); }
   };
 

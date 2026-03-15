@@ -80,9 +80,9 @@ export default function SiteEngineerProject() {
     fetchData();
   }, [projectId]);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, projectRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/site-engineer/project/${projectId}`)
@@ -169,7 +169,7 @@ export default function SiteEngineerProject() {
       toast.success('Material request submitted');
       setMaterialRequestDialog(false);
       setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit request');
     }
@@ -193,7 +193,7 @@ export default function SiteEngineerProject() {
       toast.success('Labour request submitted');
       setLabourRequestDialog(false);
       setLabourForm({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit request');
     }
@@ -251,7 +251,7 @@ export default function SiteEngineerProject() {
       toast.success('Receipt verified!');
       setOtpDialog({ open: false, receipt: null });
       setOtpCode('');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Invalid OTP');
     }

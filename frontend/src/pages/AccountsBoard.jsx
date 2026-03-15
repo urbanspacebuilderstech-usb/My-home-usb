@@ -511,9 +511,9 @@ function CashbookTab({ overview, projects }) {
     description: '', payment_method: 'cash', transaction_id: ''
   });
 
-  const fetchCashbook = useCallback(async () => {
+  const fetchCashbook = useCallback(async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const params = new URLSearchParams();
       if (dateFrom) params.append('start_date', dateFrom);
       if (dateTo) params.append('end_date', dateTo);
@@ -665,7 +665,7 @@ function CashbookTab({ overview, projects }) {
       setAddExpenseOpen(false);
       setMobileExpenseDialog(false);
       setNewExpense({ project_id: '', category: 'material', amount: '', vendor_name: '', description: '', payment_method: 'cash', transaction_id: '' });
-      fetchCashbook();
+      fetchCashbook(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record expense');
     } finally {
@@ -1168,9 +1168,9 @@ function ChequeManagementTab({ projects }) {
     use_suspense: false, suspense_amount_to_use: 0, remarks: ''
   });
 
-  const fetchChequeData = useCallback(async () => {
+  const fetchChequeData = useCallback(async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [chequesRes, remindersRes, suspenseRes] = await Promise.all([
         axios.get(`${API}/accountant/cheques`),
         axios.get(`${API}/accountant/cheques/reminders`),
@@ -1200,7 +1200,7 @@ function ChequeManagementTab({ projects }) {
       });
       toast.success('Cheque record added');
       setAddDialog(false);
-      fetchChequeData();
+      fetchChequeData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to add cheque'); }
   };
 
@@ -1216,7 +1216,7 @@ function ChequeManagementTab({ projects }) {
       });
       toast.success('Cheque status updated');
       setStatusDialog(false);
-      fetchChequeData();
+      fetchChequeData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Failed to update status'); }
   };
 
@@ -1244,7 +1244,7 @@ function ChequeManagementTab({ projects }) {
       setSmartPayDialog(false);
       setSuspenseAlert(null);
       setSmartPayForm({ cheque_id: '', expense_project_id: '', expense_category: 'material', expense_description: '', expense_amount: '', vendor_name: '', use_suspense: false, suspense_amount_to_use: 0, remarks: '' });
-      fetchChequeData();
+      fetchChequeData(false);
     } catch (error) { toast.error(error.response?.data?.detail || 'Payment failed'); }
   };
 
@@ -1636,9 +1636,9 @@ function ApprovalsTab() {
     notes: ''
   });
 
-  const fetchApprovals = useCallback(async () => {
+  const fetchApprovals = useCallback(async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const res = await axios.get(`${API}/approvals/unified`);
       setData(res.data);
     } catch {
@@ -1655,7 +1655,7 @@ function ApprovalsTab() {
     try {
       await axios.post(`${API}/approvals/income/${incomeId}/approve`);
       toast.success('Income approved');
-      fetchApprovals();
+      fetchApprovals(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to approve');
     } finally {
@@ -1668,7 +1668,7 @@ function ApprovalsTab() {
     try {
       await axios.patch(`${API}/expenses/${type}/${id}/${action}`, { action: 'approved' });
       toast.success('Expense approved');
-      fetchApprovals();
+      fetchApprovals(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to approve');
     } finally {
@@ -1688,7 +1688,7 @@ function ApprovalsTab() {
       }
       toast.success('Rejected successfully');
       setRejectDialog({ open: false, type: '', id: '', reason: '' });
-      fetchApprovals();
+      fetchApprovals(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to reject');
     } finally {
@@ -1779,7 +1779,7 @@ function ApprovalsTab() {
       await axios.post(`${API}/approvals/income/${inc.income_id}/review`, payload);
       toast.success('Income reviewed & approved');
       setReviewDialog({ open: false, income: null });
-      fetchApprovals();
+      fetchApprovals(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to review');
     } finally {
@@ -2336,9 +2336,9 @@ export default function AccountsBoard() {
 
   useEffect(() => { fetchAll(); }, []);
 
-  const fetchAll = async () => {
+  const fetchAll = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, overviewRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/accountant/overview`),

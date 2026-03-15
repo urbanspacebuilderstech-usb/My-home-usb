@@ -41,9 +41,9 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
@@ -94,7 +94,7 @@ export default function Dashboard() {
         expected_completion: new Date(Date.now() + 365*24*60*60*1000).toISOString().split('T')[0],
         status: 'planning'
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create project');
     }

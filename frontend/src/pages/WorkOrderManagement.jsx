@@ -70,9 +70,9 @@ export default function WorkOrderManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, woRes, projRes, contRes, vendRes, engRes, matRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/work-orders`),
@@ -173,7 +173,7 @@ export default function WorkOrderManagement() {
       toast.success(`Work Order ${res.data.work_order_number} created!`);
       setCreateDialog(false);
       resetForms();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create work order');
     }
@@ -196,7 +196,7 @@ export default function WorkOrderManagement() {
       toast.success(`Material Order ${res.data.work_order_number} created!`);
       setCreateDialog(false);
       resetForms();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create order');
     }

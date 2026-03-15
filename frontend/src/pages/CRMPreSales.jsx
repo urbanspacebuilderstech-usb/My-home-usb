@@ -132,9 +132,9 @@ export default function CRMPreSales() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, stagesRes, fieldsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/pre-sales/dashboard`),
@@ -174,7 +174,7 @@ export default function CRMPreSales() {
       const res = await axios.post(`${API}/sheets/auto-sync/run`, {}, { withCredentials: true });
       if (res.data.new_leads > 0) {
         toast.success(`${res.data.new_leads} new lead(s) synced from Google Sheets!`);
-        fetchData();
+        fetchData(false);
       } else {
         toast.info('No new leads found in connected sheets');
       }
@@ -202,7 +202,7 @@ export default function CRMPreSales() {
       toast.success('Lead created successfully');
       setCreateLeadDialog(false);
       resetLeadForm();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create lead');
     }
@@ -288,7 +288,7 @@ export default function CRMPreSales() {
       toast.success('Stage created');
       setCreateStageDialog(false);
       setStageForm({ name: '', color: '#6366f1' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create stage');
     }
@@ -321,7 +321,7 @@ export default function CRMPreSales() {
         toast.success('Lead stage updated');
       }
       
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     }
@@ -407,7 +407,7 @@ export default function CRMPreSales() {
       await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, editLeadForm);
       toast.success('Lead updated successfully');
       setEditLeadDialog(false);
-      fetchData();
+      fetchData(false);
       // Also refresh the detail dialog if open
       if (leadDetailDialog) {
         const updatedLead = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);

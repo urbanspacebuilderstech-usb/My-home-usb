@@ -53,9 +53,9 @@ export default function ArchitectDashboard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       if (!['architect', 'super_admin'].includes(userRes.data.role)) {
         toast.error('Access denied'); window.location.href = '/dashboard'; return;

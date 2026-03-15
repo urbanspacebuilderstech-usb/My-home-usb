@@ -72,9 +72,9 @@ export default function ExpenseManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, projectsRes, vendorsRes, summaryRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects`),
@@ -131,7 +131,7 @@ export default function ExpenseManagement() {
         project_id: '', material_name: '', material_type: '', quantity: '', unit: 'units',
         required_date: new Date().toISOString().split('T')[0], remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create request');
     }
@@ -152,7 +152,7 @@ export default function ExpenseManagement() {
         project_id: '', labour_type: '', num_workers: '', days_worked: '', rate_per_day: '',
         work_date: new Date().toISOString().split('T')[0], remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create expense');
     }
@@ -170,7 +170,7 @@ export default function ExpenseManagement() {
       setVendorServiceForm({
         project_id: '', vendor_name: '', service_type: '', amount: '', invoice_number: '', remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create expense');
     }
@@ -196,7 +196,7 @@ export default function ExpenseManagement() {
       setApprovalDialog(false);
       setApprovalForm({ action: '', comments: '' });
       setSelectedExpense(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Approval failed');
     }
@@ -228,7 +228,7 @@ export default function ExpenseManagement() {
       setPricingDialog(false);
       setPricingForm({ quotes: [{ vendor_id: '', vendor_name: '', unit_price: '', quantity: '' }], selected_vendor_id: '' });
       setSelectedExpense(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit pricing');
     }
@@ -247,7 +247,7 @@ export default function ExpenseManagement() {
       setPaymentDialog(false);
       setPaymentForm({ payment_type: 'full', amount: '', payment_mode: 'cash', reference: '' });
       setSelectedExpense(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Payment failed');
     }

@@ -63,9 +63,9 @@ export default function CRMSales() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, stagesRes, leadsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/sales/dashboard`),
@@ -109,7 +109,7 @@ export default function CRMSales() {
         toast.success('Lead stage updated');
       }
       
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     }
@@ -158,7 +158,7 @@ export default function CRMSales() {
       await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}`, editForm);
       toast.success('Lead updated');
       setEditDialog(false);
-      fetchData();
+      fetchData(false);
       // Refresh detail
       const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
       setLeadDetail(res.data);
@@ -246,7 +246,7 @@ export default function CRMSales() {
       const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
       setLeadDetail(res.data);
       setSelectedLead(res.data);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save appointment');
     }

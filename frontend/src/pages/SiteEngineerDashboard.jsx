@@ -33,12 +33,12 @@ function MiniCashbookSection({ projects }) {
   const [newExpense, setNewExpense] = useState({ project_id: '', category: 'material', amount: '', description: '', vendor_name: '' });
 
   useEffect(() => {
-    fetchCashbook();
+    fetchCashbook(false);
   }, [selectedProject]);
 
-  const fetchCashbook = async () => {
+  const fetchCashbook = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const params = selectedProject ? `?project_id=${selectedProject}` : '';
       const res = await axios.get(`${API}/site-engineer/mini-cashbook${params}`);
       setCashbookData(res.data);
@@ -65,7 +65,7 @@ function MiniCashbookSection({ projects }) {
       toast.success('Expense recorded');
       setAddExpenseOpen(false);
       setNewExpense({ project_id: '', category: 'material', amount: '', description: '', vendor_name: '' });
-      fetchCashbook();
+      fetchCashbook(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record expense');
     }
@@ -283,9 +283,9 @@ export default function SiteEngineerDashboard() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, projectsRes, workOrdersRes, pettyCashRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/site-engineer/my-projects`),
@@ -325,7 +325,7 @@ export default function SiteEngineerDashboard() {
       toast.success('Petty cash requested');
       setPettyCashDialog(false);
       setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request petty cash');
     }
@@ -347,7 +347,7 @@ export default function SiteEngineerDashboard() {
       toast.success('Expense added');
       setPettyCashExpenseDialog(false);
       setExpenseForm({ amount: '', expense_type: '', description: '', date: new Date().toISOString().split('T')[0] });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add expense');
     }
@@ -357,7 +357,7 @@ export default function SiteEngineerDashboard() {
     try {
       await axios.post(`${API}/site-engineer/petty-cash/${pettyCashId}/submit`);
       toast.success('Petty cash submitted for settlement');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit petty cash');
     }
@@ -380,7 +380,7 @@ export default function SiteEngineerDashboard() {
     try {
       await axios.patch(`${API}/work-orders/${workOrderId}/stages/${stageId}/start`);
       toast.success('Stage started');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to start stage');
     }
@@ -390,7 +390,7 @@ export default function SiteEngineerDashboard() {
     try {
       await axios.patch(`${API}/work-orders/${workOrderId}/stages/${stageId}/complete`);
       toast.success('Stage marked as completed');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to complete stage');
     }
@@ -413,7 +413,7 @@ export default function SiteEngineerDashboard() {
       );
       toast.success('Payment request submitted to Planning');
       setPaymentDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request payment');
     }

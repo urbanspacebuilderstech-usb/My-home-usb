@@ -61,9 +61,9 @@ export default function REProjectsPage() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, dashboardRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/planning/re-dashboard`),
@@ -118,7 +118,7 @@ export default function REProjectsPage() {
       });
       toast.success('RE Project updated');
       setEditDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update project');
     }
@@ -128,7 +128,7 @@ export default function REProjectsPage() {
     try {
       await axios.post(`${API}/crm/re-projects/${projectId}/submit-for-approval`);
       toast.success('Submitted for GM approval');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit');
     }
@@ -154,7 +154,7 @@ export default function REProjectsPage() {
       toast.success(approved ? 'RE Project approved' : 'RE Project rejected');
       setApprovalDialog(false);
       setRejectionReason('');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to process approval');
     }

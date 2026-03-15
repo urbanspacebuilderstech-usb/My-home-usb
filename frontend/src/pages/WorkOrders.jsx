@@ -32,7 +32,7 @@ export default function WorkOrders() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, woRes, projRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -81,7 +81,7 @@ export default function WorkOrders() {
       toast.success('Work order submitted');
       setDialogOpen(false);
       setFormData({ project_id: '', boq_id: '', requested_quantity: '', purpose: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to create work order');
     }

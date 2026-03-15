@@ -444,9 +444,9 @@ export default function ProjectDetail() {
     fetchData();
   }, [projectId]);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
@@ -600,7 +600,7 @@ export default function ProjectDetail() {
       });
       
       toast.success(`Converted ${items.length} RE items to project scope`);
-      await fetchData();
+      await fetchData(false);
       setActiveTab('scope');
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to convert to scope');
@@ -629,7 +629,7 @@ export default function ProjectDetail() {
       toast.success(`Added ${validItems.length} scope items`);
       setBulkScopeDialog(false);
       setBulkScopeRows(createEmptyRows('scope'));
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add scope items');
     }
@@ -667,7 +667,7 @@ export default function ProjectDetail() {
       toast.success(`Added ${validItems.length} payment stages`);
       setBulkPaymentDialog(false);
       setBulkPaymentRows(createEmptyRows('payment'));
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add payment stages');
     }
@@ -691,7 +691,7 @@ export default function ProjectDetail() {
       toast.success(`Added ${validItems.length} additions`);
       setBulkAdditionDialog(false);
       setBulkAdditionRows(createEmptyRows('addition'));
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add additions');
     }
@@ -716,7 +716,7 @@ export default function ProjectDetail() {
       toast.success(`Added ${validItems.length} deductions`);
       setBulkDeductionDialog(false);
       setBulkDeductionRows(createEmptyRows('deduction'));
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add deductions');
     }
@@ -749,7 +749,7 @@ export default function ProjectDetail() {
       
       toast.success('Items verified and sent for approval');
       setVerifyDialog({ open: false, type: '', ids: [] });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Verification failed');
     }
@@ -767,7 +767,7 @@ export default function ProjectDetail() {
       
       await axios.post(`${API}${endpoint}`, { item_ids: ids, action });
       toast.success(`Items ${action}d successfully`);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || `${action} failed`);
     }
@@ -779,7 +779,7 @@ export default function ProjectDetail() {
     try {
       await axios.delete(`${API}/scope-items/${scopeId}`);
       toast.success('Scope item deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete scope item');
     }
@@ -790,7 +790,7 @@ export default function ProjectDetail() {
     try {
       await axios.delete(`${API}/payment-stages/${stageId}`);
       toast.success('Payment stage deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete payment stage');
     }
@@ -803,7 +803,7 @@ export default function ProjectDetail() {
       await Promise.all(selectedScopeIds.map(id => axios.delete(`${API}/scope-items/${id}`)));
       toast.success(`Deleted ${selectedScopeIds.length} scope item(s)`);
       setSelectedScopeIds([]);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete some items');
     }
@@ -816,7 +816,7 @@ export default function ProjectDetail() {
       await Promise.all(selectedPaymentIds.map(id => axios.delete(`${API}/payment-stages/${id}`)));
       toast.success(`Deleted ${selectedPaymentIds.length} payment stage(s)`);
       setSelectedPaymentIds([]);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete some stages');
     }
@@ -874,7 +874,7 @@ export default function ProjectDetail() {
       toast.success(`Added ${valid.length} stages`);
       setShowAddStages(false);
       setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
-      fetchData();
+      fetchData(false);
     } catch (error) { toast.error('Failed to add stages'); }
   };
 
@@ -897,7 +897,7 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, editStageData);
       toast.success('Stage updated');
       setEditingStageId(null);
-      fetchData();
+      fetchData(false);
     } catch { toast.error('Failed to update'); }
   };
 
@@ -906,7 +906,7 @@ export default function ProjectDetail() {
     try {
       await axios.delete(`${API}/projects/${projectId}/project-stages/${stageId}`);
       toast.success('Stage deleted');
-      fetchData();
+      fetchData(false);
     } catch { toast.error('Failed to delete'); }
   };
 
@@ -921,7 +921,7 @@ export default function ProjectDetail() {
     try {
       await axios.patch(`${API}/payment-stages/${stageId}/request`);
       toast.success('Payment requested - sent to CRE');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request payment');
     }
@@ -932,7 +932,7 @@ export default function ProjectDetail() {
     try {
       await axios.delete(`${API}/additional-costs/${costId}`);
       toast.success('Addition deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete addition');
     }
@@ -942,7 +942,7 @@ export default function ProjectDetail() {
     try {
       await axios.patch(`${API}/additional-costs/${costId}/request-payment`);
       toast.success('Payment requested for additional work - sent to CRE');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request payment');
     }
@@ -953,7 +953,7 @@ export default function ProjectDetail() {
     try {
       await axios.delete(`${API}/deductions/${deductionId}`);
       toast.success('Deduction deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete deduction');
     }
@@ -965,7 +965,7 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/payment-stages/${stageId}`, updates);
       toast.success('Payment updated');
       setEditingPayment(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update payment');
     }
@@ -997,7 +997,7 @@ export default function ProjectDetail() {
       toast.success('Payment stage updated');
       setEditPaymentDialog(false);
       setEditPaymentStage(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update payment stage');
     }
@@ -1009,7 +1009,7 @@ export default function ProjectDetail() {
       await axios.post(`${API}/projects/${projectId}/payment-schedule/submit`);
       toast.success('Payment schedule submitted for collection');
       setSubmitScheduleDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to submit payment schedule');
     }
@@ -1020,7 +1020,7 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/additional-costs/${costId}`, updates);
       toast.success('Addition updated');
       setEditingAddition(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update addition');
     }
@@ -1051,7 +1051,7 @@ export default function ProjectDetail() {
       });
       toast.success('Scope item updated');
       setEditingScopeItem(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update scope item');
     }
@@ -1107,7 +1107,7 @@ export default function ProjectDetail() {
       });
       toast.success('Payment collected successfully');
       setCollectPaymentDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to collect payment');
     }
@@ -1117,7 +1117,7 @@ export default function ProjectDetail() {
     try {
       await axios.post(`${API}/projects/${projectId}/payment-schedule/generate`);
       toast.success('Payment schedule generated');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to generate schedule');
     }

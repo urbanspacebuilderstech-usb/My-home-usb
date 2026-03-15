@@ -50,7 +50,7 @@ export default function Procurement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, vendorsRes, posRes, woRes, usersRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -107,7 +107,7 @@ export default function Procurement() {
       }
       setVendorDialogOpen(false);
       resetVendorForm();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(editingVendor ? 'Failed to update vendor' : 'Failed to add vendor');
     }
@@ -118,7 +118,7 @@ export default function Procurement() {
     try {
       await axios.delete(`${API}/vendors/${vendorId}`);
       toast.success('Vendor deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete vendor');
     }
@@ -135,7 +135,7 @@ export default function Procurement() {
       toast.success('Purchase order created');
       setPODialogOpen(false);
       setPOFormData({ work_order_id: '', vendor_id: '', item_name: '', quantity: '', expected_delivery: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to create purchase order');
     }
@@ -156,7 +156,7 @@ export default function Procurement() {
       await axios.patch(`${API}/vendors/${selectedVendorForLink.vendor_id}/link-user?target_user_id=${selectedUserId}`);
       toast.success('Vendor linked to user successfully');
       setLinkDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to link vendor');
     }

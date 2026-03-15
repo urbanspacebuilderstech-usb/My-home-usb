@@ -66,9 +66,9 @@ export default function CustomFieldsBuilder() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, fieldsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/custom-fields`)
@@ -142,7 +142,7 @@ export default function CustomFieldsBuilder() {
       toast.success('Custom field created');
       setCreateDialog(false);
       resetForm();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create field');
     }
@@ -153,7 +153,7 @@ export default function CustomFieldsBuilder() {
       await axios.patch(`${API}/crm/custom-fields/${selectedField.field_id}`, fieldForm);
       toast.success('Custom field updated');
       setEditDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update field');
     }
@@ -165,7 +165,7 @@ export default function CustomFieldsBuilder() {
     try {
       await axios.delete(`${API}/crm/custom-fields/${fieldId}`);
       toast.success('Custom field deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete field');
     }

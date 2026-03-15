@@ -62,9 +62,9 @@ export default function PaymentProcessing() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, requestsRes, projectsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/accountant/payment-requests`),
@@ -128,7 +128,7 @@ export default function PaymentProcessing() {
       setSelectedRequest(response.data);
       setInitiateDialog(false);
       setVerifyDialog(true);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to initiate payment');
     }
@@ -149,7 +149,7 @@ export default function PaymentProcessing() {
       toast.success('OTP verified successfully');
       setVerifyDialog(false);
       setCompleteDialog(true);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Invalid OTP');
     }
@@ -175,7 +175,7 @@ export default function PaymentProcessing() {
       setMockOTP(null);
       setOtpInput('');
       setCompleteForm({ transaction_id: '', payment_method: 'bank_transfer', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to complete payment');
     }

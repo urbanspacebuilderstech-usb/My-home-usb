@@ -40,9 +40,9 @@ export default function CSVImportPage() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, templateRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/import/template`)

@@ -35,7 +35,7 @@ export default function BOQManagement() {
     fetchData();
   }, [projectId]);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, projRes, boqRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -107,7 +107,7 @@ export default function BOQManagement() {
       }
       setDialogOpen(false);
       resetForm();
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || (editingItem ? 'Failed to update' : 'Failed to add') + ' BOQ item');
     }
@@ -123,7 +123,7 @@ export default function BOQManagement() {
     try {
       await axios.delete(`${API}/boq/${boqId}`);
       toast.success('BOQ item deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete BOQ item');
     }
@@ -133,7 +133,7 @@ export default function BOQManagement() {
     try {
       await axios.patch(`${API}/boq/${boqId}`, { locked: !currentLocked });
       toast.success(currentLocked ? 'BOQ item unlocked' : 'BOQ item locked');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update lock status');
     }

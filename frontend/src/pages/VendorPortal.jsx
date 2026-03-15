@@ -24,7 +24,7 @@ export default function VendorPortal() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, dashRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -62,7 +62,7 @@ export default function VendorPortal() {
       await axios.patch(`${API}/vendor-portal/purchase-orders/${selectedPO.po_id}/dispatch?vehicle_number=${encodeURIComponent(vehicleNumber)}`);
       toast.success('Order dispatched successfully');
       setDispatchDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to dispatch order');
     }

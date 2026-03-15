@@ -32,7 +32,7 @@ export default function SetupWizard() {
     if (form.admin_password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
     if (form.admin_password !== form.confirm_password) { toast.error('Passwords do not match'); return; }
 
-    setLoading(true);
+    if (showLoader) setLoading(true);
     try {
       await axios.post(`${API}/auth/initial-setup`, {
         company_name: form.company_name.trim(),

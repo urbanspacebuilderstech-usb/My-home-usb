@@ -20,7 +20,7 @@ export default function Notifications() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
       const [userRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
@@ -56,7 +56,7 @@ export default function Notifications() {
     try {
       await axios.patch(`${API}/notifications/${notificationId}/read`);
       toast.success('Marked as read');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update notification');
     }

@@ -46,13 +46,13 @@ export default function ProjectMaterials() {
   });
 
   useEffect(() => {
-    fetchMaterials();
+    fetchMaterials(false);
     axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
   }, [projectId]);
 
-  const fetchMaterials = async () => {
+  const fetchMaterials = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const res = await axios.get(`${API}/projects/${projectId}/materials`);
       setProjectName(res.data.project_name);
       setProjectStatus(res.data.project_status);
@@ -71,7 +71,7 @@ export default function ProjectMaterials() {
       toast.success('Material added');
       setAddDialog(false);
       resetForm();
-      fetchMaterials();
+      fetchMaterials(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add material');
     }
@@ -83,7 +83,7 @@ export default function ProjectMaterials() {
       toast.success('Material updated');
       setEditDialog(false);
       resetForm();
-      fetchMaterials();
+      fetchMaterials(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update material');
     }
@@ -94,7 +94,7 @@ export default function ProjectMaterials() {
       await axios.delete(`${API}/projects/${projectId}/materials/${selectedMaterial.material_id}`);
       toast.success('Material deleted');
       setDeleteDialog(false);
-      fetchMaterials();
+      fetchMaterials(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete material');
     }
@@ -106,7 +106,7 @@ export default function ProjectMaterials() {
       toast.success('Unlock requested. Project sent for re-approval.');
       setUnlockDialog(false);
       setUnlockReason('');
-      fetchMaterials();
+      fetchMaterials(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to request unlock');
     }

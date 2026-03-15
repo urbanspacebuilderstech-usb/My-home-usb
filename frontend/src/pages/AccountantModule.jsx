@@ -112,9 +112,9 @@ export default function AccountantModule() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [
         userRes, 
         creRes, 
@@ -222,7 +222,7 @@ export default function AccountantModule() {
       await axios.patch(endpoint, payload);
       toast.success('Request verified successfully');
       setVerifyDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to verify');
     }
@@ -261,7 +261,7 @@ export default function AccountantModule() {
       
       toast.success('Request rejected');
       setRejectDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to reject');
     }
@@ -291,7 +291,7 @@ export default function AccountantModule() {
         vendor_name: '',
         remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to record expense');
     }
@@ -322,7 +322,7 @@ export default function AccountantModule() {
         description: '',
         reason: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add to suspense');
     }

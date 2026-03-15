@@ -38,9 +38,9 @@ export default function StageManagement() {
   const [saving, setSaving] = useState(false);
   const [newStage, setNewStage] = useState({ name: '', color: '#6366f1', is_final: false });
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, stagesRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/stages/with-counts`),
@@ -83,7 +83,7 @@ export default function StageManagement() {
       toast.success('Stage created');
       setAddDialog(false);
       setNewStage({ name: '', color: '#6366f1', is_final: false });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create stage');
     } finally {
@@ -103,7 +103,7 @@ export default function StageManagement() {
       });
       toast.success('Stage updated');
       setEditingStage(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to update stage');
     } finally {
@@ -117,7 +117,7 @@ export default function StageManagement() {
       await axios.delete(`${API}/crm/stages/${stageId}`);
       toast.success('Stage deleted');
       setDeleteDialog(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete stage');
     } finally {
@@ -136,7 +136,7 @@ export default function StageManagement() {
         axios.patch(`${API}/crm/stages/${stage.stage_id}`, { order: swapStage.order }),
         axios.patch(`${API}/crm/stages/${swapStage.stage_id}`, { order: stage.order }),
       ]);
-      fetchData();
+      fetchData(false);
     } catch {
       toast.error('Failed to reorder');
     }

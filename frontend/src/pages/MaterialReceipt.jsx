@@ -75,9 +75,9 @@ export default function MaterialReceipt() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, transitRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/procurement/transit`)
@@ -179,7 +179,7 @@ export default function MaterialReceipt() {
       });
       toast.success('Material received successfully!');
       setReceiptDialog(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       const detail = error.response?.data?.detail;
       toast.error(detail === 'Invalid OTP' ? 'Invalid OTP. Please check and try again.' : detail || 'Failed to submit receipt');

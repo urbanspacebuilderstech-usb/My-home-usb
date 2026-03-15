@@ -25,9 +25,9 @@ export default function ProjectFinance() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, pfRes, notifsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/project-finance`).catch(() => ({ data: { projects: [] } })),

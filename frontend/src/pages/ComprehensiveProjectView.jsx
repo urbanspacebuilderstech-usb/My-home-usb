@@ -51,9 +51,9 @@ export default function ComprehensiveProjectView() {
     fetchData();
   }, [projectId]);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, comprehensiveRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects/${projectId}/comprehensive`)
@@ -91,7 +91,7 @@ export default function ComprehensiveProjectView() {
       toast.success('Payment stage added');
       setPaymentStageDialog(false);
       setStageForm({ stage_name: '', percentage: '', amount: '', due_date: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to add payment stage');
     }
@@ -102,7 +102,7 @@ export default function ComprehensiveProjectView() {
       await axios.patch(`${API}/payment-stages/${stageId}`, updates);
       toast.success('Payment stage updated');
       setEditingStage(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update payment stage');
     }
@@ -113,7 +113,7 @@ export default function ComprehensiveProjectView() {
     try {
       await axios.delete(`${API}/payment-stages/${stageId}`);
       toast.success('Payment stage deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete payment stage');
     }
@@ -131,7 +131,7 @@ export default function ComprehensiveProjectView() {
       toast.success('Additional cost added');
       setAdditionalCostDialog(false);
       setCostForm({ description: '', estimated_amount: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to add additional cost');
     }
@@ -142,7 +142,7 @@ export default function ComprehensiveProjectView() {
       await axios.patch(`${API}/additional-costs/${costId}`, updates);
       toast.success('Additional cost updated');
       setEditingCost(null);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to update additional cost');
     }
@@ -153,7 +153,7 @@ export default function ComprehensiveProjectView() {
     try {
       await axios.delete(`${API}/additional-costs/${costId}`);
       toast.success('Additional cost deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error('Failed to delete additional cost');
     }

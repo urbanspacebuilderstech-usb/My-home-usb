@@ -62,9 +62,9 @@ export default function IndirectCostManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, costsRes, categoriesRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/financial/indirect-costs`),
@@ -125,7 +125,7 @@ export default function IndirectCostManagement() {
         invoice_date: '',
         remarks: ''
       });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create entry');
     }
@@ -141,7 +141,7 @@ export default function IndirectCostManagement() {
       setApproveDialog(false);
       setSelectedCost(null);
       setRejectionReason('');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to process');
     }
@@ -163,7 +163,7 @@ export default function IndirectCostManagement() {
       setConfirmDialog(false);
       setSelectedCost(null);
       setConfirmForm({ payment_date: '', reference_number: '', remarks: '' });
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to confirm payment');
     }

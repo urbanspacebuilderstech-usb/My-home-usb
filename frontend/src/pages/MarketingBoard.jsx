@@ -180,7 +180,7 @@ export default function MarketingBoard() {
           window.location.href = '/dashboard';
           return;
         }
-        fetchDashboard();
+        fetchDashboard(false);
       } catch (error) {
         console.error('Auth check failed:', error);
         window.location.href = '/login';
@@ -189,9 +189,9 @@ export default function MarketingBoard() {
     checkAuthAndFetch();
   }, []);
 
-  const fetchDashboard = async () => {
+  const fetchDashboard = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [dashRes, settingsRes] = await Promise.all([
         axios.get(`${API}/api/marketing/dashboard`, { withCredentials: true }),
         axios.get(`${API}/api/marketing/distribution-settings`, { withCredentials: true })
@@ -402,7 +402,7 @@ export default function MarketingBoard() {
       const sourcesMsg = res.data.sources?.map(s => `${s.name}: ${s.imported}`).join(', ') || '';
       toast.success(`Imported ${res.data.imported} leads from ${res.data.sources?.length || 0} tabs! ${sourcesMsg}`);
       
-      fetchDashboard();
+      fetchDashboard(false);
       fetchLeadSources();
       setShowSheetsDialog(false);
       
@@ -441,7 +441,7 @@ export default function MarketingBoard() {
       }, { withCredentials: true });
       
       toast.success(`Imported ${res.data.imported} leads (${res.data.skipped} skipped)`);
-      fetchDashboard();
+      fetchDashboard(false);
       fetchSheetsConfig();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to import leads');
@@ -505,7 +505,7 @@ export default function MarketingBoard() {
     try {
       const res = await axios.post(`${API}/api/sheets/auto-sync/run`, {}, { withCredentials: true });
       toast.success(`Synced ${res.data.imported || 0} leads from ${res.data.sources?.length || 0} tabs`);
-      fetchDashboard();
+      fetchDashboard(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Sync failed');
     } finally {
@@ -572,7 +572,7 @@ export default function MarketingBoard() {
       setZapImportResult(res.data);
       setZapStep('done');
       toast.success(`Imported ${res.data.imported} leads from ${res.data.sources?.length || 0} tabs!`);
-      fetchDashboard();
+      fetchDashboard(false);
       fetchConnectedSheets();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Import failed');
@@ -598,7 +598,7 @@ export default function MarketingBoard() {
       const res = await axios.post(`${API}/api/sheets/auto-sync/run`, {}, { withCredentials: true });
       if (res.data.new_leads > 0) {
         toast.success(`${res.data.new_leads} new lead(s) synced!`);
-        fetchDashboard();
+        fetchDashboard(false);
       } else {
         toast.info('No new leads found in connected sheets');
       }
@@ -695,7 +695,7 @@ export default function MarketingBoard() {
         assigned_to: ''
       });
       fetchAllLeads();
-      fetchDashboard();
+      fetchDashboard(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to create lead');
     }
@@ -711,7 +711,7 @@ export default function MarketingBoard() {
       toast.success('Team member added successfully');
       setShowAddMember(false);
       setNewMember({ name: '', email: '', role: 'pre_sales', phone: '' });
-      fetchDashboard();
+      fetchDashboard(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to add team member');
     }
@@ -722,7 +722,7 @@ export default function MarketingBoard() {
       await axios.post(`${API}/api/marketing/assign-lead/${leadId}?assigned_to=${userId}`, {}, { withCredentials: true });
       toast.success('Lead reassigned successfully');
       fetchAllLeads();
-      fetchDashboard();
+      fetchDashboard(false);
       if (selectedPerson) {
         fetchPersonLeads(selectedPerson.user_id);
       }
@@ -765,7 +765,7 @@ export default function MarketingBoard() {
       setDeletingLead(null);
       setDeleteConfirmText('');
       fetchAllLeads();
-      fetchDashboard();
+      fetchDashboard(false);
       fetchLeadSources();
       if (showLeadDetail) {
         setShowLeadDetail(false);

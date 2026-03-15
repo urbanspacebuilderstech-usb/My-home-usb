@@ -49,9 +49,9 @@ export default function VendorManagement() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showLoader = true) => {
     try {
-      setLoading(true);
+      if (showLoader) setLoading(true);
       const [userRes, vendorsRes, materialsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/vendor-master?active_only=false`),
@@ -121,7 +121,7 @@ export default function VendorManagement() {
         toast.success('Vendor created successfully');
       }
       setDialogOpen(false);
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to save vendor');
     }
@@ -131,7 +131,7 @@ export default function VendorManagement() {
     try {
       await axios.delete(`${API}/vendor-master/${vendorId}`);
       toast.success('Vendor deleted');
-      fetchData();
+      fetchData(false);
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Failed to delete vendor');
     }
