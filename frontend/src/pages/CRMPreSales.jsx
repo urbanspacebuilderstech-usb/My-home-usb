@@ -594,6 +594,15 @@ export default function CRMPreSales() {
           {/* View Toggle */}
           <div className="flex items-center gap-2 ml-auto">
             <Button
+              size="sm"
+              onClick={() => setCreateLeadDialog(true)}
+              className="gap-1.5 bg-indigo-600 hover:bg-indigo-700"
+              data-testid="create-lead-btn"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Create Lead
+            </Button>
+            <Button
               variant="outline"
               size="sm"
               onClick={handleSyncSheets}
