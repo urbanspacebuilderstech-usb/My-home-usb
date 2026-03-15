@@ -57,6 +57,7 @@ import GMDashboard from '@/pages/GMDashboard';
 import MarketingBoard from '@/pages/MarketingBoard';
 import PMDashboard from '@/pages/PMDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
+import SetupWizard from '@/pages/SetupWizard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -88,6 +89,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/setup" element={<SetupWizard />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/setup-password" element={<SetupPassword />} />

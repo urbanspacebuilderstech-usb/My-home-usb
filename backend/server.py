@@ -122,15 +122,17 @@ async def startup_init():
     except Exception as e:
         logger.warning(f"Storage init failed (non-fatal): {e}")
 
-    # Auto-seed demo users if none exist
+    # Auto-seed demo users only in DEMO_MODE
     try:
         from core.database import db as startup_db
         from passlib.context import CryptContext
         from datetime import datetime, timezone
 
+        demo_mode = os.environ.get("DEMO_MODE", "true").lower() == "true"
         pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
         existing = await startup_db.users.count_documents({})
-        if existing == 0:
+
+        if existing == 0 and demo_mode:
             demo_password_hash = pwd_ctx.hash("Demo@1234")
             demo_users = [
                 {"user_id": "user_superadmin001", "email": "admin@constructionos.com", "name": "Rajesh Kumar", "role": "super_admin", "phone": "+91 9876543210"},
@@ -155,6 +157,8 @@ async def startup_init():
                 u["created_at"] = now
             await startup_db.users.insert_many(demo_users)
             logger.info(f"Auto-seeded {len(demo_users)} demo users (password: Demo@1234)")
+        elif existing == 0 and not demo_mode:
+            logger.info("No users found and DEMO_MODE is off. Awaiting first-time setup via /api/auth/initial-setup")
         else:
             logger.info(f"Database has {existing} users, skipping seed")
 

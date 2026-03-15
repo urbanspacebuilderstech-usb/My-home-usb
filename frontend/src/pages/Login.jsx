@@ -58,6 +58,15 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
 
+  // Check if setup is needed
+  useEffect(() => {
+    axios.get(`${API}/auth/setup-status`).then(res => {
+      if (!res.data.setup_complete) {
+        navigate('/setup', { replace: true });
+      }
+    }).catch(() => {});
+  }, [navigate]);
+
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
     if (!email || !password) {

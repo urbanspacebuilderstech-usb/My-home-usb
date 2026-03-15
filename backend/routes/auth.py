@@ -45,6 +45,27 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+# ==================== FIRST-TIME SETUP (models + status check) ====================
+
+class InitialSetupRequest(BaseModel):
+    company_name: str = Field(..., min_length=2, max_length=100)
+    admin_name: str = Field(..., min_length=2, max_length=100)
+    admin_email: str = Field(..., min_length=5, max_length=100)
+    admin_phone: Optional[str] = None
+    admin_password: str = Field(..., min_length=6, max_length=100)
+
+@router.get("/auth/setup-status")
+async def get_setup_status():
+    """Check if the application has been set up (any users exist)"""
+    count = await db.users.count_documents({})
+    settings = await db.app_settings.find_one({"setting_key": "company_info"}, {"_id": 0})
+    return {
+        "setup_complete": count > 0,
+        "user_count": count,
+        "company_name": settings.get("company_name", "") if settings else "",
+    }
+
+
 async def _create_session_and_respond(user_doc: dict, request: Request, response: Response, login_method: str):
     """Shared session creation logic for all login methods"""
     client_ip = request.client.host if request.client else "unknown"
@@ -87,6 +108,52 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
     )
 
     return DataMasker.mask_document(user_doc)
+
+
+# ==================== INITIAL SETUP (POST - needs _create_session_and_respond) ====================
+
+@router.post("/auth/initial-setup")
+async def initial_setup(data: InitialSetupRequest, request: Request, response: Response):
+    """One-time setup to create the first Super Admin and company settings.
+    Only works when no users exist in the database."""
+    count = await db.users.count_documents({})
+    if count > 0:
+        raise HTTPException(status_code=400, detail="Setup already completed. Users already exist.")
+
+    if "@" not in data.admin_email or "." not in data.admin_email:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
+    now = datetime.now(timezone.utc).isoformat()
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+
+    admin_user = {
+        "user_id": user_id,
+        "email": data.admin_email.lower().strip(),
+        "name": data.admin_name.strip(),
+        "role": "super_admin",
+        "phone": data.admin_phone or "",
+        "password_hash": hash_password(data.admin_password),
+        "is_active": True,
+        "status": "active",
+        "created_at": now,
+    }
+    await db.users.insert_one(admin_user)
+
+    await db.app_settings.update_one(
+        {"setting_key": "company_info"},
+        {"$set": {
+            "setting_key": "company_info",
+            "company_name": data.company_name.strip(),
+            "admin_email": data.admin_email.lower().strip(),
+            "setup_at": now,
+        }},
+        upsert=True,
+    )
+
+    logger.info(f"Initial setup complete: {data.admin_email} as Super Admin for {data.company_name}")
+
+    admin_user.pop("_id", None)
+    return await _create_session_and_respond(admin_user, request, response, "initial_setup")
 
 
 # ==================== SECURITY STATUS ====================
