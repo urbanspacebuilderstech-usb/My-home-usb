@@ -1,41 +1,52 @@
 <analysis>**original_problem_statement:**
 The user's high-level goal is to build a comprehensive CRM and project management tool for a construction company.
 
-Recent user requests include:
-1.  **(P0) Fix Google Sheets Sync**:
-    *   New tabs created in a connected Google Sheet are not being detected and synced. The sync logic needs to discover these new tabs automatically.
-    *   The sync interval is too long (manual or 5+ minutes). The user needs a near-immediate sync (e.g., every 1 minute).
-2.  **(P1) Production-Ready Super Admin**: Create a secure, first-time setup wizard for a production environment to create the initial super admin account, instead of relying on pre-seeded demo users. (COMPLETED)
-3.  **(P2) Revert Login UI**: Restore the previous white and yellow login page design. (COMPLETED)
-4.  **(P2) Architect Dashboard**: Create a new dashboard for Architects to manage project designs. (COMPLETED)
-5.  **(P2) Project Manager Enhancements**: Add Team, Materials, and Labours tabs to the project detail view. (COMPLETED)
-6.  **(P2) UI/UX Refinements**: Various UI tweaks to improve layout and readability, such as reordering document sections and fitting tabs into a single row. (COMPLETED)
-7.  The user has also inquired about the requirements to convert the application into a SaaS model in the future.
+Recent user requests included:
+1.  **(P0) Make Indirect Cost Management View Accessible**: The new finance module for indirect cost allocation is not visible to the Accountant. The user requested this be fixed and also made accessible to the Super Admin.
+2.  **(P0) Indirect Expense Allocation Module**: Implement a new finance module where indirect expenses (e.g., marketing) are automatically distributed across active projects. The allocation is proportional to project value, against a 20% indirect cost budget per project. The system should flag when a project's budget is insufficient. (COMPLETED)
+3.  **(P0) Real-time UI Updates**: Ensure that when an action is taken by one user (e.g., GM approves a project), the UI for other relevant users (e.g., Planning team) updates automatically without requiring a manual page reload. (COMPLETED)
+4.  **(P0) Remove UI Buffering**: Eliminate the full-page loading spinner that appears on every action, ensuring data refreshes happen in the background for a zero-delay user experience. (COMPLETED)
+5.  **(P1) Fix Numerous Critical Bugs**: The user reported a cascade of bugs including blank dashboards (CRE, Planning), white screens on navigation, incorrect data visibility due to faulty API filters, slow page loads, and application crashes from unhandled API errors. (COMPLETED)
+6.  **(P1) Data and Payment Flow Correction**: Fix the workflow where an advance payment collected by CRE was not being properly recorded and passed to the Accountant for verification. (COMPLETED)
+7.  **(P2) Add Create Lead to Pre-Sales**: Add a Create Lead button to the Pre-Sales CRM dashboard. (COMPLETED)
+8.  **(P2) Dynamic Browser Tab Titles**: The browser tab title should dynamically update to show the logged-in user's role and name. (COMPLETED)
+9.  **(P2) Enable Client Users**: Verify and ensure the client login and portal are functional. (COMPLETED)
+10. **(P2) Clean Slate for Testing**: Delete all existing business data (projects, leads, etc.) to allow the user to test a complete project lifecycle from a clean state. (COMPLETED)
 
 **User's preferred language**: English
 
 **what currently exists?**
-The application is a multi-role construction management platform. In this session, the agent implemented several major features, including a new Architect role and dashboard, a Gantt chart for project timelines, and enhancements to the Project Manager's view. A production-ready setup wizard was also created to allow for a clean initial deployment without demo data. The agent also addressed multiple UI/UX feedback points from the user. The agent is currently in the middle of fixing an issue with the Google Sheets integration.
+The application is a multi-role construction management platform. In this session, the agent addressed a large volume of user feedback, focusing heavily on bug fixing, performance, and user experience enhancements.
+
+Key achievements include:
+- A massive bug-squashing effort that resolved critical issues like blank dashboards, application crashes, and incorrect data visibility across multiple user roles (CRE, Planning, GM).
+- A significant UX improvement by removing disruptive loading spinners and implementing a 15-second auto-refresh polling mechanism on all major pages to ensure data is always up-to-date in near real-time.
+- Implementation of a sophisticated new Finance module for automatically allocating indirect costs (like marketing) across active projects.
+- Numerous smaller feature additions and fixes, such as adding a Create Lead button, enabling dynamic tab titles, and resetting the database for clean testing.
+
+The agent is about to fix a visibility issue with the newly created finance module.
 
 **Last working item**:
-- **Last item agent was working**: Fixing the Google Sheets integration. The user reported two problems: (1) new tabs added to a connected sheet are not being discovered and synced, and (2) the sync interval is too long. The agent identified that the sync logic only processes a pre-configured list of tabs and started modifying the backend to dynamically discover all tabs from the sheet during each sync. The agent also began changing the auto-sync interval from 5 minutes to 1 minute.
-- **Status**: IN PROGRESS
+- **Last item agent was working**: The user reported that the new Indirect Cost Management view, which includes the budget overview and allocation features, is not visible to the Accountant. The user also requested that this view be made accessible to the Super Admin.
+- **Status**: NOT STARTED
 - **Agent Testing Done**: N
-- **Which testing method agent to use?**: Backend testing. The agent should use  to test the modified sync endpoints and check the backend logs to confirm the new, faster sync interval is active. A manual test flow would involve connecting a Google Sheet, adding a new tab with lead data, triggering a sync, and verifying the new leads appear in the application.
+- **Which testing method agent to use?**: Frontend testing agent. The agent should create test cases to log in as an Accountant and a Super Admin, navigate to the finance section, and verify that the Indirect Cost Management page is visible and functional. Screenshots of the nav bars for both roles would also be a valid check.
 - **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
-- **Issue 1**: (P0) Fix Google Sheets sync logic to detect new tabs and reduce sync time.
-    - **Attempted fixes**: The agent started modifying  and . The  change involves getting all worksheets from the Google Sheet during sync and comparing them against the stored configuration to find new tabs. The  change reduces the  duration for the background sync task.
+- **Issue 1**: (P0) Indirect Cost Management view is not visible to Accountant and Super Admin.
+    - **Attempted fixes**: None.
     - **Next debug checklist**:
-        1.  Finalize the code changes in  to ensure it fetches all sheet tabs, compares them to the stored  in the  DB collection, and processes any newly found tabs.
-        2.  Confirm the change in  to reduce the auto-sync interval to 60 seconds is correctly implemented for the background task.
-        3.  Update the frontend component in  to correctly display the full list of synced tabs, including newly discovered ones.
-        4.  Test the entire flow: connect a sheet, add a new tab with data in Google Sheets, trigger a sync, and confirm the new leads are visible in the CRM UI.
-    - **Why fix this issue and what will be achieved with the fix?**: This will make the Google Sheets integration robust and reliable, ensuring that all user data is synced in near real-time without manual reconfiguration.
-    - **Status**: IN PROGRESS
+        1.  Examine  to check the navigation link configurations for the  and  roles.
+        2.  Ensure a navigation item pointing to  (or similar) is defined for both roles.
+        3.  Review the routing in  to confirm the route is correctly mapped and accessible to these roles.
+        4.  Inspect  for any conditional rendering logic that might be hiding the component based on the user role.
+        5.  Verify the backend endpoint  in  is accessible to both  and .
+    - **Why fix this issue and what will be achieved with the fix?**: The newly built Indirect Expense Allocation feature is currently unusable by its intended operators. This fix will make the feature accessible, allowing the user to manage and test the complete financial workflow.
+    - **Status**: NOT STARTED
     - **Is recurring issue?**: N
     - **Should Test frontend/backend/both after fix?**: Both
+    - **Blocked on other issue**: None
 
 **In progress Task List**:
 - None.
@@ -44,33 +55,29 @@ The application is a multi-role construction management platform. In this sessio
 - **Upcoming Tasks**:
     - (P1) Implement Aadhar Document Upload with encrypted storage.
 - **Future Tasks**:
-    - (P2) Convert the application to a Software-as-a-Service (SaaS) model. This will require architecting for multi-tenancy, subscription management, and company-level administration.
+    - (P2) Convert the application to a Software-as-a-Service (SaaS) model.
     - (P2) Conduct a comprehensive screen-by-screen UI/UX review of the entire application.
     - (P2) Guide the user through deploying the application to a live production environment.
 
 **Completed work in this session**
-- **Feature - Production-Ready Setup Wizard**:
-    - Created a secure setup flow () for the first user to create a super admin account.
-    - Added backend endpoints (, ) to support this.
-    - Made demo user seeding conditional on a  environment variable, separating demo builds from production.
-- **Feature - Architect Role & Dashboard**:
-    - Implemented a new  role with a dedicated dashboard ().
-    - Architects can view their projects, upload site plans and 3D design files (as Google Drive links), and submit them for approval.
-    - Integrated a Design Approvals section into the GM Dashboard.
-    - Tested the full feature E2E with the testing subagent, achieving a 100% pass rate.
-- **Feature - Project Manager Dashboard Enhancements**:
-    - Added three new tabs to the  page: , , and .
-    - These tabs provide project-specific dashboards for PMs, with financial data (like total cost) automatically hidden based on their role.
-    - Tested E2E with the testing subagent (100% pass rate).
-- **Feature - Gantt Chart for Project Stages**:
-    - Implemented a  component to visualize project timelines.
-    - Added a toggle in the  page to switch between the traditional table view and the new Gantt chart.
-    - Tested E2E with the testing subagent (100% pass rate).
-- **UI/UX Refinements**:
-    - Reverted the login page to a previous white and yellow design as requested.
-    - Restructured the Documents tab in  to be more compact and logical.
-    - Adjusted the navigation header to be role-specific for Architects.
-    - Iteratively modified the styling of the tabs in  to ensure all 11 tabs fit on a single, readable row.
+- **Feature - Indirect Expense Allocation Module**:
+  - Built a new finance module for creating and auto-distributing indirect costs (e.g., Marketing) across active projects proportionally.
+  - Implemented a budget overview dashboard to track the 20% indirect cost budget for each project against spending.
+  - Files: , .
+- **Performance & UX - Real-time UI**:
+  - Removed disruptive full-page loading spinners on data refresh, replacing them with silent background updates.
+  - Implemented a  hook polling for data every 15 seconds across all major pages for a live-update experience.
+  - Files: , , and batch-refactored >40 frontend files.
+- **Critical Bug Fixes**:
+  - **Role-based Visibility**: Fixed numerous API queries (, , etc.) that incorrectly filtered data by , ensuring roles like CRE and Planning see all relevant projects.
+  - **Frontend Crashes**: Patched over 130 error handlers globally to prevent crashes from unhandled API validation errors. Fixed multiple white screen bugs caused by accessing uninitialized variables in loading guards.
+  - **Data Integrity**: Corrected bugs in the lead-to-project conversion and advance payment recording flows to ensure data consistency.
+  - **Page Load Optimization**: Parallelized sequential API calls on  using  to improve load times.
+- **Fix - Google Sheets Sync**: Resolved an issue where new tabs in a connected sheet were not discovered. Reduced the sync interval to 1 minute.
+- **Minor Features**:
+  - Added a Create Lead button on the Pre-Sales CRM page.
+  - Implemented dynamic browser tab titles showing the user's role.
+  - Reset all business data for clean user testing.
 
 **Earlier issues found/mentioned but not fixed**
 - None.
@@ -79,94 +86,87 @@ The application is a multi-role construction management platform. In this sessio
 - None.
 
 **Code Architecture**
-compact
+
 
 **Key Technical Concepts**
-- **Dynamic Module Discovery**: The current task requires modifying the Google Sheets sync to dynamically discover new worksheets at runtime rather than relying on a static configuration set at import time.
-- **Conditional Application Setup**: The application now has a  and conditional logic in  and  to differentiate between a first-time production launch (which requires setup) and a demo environment (which uses pre-seeded data). This is controlled by a  environment variable.
-- **Background Tasks**: The near real-time Google Sheet sync is powered by a long-running  background task initiated in .
-- **Role-Based UI Composition**: The UI is heavily reliant on the user's role. This was extended to include custom navigation headers for the Architect role and the addition of multiple new data tabs in  with fields conditionally hidden from non-financial roles like Project Manager.
+- **Real-time UI (Polling)**: A custom hook, , was implemented across all major dashboards to fetch data every 15 seconds. This gives the user a near real-time view of data changes without WebSockets.
+- **Batch Refactoring**: A Python script was used to perform large-scale, automated code modifications across ~40 frontend files to implement non-disruptive loading logic and patch over 130 error handlers.
+- **Global Error Handling**: A utility  was created to standardize API error message processing, preventing React from crashing when an API returns a non-string  object (e.g., Pydantic validation errors).
+- **Concurrent API Requests**: The  page load time was optimized by converting sequential  calls into parallel requests using .
+- **Proportional Financial Allocation**: New backend logic was written in  to automatically distribute an indirect cost amount across multiple active projects based on each project's percentage of the total portfolio value.
 
 **key DB schema**
-- ****: Contains the  field, which stores the configuration for synced Google Sheet tabs. The current fix involves dynamically updating this configuration.
-- ****: The  enum now includes .
-- ****: The schema was extended to embed arrays for  and , which store details like file names, Google Drive links, and approval status.
+- ****: Added  (Array) to store references to distributed indirect costs. Added  to correctly capture initial payments.
+- ****: Schema enhanced to track distribution status and link to allocated project entries.
+- ****: Optional fields like  are now correctly handled as  vs. empty strings in the backend.
 
 **changes in tech stack**
 - None.
 
 **All files of reference**
--  (Core logic for the current bug fix)
--  (Contains the background sync task)
--  (Frontend display for synced sheets)
--  (Recently added setup page)
--  (Recently modified for setup check and UI reversion)
--  (Heavily modified with new features and UI fixes)
--  (New dashboard)
--  (New backend routes)
+-  (New feature, subject of the current bug)
+-  (Likely location for the visibility fix)
+-  (Main application routing)
+-  (Backend logic for the finance module)
+-  (Core component for the new real-time UX)
+-  (Core component for application stability)
 - 
 
 **Areas that need refactoring**:
--  continues to grow in complexity. While new features have been added in separate tabs, the component manages a large amount of state and data fetching. It remains a candidate for being broken down into smaller, more focused components or custom hooks.
+- The batch-fixed loading logic () works but assumes a common state structure. A future cleanup could consolidate this into a custom data-fetching hook to make it more robust and reusable.
 
 **key api endpoints**
-- **Google Sheets Sync**:
-    - : The manual sync trigger endpoint being modified.
-- **Setup**:
-    - : Checks if the initial super admin has been created.
-    - : Creates the first company and super admin user.
-- **Architect**:
-    - : Fetches projects and design stats for the architect.
-    - : Uploads a site plan.
-    - : Uploads a 3D/elevation file.
-- **Project Detail (New)**:
-    - : Fetches team members for the project.
-    - : Fetches material requests for the project.
-    - : Fetches labour requests for the project.
+- **Indirect Cost Allocation (NEW)**:
+  - : Fetches the budget/spending overview for all projects.
+  - : Previews the proportional allocation of a new cost.
+- **Confirmation (UPDATED)**:
+  - : Now triggers the auto-distribution logic.
+- **Dashboards (UPDATED)**:
+  - , : Filters relaxed to show all relevant projects.
+  - : Logic fixed to include all correct project statuses.
 
 **Critical Info for New Agent**
-- **Your absolute first priority is to complete the fix for the Google Sheets integration.** The user wants new tabs to be discovered automatically and the sync interval to be reduced to one minute. The previous agent has already identified the problem files (, ) and started the implementation. You need to finish the changes and test them thoroughly.
-- After fixing the sync, consult the user before moving on to the next task in the plan ().
-- The user has inquired about making the app a SaaS product. Keep this long-term goal in mind, but focus on the immediate bug fix first.
+- **Your first priority is to fix the visibility of the new Indirect Cost Management page for the Accountant and Super Admin roles.** This feature is the culmination of the last major user request, and they cannot test it until it's accessible.
+- The user has expressed significant frustration with recurring bugs and the cost of repeated testing. It is crucial to be extremely thorough. After fixing the visibility issue, perform a quick sanity check as both Accountant and Super Admin to ensure the page not only appears but functions as expected.
+- The  hook and  utility are now foundational to the application's user experience and stability. Be mindful of them when creating or modifying components.
 
 **documents and test reports created in this job**
--  (Updated)
 - 
 - 
 - 
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Fix Google Sheets sync. New tabs are not detected, and sync needs to be immediate. (Status: **In Progress**)
-2.  **User**: Asks about how to get super admin access on deployment and what is needed to make the app a SaaS. (Status: **Addressed/Planned**)
-3.  **User**: Confirms to build the production-ready setup first before discussing SaaS. (Status: **Completed**)
-4.  **User**: Requests to revert the login page to the previous white and yellow UI. (Status: **Completed**)
-5.  **User**: Requests to remove the big empty space in the Documents tab and make the upload button more compact. (Status: **Completed**)
-6.  **User**: Asks to remove the super admin navigation links from the Architect's header. (Status: **Completed**)
-7.  **User**: Approves the plan to build the Architect dashboard. (Status: **Completed**)
-8.  **User**: Requests a new Architect role with a dashboard to upload designs (site plans, 3D photos) as Google Drive links, with an approval workflow from the GM. (Status: **Completed**)
-9.  **User**: Approves the plan for PM dashboard enhancements and confirms that cost details should be hidden from PMs. (Status: **Completed**)
-10. **User**: Requests enhancements for the Project Manager role, including a new Team tab and sub-dashboards for Materials and Labours within the project page. (Status: **Completed**)
+1.  **User**: The Indirect Cost Management view is not visible to the Accountant; also add it for the Super Admin. (Status: **NOT STARTED**)
+2.  **User**: Asks to build the Indirect Expense Allocation module. (Status: **Completed**)
+3.  **User**: Reports an error when collecting a cheque as an accountant. (Status: **Completed**)
+4.  **User**: States that advance payment collected by CRE should be recorded and flow to the accountant for approval. (Status: **Completed**)
+5.  **User**: Reports the Planning board is blank. Asks for a full systematic test and report. (Status: **Completed**)
+6.  **User**: Reports that the Project Detail page is slow and the GM Dashboard has errors. (Status: **Completed**)
+7.  **User**: Reports a white screen when clicking a project on the CRE board. Asks for all screens to be verified. (Status: **Completed**)
+8.  **User**: Reports the CRE board is blank. (Status: **Completed**)
+9.  **User**: Reports an error when converting a lead to a project. (Status: **Completed**)
+10. **User**: States that updates must appear automatically for other users without a page reload. (Status: **Completed**)
 
 **Project Health Check:**
-- **Broken**: The Google Sheets sync functionality is not working as expected. It fails to discover new tabs added to a connected sheet, leading to incomplete data synchronization.
+- **Broken**: The new Indirect Cost Management feature is not visible in the UI for its intended users (Accountant, Super Admin), rendering it unusable.
 - **Mocked**: None.
 
 **3rd Party Integrations**
 - MongoDB Atlas
-- **Google Sheets API** (Currently being fixed)
+- Google Sheets API
 - Resend
 - Emergent Object Storage
 - Leaflet/OpenStreetMap
 - jsPDF / jspdf-autotable
 
 **Testing status**
-- **Testing agent used after significant changes**: YES (for Architect, PM, and Gantt features)
+- **Testing agent used after significant changes**: YES. The last full run () reported a 100% pass rate across 15+ pages after a major bug-fixing session.
 - **Troubleshoot agent used after agent stuck in loop**: NO
 - **Test files created**: None
-- **Known regressions**: The Google Sheets sync is partially broken.
+- **Known regressions**: None known, but the current issue is a visibility bug introduced with the latest feature.
 
 **Credentials to test flow:**
-- Credentials are in .
+- User credentials for all roles are available in .
 
 **What agent forgot to execute**
-- The agent is in the middle of a task. It has not forgotten anything, but it must complete the implementation and testing of the Google Sheets sync fix.</analysis>
+- The agent did not get to implement the user's final request to fix the visibility of the Indirect Cost Management page for the Accountant and Super Admin roles before the session ended.</analysis>

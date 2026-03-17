@@ -22,6 +22,7 @@ const ROLE_NAV = {
     { label: 'Accounts Board', path: '/accounts-board' },
     { label: 'Approvals', path: '/approvals' },
     { label: 'Expenses', path: '/expenses' },
+    { label: 'Indirect Costs', path: '/indirect-costs' },
     { label: 'HR Portal', path: '/hr-portal' },
   ],
   general_manager: [
@@ -80,6 +81,7 @@ const ROLE_SUB_MENUS = {
       { label: 'Financial Overview', path: '/financial-overview' },
       { label: 'Approvals', path: '/approvals' },
       { label: 'Expenses', path: '/expenses' },
+      { label: 'Indirect Costs', path: '/indirect-costs' },
       { label: 'HR Portal', path: '/hr-portal' },
     ],
     '/planning-board': [{ label: 'Planning Board', path: '/planning-board' }],

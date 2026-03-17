@@ -7,7 +7,7 @@ import requests
 import os
 import time
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://crew-manage-1.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://indirect-costs-ui.preview.emergentagent.com').rstrip('/')
 API = f"{BASE_URL}/api"
 
 # Demo user emails from seed data

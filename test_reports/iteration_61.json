@@ -1,0 +1,77 @@
+{
+  "summary": "Testing Indirect Cost Management navigation for Accountant and Super Admin roles. Accountant navigation works correctly. Super Admin has a sub-menu display bug.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AppHeader.jsx sub-nav",
+        "issue": "When Super Admin clicks 'Finance' nav and lands on /financial-overview, the wrong sub-menu (GM module) is shown instead of Finance module sub-menu",
+        "selector": "[data-testid=\"sub-nav\"]",
+        "priority": "MEDIUM",
+        "root_cause": "Path '/financial-overview' exists in both '/financial-overview' module AND '/gm-dashboard' module in ROLE_SUB_MENUS. buildPathMap() overwrites, so '/financial-overview' maps to '/gm-dashboard' (last processed). Fix: Remove '/financial-overview' from GM sub-menu items (line 100), or modify buildPathMap logic."
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_61.json"],
+  "action_items": [
+    "Fix AppHeader.jsx line 100: Remove duplicate '/financial-overview' from GM sub-menu OR fix buildPathMap logic to prioritize exact module key match"
+  ],
+  "critical_code_review_comments": [
+    "AppHeader.jsx line 97-103: '/financial-overview' path in GM sub-menu causes path mapping conflict. When navigating to /financial-overview, getModuleKey() returns '/gm-dashboard' instead of '/financial-overview', showing wrong sub-menu."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - frontend only test",
+    "frontend": "75%"
+  },
+  "test_credentials": {
+    "accountant": "Demo Access -> Accountant (accountant@constructionos.com)",
+    "super_admin": "Demo Access -> Super Admin (admin@constructionos.com)"
+  },
+  "seed_data_creation": "N/A",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Accountant Indirect Costs nav works perfectly. Super Admin has a bug where clicking Finance shows GM sub-menu. Direct navigation to /indirect-costs works for both roles.",
+  "tests_executed": {
+    "Accountant - Indirect Costs Nav": {
+      "status": "PASS",
+      "steps": [
+        "Login via Demo Access -> Accountant",
+        "Verify 'Indirect Costs' in main nav bar",
+        "Click 'Indirect Costs' nav item",
+        "Verify page loads with Budget Overview and project data",
+        "Verify 'Add Indirect Cost' button visible"
+      ]
+    },
+    "Super Admin - Finance Nav to Indirect Costs": {
+      "status": "FAIL",
+      "issue": "Sub-nav shows GM items instead of Finance items after clicking Finance",
+      "expected_sub_nav": ["Financial Overview", "Approvals", "Expenses", "Indirect Costs", "HR Portal"],
+      "actual_sub_nav": ["GM Command Center", "PM Dashboard", "Financial Overview", "Procurement", "Work Orders"]
+    },
+    "Super Admin - Direct Navigation to /indirect-costs": {
+      "status": "PASS",
+      "steps": [
+        "Login as Super Admin",
+        "Navigate directly to /indirect-costs",
+        "Page loads correctly with Budget Overview",
+        "Sub-nav correctly shows Finance module items including 'Indirect Costs'",
+        "'Add Indirect Cost' button visible"
+      ]
+    }
+  },
+  "rca_of_the_issue": {
+    "root_cause": "In AppHeader.jsx, ROLE_SUB_MENUS.super_admin has '/financial-overview' path listed under both '/financial-overview' module key (line 80-86) AND '/gm-dashboard' module key (line 97-103). The buildPathMap() function (line 115-122) iterates through all modules and creates a path-to-module mapping. Since JavaScript object iteration order is insertion order, '/financial-overview' gets mapped to '/gm-dashboard' (the last module containing it), overwriting the correct '/financial-overview' mapping.",
+    "reproduction_steps": [
+      "Login as Super Admin",
+      "Click 'Finance' in main nav",
+      "Observe sub-nav shows GM module items instead of Finance module items"
+    ],
+    "mitigation": "Remove 'Financial Overview' from GM sub-menu (line 100 in AppHeader.jsx) since it already exists in the Finance module. Alternative: Modify buildPathMap to check if the path equals the module key and prioritize that mapping."
+  }
+}
