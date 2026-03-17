@@ -62,6 +62,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Added "Indirect Costs" nav item to Accountant's main nav bar
   - Added "Indirect Costs" to Super Admin's Finance sub-menu
   - Fixed Finance sub-nav conflict (Financial Overview was duplicated in GM sub-menu)
+- [x] **Indirect Expenses Integrated into Accounts Board (Mar 17, 2026)**:
+  - Split Cashbook expense tab into 3 sub-tabs: Income, Direct Expense, Indirect
+  - Indirect tab embeds full indirect cost management (expenses, budget overview, allocations)
+  - Create/Approve/Confirm workflows available inline via dialogs
+  - No separate page needed — all data accessible from Accounts Board
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`

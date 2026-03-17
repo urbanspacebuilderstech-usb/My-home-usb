@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
@@ -829,7 +829,7 @@ function IndirectExpenseSection({ userRole }) {
       {/* ── CREATE DIALOG ── */}
       <Dialog open={createDialog} onOpenChange={(open) => { setCreateDialog(open); if (!open) setDistributionPreview(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add Indirect Cost (Overhead)</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Add Indirect Cost (Overhead)</DialogTitle><DialogDescription>This entry requires approval. Once confirmed, it auto-distributes across active projects.</DialogDescription></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
