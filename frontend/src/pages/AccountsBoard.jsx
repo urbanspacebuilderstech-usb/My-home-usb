@@ -17,7 +17,8 @@ import {
   TrendingUp, Banknote, Landmark, PiggyBank, CircleDollarSign, RefreshCw,
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
-  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff
+  AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff,
+  Lock, PieChart
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -491,8 +492,454 @@ function PettyCashManagement({ onBack }) {
   );
 }
 
+// ============ INDIRECT EXPENSE SECTION ============
+const INDIRECT_PAYMENT_METHODS = [
+  { value: 'cash', label: 'Cash' }, { value: 'cheque', label: 'Cheque' },
+  { value: 'bank_transfer', label: 'Bank Transfer' }, { value: 'upi', label: 'UPI' }
+];
+
+function IndirectExpenseSection({ userRole }) {
+  const [costs, setCosts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [budgetOverview, setBudgetOverview] = useState(null);
+  const [allocations, setAllocations] = useState([]);
+  const [indirectLoading, setIndirectLoading] = useState(true);
+  const [viewMode, setViewMode] = useState('expenses'); // expenses, budget, allocations
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const [createDialog, setCreateDialog] = useState(false);
+  const [approveDialog, setApproveDialog] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState(false);
+  const [selectedCost, setSelectedCost] = useState(null);
+  const [distributionPreview, setDistributionPreview] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+
+  const [createForm, setCreateForm] = useState({
+    category: '', description: '', amount: '',
+    payment_method: 'bank_transfer', vendor_name: '',
+    invoice_number: '', invoice_date: '', remarks: ''
+  });
+  const [confirmForm, setConfirmForm] = useState({ payment_date: '', reference_number: '', remarks: '' });
+
+  const fetchIndirect = useCallback(async (showLoader = true) => {
+    try {
+      if (showLoader) setIndirectLoading(true);
+      const [costsRes, catsRes, budgetRes, allocRes] = await Promise.all([
+        axios.get(`${API}/financial/indirect-costs`),
+        axios.get(`${API}/financial/indirect-cost-categories`),
+        axios.get(`${API}/financial/project-budget-overview`).catch(() => ({ data: null })),
+        axios.get(`${API}/financial/indirect-cost-allocations`).catch(() => ({ data: [] }))
+      ]);
+      setCosts(costsRes.data);
+      setCategories(catsRes.data);
+      if (budgetRes.data) setBudgetOverview(budgetRes.data);
+      setAllocations(allocRes.data || []);
+    } catch { /* ignore */ }
+    finally { setIndirectLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchIndirect(); }, [fetchIndirect]);
+
+  const fetchPreview = async (amount) => {
+    if (!amount || parseFloat(amount) <= 0) { setDistributionPreview(null); return; }
+    try {
+      const res = await axios.get(`${API}/financial/indirect-cost-distribution-preview?amount=${parseFloat(amount)}`);
+      setDistributionPreview(res.data);
+    } catch { setDistributionPreview(null); }
+  };
+
+  const handleCreateCost = async () => {
+    if (!createForm.category || !createForm.description || !createForm.amount) {
+      toast.error('Category, description, and amount are required'); return;
+    }
+    try {
+      await axios.post(`${API}/financial/indirect-costs`, {
+        ...createForm, amount: parseFloat(createForm.amount),
+        invoice_date: createForm.invoice_date ? new Date(createForm.invoice_date).toISOString() : null
+      });
+      toast.success('Indirect cost created. Pending approval.');
+      setCreateDialog(false);
+      setCreateForm({ category: '', description: '', amount: '', payment_method: 'bank_transfer', vendor_name: '', invoice_number: '', invoice_date: '', remarks: '' });
+      setDistributionPreview(null);
+      fetchIndirect(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create');
+    }
+  };
+
+  const handleApprove = async (approved) => {
+    try {
+      await axios.patch(`${API}/financial/indirect-costs/${selectedCost.indirect_cost_id}/approve`, {
+        approved, rejection_reason: approved ? null : rejectionReason
+      });
+      toast.success(approved ? 'Approved' : 'Rejected');
+      setApproveDialog(false); setSelectedCost(null); setRejectionReason('');
+      fetchIndirect(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!confirmForm.reference_number || !confirmForm.payment_date) {
+      toast.error('Payment date and reference required'); return;
+    }
+    try {
+      await axios.patch(`${API}/financial/indirect-costs/${selectedCost.indirect_cost_id}/confirm`, {
+        payment_date: new Date(confirmForm.payment_date).toISOString(),
+        reference_number: confirmForm.reference_number, remarks: confirmForm.remarks || null
+      });
+      toast.success('Payment confirmed! Cost auto-distributed.');
+      setConfirmDialog(false); setSelectedCost(null);
+      setConfirmForm({ payment_date: '', reference_number: '', remarks: '' });
+      fetchIndirect(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed');
+    }
+  };
+
+  const getCategoryLabel = (v) => categories.find(c => c.value === v)?.label || v;
+  const canCreate = ['accountant', 'super_admin'].includes(userRole);
+  const canApprove = ['super_admin', 'general_manager'].includes(userRole);
+  const canConfirm = ['accountant', 'super_admin'].includes(userRole);
+  const fmtI = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
+  const fmtIL = (n) => { if (!n) return '0'; if (n >= 10000000) return `${(n/10000000).toFixed(2)} Cr`; if (n >= 100000) return `${(n/100000).toFixed(2)} L`; return fmt(n); };
+
+  const filteredCosts = costs.filter(c => statusFilter === 'all' ? true : c.status === statusFilter);
+  const stats = {
+    pending: costs.filter(c => c.status === 'pending').length,
+    approved: costs.filter(c => c.status === 'approved').length,
+    confirmed: costs.filter(c => c.status === 'confirmed').length,
+    rejected: costs.filter(c => c.status === 'rejected').length,
+    totalConfirmed: costs.filter(c => c.status === 'confirmed').reduce((s, c) => s + (c.amount || 0), 0)
+  };
+
+  const getStatusBadge = (status) => {
+    const m = { pending: ['Pending', 'bg-yellow-100 text-yellow-700'], approved: ['Approved', 'bg-amber-50 text-amber-700'], confirmed: ['Confirmed', 'bg-green-100 text-green-700'], rejected: ['Rejected', 'bg-red-100 text-red-700'] };
+    const [label, cls] = m[status] || [status, 'bg-gray-100'];
+    return <Badge className={cls}>{label}</Badge>;
+  };
+
+  if (indirectLoading) return <div className="flex justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-violet-600" /></div>;
+
+  const bo = budgetOverview;
+
+  return (
+    <div className="space-y-3" data-testid="indirect-expense-section">
+      {/* View Mode Tabs + Add Button */}
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        {[
+          { key: 'expenses', label: `Expenses (${costs.length})`, icon: Clock },
+          { key: 'budget', label: 'Budget Overview', icon: PieChart },
+          { key: 'allocations', label: `Allocations (${allocations.length})`, icon: ArrowUpRight },
+        ].map(t => (
+          <Button key={t.key} size="sm" variant={viewMode === t.key ? 'default' : 'outline'}
+            className={`text-[10px] sm:text-xs h-6 sm:h-7 px-2 sm:px-3 gap-1 ${viewMode === t.key ? 'bg-violet-600 hover:bg-violet-700' : ''}`}
+            onClick={() => setViewMode(t.key)} data-testid={`indirect-view-${t.key}`}>
+            <t.icon className="h-3 w-3" /> {t.label}
+          </Button>
+        ))}
+        {canCreate && (
+          <div className="ml-auto">
+            <Button size="sm" className="bg-violet-600 hover:bg-violet-700 gap-1 h-6 sm:h-7 text-[10px] sm:text-xs"
+              onClick={() => setCreateDialog(true)} data-testid="add-indirect-cost-inline-btn">
+              <Plus className="h-3 w-3" /> Add Indirect Cost
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── EXPENSES VIEW ── */}
+      {viewMode === 'expenses' && (
+        <>
+          {/* Status Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {[
+              { key: 'all', label: 'All', count: costs.length, color: 'violet' },
+              { key: 'pending', label: 'Pending', count: stats.pending, color: 'yellow' },
+              { key: 'approved', label: 'Approved', count: stats.approved, color: 'amber' },
+              { key: 'confirmed', label: 'Confirmed', count: stats.confirmed, color: 'green' },
+              { key: 'rejected', label: 'Rejected', count: stats.rejected, color: 'red' },
+            ].map(s => (
+              <div key={s.key}
+                className={`rounded-lg border p-2 text-center cursor-pointer transition-all hover:shadow-md ${statusFilter === s.key ? 'ring-2 ring-violet-400 ring-offset-1' : ''} bg-${s.color}-50 border-${s.color}-200`}
+                onClick={() => setStatusFilter(s.key)} data-testid={`indirect-status-${s.key}`}>
+                <p className={`text-lg font-bold text-${s.color}-700`}>{s.count}</p>
+                <p className={`text-[10px] text-${s.color}-600`}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Indirect Cost Table */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs" data-testid="indirect-costs-table">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Vendor</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {filteredCosts.length === 0 ? (
+                      <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">No indirect cost entries</td></tr>
+                    ) : filteredCosts.map(cost => (
+                      <tr key={cost.indirect_cost_id} className="hover:bg-gray-50" data-testid={`indirect-row-${cost.indirect_cost_id}`}>
+                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(cost.category)}</Badge></td>
+                        <td className="px-3 py-2 font-medium">{cost.description}</td>
+                        <td className="px-3 py-2 text-gray-600">{cost.vendor_name || '-'}</td>
+                        <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(cost.amount)}</td>
+                        <td className="px-3 py-2 text-center">{getStatusBadge(cost.status)}</td>
+                        <td className="px-3 py-2 text-center space-x-1">
+                          {cost.status === 'pending' && canApprove && (
+                            <Button size="sm" className="h-6 text-[10px]" onClick={() => { setSelectedCost(cost); setApproveDialog(true); }} data-testid={`indirect-review-${cost.indirect_cost_id}`}>Review</Button>
+                          )}
+                          {cost.status === 'approved' && canConfirm && (
+                            <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700" onClick={() => { setSelectedCost(cost); setConfirmDialog(true); }} data-testid={`indirect-confirm-${cost.indirect_cost_id}`}>Confirm</Button>
+                          )}
+                          {cost.status === 'confirmed' && <span className="text-[10px] text-green-600"><Lock className="h-3 w-3 inline" /> Locked</span>}
+                          {cost.status === 'rejected' && <span className="text-[10px] text-red-500 truncate max-w-[100px] inline-block">{cost.rejection_reason || 'Rejected'}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* ── BUDGET OVERVIEW ── */}
+      {viewMode === 'budget' && bo && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+            <Card className="bg-blue-50 border-blue-200"><CardContent className="p-3 text-center">
+              <Building2 className="h-4 w-4 mx-auto mb-1 text-blue-600" />
+              <p className="text-base font-bold text-blue-700">₹{fmtIL(bo.portfolio_total)}</p>
+              <p className="text-[10px] text-blue-600">Portfolio ({bo.projects?.length || 0} Projects)</p>
+            </CardContent></Card>
+            <Card className="bg-orange-50 border-orange-200"><CardContent className="p-3 text-center">
+              <PieChart className="h-4 w-4 mx-auto mb-1 text-orange-600" />
+              <p className="text-base font-bold text-orange-700">₹{fmtIL(bo.total_indirect_budget)}</p>
+              <p className="text-[10px] text-orange-600">20% Indirect Budget</p>
+            </CardContent></Card>
+            <Card className="bg-red-50 border-red-200"><CardContent className="p-3 text-center">
+              <TrendingUp className="h-4 w-4 mx-auto mb-1 text-red-600" />
+              <p className="text-base font-bold text-red-700">₹{fmtIL(bo.total_indirect_spent)}</p>
+              <p className="text-[10px] text-red-600">Indirect Spent</p>
+            </CardContent></Card>
+            <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-center">
+              <TrendingUp className="h-4 w-4 mx-auto mb-1 text-green-600" />
+              <p className="text-base font-bold text-green-700">₹{fmtIL(bo.total_indirect_remaining)}</p>
+              <p className="text-[10px] text-green-600">Remaining (Profit)</p>
+            </CardContent></Card>
+          </div>
+          <Card>
+            <CardHeader className="border-b py-2 px-4"><CardTitle className="text-xs font-semibold">Project-wise Budget (80/20 Rule)</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Value</th>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600">Share</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Direct (80%)</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Indirect (20%)</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Spent</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Remaining</th>
+                      <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(bo.projects || []).map(p => {
+                      const usedPct = p.indirect_budget > 0 ? (p.indirect_spent / p.indirect_budget * 100) : 0;
+                      return (
+                        <tr key={p.project_id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2"><span className="font-medium">{p.name}</span> <Badge variant="outline" className="text-[9px] ml-1">{p.status}</Badge></td>
+                          <td className="px-3 py-2 text-right font-bold">₹{fmtIL(p.total_value)}</td>
+                          <td className="px-3 py-2 text-center"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{p.share_pct}%</Badge></td>
+                          <td className="px-3 py-2 text-right text-gray-600">₹{fmtIL(p.direct_budget)}</td>
+                          <td className="px-3 py-2 text-right text-orange-600 font-medium">₹{fmtIL(p.indirect_budget)}</td>
+                          <td className="px-3 py-2 text-right text-red-600 font-medium">₹{fmtIL(p.indirect_spent)}</td>
+                          <td className="px-3 py-2 text-right text-green-600 font-bold">₹{fmtIL(p.indirect_remaining)}</td>
+                          <td className="px-3 py-2 text-center">
+                            {p.is_exhausted ? <Badge className="bg-red-100 text-red-700 text-[10px]"><AlertTriangle className="h-2.5 w-2.5 inline mr-0.5" />Exhausted</Badge>
+                              : usedPct > 75 ? <Badge className="bg-yellow-100 text-yellow-700 text-[10px]">{usedPct.toFixed(0)}% Used</Badge>
+                              : <Badge className="bg-green-100 text-green-700 text-[10px]">{usedPct.toFixed(0)}% Used</Badge>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {(!bo.projects || bo.projects.length === 0) && (
+                      <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-400">No active projects</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+      {viewMode === 'budget' && !bo && <Card><CardContent className="p-8 text-center text-gray-400">No budget data</CardContent></Card>}
+
+      {/* ── ALLOCATIONS VIEW ── */}
+      {viewMode === 'allocations' && (
+        <Card>
+          <CardHeader className="border-b py-2 px-4"><CardTitle className="text-xs font-semibold">Auto-Distribution History</CardTitle></CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Category</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Description</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600">Share</th>
+                    <th className="px-3 py-2 text-right font-semibold text-gray-600">Amount</th>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {allocations.length === 0 ? (
+                    <tr><td colSpan="6" className="px-4 py-8 text-center text-gray-400">No allocations yet. Confirm an indirect cost to see distribution.</td></tr>
+                  ) : allocations.map((a, i) => (
+                    <tr key={a.allocation_id || i} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 font-medium">{a.project_name}</td>
+                      <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{getCategoryLabel(a.category)}</Badge></td>
+                      <td className="px-3 py-2 text-gray-600">{a.description}</td>
+                      <td className="px-3 py-2 text-center"><Badge className="bg-blue-100 text-blue-700 text-[10px]">{a.share_pct}%</Badge></td>
+                      <td className="px-3 py-2 text-right font-bold text-violet-700">{fmtI(a.amount)}</td>
+                      <td className="px-3 py-2 text-gray-500">{a.created_at ? new Date(a.created_at).toLocaleDateString('en-IN') : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── CREATE DIALOG ── */}
+      <Dialog open={createDialog} onOpenChange={(open) => { setCreateDialog(open); if (!open) setDistributionPreview(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Add Indirect Cost (Overhead)</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Category *</Label>
+                <Select value={createForm.category} onValueChange={(v) => setCreateForm({ ...createForm, category: v })}>
+                  <SelectTrigger data-testid="indirect-select-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+                  <SelectContent>{categories.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Amount *</Label>
+                <Input type="number" value={createForm.amount} onChange={(e) => { setCreateForm({ ...createForm, amount: e.target.value }); if (e.target.value && parseFloat(e.target.value) > 0) fetchPreview(e.target.value); else setDistributionPreview(null); }} placeholder="Enter amount" data-testid="indirect-input-amount" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Description *</Label>
+              <Input value={createForm.description} onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })} placeholder="E.g., Marketing campaign Q1" data-testid="indirect-input-description" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Payment Method</Label>
+                <Select value={createForm.payment_method} onValueChange={(v) => setCreateForm({ ...createForm, payment_method: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{INDIRECT_PAYMENT_METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Vendor/Payee</Label>
+                <Input value={createForm.vendor_name} onChange={(e) => setCreateForm({ ...createForm, vendor_name: e.target.value })} placeholder="Vendor name" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Invoice #</Label><Input value={createForm.invoice_number} onChange={(e) => setCreateForm({ ...createForm, invoice_number: e.target.value })} placeholder="INV-001" /></div>
+              <div><Label className="text-xs">Invoice Date</Label><Input type="date" value={createForm.invoice_date} onChange={(e) => setCreateForm({ ...createForm, invoice_date: e.target.value })} /></div>
+            </div>
+            <div><Label className="text-xs">Remarks</Label><Textarea value={createForm.remarks} onChange={(e) => setCreateForm({ ...createForm, remarks: e.target.value })} rows={2} /></div>
+            {distributionPreview && (
+              <Card className="bg-violet-50 border-violet-200">
+                <CardHeader className="py-1.5 px-3 border-b border-violet-200"><CardTitle className="text-xs text-violet-700">Auto-Distribution Preview ({fmtI(distributionPreview.amount)})</CardTitle></CardHeader>
+                <CardContent className="p-2">
+                  {distributionPreview.warnings?.length > 0 && distributionPreview.warnings.map((w, i) => (
+                    <p key={i} className="text-[10px] text-orange-600 flex items-start gap-1 mb-1"><AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" /> {w}</p>
+                  ))}
+                  {distributionPreview.distributions?.map(d => (
+                    <div key={d.project_id} className="flex items-center justify-between text-xs py-0.5">
+                      <span className="flex items-center gap-1.5"><Badge className={d.is_capped ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'} variant="outline">{d.share_pct}%</Badge> <span className="text-gray-700 truncate max-w-[180px]">{d.name}</span></span>
+                      <span className="font-bold text-violet-700">{fmtI(d.amount)}</span>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateCost} className="bg-violet-600 hover:bg-violet-700" data-testid="submit-indirect-cost-inline"><Plus className="h-4 w-4 mr-1" /> Submit for Approval</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── APPROVE DIALOG ── */}
+      <Dialog open={approveDialog} onOpenChange={setApproveDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Review Indirect Cost</DialogTitle></DialogHeader>
+          {selectedCost && (
+            <div className="space-y-3">
+              <Card className="bg-violet-50 border-violet-200"><CardContent className="p-3">
+                <p className="font-semibold">{getCategoryLabel(selectedCost.category)}</p>
+                <p className="text-sm text-gray-600">{selectedCost.description}</p>
+                <p className="text-2xl font-bold text-violet-700 mt-1">{fmtI(selectedCost.amount)}</p>
+                {selectedCost.vendor_name && <p className="text-sm text-gray-500">Vendor: {selectedCost.vendor_name}</p>}
+              </CardContent></Card>
+              <div><Label className="text-xs">Rejection Reason (if rejecting)</Label><Textarea value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={2} /></div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setApproveDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => handleApprove(false)} disabled={!rejectionReason} data-testid="indirect-reject-btn"><ThumbsDown className="h-4 w-4 mr-1" /> Reject</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(true)} data-testid="indirect-approve-btn"><ThumbsUp className="h-4 w-4 mr-1" /> Approve</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CONFIRM PAYMENT DIALOG ── */}
+      <Dialog open={confirmDialog} onOpenChange={setConfirmDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Confirm Payment</DialogTitle></DialogHeader>
+          {selectedCost && (
+            <div className="space-y-3">
+              <Card className="bg-green-50 border-green-200"><CardContent className="p-3">
+                <p className="font-semibold text-sm">{selectedCost.description}</p>
+                <p className="text-2xl font-bold text-green-700 mt-1">{fmtI(selectedCost.amount)}</p>
+              </CardContent></Card>
+              <div><Label className="text-xs">Payment Date *</Label><Input type="date" value={confirmForm.payment_date} onChange={(e) => setConfirmForm({ ...confirmForm, payment_date: e.target.value })} data-testid="indirect-payment-date" /></div>
+              <div><Label className="text-xs">Reference / Transaction ID *</Label><Input value={confirmForm.reference_number} onChange={(e) => setConfirmForm({ ...confirmForm, reference_number: e.target.value })} placeholder="TXN-001" data-testid="indirect-reference" /></div>
+              <div><Label className="text-xs">Remarks</Label><Textarea value={confirmForm.remarks} onChange={(e) => setConfirmForm({ ...confirmForm, remarks: e.target.value })} rows={2} /></div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDialog(false)}>Cancel</Button>
+            <Button onClick={handleConfirmPayment} className="bg-green-600 hover:bg-green-700" data-testid="indirect-confirm-payment-btn"><Lock className="h-4 w-4 mr-1" /> Confirm & Distribute</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ============ CASHBOOK TAB ============
-function CashbookTab({ overview, projects }) {
+function CashbookTab({ overview, projects, userRole }) {
   const [cashbookData, setCashbookData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [subTab, setSubTab] = useState('income');
@@ -799,14 +1246,17 @@ function CashbookTab({ overview, projects }) {
         </CardContent>
       </Card>
 
-      {/* Income / Expense Sub-tabs */}
+      {/* Income / Direct Expense / Indirect Expense Sub-tabs */}
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="w-full grid grid-cols-2 mb-3">
+        <TabsList className="w-full grid grid-cols-3 mb-3">
           <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="cashbook-income-tab">
             <ArrowDownRight className="h-4 w-4" /> Income ({incomeEntries.length})
           </TabsTrigger>
           <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="cashbook-expense-tab">
-            <ArrowUpRight className="h-4 w-4" /> Expense ({allExpenseEntries.length})
+            <ArrowUpRight className="h-4 w-4" /> <span className="hidden sm:inline">Direct </span>Expense ({allExpenseEntries.length})
+          </TabsTrigger>
+          <TabsTrigger value="indirect" className="data-[state=active]:bg-violet-100 data-[state=active]:text-violet-800 gap-1.5" data-testid="cashbook-indirect-tab">
+            <PieChart className="h-4 w-4" /> Indirect
           </TabsTrigger>
         </TabsList>
 
@@ -1000,9 +1450,11 @@ function CashbookTab({ overview, projects }) {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
 
-      {/* View Entry Dialog */}
+        <TabsContent value="indirect">
+          <IndirectExpenseSection userRole={userRole} />
+        </TabsContent>
+      </Tabs>
       <Dialog open={viewDialog} onOpenChange={setViewDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Transaction Details</DialogTitle></DialogHeader>
@@ -2429,7 +2881,7 @@ export default function AccountsBoard() {
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">
-            <CashbookTab overview={overview} projects={projects} />
+            <CashbookTab overview={overview} projects={projects} userRole={user?.role} />
           </TabsContent>
 
           <TabsContent value="approvals">
