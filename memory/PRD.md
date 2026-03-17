@@ -58,6 +58,10 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Smart Balance: Exhausted projects get skipped, excess goes to others
   - Allocations History: Full audit trail of distributions
   - Access: Accountant + Super Admin create, GM/Super Admin approve
+- [x] **Indirect Cost Management Visibility Fix (Mar 17, 2026)**:
+  - Added "Indirect Costs" nav item to Accountant's main nav bar
+  - Added "Indirect Costs" to Super Admin's Finance sub-menu
+  - Fixed Finance sub-nav conflict (Financial Overview was duplicated in GM sub-menu)
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`

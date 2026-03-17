@@ -97,7 +97,6 @@ const ROLE_SUB_MENUS = {
     '/gm-dashboard': [
       { label: 'GM Command Center', path: '/gm-dashboard' },
       { label: 'PM Dashboard', path: '/pm-dashboard' },
-      { label: 'Financial Overview', path: '/financial-overview' },
       { label: 'Procurement', path: '/procurement-board-v2' },
       { label: 'Work Orders', path: '/work-order-management' },
     ],
