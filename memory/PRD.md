@@ -67,6 +67,10 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Indirect tab embeds full indirect cost management (expenses, budget overview, allocations)
   - Create/Approve/Confirm workflows available inline via dialogs
   - No separate page needed — all data accessible from Accounts Board
+- [x] **Configurable Direct/Indirect Cost Split (Mar 17, 2026)**:
+  - Super Admin can configure the indirect cost % via Settings > Company Profile (default 20%)
+  - All budget calculations dynamically use the configured percentage
+  - UI labels update everywhere: Budget Overview cards, table headers, rule name
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
