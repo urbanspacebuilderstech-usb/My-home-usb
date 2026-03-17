@@ -1,0 +1,65 @@
+{
+  "summary": "Frontend testing of Direct/Indirect cost split percentage feature in Accounts Board > Cashbook > Indirect tab completed successfully. All tests passed: Accountant sees read-only 'Set by Admin' text without edit capability, Super Admin sees Edit button and can change percentage inline, Budget Overview reflects updated percentages in rule labels and column headers.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_64.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "accountant": "accountant@constructionos.com (demo-login)",
+    "super_admin": "admin@constructionos.com (demo-login)"
+  },
+  "seed_data_creation": "N/A",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Cost Split feature in Accounts Board > Cashbook > Indirect tab is fully working. Current percentage is 20% (reset after testing). Key data-testids: cashbook-indirect-tab, edit-cost-split-btn, cost-split-input, save-cost-split-btn, indirect-view-budget. Accountant sees 'Set by Admin' text (read-only), Super Admin can edit inline. Budget Overview shows dynamic 'X/Y Rule' and column headers.",
+  "tests_executed": {
+    "accountant_tests": {
+      "navigation_to_indirect_tab": "PASS",
+      "cost_split_bar_visible": "PASS",
+      "direct_percentage_displayed": "PASS - Shows '70% Direct' (when indirect is 30%)",
+      "set_by_admin_text_visible": "PASS - Read-only indicator shown",
+      "no_edit_button": "PASS - Edit button correctly hidden for Accountant"
+    },
+    "super_admin_tests": {
+      "navigation_to_indirect_tab": "PASS",
+      "cost_split_bar_visible": "PASS",
+      "edit_button_visible": "PASS",
+      "edit_input_appears_on_click": "PASS",
+      "change_to_25_percent": "PASS",
+      "save_shows_toast": "PASS - 'Cost split updated: Direct 75% / Indirect 25%'",
+      "bar_updates_after_save": "PASS - Shows '75% Direct / 25%'",
+      "budget_overview_75_25_rule": "PASS - Table header shows 'Project-wise Budget (75/25 Rule)'",
+      "budget_overview_25_percent_indirect_budget": "PASS - Card shows '25% Indirect Budget'",
+      "column_headers_direct_75": "PASS - Shows 'Direct (75%)'",
+      "column_headers_indirect_25": "PASS - Shows 'Indirect (25%)'",
+      "reset_to_20_percent": "PASS"
+    }
+  },
+  "verified_features": [
+    "Accountant can VIEW Cost Split bar in Accounts Board > Cashbook > Indirect tab",
+    "Accountant sees 'Set by Admin' text (read-only mode)",
+    "Accountant does NOT see Edit button",
+    "Super Admin sees Edit button next to Cost Split bar",
+    "Super Admin can click Edit, change percentage, and save",
+    "Save shows success toast with updated percentages",
+    "Cost Split bar updates immediately after save",
+    "Budget Overview shows dynamic 'X/Y Rule' in table header",
+    "Budget Overview shows dynamic 'X% Indirect Budget' in summary card",
+    "Budget Overview table shows 'Direct (X%)' and 'Indirect (Y%)' column headers"
+  ]
+}

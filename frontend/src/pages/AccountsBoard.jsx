@@ -506,6 +506,10 @@ function IndirectExpenseSection({ userRole }) {
   const [indirectLoading, setIndirectLoading] = useState(true);
   const [viewMode, setViewMode] = useState('expenses'); // expenses, budget, allocations
   const [statusFilter, setStatusFilter] = useState('all');
+  const [indirectPct, setIndirectPct] = useState(20);
+  const [editingPct, setEditingPct] = useState(false);
+  const [pctInput, setPctInput] = useState('20');
+  const [savingPct, setSavingPct] = useState(false);
 
   const [createDialog, setCreateDialog] = useState(false);
   const [approveDialog, setApproveDialog] = useState(false);
@@ -524,16 +528,20 @@ function IndirectExpenseSection({ userRole }) {
   const fetchIndirect = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setIndirectLoading(true);
-      const [costsRes, catsRes, budgetRes, allocRes] = await Promise.all([
+      const [costsRes, catsRes, budgetRes, allocRes, settingsRes] = await Promise.all([
         axios.get(`${API}/financial/indirect-costs`),
         axios.get(`${API}/financial/indirect-cost-categories`),
         axios.get(`${API}/financial/project-budget-overview`).catch(() => ({ data: null })),
-        axios.get(`${API}/financial/indirect-cost-allocations`).catch(() => ({ data: [] }))
+        axios.get(`${API}/financial/indirect-cost-allocations`).catch(() => ({ data: [] })),
+        axios.get(`${API}/settings/company`).catch(() => ({ data: null }))
       ]);
       setCosts(costsRes.data);
       setCategories(catsRes.data);
       if (budgetRes.data) setBudgetOverview(budgetRes.data);
       setAllocations(allocRes.data || []);
+      const pct = settingsRes.data?.indirect_cost_percent ?? 20;
+      setIndirectPct(pct);
+      setPctInput(String(pct));
     } catch { /* ignore */ }
     finally { setIndirectLoading(false); }
   }, []);
@@ -602,6 +610,22 @@ function IndirectExpenseSection({ userRole }) {
   const canCreate = ['accountant', 'super_admin'].includes(userRole);
   const canApprove = ['super_admin', 'general_manager'].includes(userRole);
   const canConfirm = ['accountant', 'super_admin'].includes(userRole);
+  const canEditPct = userRole === 'super_admin';
+
+  const handleSavePct = async () => {
+    const val = parseFloat(pctInput);
+    if (!val || val < 1 || val > 50) { toast.error('Enter a value between 1 and 50'); return; }
+    try {
+      setSavingPct(true);
+      await axios.patch(`${API}/settings/company`, { indirect_cost_percent: val });
+      setIndirectPct(val);
+      setEditingPct(false);
+      toast.success(`Cost split updated: Direct ${100 - val}% / Indirect ${val}%`);
+      fetchIndirect(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update');
+    } finally { setSavingPct(false); }
+  };
   const fmtI = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
   const fmtIL = (n) => { if (!n) return '0'; if (n >= 10000000) return `${(n/10000000).toFixed(2)} Cr`; if (n >= 100000) return `${(n/100000).toFixed(2)} L`; return fmt(n); };
 
@@ -626,6 +650,52 @@ function IndirectExpenseSection({ userRole }) {
 
   return (
     <div className="space-y-3" data-testid="indirect-expense-section">
+      {/* Cost Split Bar */}
+      <Card className="border-violet-200 bg-gradient-to-r from-blue-50 via-white to-violet-50">
+        <CardContent className="p-2.5 sm:p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <PieChart className="h-4 w-4 text-violet-600 shrink-0" />
+              <span className="text-xs font-semibold text-gray-700 whitespace-nowrap">Cost Split</span>
+              {/* Visual bar */}
+              <div className="flex-1 flex h-5 rounded-full overflow-hidden border border-gray-200 max-w-xs">
+                <div className="flex items-center justify-center text-[9px] font-bold text-blue-700 bg-blue-100 transition-all" style={{ width: `${100 - indirectPct}%` }}>
+                  {100 - indirectPct}% Direct
+                </div>
+                <div className="flex items-center justify-center text-[9px] font-bold text-violet-700 bg-violet-200 transition-all" style={{ width: `${indirectPct}%` }}>
+                  {indirectPct}%
+                </div>
+              </div>
+            </div>
+            {/* Edit controls - Super Admin only */}
+            {canEditPct && !editingPct && (
+              <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-violet-300 text-violet-700 hover:bg-violet-50 shrink-0"
+                onClick={() => { setEditingPct(true); setPctInput(String(indirectPct)); }} data-testid="edit-cost-split-btn">
+                <Edit className="h-3 w-3" /> Edit
+              </Button>
+            )}
+            {canEditPct && editingPct && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Input type="number" min="1" max="50" step="1" className="w-16 h-6 text-xs text-center"
+                  value={pctInput} onChange={(e) => setPctInput(e.target.value)} data-testid="cost-split-input" />
+                <span className="text-[10px] text-gray-500">%</span>
+                <Button size="sm" className="h-6 text-[10px] bg-violet-600 hover:bg-violet-700 px-2" disabled={savingPct}
+                  onClick={handleSavePct} data-testid="save-cost-split-btn">
+                  {savingPct ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 text-[10px] px-1.5" onClick={() => setEditingPct(false)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+            {/* View-only for Accountant */}
+            {!canEditPct && (
+              <span className="text-[10px] text-gray-400 shrink-0">Set by Admin</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* View Mode Tabs + Add Button */}
       <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
         {[
