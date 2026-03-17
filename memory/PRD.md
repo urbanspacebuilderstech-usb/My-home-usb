@@ -68,9 +68,10 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Create/Approve/Confirm workflows available inline via dialogs
   - No separate page needed — all data accessible from Accounts Board
 - [x] **Configurable Direct/Indirect Cost Split (Mar 17, 2026)**:
-  - Super Admin can configure the indirect cost % via Settings > Company Profile (default 20%)
-  - All budget calculations dynamically use the configured percentage
-  - UI labels update everywhere: Budget Overview cards, table headers, rule name
+  - Super Admin can configure the indirect cost % via Settings and inline in Accounts Board
+  - Visual Cost Split bar in Accountant's Indirect tab (read-only, shows "Set by Admin")
+  - Super Admin gets Edit button to change % inline with save/cancel
+  - All budget calculations and UI labels dynamically reflect the configured percentage
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
