@@ -103,6 +103,7 @@ class CompanySettings(BaseModel):
     gst_number: Optional[str] = None
     default_currency: str = "INR"
     financial_year_start: str = "April"  # Month name
+    indirect_cost_percent: float = 20.0  # Configurable indirect cost % (default 20%)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

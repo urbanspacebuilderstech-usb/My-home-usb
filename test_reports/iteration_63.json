@@ -1,0 +1,67 @@
+{
+  "summary": "Testing of configurable indirect cost percentage feature completed successfully. All backend API tests (6/6) and frontend UI tests passed. The feature allows Super Admin to configure the Direct/Indirect cost split (e.g., 70/30) via Settings > Company Profile > 'Indirect Cost %' field, and the dynamic percentage is correctly reflected in Budget Overview labels.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_indirect_cost_percent.py",
+    "/app/test_reports/pytest/pytest_indirect_cost_percent.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_indirect_cost_percent.py"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 tests passed)",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "super_admin": "Demo Access -> Super Admin (admin@constructionos.com) - Can configure indirect cost %",
+    "accountant": "Demo Access -> Accountant (accountant@constructionos.com) - Read-only access to settings"
+  },
+  "seed_data_creation": "N/A",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The indirect_cost_percent feature is fully working. Current value is 30% (set during testing). Backend APIs: GET/POST /api/settings/company returns/updates indirect_cost_percent, GET /api/financial/project-budget-overview returns indirect_cost_percent and direct_cost_percent fields. Frontend: Settings page has data-testid='indirect-cost-percent-input' with dynamic 'Direct: X% | Indirect: Y%' label. Budget Overview in Finance > Indirect Costs shows dynamic 'X/Y Rule' and percentage column headers.",
+  "tests_executed": {
+    "backend_tests": {
+      "test_get_company_settings_returns_indirect_cost_percent": "PASS - GET /api/settings/company returns indirect_cost_percent field",
+      "test_update_indirect_cost_percent_as_super_admin": "PASS - POST /api/settings/company with indirect_cost_percent updates value",
+      "test_accountant_cannot_update_indirect_cost_percent": "PASS - Accountant gets 403 when trying to update",
+      "test_project_budget_overview_returns_dynamic_percentages": "PASS - Returns indirect_cost_percent and direct_cost_percent that sum to 100",
+      "test_update_percent_reflects_in_budget_overview": "PASS - Changed percentage reflects in budget overview API",
+      "test_accountant_can_read_company_settings": "PASS - Accountant can read but not modify"
+    },
+    "frontend_tests": {
+      "Super Admin Settings Page": {
+        "status": "PASS",
+        "details": "Found Indirect Cost % input with value 30, dynamic label shows 'Direct: 70% | Indirect: 30%'"
+      },
+      "Budget Overview Dynamic Percentages": {
+        "status": "PASS", 
+        "details": "Shows '70/30 Rule', '30% Indirect Budget' label, column headers 'DIRECT (70%)' and 'INDIRECT (30%)'"
+      },
+      "Accountant Access Control": {
+        "status": "PASS",
+        "details": "Accountant can login but cannot see/modify Indirect Cost % input in Settings (403 errors)"
+      }
+    }
+  },
+  "verified_features": [
+    "GET /api/settings/company returns indirect_cost_percent field (current value: 30)",
+    "POST /api/settings/company allows Super Admin to update indirect_cost_percent",
+    "GET /api/financial/project-budget-overview returns dynamic indirect_cost_percent and direct_cost_percent",
+    "Frontend Settings page shows 'Indirect Cost %' input with data-testid='indirect-cost-percent-input'",
+    "Dynamic 'Direct: X% | Indirect: Y%' label updates as user types",
+    "Budget Overview shows dynamic 'X/Y Rule' (e.g., '70/30 Rule') reflecting configured percentage",
+    "Column headers show dynamic percentages (e.g., 'DIRECT (70%)', 'INDIRECT (30%)')",
+    "Accountant cannot modify company settings (403 Forbidden)"
+  ]
+}

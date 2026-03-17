@@ -727,7 +727,7 @@ function IndirectExpenseSection({ userRole }) {
             <Card className="bg-orange-50 border-orange-200"><CardContent className="p-3 text-center">
               <PieChart className="h-4 w-4 mx-auto mb-1 text-orange-600" />
               <p className="text-base font-bold text-orange-700">₹{fmtIL(bo.total_indirect_budget)}</p>
-              <p className="text-[10px] text-orange-600">20% Indirect Budget</p>
+              <p className="text-[10px] text-orange-600">{bo.indirect_cost_percent || 20}% Indirect Budget</p>
             </CardContent></Card>
             <Card className="bg-red-50 border-red-200"><CardContent className="p-3 text-center">
               <TrendingUp className="h-4 w-4 mx-auto mb-1 text-red-600" />
@@ -741,7 +741,7 @@ function IndirectExpenseSection({ userRole }) {
             </CardContent></Card>
           </div>
           <Card>
-            <CardHeader className="border-b py-2 px-4"><CardTitle className="text-xs font-semibold">Project-wise Budget (80/20 Rule)</CardTitle></CardHeader>
+            <CardHeader className="border-b py-2 px-4"><CardTitle className="text-xs font-semibold">Project-wise Budget ({bo.direct_cost_percent || 80}/{bo.indirect_cost_percent || 20} Rule)</CardTitle></CardHeader>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -750,8 +750,8 @@ function IndirectExpenseSection({ userRole }) {
                       <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Value</th>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600">Share</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Direct (80%)</th>
-                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Indirect (20%)</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Direct ({bo.direct_cost_percent || 80}%)</th>
+                      <th className="px-3 py-2 text-right font-semibold text-gray-600">Indirect ({bo.indirect_cost_percent || 20}%)</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Spent</th>
                       <th className="px-3 py-2 text-right font-semibold text-gray-600">Remaining</th>
                       <th className="px-3 py-2 text-center font-semibold text-gray-600">Status</th>

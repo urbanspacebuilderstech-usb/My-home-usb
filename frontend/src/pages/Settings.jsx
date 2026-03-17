@@ -42,7 +42,8 @@ export default function Settings() {
     email: '',
     gst_number: '',
     default_currency: 'INR',
-    financial_year_start: 'April'
+    financial_year_start: 'April',
+    indirect_cost_percent: 20
   });
 
   useEffect(() => {
@@ -67,7 +68,8 @@ export default function Settings() {
           email: settingsRes.data.email || '',
           gst_number: settingsRes.data.gst_number || '',
           default_currency: settingsRes.data.default_currency || 'INR',
-          financial_year_start: settingsRes.data.financial_year_start || 'April'
+          financial_year_start: settingsRes.data.financial_year_start || 'April',
+          indirect_cost_percent: settingsRes.data.indirect_cost_percent ?? 20
         });
       }
       setSummary(summaryRes.data);
@@ -290,6 +292,28 @@ export default function Settings() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="indirect_cost_percent">Indirect Cost %</Label>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          id="indirect_cost_percent"
+                          type="number"
+                          min="1"
+                          max="50"
+                          step="1"
+                          data-testid="indirect-cost-percent-input"
+                          value={companySettings.indirect_cost_percent}
+                          onChange={(e) => setCompanySettings({...companySettings, indirect_cost_percent: parseFloat(e.target.value) || 0})}
+                          className="w-24"
+                        />
+                        <div className="flex-1 text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
+                          <span className="font-semibold text-blue-700">Direct: {100 - (companySettings.indirect_cost_percent || 0)}%</span>
+                          <span className="mx-2">|</span>
+                          <span className="font-semibold text-violet-700">Indirect: {companySettings.indirect_cost_percent || 0}%</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Split of project value between direct costs and indirect/overhead costs</p>
                     </div>
                     <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="logo_url">Logo URL</Label>

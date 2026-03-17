@@ -3841,6 +3841,7 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
     
     if projects:
         portfolio_total = sum(p.get("total_value", 0) for p in projects)
+        indirect_pct = await get_indirect_cost_pct()
         
         # Get current allocations
         existing_allocs = await db.indirect_cost_allocations.find({}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(5000)
@@ -3858,7 +3859,7 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
             value = p.get("total_value", 0)
             share_pct = (value / portfolio_total) if portfolio_total > 0 else 0
             share_amount = round(cost_amount * share_pct, 2)
-            indirect_budget = value * 0.20
+            indirect_budget = value * indirect_pct
             already_spent = alloc_by_project.get(p["project_id"], 0)
             remaining = indirect_budget - already_spent
             
@@ -3933,14 +3934,20 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
 
 # ==================== INDIRECT COST AUTO-DISTRIBUTION ====================
 
-DIRECT_COST_PERCENT = 0.80
-INDIRECT_COST_PERCENT = 0.20  # 20% of project value = indirect + profit
+async def get_indirect_cost_pct():
+    """Get the configured indirect cost percentage from company settings."""
+    settings = await db.company_settings.find_one({}, {"_id": 0, "indirect_cost_percent": 1})
+    pct = (settings or {}).get("indirect_cost_percent", 20.0)
+    return pct / 100.0  # Return as decimal (e.g. 0.20)
 
 @router.get("/financial/project-budget-overview")
 async def get_project_budget_overview(user: User = Depends(get_current_user)):
-    """Get all active projects with their 80/20 budget split and indirect allocation status"""
+    """Get all active projects with their budget split and indirect allocation status"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    
+    indirect_pct = await get_indirect_cost_pct()
+    direct_pct = 1.0 - indirect_pct
     
     projects = await db.projects.find(
         {"status": {"$nin": ["cancelled", "completed"]}},
@@ -3963,7 +3970,7 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
     for p in projects:
         value = p.get("total_value", 0)
         share_pct = (value / portfolio_total * 100) if portfolio_total > 0 else 0
-        indirect_budget = value * INDIRECT_COST_PERCENT
+        indirect_budget = value * indirect_pct
         indirect_spent = alloc_by_project.get(p["project_id"], 0)
         remaining = indirect_budget - indirect_spent
         
@@ -3973,7 +3980,7 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
             "total_value": value,
             "status": p["status"],
             "share_pct": round(share_pct, 2),
-            "direct_budget": value * DIRECT_COST_PERCENT,
+            "direct_budget": value * direct_pct,
             "indirect_budget": indirect_budget,
             "indirect_spent": indirect_spent,
             "indirect_remaining": max(0, remaining),
@@ -3984,9 +3991,11 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
     return {
         "projects": sorted(result, key=lambda x: x["total_value"], reverse=True),
         "portfolio_total": portfolio_total,
-        "total_indirect_budget": portfolio_total * INDIRECT_COST_PERCENT,
+        "total_indirect_budget": portfolio_total * indirect_pct,
         "total_indirect_spent": sum(alloc_by_project.values()),
-        "total_indirect_remaining": portfolio_total * INDIRECT_COST_PERCENT - sum(alloc_by_project.values())
+        "total_indirect_remaining": portfolio_total * indirect_pct - sum(alloc_by_project.values()),
+        "indirect_cost_percent": round(indirect_pct * 100),
+        "direct_cost_percent": round(direct_pct * 100)
     }
 
 
@@ -3995,6 +4004,8 @@ async def preview_distribution(amount: float, user: User = Depends(get_current_u
     """Preview how an indirect cost will be distributed across active projects"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
+    
+    indirect_pct = await get_indirect_cost_pct()
     
     projects = await db.projects.find(
         {"status": {"$nin": ["cancelled", "completed"]}},
@@ -4023,7 +4034,7 @@ async def preview_distribution(amount: float, user: User = Depends(get_current_u
         value = p.get("total_value", 0)
         share_pct = (value / portfolio_total) if portfolio_total > 0 else 0
         share_amount = round(amount * share_pct, 2)
-        indirect_budget = value * INDIRECT_COST_PERCENT
+        indirect_budget = value * indirect_pct
         already_spent = alloc_by_project.get(p["project_id"], 0)
         remaining = indirect_budget - already_spent
         

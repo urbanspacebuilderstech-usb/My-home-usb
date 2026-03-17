@@ -191,7 +191,7 @@ export default function IndirectCostManagement() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Indirect Cost Management</h1>
-            <p className="text-sm text-gray-500">80% Direct / 20% Indirect+Profit per project</p>
+            <p className="text-sm text-gray-500">{100 - (bo?.indirect_cost_percent || 20)}% Direct / {bo?.indirect_cost_percent || 20}% Indirect+Profit per project</p>
           </div>
           {canCreate && (
             <Button onClick={() => setCreateDialog(true)} className="bg-violet-600 hover:bg-violet-700 gap-1.5" data-testid="add-indirect-cost-btn">
@@ -225,7 +225,7 @@ export default function IndirectCostManagement() {
                     <CardContent className="p-4 text-center">
                       <PieChart className="h-5 w-5 mx-auto mb-1 text-orange-600" />
                       <p className="text-lg font-bold text-orange-700">{fmtL(bo.total_indirect_budget)}</p>
-                      <p className="text-xs text-orange-600">20% Indirect Budget</p>
+                      <p className="text-xs text-orange-600">{bo.indirect_cost_percent || 20}% Indirect Budget</p>
                     </CardContent>
                   </Card>
                   <Card className="bg-red-50 border-red-200">
@@ -247,7 +247,7 @@ export default function IndirectCostManagement() {
                 {/* Per-Project Budget Table */}
                 <Card>
                   <CardHeader className="border-b py-3">
-                    <CardTitle className="text-sm font-semibold">Project-wise Budget Breakdown (80/20 Rule)</CardTitle>
+                    <CardTitle className="text-sm font-semibold">Project-wise Budget Breakdown ({100 - (bo.indirect_cost_percent || 20)}/{bo.indirect_cost_percent || 20} Rule)</CardTitle>
                   </CardHeader>
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
@@ -257,8 +257,8 @@ export default function IndirectCostManagement() {
                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">PROJECT</th>
                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">VALUE</th>
                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">SHARE %</th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">DIRECT (80%)</th>
-                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">INDIRECT (20%)</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">DIRECT ({100 - (bo.indirect_cost_percent || 20)}%)</th>
+                            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">INDIRECT ({bo.indirect_cost_percent || 20}%)</th>
                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">SPENT</th>
                             <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">REMAINING</th>
                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">STATUS</th>

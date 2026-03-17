@@ -1880,6 +1880,7 @@ class CompanySettingsCreate(BaseModel):
     gst_number: Optional[str] = None
     default_currency: str = "INR"
     financial_year_start: str = "April"
+    indirect_cost_percent: Optional[float] = 20.0
 
 
 class CompanySettingsUpdate(BaseModel):
@@ -1891,6 +1892,7 @@ class CompanySettingsUpdate(BaseModel):
     gst_number: Optional[str] = None
     default_currency: Optional[str] = None
     financial_year_start: Optional[str] = None
+    indirect_cost_percent: Optional[float] = None
 
 
 @router.get("/settings/company")
@@ -1908,8 +1910,12 @@ async def get_company_settings(user: User = Depends(get_current_user)):
             "email": "",
             "gst_number": "",
             "default_currency": "INR",
-            "financial_year_start": "April"
+            "financial_year_start": "April",
+            "indirect_cost_percent": 20.0
         }
+    # Ensure indirect_cost_percent is always present
+    if "indirect_cost_percent" not in settings:
+        settings["indirect_cost_percent"] = 20.0
     return settings
 
 
