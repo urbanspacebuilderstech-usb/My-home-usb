@@ -936,6 +936,7 @@ class PayrollStatus(str, Enum):
 # ==================== FINANCIAL CONTROL MODELS ====================
 
 class IndirectCostCategory(str, Enum):
+    MARKETING = "marketing"
     OFFICE_RENT = "office_rent"
     STAFF_SALARY = "staff_salary"
     UTILITIES = "utilities"

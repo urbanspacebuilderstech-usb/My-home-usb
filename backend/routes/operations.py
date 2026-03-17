@@ -3650,6 +3650,7 @@ async def create_financial_audit_log(
 # ==================== INDIRECT COST ENDPOINTS ====================
 
 INDIRECT_COST_CATEGORIES = [
+    {"value": "marketing", "label": "Marketing & Advertising"},
     {"value": "office_rent", "label": "Office Rent"},
     {"value": "staff_salary", "label": "Staff Salary"},
     {"value": "utilities", "label": "Utilities (Electricity, Water, etc.)"},
@@ -3704,9 +3705,9 @@ class IndirectCostCreate(BaseModel):
 
 @router.post("/financial/indirect-costs")
 async def create_indirect_cost(data: IndirectCostCreate, user: User = Depends(get_current_user)):
-    """Create indirect cost entry (Accountant only) - Requires approval"""
-    if user.role != UserRole.ACCOUNTANT:
-        raise HTTPException(status_code=403, detail="Only Accountant can create indirect cost entries")
+    """Create indirect cost entry (Accountant or Super Admin) - Requires approval"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can create indirect cost entries")
     
     cost = IndirectCost(
         category=data.category,
@@ -3807,9 +3808,9 @@ class IndirectCostConfirm(BaseModel):
 
 @router.patch("/financial/indirect-costs/{cost_id}/confirm")
 async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: User = Depends(get_current_user)):
-    """Confirm payment of approved indirect cost (Accountant only)"""
-    if user.role != UserRole.ACCOUNTANT:
-        raise HTTPException(status_code=403, detail="Only Accountant can confirm payment")
+    """Confirm payment of approved indirect cost (Accountant or Super Admin)"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant or Super Admin can confirm payment")
     
     cost = await db.indirect_costs.find_one({"indirect_cost_id": cost_id}, {"_id": 0})
     if not cost:
@@ -3830,6 +3831,71 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
     }
     
     await db.indirect_costs.update_one({"indirect_cost_id": cost_id}, {"$set": update})
+    
+    # ===== AUTO-DISTRIBUTE ACROSS ACTIVE PROJECTS =====
+    cost_amount = cost.get("amount", 0)
+    projects = await db.projects.find(
+        {"status": {"$nin": ["cancelled", "completed"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "total_value": 1}
+    ).to_list(100)
+    
+    if projects:
+        portfolio_total = sum(p.get("total_value", 0) for p in projects)
+        
+        # Get current allocations
+        existing_allocs = await db.indirect_cost_allocations.find({}, {"_id": 0, "project_id": 1, "amount": 1}).to_list(5000)
+        alloc_by_project = {}
+        for a in existing_allocs:
+            pid = a.get("project_id")
+            alloc_by_project[pid] = alloc_by_project.get(pid, 0) + a.get("amount", 0)
+        
+        # Distribute proportionally with budget cap
+        overflow = 0
+        alloc_records = []
+        available_projects = []
+        
+        for p in sorted(projects, key=lambda x: x.get("total_value", 0), reverse=True):
+            value = p.get("total_value", 0)
+            share_pct = (value / portfolio_total) if portfolio_total > 0 else 0
+            share_amount = round(cost_amount * share_pct, 2)
+            indirect_budget = value * 0.20
+            already_spent = alloc_by_project.get(p["project_id"], 0)
+            remaining = indirect_budget - already_spent
+            
+            if remaining <= 0:
+                overflow += share_amount
+            elif share_amount > remaining:
+                overflow += (share_amount - remaining)
+                alloc_records.append({"project": p, "amount": round(remaining, 2), "share_pct": share_pct})
+            else:
+                alloc_records.append({"project": p, "amount": share_amount, "share_pct": share_pct})
+                available_projects.append({"project": p, "remaining": remaining - share_amount, "share_pct": share_pct})
+        
+        # Redistribute overflow
+        if overflow > 0 and available_projects:
+            avail_total = sum(a["remaining"] for a in available_projects)
+            for ap in available_projects:
+                extra = round(overflow * (ap["remaining"] / avail_total), 2) if avail_total > 0 else 0
+                for ar in alloc_records:
+                    if ar["project"]["project_id"] == ap["project"]["project_id"]:
+                        ar["amount"] = round(ar["amount"] + min(extra, ap["remaining"]), 2)
+                        break
+        
+        # Save allocation records
+        now_str = datetime.now(timezone.utc).isoformat()
+        for ar in alloc_records:
+            if ar["amount"] > 0:
+                await db.indirect_cost_allocations.insert_one({
+                    "allocation_id": f"ica_{secrets.token_hex(6)}",
+                    "indirect_cost_id": cost_id,
+                    "project_id": ar["project"]["project_id"],
+                    "project_name": ar["project"]["name"],
+                    "amount": ar["amount"],
+                    "share_pct": round(ar["share_pct"] * 100, 2),
+                    "category": cost.get("category"),
+                    "description": cost.get("description"),
+                    "created_at": now_str
+                })
     
     # Create transaction record
     txn = Transaction(
@@ -3862,6 +3928,186 @@ async def confirm_indirect_cost(cost_id: str, data: IndirectCostConfirm, user: U
     )
     
     return {"message": "Payment confirmed and locked"}
+
+
+
+# ==================== INDIRECT COST AUTO-DISTRIBUTION ====================
+
+DIRECT_COST_PERCENT = 0.80
+INDIRECT_COST_PERCENT = 0.20  # 20% of project value = indirect + profit
+
+@router.get("/financial/project-budget-overview")
+async def get_project_budget_overview(user: User = Depends(get_current_user)):
+    """Get all active projects with their 80/20 budget split and indirect allocation status"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    projects = await db.projects.find(
+        {"status": {"$nin": ["cancelled", "completed"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "total_value": 1, "status": 1}
+    ).to_list(100)
+    
+    if not projects:
+        return {"projects": [], "portfolio_total": 0, "total_indirect_budget": 0, "total_indirect_spent": 0}
+    
+    portfolio_total = sum(p.get("total_value", 0) for p in projects)
+    
+    # Get all confirmed indirect cost allocations grouped by project
+    allocations = await db.indirect_cost_allocations.find({}, {"_id": 0}).to_list(5000)
+    alloc_by_project = {}
+    for a in allocations:
+        pid = a.get("project_id")
+        alloc_by_project[pid] = alloc_by_project.get(pid, 0) + a.get("amount", 0)
+    
+    result = []
+    for p in projects:
+        value = p.get("total_value", 0)
+        share_pct = (value / portfolio_total * 100) if portfolio_total > 0 else 0
+        indirect_budget = value * INDIRECT_COST_PERCENT
+        indirect_spent = alloc_by_project.get(p["project_id"], 0)
+        remaining = indirect_budget - indirect_spent
+        
+        result.append({
+            "project_id": p["project_id"],
+            "name": p["name"],
+            "total_value": value,
+            "status": p["status"],
+            "share_pct": round(share_pct, 2),
+            "direct_budget": value * DIRECT_COST_PERCENT,
+            "indirect_budget": indirect_budget,
+            "indirect_spent": indirect_spent,
+            "indirect_remaining": max(0, remaining),
+            "profit_estimate": max(0, remaining),
+            "is_exhausted": remaining <= 0
+        })
+    
+    return {
+        "projects": sorted(result, key=lambda x: x["total_value"], reverse=True),
+        "portfolio_total": portfolio_total,
+        "total_indirect_budget": portfolio_total * INDIRECT_COST_PERCENT,
+        "total_indirect_spent": sum(alloc_by_project.values()),
+        "total_indirect_remaining": portfolio_total * INDIRECT_COST_PERCENT - sum(alloc_by_project.values())
+    }
+
+
+@router.get("/financial/indirect-cost-distribution-preview")
+async def preview_distribution(amount: float, user: User = Depends(get_current_user)):
+    """Preview how an indirect cost will be distributed across active projects"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    projects = await db.projects.find(
+        {"status": {"$nin": ["cancelled", "completed"]}},
+        {"_id": 0, "project_id": 1, "name": 1, "total_value": 1}
+    ).to_list(100)
+    
+    if not projects:
+        return {"distributions": [], "warnings": ["No active projects found"]}
+    
+    portfolio_total = sum(p.get("total_value", 0) for p in projects)
+    
+    # Get current allocations
+    allocations = await db.indirect_cost_allocations.find({}, {"_id": 0}).to_list(5000)
+    alloc_by_project = {}
+    for a in allocations:
+        pid = a.get("project_id")
+        alloc_by_project[pid] = alloc_by_project.get(pid, 0) + a.get("amount", 0)
+    
+    # First pass: calculate proportional split
+    distributions = []
+    overflow = 0
+    overflow_projects = []
+    warnings = []
+    
+    for p in sorted(projects, key=lambda x: x.get("total_value", 0), reverse=True):
+        value = p.get("total_value", 0)
+        share_pct = (value / portfolio_total) if portfolio_total > 0 else 0
+        share_amount = round(amount * share_pct, 2)
+        indirect_budget = value * INDIRECT_COST_PERCENT
+        already_spent = alloc_by_project.get(p["project_id"], 0)
+        remaining = indirect_budget - already_spent
+        
+        if share_amount > remaining and remaining > 0:
+            overflow += (share_amount - remaining)
+            warnings.append(f"{p['name']}: Budget nearly exhausted. Only ₹{remaining:,.0f} of ₹{share_amount:,.0f} allocated.")
+            distributions.append({
+                "project_id": p["project_id"],
+                "name": p["name"],
+                "share_pct": round(share_pct * 100, 2),
+                "amount": round(remaining, 2),
+                "indirect_budget": indirect_budget,
+                "already_spent": already_spent,
+                "remaining_after": 0,
+                "is_capped": True
+            })
+        elif remaining <= 0:
+            overflow += share_amount
+            warnings.append(f"{p['name']}: Indirect budget exhausted (₹{already_spent:,.0f} / ₹{indirect_budget:,.0f}). Share moved to other projects.")
+            overflow_projects.append(p["project_id"])
+            distributions.append({
+                "project_id": p["project_id"],
+                "name": p["name"],
+                "share_pct": round(share_pct * 100, 2),
+                "amount": 0,
+                "indirect_budget": indirect_budget,
+                "already_spent": already_spent,
+                "remaining_after": 0,
+                "is_capped": True
+            })
+        else:
+            distributions.append({
+                "project_id": p["project_id"],
+                "name": p["name"],
+                "share_pct": round(share_pct * 100, 2),
+                "amount": round(share_amount, 2),
+                "indirect_budget": indirect_budget,
+                "already_spent": already_spent,
+                "remaining_after": round(remaining - share_amount, 2),
+                "is_capped": False
+            })
+    
+    # Second pass: redistribute overflow to projects with remaining budget
+    if overflow > 0:
+        available = [d for d in distributions if not d["is_capped"] and d["remaining_after"] > 0]
+        if available:
+            avail_total = sum(d["remaining_after"] + d["amount"] for d in available)
+            for d in available:
+                extra_share = ((d["remaining_after"] + d["amount"]) / avail_total) if avail_total > 0 else 0
+                extra = round(overflow * extra_share, 2)
+                if d["remaining_after"] >= extra:
+                    d["amount"] = round(d["amount"] + extra, 2)
+                    d["remaining_after"] = round(d["remaining_after"] - extra, 2)
+                else:
+                    d["amount"] = round(d["amount"] + d["remaining_after"], 2)
+                    d["remaining_after"] = 0
+    
+    return {
+        "amount": amount,
+        "distributions": distributions,
+        "warnings": warnings,
+        "total_allocated": round(sum(d["amount"] for d in distributions), 2)
+    }
+
+
+@router.get("/financial/indirect-cost-allocations")
+async def get_indirect_cost_allocations(
+    project_id: Optional[str] = None,
+    indirect_cost_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get indirect cost allocations per project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    if indirect_cost_id:
+        query["indirect_cost_id"] = indirect_cost_id
+    
+    allocs = await db.indirect_cost_allocations.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return allocs
+
 
 
 # ==================== SUSPENSE ACCOUNT ENDPOINTS ====================
