@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="14" time="23.640" timestamp="2026-03-18T11:09:08.525297+00:00" hostname="agent-env-3ba9b7e5-c20b-43e5-beae-511e17e376f9"><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_demo_login" time="1.092" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_access_auth_me" time="1.379" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_get_staff_list" time="1.609" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_create_employee" time="1.942" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_update_employee" time="3.611" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_update_employee_profile" time="3.557" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_get_single_employee" time="2.636" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_can_get_all_users" time="1.849" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_users_list_has_staff_link" time="1.816" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_super_admin_can_update_user_role" time="2.596" /><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_cannot_update_user_role" time="0.349"><failure message="AssertionError: HR login failed&#10;assert False&#10; +  where False = login_as_hr()&#10; +    where login_as_hr = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b03e290&gt;.login_as_hr">tests/test_hr_portal.py:240: in test_hr_cannot_update_user_role
+    assert self.login_as_hr(), "HR login failed"
+E   AssertionError: HR login failed
+E   assert False
+E    +  where False = login_as_hr()
+E    +    where login_as_hr = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b03e290&gt;.login_as_hr</failure></testcase><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_super_admin_can_reset_password" time="0.360"><failure message="AssertionError: Admin login failed&#10;assert False&#10; +  where False = login_as_admin()&#10; +    where login_as_admin = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590af2a690&gt;.login_as_admin">tests/test_hr_portal.py:260: in test_super_admin_can_reset_password
+    assert self.login_as_admin(), "Admin login failed"
+E   AssertionError: Admin login failed
+E   assert False
+E    +  where False = login_as_admin()
+E    +    where login_as_admin = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590af2a690&gt;.login_as_admin</failure></testcase><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_hr_cannot_reset_password" time="0.341"><failure message="AssertionError: HR login failed&#10;assert False&#10; +  where False = login_as_hr()&#10; +    where login_as_hr = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b05e8d0&gt;.login_as_hr">tests/test_hr_portal.py:283: in test_hr_cannot_reset_password
+    assert self.login_as_hr(), "HR login failed"
+E   AssertionError: HR login failed
+E   assert False
+E    +  where False = login_as_hr()
+E    +    where login_as_hr = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b05e8d0&gt;.login_as_hr</failure></testcase><testcase classname="tests.test_hr_portal.TestHRPortalBackend" name="test_cleanup_test_data" time="0.390"><failure message="AssertionError: Admin login failed&#10;assert False&#10; +  where False = login_as_admin()&#10; +    where login_as_admin = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b05f150&gt;.login_as_admin">tests/test_hr_portal.py:305: in test_cleanup_test_data
+    assert self.login_as_admin(), "Admin login failed"
+E   AssertionError: Admin login failed
+E   assert False
+E    +  where False = login_as_admin()
+E    +    where login_as_admin = &lt;test_hr_portal.TestHRPortalBackend object at 0xf8590b05f150&gt;.login_as_admin</failure></testcase></testsuite></testsuites>

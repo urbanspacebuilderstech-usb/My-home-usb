@@ -166,6 +166,7 @@ function getRoleRedirect(role) {
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
+    hr: '/hr-portal',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';

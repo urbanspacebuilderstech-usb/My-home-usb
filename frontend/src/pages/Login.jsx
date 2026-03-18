@@ -29,6 +29,7 @@ function getRoleRedirect(role) {
     vendor: '/vendor-portal',
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
+    hr: '/hr-portal',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';
@@ -46,6 +47,7 @@ const DEMO_USERS = [
   { email: 'presales@constructionos.com', name: 'Pre-Sales', role: 'pre_sales' },
   { email: 'sales@constructionos.com', name: 'Sales', role: 'sales' },
   { email: 'architect@constructionos.com', name: 'Architect', role: 'architect' },
+  { email: 'hr@constructionos.com', name: 'HR', role: 'hr' },
   { email: 'raj@client.com', name: 'Mr. Raj (Client)', role: 'client' },
   { email: 'mohan@client.com', name: 'Mr. Mohan (Client)', role: 'client' },
 ];

@@ -2927,7 +2927,7 @@ async def get_staff_list(
     user: User = Depends(get_current_user)
 ):
     """Get all staff members"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     query = {}
@@ -2969,7 +2969,7 @@ class StaffCreate(BaseModel):
 @router.post("/hr/staff")
 async def create_staff(staff_data: StaffCreate, user: User = Depends(get_current_user)):
     """Create a new staff member"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Generate employee code
@@ -3027,7 +3027,7 @@ async def create_staff(staff_data: StaffCreate, user: User = Depends(get_current
 @router.get("/hr/staff/{staff_id}")
 async def get_staff(staff_id: str, user: User = Depends(get_current_user)):
     """Get a specific staff member"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     staff = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0})
@@ -3040,7 +3040,7 @@ async def get_staff(staff_id: str, user: User = Depends(get_current_user)):
 @router.patch("/hr/staff/{staff_id}")
 async def update_staff(staff_id: str, updates: dict, user: User = Depends(get_current_user)):
     """Update a staff member"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Recalculate gross and net if salary fields updated
@@ -3081,6 +3081,199 @@ async def delete_staff(staff_id: str, user: User = Depends(get_current_user)):
     return {"message": "Staff terminated"}
 
 
+# ==================== HR EMPLOYEE PROFILE ENDPOINTS ====================
+
+@router.patch("/hr/staff/{staff_id}/profile")
+async def update_staff_profile(staff_id: str, updates: dict, user: User = Depends(get_current_user)):
+    """Update extended profile fields for a staff member"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and HR can edit profiles")
+    
+    staff = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0})
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    # Allowed extended profile fields
+    allowed_fields = [
+        "father_name", "mother_name", "blood_group", "gender", "marital_status",
+        "aadhar_number", "pan_number", "uan_number", "esi_number",
+        "permanent_address", "current_address",
+        "emergency_contact_name", "emergency_contact_relation", "emergency_contact_phone",
+        "profile_photo_id", "resume_file_id", "aadhar_doc_id", "pan_doc_id",
+        "qualification", "experience_years", "previous_employer",
+        "linked_user_id", "notes"
+    ]
+    
+    filtered = {k: v for k, v in updates.items() if k in allowed_fields}
+    if not filtered:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    
+    filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.staff.update_one({"staff_id": staff_id}, {"$set": filtered})
+    return {"message": "Profile updated"}
+
+
+@router.post("/hr/staff/{staff_id}/upload-document")
+async def upload_staff_document(
+    staff_id: str,
+    file: UploadFile = File(...),
+    doc_type: str = Form("resume"),
+    user: User = Depends(get_current_user)
+):
+    """Upload document (resume, photo, aadhar, pan) for staff"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and HR can upload documents")
+    
+    from core.storage import put_object, APP_NAME, MIME_TYPES
+    
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 10MB")
+    
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
+    file_id = str(uuid.uuid4())
+    storage_path = f"{APP_NAME}/hr/{staff_id}/{doc_type}/{file_id}.{ext}"
+    
+    try:
+        result = put_object(storage_path, data, content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    
+    file_record = {
+        "file_id": file_id,
+        "storage_path": result.get("path", storage_path),
+        "original_filename": file.filename,
+        "content_type": content_type,
+        "size": result.get("size", len(data)),
+        "doc_type": doc_type,
+        "staff_id": staff_id,
+        "uploaded_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.hr_documents.insert_one(file_record)
+    
+    # Update staff record with file reference
+    field_map = {
+        "resume": "resume_file_id",
+        "photo": "profile_photo_id",
+        "aadhar": "aadhar_doc_id",
+        "pan": "pan_doc_id"
+    }
+    if doc_type in field_map:
+        await db.staff.update_one(
+            {"staff_id": staff_id},
+            {"$set": {field_map[doc_type]: file_id, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
+    return {"file_id": file_id, "storage_path": storage_path, "message": f"{doc_type} uploaded"}
+
+
+@router.get("/hr/staff/{staff_id}/documents")
+async def get_staff_documents(staff_id: str, user: User = Depends(get_current_user)):
+    """Get all documents for a staff member"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    docs = await db.hr_documents.find({"staff_id": staff_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return docs
+
+
+# ==================== HR ROLES & CREDENTIALS ENDPOINTS ====================
+
+@router.get("/hr/users")
+async def get_all_users_for_hr(user: User = Depends(get_current_user)):
+    """Get all users with their roles and credentials info"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and HR can view user credentials")
+    
+    users = await db.users.find({}, {"_id": 0, "password_hash": 0}).sort("name", 1).to_list(500)
+    
+    # Batch fetch all staff records with linked_user_id in one query
+    all_staff = await db.staff.find(
+        {"linked_user_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "staff_id": 1, "employee_code": 1, "designation": 1, "department": 1, "linked_user_id": 1}
+    ).to_list(500)
+    staff_map = {s["linked_user_id"]: s for s in all_staff}
+    
+    for u in users:
+        link = staff_map.get(u.get("user_id"))
+        if link:
+            u["staff_link"] = {k: v for k, v in link.items() if k != "linked_user_id"}
+        else:
+            u["staff_link"] = None
+    
+    return users
+
+
+@router.patch("/hr/users/{user_id}/update-role")
+async def update_user_role(user_id: str, updates: dict, user: User = Depends(get_current_user)):
+    """Update a user's role or active status"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can update roles")
+    
+    allowed = {}
+    if "role" in updates:
+        allowed["role"] = updates["role"]
+    if "is_active" in updates:
+        allowed["is_active"] = updates["is_active"]
+    if "name" in updates:
+        allowed["name"] = updates["name"]
+    if "phone" in updates:
+        allowed["phone"] = updates["phone"]
+    
+    if not allowed:
+        raise HTTPException(status_code=400, detail="No valid fields")
+    
+    result = await db.users.update_one({"user_id": user_id}, {"$set": allowed})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "User updated"}
+
+
+@router.post("/hr/users/{user_id}/reset-password")
+async def hr_reset_password(user_id: str, body: dict, user: User = Depends(get_current_user)):
+    """HR/Admin resets a user's password"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can reset passwords")
+    
+    new_password = body.get("new_password")
+    if not new_password or len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    import bcrypt
+    hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    
+    result = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"password_hash": hashed, "password_set": True}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": "Password reset successful"}
+
+
+@router.post("/hr/users/{user_id}/link-staff")
+async def link_user_to_staff(user_id: str, body: dict, user: User = Depends(get_current_user)):
+    """Link a user account to a staff employee record"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    staff_id = body.get("staff_id")
+    if not staff_id:
+        raise HTTPException(status_code=400, detail="staff_id required")
+    
+    # Update staff record
+    await db.staff.update_one(
+        {"staff_id": staff_id},
+        {"$set": {"linked_user_id": user_id, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "User linked to staff record"}
+
+
 # ==================== ATTENDANCE ENDPOINTS ====================
 
 @router.get("/hr/attendance")
@@ -3091,7 +3284,7 @@ async def get_attendance(
     user: User = Depends(get_current_user)
 ):
     """Get attendance records"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     query = {}
@@ -3124,7 +3317,7 @@ class AttendanceCreate(BaseModel):
 @router.post("/hr/attendance")
 async def create_attendance(att: AttendanceCreate, user: User = Depends(get_current_user)):
     """Record attendance"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Get staff name
@@ -3166,7 +3359,7 @@ async def create_attendance(att: AttendanceCreate, user: User = Depends(get_curr
 @router.post("/hr/attendance/bulk")
 async def create_bulk_attendance(records: List[AttendanceCreate], user: User = Depends(get_current_user)):
     """Record attendance for multiple staff at once"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Get all staff names in one query
@@ -3221,7 +3414,7 @@ async def get_payroll_list(
     user: User = Depends(get_current_user)
 ):
     """Get payroll records"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     query = {}
@@ -3244,7 +3437,7 @@ class PayrollGenerate(BaseModel):
 @router.post("/hr/payroll/generate")
 async def generate_payroll(data: PayrollGenerate, user: User = Depends(get_current_user)):
     """Generate payroll for all active staff for a month"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Check if payroll already exists for this month
@@ -3364,7 +3557,7 @@ async def generate_payroll(data: PayrollGenerate, user: User = Depends(get_curre
 @router.patch("/hr/payroll/{payroll_id}/approve")
 async def approve_payroll(payroll_id: str, user: User = Depends(get_current_user)):
     """Approve payroll"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = await db.payroll.update_one(
@@ -3391,7 +3584,7 @@ class PayrollPayment(BaseModel):
 @router.patch("/hr/payroll/{payroll_id}/pay")
 async def process_payroll_payment(payroll_id: str, payment: PayrollPayment, user: User = Depends(get_current_user)):
     """Mark payroll as paid with OTP verification"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     payroll = await db.payroll.find_one({"payroll_id": payroll_id}, {"_id": 0})
@@ -3440,7 +3633,7 @@ async def process_payroll_payment(payroll_id: str, payment: PayrollPayment, user
 @router.post("/hr/payroll/bulk-pay")
 async def bulk_pay_payroll(month: int, year: int, payment: PayrollPayment, user: User = Depends(get_current_user)):
     """Pay all approved payrolls for a month"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Get all approved payrolls for this month
@@ -3505,7 +3698,7 @@ async def initiate_payment_request(
     user: User = Depends(get_current_user)
 ):
     """Initiate a payment request with OTP verification"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Generate OTP
@@ -3570,7 +3763,7 @@ class OTPVerify(BaseModel):
 @router.post("/accountant/payment-request/verify-otp")
 async def verify_payment_otp(data: OTPVerify, user: User = Depends(get_current_user)):
     """Verify OTP for payment request"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     verification = await db.payment_verifications.find_one(
@@ -3630,7 +3823,7 @@ class CompletePayment(BaseModel):
 @router.post("/accountant/payment-request/complete")
 async def complete_payment(data: CompletePayment, user: User = Depends(get_current_user)):
     """Complete a payment after OTP verification"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     verification = await db.payment_verifications.find_one(
@@ -3686,7 +3879,7 @@ async def get_payment_requests(
     user: User = Depends(get_current_user)
 ):
     """Get all payment verification requests"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     query = {}
@@ -4028,7 +4221,7 @@ async def get_indirect_cost_pct():
 @router.get("/financial/project-budget-overview")
 async def get_project_budget_overview(user: User = Depends(get_current_user)):
     """Get all active projects with their budget split and indirect allocation status"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     indirect_pct = await get_indirect_cost_pct()
@@ -4087,7 +4280,7 @@ async def get_project_budget_overview(user: User = Depends(get_current_user)):
 @router.get("/financial/indirect-cost-distribution-preview")
 async def preview_distribution(amount: float, user: User = Depends(get_current_user)):
     """Preview how an indirect cost will be distributed across active projects"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     indirect_pct = await get_indirect_cost_pct()
@@ -4344,7 +4537,7 @@ async def allocate_suspense_entry(suspense_id: str, data: SuspenseAllocation, us
 @router.patch("/financial/cheques/{cheque_id}/return")
 async def process_cheque_return(cheque_id: str, user: User = Depends(get_current_user)):
     """Process cheque return - Auto-reduce income and create penalty entry"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
@@ -4442,7 +4635,7 @@ async def process_cheque_return(cheque_id: str, user: User = Depends(get_current
 @router.get("/financial/pending-income-verification")
 async def get_pending_income_verification(user: User = Depends(get_current_user)):
     """Get income entries pending verification (from Planning stage payments)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Get income entries that are pending verification

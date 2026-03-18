@@ -59,7 +59,8 @@ export default function Dashboard() {
           general_manager: '/gm-dashboard', accountant: '/accounts-board',
           planning: '/planning-board', procurement: '/procurement-board-v2',
           cre: '/cre-board', project_manager: '/pm-dashboard', associate_pm: '/pm-dashboard',
-          client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board'
+          client: '/client-portal', vendor: '/vendor-portal', marketing_head: '/marketing-board',
+          hr: '/hr-portal'
         };
         if (roleRoutes[role]) {
           window.location.replace(roleRoutes[role]);
