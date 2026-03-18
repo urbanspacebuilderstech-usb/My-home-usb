@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => {
@@ -127,7 +128,7 @@ export default function Cashbook() {
                 </div>
                 <div><Label>Description</Label><Input data-testid="exp-desc-input" value={expForm.description} onChange={(e) => setExpForm({...expForm, description: e.target.value})} required /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Amount (₹)</Label><Input data-testid="exp-amount-input" type="number" value={expForm.amount} onChange={(e) => setExpForm({...expForm, amount: e.target.value})} required /></div>
+                  <div><Label>Amount (₹)</Label><NumericInput data-testid="exp-amount-input" value={expForm.amount} onChange={(e) => setExpForm({...expForm, amount: e.target.value})} required /></div>
                   <div><Label>Payment Method</Label>
                     <Select value={expForm.payment_method} onValueChange={(v) => setExpForm({...expForm, payment_method: v})}>
                       <SelectTrigger><SelectValue /></SelectTrigger>

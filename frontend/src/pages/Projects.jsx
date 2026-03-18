@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -175,10 +176,10 @@ export default function Projects() {
                     </div>
                     <div>
                       <Label htmlFor="total_value">Total Value</Label>
-                      <Input
+                      <NumericInput
                         id="total_value"
                         data-testid="total-value-input"
-                        type="number"
+                        
                         value={formData.total_value}
                         onChange={(e) => setFormData({ ...formData, total_value: e.target.value })}
                         required

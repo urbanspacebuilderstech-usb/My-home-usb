@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -252,9 +253,9 @@ export default function Income() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label>Amount (₹)</Label>
-                      <Input
+                      <NumericInput
                         data-testid="income-amount-input"
-                        type="number"
+                        
                         value={incomeForm.amount}
                         onChange={(e) => setIncomeForm({...incomeForm, amount: e.target.value})}
                         placeholder="e.g., 500000"

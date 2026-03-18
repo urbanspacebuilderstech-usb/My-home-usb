@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -665,8 +666,8 @@ export default function ProcurementDashboard() {
                         </div>
                         <div>
                           <Label className="text-xs">Unit Price (₹)</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={newQuote.unit_price}
                             onChange={(e) => setNewQuote({...newQuote, unit_price: e.target.value})}
                             placeholder="0"
@@ -674,16 +675,16 @@ export default function ProcurementDashboard() {
                         </div>
                         <div>
                           <Label className="text-xs">Quantity</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={newQuote.quantity}
                             onChange={(e) => setNewQuote({...newQuote, quantity: e.target.value})}
                           />
                         </div>
                         <div>
                           <Label className="text-xs">Transport (₹)</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={newQuote.transport_cost}
                             onChange={(e) => setNewQuote({...newQuote, transport_cost: e.target.value})}
                             placeholder="0"
@@ -691,8 +692,8 @@ export default function ProcurementDashboard() {
                         </div>
                         <div>
                           <Label className="text-xs">Discount (₹)</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={newQuote.discount}
                             onChange={(e) => setNewQuote({...newQuote, discount: e.target.value})}
                             placeholder="0"

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -436,8 +437,8 @@ export default function ChequeManagement() {
                 </div>
                 <div>
                   <Label>Amount *</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={chequeForm.amount}
                     onChange={(e) => setChequeForm({...chequeForm, amount: e.target.value})}
                     placeholder="Enter amount"
@@ -663,8 +664,8 @@ export default function ChequeManagement() {
                   </div>
                   <div>
                     <Label>Bounce Charges</Label>
-                    <Input 
-                      type="number"
+                    <NumericInput 
+                      
                       value={statusForm.bounce_charges}
                       onChange={(e) => setStatusForm({...statusForm, bounce_charges: e.target.value})}
                       placeholder="Enter bounce charges"

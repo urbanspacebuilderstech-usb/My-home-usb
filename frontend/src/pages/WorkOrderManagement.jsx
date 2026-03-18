@@ -16,6 +16,7 @@ import {
   CheckCircle, Clock, DollarSign, Play, AlertCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -439,24 +440,24 @@ export default function WorkOrderManagement() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Days</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={labourForm.number_of_days}
                     onChange={(e) => setLabourForm({ ...labourForm, number_of_days: e.target.value })}
                   />
                 </div>
                 <div>
                   <Label>Workers</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={labourForm.number_of_workers}
                     onChange={(e) => setLabourForm({ ...labourForm, number_of_workers: e.target.value })}
                   />
                 </div>
                 <div>
                   <Label>Daily Rate (₹)</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={labourForm.daily_rate}
                     onChange={(e) => setLabourForm({ ...labourForm, daily_rate: e.target.value })}
                   />
@@ -495,8 +496,8 @@ export default function WorkOrderManagement() {
                           placeholder="Stage name (e.g., Rough Work)"
                           className="flex-1"
                         />
-                        <Input 
-                          type="number"
+                        <NumericInput 
+                          
                           value={stage.amount}
                           onChange={(e) => updateStage(idx, 'amount', e.target.value)}
                           placeholder="Amount"
@@ -590,8 +591,8 @@ export default function WorkOrderManagement() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Quantity</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={materialForm.quantity}
                     onChange={(e) => setMaterialForm({ ...materialForm, quantity: e.target.value })}
                   />
@@ -605,8 +606,8 @@ export default function WorkOrderManagement() {
                 </div>
                 <div>
                   <Label>Unit Price (₹)</Label>
-                  <Input 
-                    type="number"
+                  <NumericInput 
+                    
                     value={materialForm.unit_price}
                     onChange={(e) => setMaterialForm({ ...materialForm, unit_price: e.target.value })}
                   />

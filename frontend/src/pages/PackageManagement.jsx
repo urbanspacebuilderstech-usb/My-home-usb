@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -372,8 +373,8 @@ export default function PackageManagement() {
               </div>
               <div>
                 <Label>Base Rate per Sqft (Optional)</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={form.base_rate_per_sqft}
                   onChange={(e) => setForm({ ...form, base_rate_per_sqft: parseFloat(e.target.value) || 0 })}
                   placeholder="0"
@@ -407,9 +408,9 @@ export default function PackageManagement() {
                       onChange={(e) => updateScopeItem(index, 'name', e.target.value)}
                       placeholder="Item name"
                     />
-                    <Input 
+                    <NumericInput 
                       className="col-span-2"
-                      type="number"
+                      
                       value={item.quantity}
                       onChange={(e) => updateScopeItem(index, 'quantity', e.target.value)}
                       placeholder="Qty"
@@ -422,9 +423,9 @@ export default function PackageManagement() {
                         {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
                       </SelectContent>
                     </Select>
-                    <Input 
+                    <NumericInput 
                       className="col-span-2"
-                      type="number"
+                      
                       value={item.unit_rate}
                       onChange={(e) => updateScopeItem(index, 'unit_rate', e.target.value)}
                       placeholder="Rate"
@@ -556,23 +557,23 @@ export default function PackageManagement() {
                       onChange={(e) => updateLabourItem(index, 'work_type', e.target.value)}
                       placeholder="Work type (masonry, plumbing...)"
                     />
-                    <Input 
+                    <NumericInput 
                       className="col-span-2"
-                      type="number"
+                      
                       value={item.estimated_days}
                       onChange={(e) => updateLabourItem(index, 'estimated_days', e.target.value)}
                       placeholder="Days"
                     />
-                    <Input 
+                    <NumericInput 
                       className="col-span-2"
-                      type="number"
+                      
                       value={item.daily_rate}
                       onChange={(e) => updateLabourItem(index, 'daily_rate', e.target.value)}
                       placeholder="Daily Rate"
                     />
-                    <Input 
+                    <NumericInput 
                       className="col-span-2"
-                      type="number"
+                      
                       value={item.workers_count}
                       onChange={(e) => updateLabourItem(index, 'workers_count', parseInt(e.target.value) || 1)}
                       placeholder="Workers"

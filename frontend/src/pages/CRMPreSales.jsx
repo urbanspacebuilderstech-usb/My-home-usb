@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -1005,8 +1006,8 @@ export default function CRMPreSales() {
                   />
                 )}
                 {field.field_type === 'number' && (
-                  <Input
-                    type="number"
+                  <NumericInput
+                    
                     value={leadForm.custom_fields[field.field_id] || ''}
                     onChange={(e) => setLeadForm({
                       ...leadForm,

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -353,16 +354,16 @@ export default function FinancialOverview() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Project Value (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={formData.project_value}
                   onChange={(e) => setFormData({...formData, project_value: e.target.value})}
                 />
               </div>
               <div>
                 <Label>Additional Cost (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={formData.additional_cost}
                   onChange={(e) => setFormData({...formData, additional_cost: e.target.value})}
                 />
@@ -372,16 +373,16 @@ export default function FinancialOverview() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Income - Project (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={formData.income_project}
                   onChange={(e) => setFormData({...formData, income_project: e.target.value})}
                 />
               </div>
               <div>
                 <Label>Income - Additional (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={formData.income_additional}
                   onChange={(e) => setFormData({...formData, income_additional: e.target.value})}
                 />
@@ -390,8 +391,8 @@ export default function FinancialOverview() {
 
             <div>
               <Label>Total Expenses (₹)</Label>
-              <Input
-                type="number"
+              <NumericInput
+                
                 value={formData.total_expense}
                 onChange={(e) => setFormData({...formData, total_expense: e.target.value})}
               />

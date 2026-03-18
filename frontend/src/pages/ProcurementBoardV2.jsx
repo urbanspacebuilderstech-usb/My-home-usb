@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -621,8 +622,8 @@ export default function ProcurementBoardV2() {
                 {vendorMasterForm.payment_terms === 'credit' && (
                   <div>
                     <Label>Credit Limit (₹)</Label>
-                    <Input
-                      type="number"
+                    <NumericInput
+                      
                       value={vendorMasterForm.credit_limit}
                       onChange={(e) => setVendorMasterForm({...vendorMasterForm, credit_limit: e.target.value})}
                       placeholder="Credit limit"
@@ -1025,8 +1026,8 @@ export default function ProcurementBoardV2() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Unit Rate (₹) *</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={vendorForm.unit_rate}
                   onChange={(e) => setVendorForm({...vendorForm, unit_rate: e.target.value})}
                   placeholder="Rate per unit"
@@ -1041,16 +1042,16 @@ export default function ProcurementBoardV2() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Transport Cost (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={vendorForm.transport_cost}
                   onChange={(e) => setVendorForm({...vendorForm, transport_cost: e.target.value})}
                 />
               </div>
               <div>
                 <Label>Discount (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={vendorForm.discount}
                   onChange={(e) => setVendorForm({...vendorForm, discount: e.target.value})}
                 />
@@ -1080,8 +1081,8 @@ export default function ProcurementBoardV2() {
             {vendorForm.payment_type === 'partial' && (
               <div>
                 <Label>Advance Amount (₹)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={vendorForm.advance_amount}
                   onChange={(e) => setVendorForm({...vendorForm, advance_amount: e.target.value})}
                   placeholder="Amount to pay upfront"
@@ -1097,8 +1098,8 @@ export default function ProcurementBoardV2() {
             {vendorForm.payment_type === 'credit' && (
               <div>
                 <Label>Credit Period (Days)</Label>
-                <Input
-                  type="number"
+                <NumericInput
+                  
                   value={vendorForm.credit_period_days}
                   onChange={(e) => setVendorForm({...vendorForm, credit_period_days: e.target.value})}
                   placeholder="30"
@@ -1193,8 +1194,8 @@ export default function ProcurementBoardV2() {
           <div className="space-y-4 py-4">
             <div>
               <Label>Payment Amount (₹) *</Label>
-              <Input
-                type="number"
+              <NumericInput
+                
                 value={creditPayForm.amount}
                 onChange={(e) => setCreditPayForm({...creditPayForm, amount: e.target.value})}
                 placeholder="Enter amount"

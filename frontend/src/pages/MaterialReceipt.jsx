@@ -17,6 +17,7 @@ import MobileBottomNav from '../components/MobileBottomNav';import {
   LogOut, Mail, RefreshCw, Loader2
 } from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -439,9 +440,9 @@ export default function MaterialReceipt() {
             <div>
               <Label>Received Quantity *</Label>
               <div className="flex items-center gap-2 mt-1">
-                <Input
+                <NumericInput
                   data-testid="received-qty-input"
-                  type="number"
+                  
                   value={receiptForm.received_qty}
                   onChange={(e) => setReceiptForm(prev => ({ ...prev, received_qty: e.target.value }))}
                   placeholder="Enter received qty"

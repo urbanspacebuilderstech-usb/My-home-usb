@@ -14,6 +14,7 @@ import {
   ArrowLeft, Plus, Edit, Trash2, Lock, Unlock, Package, AlertTriangle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -285,8 +286,8 @@ export default function ProjectMaterials() {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Quantity</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={form.quantity}
                   onChange={(e) => setForm({ ...form, quantity: parseFloat(e.target.value) || 0 })}
                   data-testid="material-qty-input"
@@ -303,8 +304,8 @@ export default function ProjectMaterials() {
               </div>
               <div>
                 <Label>Rate/Unit</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={form.estimated_rate}
                   onChange={(e) => setForm({ ...form, estimated_rate: parseFloat(e.target.value) || 0 })}
                   data-testid="material-rate-input"

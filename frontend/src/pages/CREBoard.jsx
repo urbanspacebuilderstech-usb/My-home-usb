@@ -19,6 +19,7 @@ import {
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -764,7 +765,7 @@ export default function CREBoard() {
               </div>
               <div>
                 <Label>Area (sqft)</Label>
-                <Input type="number" value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value })} placeholder="0" />
+                <NumericInput value={form.sqft} onChange={(e) => setForm({ ...form, sqft: e.target.value })} placeholder="0" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -812,7 +813,7 @@ export default function CREBoard() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Amount *</Label>
-                        <Input type="number" value={form.advance_amount} onChange={(e) => setForm({ ...form, advance_amount: e.target.value })} placeholder="0" data-testid="input-advance-amount" />
+                        <NumericInput value={form.advance_amount} onChange={(e) => setForm({ ...form, advance_amount: e.target.value })} placeholder="0" data-testid="input-advance-amount" />
                       </div>
                       <div>
                         <Label className="text-xs">Payment Mode *</Label>
@@ -826,7 +827,7 @@ export default function CREBoard() {
                       <div className="space-y-2 border-t pt-2">
                         <div className="flex items-center gap-3">
                           <Label className="text-xs whitespace-nowrap">No. of Cheques</Label>
-                          <Input type="number" min="1" max="20" value={form.num_cheques || 1} onChange={(e) => {
+                          <NumericInput value={form.num_cheques || 1} onChange={(e) => {
                             const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
                             const existing = form.cheque_details || [];
                             const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
@@ -837,7 +838,7 @@ export default function CREBoard() {
                           <div key={idx} className="grid grid-cols-4 gap-2 bg-white p-2 rounded" data-testid={`cheque-entry-${idx}`}>
                             <div><Label className="text-xs">Cheque #{idx + 1}</Label><Input value={cheque.cheque_number} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], cheque_number: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="Number" className="text-xs" /></div>
                             <div><Label className="text-xs">Bank</Label><Input value={cheque.bank_name} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], bank_name: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="Bank" className="text-xs" /></div>
-                            <div><Label className="text-xs">Amount</Label><Input type="number" value={cheque.amount} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], amount: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="0" className="text-xs" /></div>
+                            <div><Label className="text-xs">Amount</Label><NumericInput value={cheque.amount} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], amount: e.target.value }; setForm({ ...form, cheque_details: c }); }} placeholder="0" className="text-xs" /></div>
                             <div><Label className="text-xs">Date</Label><Input type="date" value={cheque.cheque_date || ''} onChange={(e) => { const c = [...(form.cheque_details || [])]; c[idx] = { ...c[idx], cheque_date: e.target.value }; setForm({ ...form, cheque_details: c }); }} className="text-xs" /></div>
                           </div>
                         ))}
@@ -878,7 +879,7 @@ export default function CREBoard() {
             </div>
             <div>
               <Label>Total Collection Amount *</Label>
-              <Input type="number" value={collectForm.amount} onChange={(e) => {
+              <NumericInput value={collectForm.amount} onChange={(e) => {
                 setCollectForm({ ...collectForm, amount: e.target.value });
                 if (collectPaymentEntries.length === 1) {
                   setCollectPaymentEntries([{ ...collectPaymentEntries[0], amount: e.target.value }]);
@@ -926,7 +927,7 @@ export default function CREBoard() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2"><Label>Project Name *</Label><Input value={form.name || selectedDealRE?.project_name || selectedDeal.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" data-testid="project-name-input" /></div>
                   <div><Label>Location *</Label><Input value={form.location || selectedDealRE?.location || selectedDeal.city || ''} onChange={(e) => setForm({ ...form, location: e.target.value })} className="mt-1" /></div>
-                  <div><Label>Area (sqft)</Label><Input type="number" value={form.sqft || selectedDealRE?.sqft || ''} onChange={(e) => setForm({ ...form, sqft: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Area (sqft)</Label><NumericInput value={form.sqft || selectedDealRE?.sqft || ''} onChange={(e) => setForm({ ...form, sqft: e.target.value })} className="mt-1" /></div>
                   <div>
                     <Label>Building Type</Label>
                     <Select value={form.building_type || 'residential'} onValueChange={(v) => setForm({ ...form, building_type: v })}>
@@ -949,7 +950,7 @@ export default function CREBoard() {
                 <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><CreditCard className="h-4 w-4" />Advance Payment</h4>
                 <div className="mb-3">
                   <Label className="text-green-700">Total Advance Amount *</Label>
-                  <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><Input type="number" placeholder="Amount" value={advanceAmount} onChange={(e) => {
+                  <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><NumericInput placeholder="Amount" value={advanceAmount} onChange={(e) => {
                     setAdvanceAmount(e.target.value);
                     if (advancePaymentEntries.length === 1) {
                       setAdvancePaymentEntries([{ ...advancePaymentEntries[0], amount: e.target.value }]);

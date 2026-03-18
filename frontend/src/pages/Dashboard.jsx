@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -148,7 +149,7 @@ export default function Dashboard() {
                 <div><Label>Project Name</Label><Input data-testid="project-name-input" value={projectForm.name} onChange={(e) => setProjectForm({...projectForm, name: e.target.value})} placeholder="e.g., Vinoth Residence" required /></div>
                 <div><Label>Client Name</Label><Input data-testid="client-name-input" value={projectForm.client_name} onChange={(e) => setProjectForm({...projectForm, client_name: e.target.value})} placeholder="e.g., Mr. Vinoth Kumar" required /></div>
                 <div><Label>Location</Label><Input data-testid="location-input" value={projectForm.location} onChange={(e) => setProjectForm({...projectForm, location: e.target.value})} placeholder="e.g., Chennai" required /></div>
-                <div><Label>Initial Project Value (₹)</Label><Input data-testid="value-input" type="number" value={projectForm.total_value} onChange={(e) => setProjectForm({...projectForm, total_value: e.target.value})} placeholder="e.g., 5000000" /></div>
+                <div><Label>Initial Project Value (₹)</Label><NumericInput data-testid="value-input" value={projectForm.total_value} onChange={(e) => setProjectForm({...projectForm, total_value: e.target.value})} placeholder="e.g., 5000000" /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>Start Date</Label><Input data-testid="start-date-input" type="date" value={projectForm.start_date} onChange={(e) => setProjectForm({...projectForm, start_date: e.target.value})} required /></div>
                   <div><Label>Expected Completion</Label><Input data-testid="completion-date-input" type="date" value={projectForm.expected_completion} onChange={(e) => setProjectForm({...projectForm, expected_completion: e.target.value})} required /></div>

@@ -6,6 +6,7 @@ import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Plus, Trash2, CreditCard, Banknote, Building2, Smartphone, ChevronDown, ChevronUp } from 'lucide-react';
+import { NumericInput } from './NumericInput';
 
 const PAYMENT_MODES = [
   { value: 'cash', label: 'Cash', icon: Banknote, color: 'text-green-600' },
@@ -100,7 +101,7 @@ export function MultiPaymentInput({ totalAmount, entries, onChange }) {
                     {PAYMENT_MODES.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Input type="number" placeholder="Amount" className="h-7 flex-1 text-xs font-semibold"
+                <NumericInput placeholder="Amount" className="h-7 flex-1 text-xs font-semibold"
                   value={entry.amount} onChange={(e) => updateEntry(idx, 'amount', e.target.value)}
                   data-testid={`payment-amount-${idx}`} />
                 {entry.payment_mode !== 'cheque' && (
@@ -131,7 +132,7 @@ export function MultiPaymentInput({ totalAmount, entries, onChange }) {
                         value={chq.cheque_number} onChange={(e) => updateCheque(idx, ci, 'cheque_number', e.target.value)} />
                       <Input placeholder="Bank" className="h-6 w-[90px] text-[10px]"
                         value={chq.bank_name} onChange={(e) => updateCheque(idx, ci, 'bank_name', e.target.value)} />
-                      <Input type="number" placeholder="Amount" className="h-6 w-[80px] text-[10px] font-semibold"
+                      <NumericInput placeholder="Amount" className="h-6 w-[80px] text-[10px] font-semibold"
                         value={chq.amount} onChange={(e) => updateCheque(idx, ci, 'amount', e.target.value)} />
                       <Input type="date" className="h-6 w-[110px] text-[10px]"
                         value={chq.cheque_date} onChange={(e) => updateCheque(idx, ci, 'cheque_date', e.target.value)} />

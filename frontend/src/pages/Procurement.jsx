@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -356,9 +357,9 @@ export default function Procurement() {
                             </div>
                             <div>
                               <Label>Quantity</Label>
-                              <Input
+                              <NumericInput
                                 data-testid="po-quantity-input"
-                                type="number"
+                                
                                 value={poFormData.quantity}
                                 onChange={(e) => setPOFormData({...poFormData, quantity: e.target.value})}
                                 required

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -442,7 +443,7 @@ export default function IndirectCostManagement() {
               </div>
               <div>
                 <Label>Amount *</Label>
-                <Input type="number" value={createForm.amount} onChange={(e) => handleAmountChange(e.target.value)} placeholder="Enter amount" data-testid="input-amount" />
+                <NumericInput value={createForm.amount} onChange={(e) => handleAmountChange(e.target.value)} placeholder="Enter amount" data-testid="input-amount" />
               </div>
             </div>
             <div>

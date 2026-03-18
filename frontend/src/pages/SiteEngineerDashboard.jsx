@@ -18,6 +18,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { Label } from '@/components/ui/label';
 import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye } from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -237,7 +238,7 @@ function MiniCashbookSection({ projects }) {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Amount *</Label><Input type="number" value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} /></div>
+            <div><Label>Amount *</Label><NumericInput value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} /></div>
             <div><Label>Description *</Label><Input value={newExpense.description} onChange={e => setNewExpense(p => ({...p, description: e.target.value}))} /></div>
             <div><Label>Vendor</Label><Input value={newExpense.vendor_name} onChange={e => setNewExpense(p => ({...p, vendor_name: e.target.value}))} /></div>
           </div>
@@ -942,8 +943,8 @@ export default function SiteEngineerDashboard() {
             
             <div>
               <label className="text-sm font-medium">Amount *</label>
-              <Input 
-                type="number"
+              <NumericInput 
+                
                 value={pettyCashForm.amount}
                 onChange={(e) => setPettyCashForm({...pettyCashForm, amount: e.target.value})}
                 placeholder="Enter amount"
@@ -1010,8 +1011,8 @@ export default function SiteEngineerDashboard() {
               
               <div>
                 <label className="text-sm font-medium">Amount *</label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={expenseForm.amount}
                   onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
                   placeholder="Expense amount"

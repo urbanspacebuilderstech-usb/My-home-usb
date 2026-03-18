@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => {
@@ -152,8 +153,8 @@ export default function SuspenseAccountPage() {
                 </div>
                 <div><Label>Vendor / Contractor Name</Label><Input data-testid="pay-vendor-input" value={payForm.vendor_or_contractor} onChange={(e) => setPayForm({...payForm, vendor_or_contractor: e.target.value})} required /></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div><Label>Requested Amount (₹)</Label><Input data-testid="pay-requested-input" type="number" value={payForm.requested_amount} onChange={(e) => setPayForm({...payForm, requested_amount: e.target.value})} required /></div>
-                  <div><Label>Cheque/Payment Amount (₹)</Label><Input data-testid="pay-cheque-input" type="number" value={payForm.cheque_amount} onChange={(e) => setPayForm({...payForm, cheque_amount: e.target.value})} required /></div>
+                  <div><Label>Requested Amount (₹)</Label><NumericInput data-testid="pay-requested-input" value={payForm.requested_amount} onChange={(e) => setPayForm({...payForm, requested_amount: e.target.value})} required /></div>
+                  <div><Label>Cheque/Payment Amount (₹)</Label><NumericInput data-testid="pay-cheque-input" value={payForm.cheque_amount} onChange={(e) => setPayForm({...payForm, cheque_amount: e.target.value})} required /></div>
                 </div>
                 
                 {payForm.requested_amount && payForm.cheque_amount && Number(payForm.cheque_amount) > Number(payForm.requested_amount) && (
@@ -174,7 +175,7 @@ export default function SuspenseAccountPage() {
                         <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
                         <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
                       </Select>
-                      <Input type="number" placeholder="Amount (₹)" value={alloc.amount} onChange={(e) => updateAllocation(idx, 'amount', e.target.value)} />
+                      <NumericInput placeholder="Amount (₹)" value={alloc.amount} onChange={(e) => updateAllocation(idx, 'amount', e.target.value)} />
                     </div>
                   ))}
                 </div>

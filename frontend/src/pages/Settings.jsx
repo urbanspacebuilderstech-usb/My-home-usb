@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -296,9 +297,9 @@ export default function Settings() {
                     <div className="space-y-2">
                       <Label htmlFor="indirect_cost_percent">Indirect Cost %</Label>
                       <div className="flex items-center gap-3">
-                        <Input
+                        <NumericInput
                           id="indirect_cost_percent"
-                          type="number"
+                          
                           min="1"
                           max="50"
                           step="1"

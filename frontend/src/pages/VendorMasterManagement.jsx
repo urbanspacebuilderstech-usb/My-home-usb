@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -258,8 +259,8 @@ export default function VendorManagement() {
                       <>
                         <div className="space-y-2">
                           <Label>Credit Limit</Label>
-                          <Input
-                            type="number"
+                          <NumericInput
+                            
                             data-testid="vendor-credit-limit-input"
                             value={formData.credit_limit}
                             onChange={(e) => setFormData({...formData, credit_limit: parseFloat(e.target.value) || 0})}
@@ -268,8 +269,8 @@ export default function VendorManagement() {
                         </div>
                         <div className="space-y-2">
                           <Label>Credit Days</Label>
-                          <Input
-                            type="number"
+                          <NumericInput
+                            
                             data-testid="vendor-credit-days-input"
                             value={formData.credit_days}
                             onChange={(e) => setFormData({...formData, credit_days: parseInt(e.target.value) || 0})}

@@ -82,6 +82,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Running total with "Balanced" indicator when entries match total
   - Applied to both Convert Deal (advance) and Collect Payment dialogs
   - Backend creates separate income records per payment entry
+- [x] **Numeric Input Formatting (Mar 18, 2026)**:
+  - Removed spinner arrows from all 125 numeric inputs across 38 files
+  - Auto Indian comma separator (1,00,000) on all amount/number fields
+  - Only numeric entry allowed (blocks letters/symbols)
+  - Created reusable NumericInput component
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`

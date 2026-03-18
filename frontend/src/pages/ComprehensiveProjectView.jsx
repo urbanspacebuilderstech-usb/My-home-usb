@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -531,9 +532,9 @@ export default function ComprehensiveProjectView() {
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <Label>Percentage (%)</Label>
-                            <Input
+                            <NumericInput
                               data-testid="stage-percentage-input"
-                              type="number"
+                              
                               step="0.01"
                               value={stageForm.percentage}
                               onChange={(e) => {
@@ -549,9 +550,9 @@ export default function ComprehensiveProjectView() {
                           </div>
                           <div>
                             <Label>Amount (₹)</Label>
-                            <Input
+                            <NumericInput
                               data-testid="stage-amount-input"
-                              type="number"
+                              
                               value={stageForm.amount}
                               onChange={(e) => setStageForm({...stageForm, amount: e.target.value})}
                               required
@@ -609,8 +610,8 @@ export default function ComprehensiveProjectView() {
                             <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
-                                  type="number"
+                                <NumericInput
+                                  
                                   className="w-24 text-right"
                                   defaultValue={stage.amount_received}
                                   onBlur={(e) => handleUpdatePaymentStage(stage.stage_id, { amount_received: parseFloat(e.target.value) || 0 })}
@@ -709,9 +710,9 @@ export default function ComprehensiveProjectView() {
                         </div>
                         <div>
                           <Label>Estimated Amount (₹)</Label>
-                          <Input
+                          <NumericInput
                             data-testid="cost-amount-input"
-                            type="number"
+                            
                             value={costForm.estimated_amount}
                             onChange={(e) => setCostForm({...costForm, estimated_amount: e.target.value})}
                             required
@@ -757,8 +758,8 @@ export default function ComprehensiveProjectView() {
                             <td className="px-4 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
-                                  type="number"
+                                <NumericInput
+                                  
                                   className="w-24 text-right"
                                   defaultValue={cost.actual_amount}
                                   onBlur={(e) => handleUpdateAdditionalCost(cost.cost_id, { actual_amount: parseFloat(e.target.value) || 0 })}
@@ -769,8 +770,8 @@ export default function ComprehensiveProjectView() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
-                                  type="number"
+                                <NumericInput
+                                  
                                   className="w-24 text-right"
                                   defaultValue={cost.income_received}
                                   onBlur={(e) => handleUpdateAdditionalCost(cost.cost_id, { income_received: parseFloat(e.target.value) || 0 })}

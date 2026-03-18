@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -416,8 +417,8 @@ export default function SiteEngineerProject() {
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs sm:text-sm">Quantity *</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={materialForm.quantity}
                             onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
                             placeholder="Enter quantity"
@@ -576,8 +577,8 @@ export default function SiteEngineerProject() {
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <Label className="text-xs">Workers *</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={labourForm.num_workers}
                             onChange={(e) => setLabourForm({...labourForm, num_workers: e.target.value})}
                             placeholder="Count"
@@ -586,8 +587,8 @@ export default function SiteEngineerProject() {
                         </div>
                         <div>
                           <Label className="text-xs">Days *</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={labourForm.num_days}
                             onChange={(e) => setLabourForm({...labourForm, num_days: e.target.value})}
                             placeholder="Days"
@@ -596,8 +597,8 @@ export default function SiteEngineerProject() {
                         </div>
                         <div>
                           <Label className="text-xs">Rate *</Label>
-                          <Input 
-                            type="number"
+                          <NumericInput 
+                            
                             value={labourForm.rate_per_day}
                             onChange={(e) => setLabourForm({...labourForm, rate_per_day: e.target.value})}
                             placeholder="₹"
@@ -702,8 +703,8 @@ export default function SiteEngineerProject() {
               
               <div>
                 <Label className="text-xs sm:text-sm">Received Qty *</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={receiveForm.received_qty}
                   onChange={(e) => setReceiveForm({...receiveForm, received_qty: e.target.value})}
                   className="text-sm"

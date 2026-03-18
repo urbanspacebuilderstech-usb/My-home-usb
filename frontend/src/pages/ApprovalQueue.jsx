@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -343,7 +344,7 @@ export default function ApprovalQueue() {
                       <div key={note} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
                         <span className="text-xs font-medium text-gray-600 w-10">₹{note}</span>
                         <span className="text-gray-400 text-xs">×</span>
-                        <Input type="number" min="0" className="h-7 text-xs text-center flex-1"
+                        <NumericInput className="h-7 text-xs text-center flex-1"
                           value={reviewForm.denomination[note] || ''}
                           onChange={(e) => setReviewForm({
                             ...reviewForm,

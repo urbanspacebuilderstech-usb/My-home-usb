@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -572,23 +573,23 @@ export default function HRPortal() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>Basic Salary</Label>
-                  <Input type="number" value={staffForm.basic_salary} onChange={(e) => setStaffForm({...staffForm, basic_salary: e.target.value})} data-testid="input-basic" />
+                  <NumericInput value={staffForm.basic_salary} onChange={(e) => setStaffForm({...staffForm, basic_salary: e.target.value})} data-testid="input-basic" />
                 </div>
                 <div>
                   <Label>HRA</Label>
-                  <Input type="number" value={staffForm.hra} onChange={(e) => setStaffForm({...staffForm, hra: e.target.value})} />
+                  <NumericInput value={staffForm.hra} onChange={(e) => setStaffForm({...staffForm, hra: e.target.value})} />
                 </div>
                 <div>
                   <Label>DA</Label>
-                  <Input type="number" value={staffForm.da} onChange={(e) => setStaffForm({...staffForm, da: e.target.value})} />
+                  <NumericInput value={staffForm.da} onChange={(e) => setStaffForm({...staffForm, da: e.target.value})} />
                 </div>
                 <div>
                   <Label>TA</Label>
-                  <Input type="number" value={staffForm.ta} onChange={(e) => setStaffForm({...staffForm, ta: e.target.value})} />
+                  <NumericInput value={staffForm.ta} onChange={(e) => setStaffForm({...staffForm, ta: e.target.value})} />
                 </div>
                 <div>
                   <Label>Other Allowances</Label>
-                  <Input type="number" value={staffForm.other_allowances} onChange={(e) => setStaffForm({...staffForm, other_allowances: e.target.value})} />
+                  <NumericInput value={staffForm.other_allowances} onChange={(e) => setStaffForm({...staffForm, other_allowances: e.target.value})} />
                 </div>
                 <div className="bg-green-50 p-2 rounded flex flex-col justify-center">
                   <span className="text-xs text-green-600">Gross Salary</span>
@@ -605,23 +606,23 @@ export default function HRPortal() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label>PF</Label>
-                  <Input type="number" value={staffForm.pf} onChange={(e) => setStaffForm({...staffForm, pf: e.target.value})} />
+                  <NumericInput value={staffForm.pf} onChange={(e) => setStaffForm({...staffForm, pf: e.target.value})} />
                 </div>
                 <div>
                   <Label>ESI</Label>
-                  <Input type="number" value={staffForm.esi} onChange={(e) => setStaffForm({...staffForm, esi: e.target.value})} />
+                  <NumericInput value={staffForm.esi} onChange={(e) => setStaffForm({...staffForm, esi: e.target.value})} />
                 </div>
                 <div>
                   <Label>Professional Tax</Label>
-                  <Input type="number" value={staffForm.professional_tax} onChange={(e) => setStaffForm({...staffForm, professional_tax: e.target.value})} />
+                  <NumericInput value={staffForm.professional_tax} onChange={(e) => setStaffForm({...staffForm, professional_tax: e.target.value})} />
                 </div>
                 <div>
                   <Label>TDS</Label>
-                  <Input type="number" value={staffForm.tds} onChange={(e) => setStaffForm({...staffForm, tds: e.target.value})} />
+                  <NumericInput value={staffForm.tds} onChange={(e) => setStaffForm({...staffForm, tds: e.target.value})} />
                 </div>
                 <div>
                   <Label>Other Deductions</Label>
-                  <Input type="number" value={staffForm.other_deductions} onChange={(e) => setStaffForm({...staffForm, other_deductions: e.target.value})} />
+                  <NumericInput value={staffForm.other_deductions} onChange={(e) => setStaffForm({...staffForm, other_deductions: e.target.value})} />
                 </div>
                 <div className="bg-red-50 p-2 rounded flex flex-col justify-center">
                   <span className="text-xs text-red-600">Total Deductions</span>

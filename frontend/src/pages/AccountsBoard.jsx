@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -478,7 +479,7 @@ function PettyCashManagement({ onBack }) {
                 <p><span className="text-gray-500">Purpose:</span> <span className="font-medium">{issuePC.purpose}</span></p>
                 <p><span className="text-gray-500">Requested:</span> <span className="font-bold text-amber-700">{fmtFull(issuePC.amount_requested)}</span></p>
               </CardContent></Card>
-              <div><Label>Amount to Issue</Label><Input type="number" value={issueAmount} onChange={e => setIssueAmount(e.target.value)} /></div>
+              <div><Label>Amount to Issue</Label><NumericInput value={issueAmount} onChange={e => setIssueAmount(e.target.value)} /></div>
               <div><Label>Remarks</Label><Textarea value={issueRemarks} onChange={e => setIssueRemarks(e.target.value)} rows={2} /></div>
             </div>
           )}
@@ -676,7 +677,7 @@ function IndirectExpenseSection({ userRole }) {
             )}
             {canEditPct && editingPct && (
               <div className="flex items-center gap-1.5 shrink-0">
-                <Input type="number" min="1" max="50" step="1" className="w-16 h-6 text-xs text-center"
+                <NumericInput className="w-16 h-6 text-xs text-center"
                   value={pctInput} onChange={(e) => setPctInput(e.target.value)} data-testid="cost-split-input" />
                 <span className="text-[10px] text-gray-500">%</span>
                 <Button size="sm" className="h-6 text-[10px] bg-violet-600 hover:bg-violet-700 px-2" disabled={savingPct}
@@ -911,7 +912,7 @@ function IndirectExpenseSection({ userRole }) {
               </div>
               <div>
                 <Label className="text-xs">Amount *</Label>
-                <Input type="number" value={createForm.amount} onChange={(e) => { setCreateForm({ ...createForm, amount: e.target.value }); if (e.target.value && parseFloat(e.target.value) > 0) fetchPreview(e.target.value); else setDistributionPreview(null); }} placeholder="Enter amount" data-testid="indirect-input-amount" />
+                <NumericInput value={createForm.amount} onChange={(e) => { setCreateForm({ ...createForm, amount: e.target.value }); if (e.target.value && parseFloat(e.target.value) > 0) fetchPreview(e.target.value); else setDistributionPreview(null); }} placeholder="Enter amount" data-testid="indirect-input-amount" />
               </div>
             </div>
             <div>
@@ -1449,7 +1450,7 @@ function CashbookTab({ overview, projects, userRole }) {
                           </Select>
                         </td>
                         <td className="px-1 py-1.5">
-                          <Input type="number" placeholder="Amount" className="h-7 text-[11px] w-24 bg-white text-right"
+                          <NumericInput placeholder="Amount" className="h-7 text-[11px] w-24 bg-white text-right"
                             value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))} />
                         </td>
                         <td className="px-1 py-1.5">
@@ -1623,7 +1624,7 @@ function CashbookTab({ overview, projects, userRole }) {
             </div>
             <div>
               <Label className="text-xs text-gray-500 mb-1 block">Amount</Label>
-              <Input type="number" placeholder="Enter amount" className="h-9 text-sm"
+              <NumericInput placeholder="Enter amount" className="h-9 text-sm"
                 value={newExpense.amount} onChange={e => setNewExpense(p => ({...p, amount: e.target.value}))}
                 data-testid="mobile-expense-amount" />
             </div>
@@ -1956,7 +1957,7 @@ function ChequeManagementTab({ projects }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Cheque Number *</Label><Input value={chequeForm.cheque_number} onChange={e => setChequeForm({...chequeForm, cheque_number: e.target.value})} data-testid="input-cheque-number" /></div>
-              <div><Label>Amount *</Label><Input type="number" value={chequeForm.amount} onChange={e => setChequeForm({...chequeForm, amount: e.target.value})} data-testid="input-amount" /></div>
+              <div><Label>Amount *</Label><NumericInput value={chequeForm.amount} onChange={e => setChequeForm({...chequeForm, amount: e.target.value})} data-testid="input-amount" /></div>
               <div><Label>Cheque Date *</Label><Input type="date" value={chequeForm.cheque_date} onChange={e => setChequeForm({...chequeForm, cheque_date: e.target.value})} data-testid="input-cheque-date" /></div>
               <div><Label>Type</Label>
                 <Select value={chequeForm.cheque_type} onValueChange={v => setChequeForm({...chequeForm, cheque_type: v})}>
@@ -2030,7 +2031,7 @@ function ChequeManagementTab({ projects }) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>Bounce Charges</Label><Input type="number" value={statusForm.bounce_charges} onChange={e => setStatusForm({...statusForm, bounce_charges: e.target.value})} /></div>
+                  <div><Label>Bounce Charges</Label><NumericInput value={statusForm.bounce_charges} onChange={e => setStatusForm({...statusForm, bounce_charges: e.target.value})} /></div>
                 </>
               )}
               <div><Label>Remarks</Label><Textarea value={statusForm.remarks} onChange={e => setStatusForm({...statusForm, remarks: e.target.value})} rows={2} /></div>
@@ -2065,7 +2066,7 @@ function ChequeManagementTab({ projects }) {
                   {smartPayForm.use_suspense && (
                     <div className="mt-2">
                       <Label className="text-xs">Amount to use from suspense</Label>
-                      <Input type="number" className="h-8 text-sm" value={smartPayForm.suspense_amount_to_use}
+                      <NumericInput className="h-8 text-sm" value={smartPayForm.suspense_amount_to_use}
                         onChange={e => setSmartPayForm(prev => ({ ...prev, suspense_amount_to_use: e.target.value }))} />
                     </div>
                   )}
@@ -2104,7 +2105,7 @@ function ChequeManagementTab({ projects }) {
               </div>
             </div>
             <div><Label>Expense Amount *</Label>
-              <Input type="number" value={smartPayForm.expense_amount} onChange={e => setSmartPayForm(prev => ({ ...prev, expense_amount: e.target.value }))} data-testid="smart-pay-amount" placeholder="Expense amount" />
+              <NumericInput value={smartPayForm.expense_amount} onChange={e => setSmartPayForm(prev => ({ ...prev, expense_amount: e.target.value }))} data-testid="smart-pay-amount" placeholder="Expense amount" />
             </div>
             <div><Label>Description</Label><Input value={smartPayForm.expense_description} onChange={e => setSmartPayForm(prev => ({ ...prev, expense_description: e.target.value }))} placeholder="e.g., Cement purchase" /></div>
             <div><Label>Remarks</Label><Textarea value={smartPayForm.remarks} onChange={e => setSmartPayForm(prev => ({ ...prev, remarks: e.target.value }))} rows={2} /></div>
@@ -2533,8 +2534,8 @@ function ApprovalsTab() {
                       <div key={note} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1.5">
                         <span className="text-xs font-medium text-gray-600 w-10">₹{note}</span>
                         <span className="text-gray-400 text-xs">×</span>
-                        <Input
-                          type="number" min="0"
+                        <NumericInput
+ 
                           className="h-7 text-xs text-center flex-1"
                           value={reviewForm.denomination[note] || ''}
                           onChange={(e) => setReviewForm({

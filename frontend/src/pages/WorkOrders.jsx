@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -173,9 +174,9 @@ export default function WorkOrders() {
                   )}
                   <div>
                     <Label>Requested Quantity</Label>
-                    <Input 
+                    <NumericInput 
                       data-testid="wo-quantity-input"
-                      type="number" 
+                       
                       value={formData.requested_quantity} 
                       onChange={(e) => setFormData({...formData, requested_quantity: e.target.value})} 
                       required 

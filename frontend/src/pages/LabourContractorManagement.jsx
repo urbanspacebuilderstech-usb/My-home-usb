@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -342,8 +343,8 @@ export default function LabourContractorManagement() {
                   {form.work_types.map((type) => (
                     <div key={type} className="flex items-center gap-2">
                       <span className="text-sm font-medium w-24 truncate">{type}:</span>
-                      <Input 
-                        type="number"
+                      <NumericInput 
+                        
                         value={form.rate_structure[type] || ''}
                         onChange={(e) => updateRate(type, e.target.value)}
                         placeholder="0"

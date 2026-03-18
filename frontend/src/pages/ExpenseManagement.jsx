@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -418,7 +419,7 @@ export default function ExpenseManagement() {
                             <div className="grid grid-cols-3 gap-4">
                               <div>
                                 <Label>Quantity</Label>
-                                <Input type="number" value={materialForm.quantity} onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})} required />
+                                <NumericInput value={materialForm.quantity} onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})} required />
                               </div>
                               <div>
                                 <Label>Unit</Label>
@@ -479,15 +480,15 @@ export default function ExpenseManagement() {
                             <div className="grid grid-cols-3 gap-4">
                               <div>
                                 <Label>No. of Workers</Label>
-                                <Input type="number" value={labourForm.num_workers} onChange={(e) => setLabourForm({...labourForm, num_workers: e.target.value})} required />
+                                <NumericInput value={labourForm.num_workers} onChange={(e) => setLabourForm({...labourForm, num_workers: e.target.value})} required />
                               </div>
                               <div>
                                 <Label>Days Worked</Label>
-                                <Input type="number" step="0.5" value={labourForm.days_worked} onChange={(e) => setLabourForm({...labourForm, days_worked: e.target.value})} required />
+                                <NumericInput value={labourForm.days_worked} onChange={(e) => setLabourForm({...labourForm, days_worked: e.target.value})} required />
                               </div>
                               <div>
                                 <Label>Rate/Day (₹)</Label>
-                                <Input type="number" value={labourForm.rate_per_day} onChange={(e) => setLabourForm({...labourForm, rate_per_day: e.target.value})} required />
+                                <NumericInput value={labourForm.rate_per_day} onChange={(e) => setLabourForm({...labourForm, rate_per_day: e.target.value})} required />
                               </div>
                             </div>
                             <div className="bg-gray-50 p-3 rounded">
@@ -542,7 +543,7 @@ export default function ExpenseManagement() {
                             <div className="grid grid-cols-2 gap-4">
                               <div>
                                 <Label>Amount (₹)</Label>
-                                <Input type="number" value={vendorServiceForm.amount} onChange={(e) => setVendorServiceForm({...vendorServiceForm, amount: e.target.value})} required />
+                                <NumericInput value={vendorServiceForm.amount} onChange={(e) => setVendorServiceForm({...vendorServiceForm, amount: e.target.value})} required />
                               </div>
                               <div>
                                 <Label>Invoice Number</Label>
@@ -817,8 +818,8 @@ export default function ExpenseManagement() {
               <>
                 <div>
                   <Label>Amount (₹)</Label>
-                  <Input 
-                    type="number" 
+                  <NumericInput 
+                     
                     value={paymentForm.amount} 
                     onChange={(e) => setPaymentForm({...paymentForm, amount: e.target.value})}
                     placeholder={paymentForm.payment_type === 'full' ? 'Full amount' : 'Enter advance amount'}

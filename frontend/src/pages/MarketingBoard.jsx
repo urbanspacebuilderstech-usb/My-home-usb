@@ -33,6 +33,7 @@ import {
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -2971,21 +2972,21 @@ export default function MarketingBoard() {
               
               <div>
                 <Label>Area (Sqft)</Label>
-                <Input
+                <NumericInput
                   value={newLeadForm.sqft}
                   onChange={(e) => setNewLeadForm(p => ({ ...p, sqft: e.target.value }))}
                   placeholder="e.g. 1500"
-                  type="number"
+                  
                 />
               </div>
               
               <div>
                 <Label>Budget (₹)</Label>
-                <Input
+                <NumericInput
                   value={newLeadForm.budget}
                   onChange={(e) => setNewLeadForm(p => ({ ...p, budget: e.target.value }))}
                   placeholder="e.g. 5000000"
-                  type="number"
+                  
                 />
               </div>
               

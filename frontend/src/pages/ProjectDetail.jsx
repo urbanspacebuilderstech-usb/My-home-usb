@@ -21,6 +21,7 @@ import { FileUpload, FileList } from '../components/FileUpload';
 import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -1616,8 +1617,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.quantity}
                                       onChange={(e) => {
                                         const newRows = [...bulkScopeRows];
@@ -1639,8 +1640,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.unit_rate}
                                       onChange={(e) => {
                                         const newRows = [...bulkScopeRows];
@@ -1780,9 +1781,9 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
+                                <NumericInput
                                   data-testid={`edit-scope-qty-${item.scope_id}`}
-                                  type="number"
+                                  
                                   value={editScopeForm.quantity}
                                   onChange={(e) => setEditScopeForm({...editScopeForm, quantity: e.target.value})}
                                   className="h-8 w-20 text-right"
@@ -1805,9 +1806,9 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
+                                <NumericInput
                                   data-testid={`edit-scope-rate-${item.scope_id}`}
-                                  type="number"
+                                  
                                   value={editScopeForm.unit_rate}
                                   onChange={(e) => setEditScopeForm({...editScopeForm, unit_rate: e.target.value})}
                                   className="h-8 w-24 text-right"
@@ -2252,8 +2253,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.percentage}
                                       onChange={(e) => {
                                         const newRows = [...bulkPaymentRows];
@@ -2271,8 +2272,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.amount}
                                       onChange={(e) => {
                                         const newRows = [...bulkPaymentRows];
@@ -2375,10 +2376,10 @@ export default function ProjectDetail() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="edit-percentage">Percentage (%)</Label>
-                        <Input
+                        <NumericInput
                           id="edit-percentage"
                           data-testid="edit-payment-percentage"
-                          type="number"
+                          
                           value={editPaymentForm.percentage}
                           onChange={(e) => {
                             const pct = parseFloat(e.target.value) || 0;
@@ -2394,10 +2395,10 @@ export default function ProjectDetail() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="edit-amount">Amount (₹)</Label>
-                        <Input
+                        <NumericInput
                           id="edit-amount"
                           data-testid="edit-payment-amount"
-                          type="number"
+                          
                           value={editPaymentForm.amount}
                           onChange={(e) => {
                             const amt = parseFloat(e.target.value) || 0;
@@ -2641,8 +2642,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.estimated_amount}
                                       onChange={(e) => {
                                         const newRows = [...bulkAdditionRows];
@@ -2704,8 +2705,8 @@ export default function ProjectDetail() {
                             <td className="px-4 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
                             <td className="px-4 py-3 text-right">
                               {isEditing ? (
-                                <Input
-                                  type="number"
+                                <NumericInput
+                                  
                                   className="w-28 text-right"
                                   defaultValue={cost.income_received}
                                   onBlur={(e) => handleUpdateAddition(cost.cost_id, { income_received: parseFloat(e.target.value) || 0 })}
@@ -2820,8 +2821,8 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      type="number"
+                                    <NumericInput 
+                                      
                                       value={row.amount}
                                       onChange={(e) => {
                                         const newRows = [...bulkDeductionRows];
@@ -3341,8 +3342,8 @@ export default function ProjectDetail() {
             
             <div>
               <Label>Amount to Collect *</Label>
-              <Input
-                type="number"
+              <NumericInput
+                
                 value={collectForm.amount_received}
                 onChange={(e) => setCollectForm({...collectForm, amount_received: e.target.value})}
                 placeholder="Enter amount"

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -262,9 +263,9 @@ export default function BOQManagement() {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label>Quantity</Label>
-                        <Input
+                        <NumericInput
                           data-testid="boq-quantity-input"
-                          type="number"
+                          
                           value={formData.quantity}
                           onChange={(e) => setFormData({...formData, quantity: e.target.value})}
                           required
@@ -272,9 +273,9 @@ export default function BOQManagement() {
                       </div>
                       <div>
                         <Label>Unit Rate (₹)</Label>
-                        <Input
+                        <NumericInput
                           data-testid="boq-rate-input"
-                          type="number"
+                          
                           value={formData.unit_rate}
                           onChange={(e) => setFormData({...formData, unit_rate: e.target.value})}
                           required

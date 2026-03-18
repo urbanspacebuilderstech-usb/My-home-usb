@@ -18,6 +18,7 @@ import {
   Receipt, CheckCircle2, XCircle, Search, Filter, Coins, HelpCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -1019,8 +1020,8 @@ export default function AccountantModule() {
               </div>
               <div>
                 <Label>Amount *</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={expenseForm.amount}
                   onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})}
                   placeholder="Enter amount"
@@ -1131,8 +1132,8 @@ export default function AccountantModule() {
               </div>
               <div>
                 <Label>Amount *</Label>
-                <Input 
-                  type="number"
+                <NumericInput 
+                  
                   value={suspenseForm.amount}
                   onChange={(e) => setSuspenseForm({...suspenseForm, amount: e.target.value})}
                   placeholder="Excess amount"

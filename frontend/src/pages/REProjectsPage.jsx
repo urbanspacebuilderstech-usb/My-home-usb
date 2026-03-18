@@ -19,6 +19,7 @@ import {
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -474,8 +475,8 @@ export default function REProjectsPage({ embedded = false }) {
                 </div>
                 <div>
                   <Label>Square Feet</Label>
-                  <Input
-                    type="number"
+                  <NumericInput
+                    
                     value={editForm.sqft}
                     onChange={(e) => setEditForm({...editForm, sqft: e.target.value})}
                     disabled={!canEdit}
@@ -543,8 +544,8 @@ export default function REProjectsPage({ embedded = false }) {
                               />
                             </td>
                             <td className="px-3 py-2">
-                              <Input
-                                type="number"
+                              <NumericInput
+                                
                                 value={item.quantity}
                                 onChange={(e) => updateScopeItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
                                 className="h-8 text-center"
@@ -560,8 +561,8 @@ export default function REProjectsPage({ embedded = false }) {
                               />
                             </td>
                             <td className="px-3 py-2">
-                              <Input
-                                type="number"
+                              <NumericInput
+                                
                                 value={item.rate}
                                 onChange={(e) => updateScopeItem(idx, 'rate', parseFloat(e.target.value) || 0)}
                                 className="h-8 text-right"
@@ -594,8 +595,8 @@ export default function REProjectsPage({ embedded = false }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Project Handover Time (Months)</Label>
-                  <Input
-                    type="number"
+                  <NumericInput
+                    
                     value={editForm.handover_months}
                     onChange={(e) => setEditForm({...editForm, handover_months: e.target.value})}
                     placeholder="Enter number of months"
