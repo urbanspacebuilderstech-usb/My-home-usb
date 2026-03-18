@@ -2313,7 +2313,7 @@ async def get_deductions(project_id: str, user: User = Depends(get_current_user)
 
 @router.post("/deductions")
 async def create_deduction(deduction_input: DeductionCreate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     deduction = DeductionItem(
@@ -2345,7 +2345,7 @@ async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user
 
 @router.delete("/deductions/{deduction_id}")
 async def delete_deduction(deduction_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.deductions.delete_one({"deduction_id": deduction_id})
@@ -2512,7 +2512,7 @@ async def create_bulk_deductions(
     user: User = Depends(get_current_user)
 ):
     """Create multiple deductions at once (pending verification)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     created_items = []
