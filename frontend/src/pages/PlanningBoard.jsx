@@ -304,7 +304,13 @@ export default function PlanningBoard() {
 
   const handleReStatusChange = async (projectId, newStatus) => {
     try {
-      await axios.patch(`${API}/crm/re-projects/${projectId}/status`, { status: newStatus });
+      if (newStatus === 're_in_progress') {
+        // Start: PATCH the project (backend auto-changes status from re_requested to re_in_progress)
+        await axios.patch(`${API}/crm/re-projects/${projectId}`, { additional_notes: '' });
+      } else if (newStatus === 're_submitted') {
+        // Submit for approval
+        await axios.post(`${API}/crm/re-projects/${projectId}/submit-for-approval`);
+      }
       toast.success(`Status updated to ${RE_STATUS_CONFIG[newStatus]?.label || newStatus}`);
       fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
@@ -313,7 +319,7 @@ export default function PlanningBoard() {
   const handleReApproval = async (approved) => {
     if (!reSelectedProject) return;
     try {
-      await axios.patch(`${API}/crm/re-projects/${reSelectedProject.re_project_id}/approval`, { approved });
+      await axios.patch(`${API}/crm/re-projects/${reSelectedProject.re_project_id}/approve`, { approved });
       toast.success(approved ? 'RE Project approved' : 'RE Project rejected');
       setReApprovalDialog(false);
       fetchData(false);

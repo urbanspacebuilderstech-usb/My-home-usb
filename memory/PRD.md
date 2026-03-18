@@ -72,6 +72,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Visual Cost Split bar in Accountant's Indirect tab (read-only, shows "Set by Admin")
   - Super Admin gets Edit button to change % inline with save/cancel
   - All budget calculations and UI labels dynamically reflect the configured percentage
+- [x] **Rough Estimates Tab in Planning Board (Mar 18, 2026)**:
+  - Moved RE Projects from separate nav link into Planning Board as "Rough Estimates" tab
+  - Red badge with count shows new requests on the tab title
+  - Status cards: New Requests, In Progress, Awaiting Approval, Approved, Rejected
+  - Full RE workflow: Edit, Start, Submit for Approval, Review (Approve/Reject)
+  - Download PDF for RE projects
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
