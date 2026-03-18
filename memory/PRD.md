@@ -92,6 +92,17 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Root cause: Backend IncomeReviewRequest used Dict[str, str] for cheque_verifications but frontend sent amount as number → 422 Pydantic validation error
   - Fix: Changed backend to Dict[str, Any]; frontend now stringifies amount; validation allows approval without cheque records
   - Also fixed operations.py: cheque records now linked to income records via income_id during deal conversion
+- [x] **PM Dashboard Team Assignment Enhancement (Mar 18, 2026)**:
+  - Reworked Assign popup with TWO separate dropdowns: Sr. Site Engineer and Site Engineer
+  - Each dropdown shows names with total project count for workload visibility
+  - Multiple members of each role can be assigned per project
+  - Currently assigned members visible in dialog with inline remove (X) button
+  - Team column in All Projects table shows role-specific badges (Sr.SE / SE) with counts
+- [x] **Project Detail Team Tab - Editable (Mar 18, 2026)**:
+  - PM, Super Admin, and Planning roles can now edit team from within Project Detail
+  - "Edit Team" button opens assignment dialog with Sr SE and SE dropdowns
+  - Remove (X) button on each team member for quick removal
+  - New backend endpoint: DELETE /api/pm/projects/{project_id}/team/{user_id}
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
