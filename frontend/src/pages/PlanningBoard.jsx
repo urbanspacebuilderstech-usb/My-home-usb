@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
@@ -75,6 +75,9 @@ export default function PlanningBoard() {
   // Payment Schedule Overview
   const [scheduleData, setScheduleData] = useState({ stages: [], summary: {} });
   const [scheduleSearch, setScheduleSearch] = useState('');
+  const [scheduleDateFrom, setScheduleDateFrom] = useState('');
+  const [scheduleDateTo, setScheduleDateTo] = useState('');
+  const [scheduleStatusFilter, setScheduleStatusFilter] = useState('all');
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
@@ -252,6 +255,72 @@ export default function PlanningBoard() {
   });
   const filteredContractors = contractors.filter(c => !contractorSearch || c.name.toLowerCase().includes(contractorSearch.toLowerCase()));
   const filteredVendors = vendors.filter(v => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()));
+
+  // Payment Schedule filtered data
+  const filteredSchedule = (scheduleData.stages || []).filter(s => {
+    if (scheduleSearch && !(s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) && !(s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase())) return false;
+    if (scheduleStatusFilter !== 'all' && s.status !== scheduleStatusFilter) return false;
+    const dateStr = s.due_date || s.created_at;
+    if (dateStr) {
+      const d = new Date(dateStr);
+      if (scheduleDateFrom && d < new Date(scheduleDateFrom)) return false;
+      if (scheduleDateTo && d > new Date(scheduleDateTo + 'T23:59:59')) return false;
+    }
+    return true;
+  });
+  const filteredScheduleSummary = {
+    total_scheduled: filteredSchedule.reduce((a, s) => a + (s.amount || 0), 0),
+    total_received: filteredSchedule.reduce((a, s) => a + (s.amount_received || 0), 0),
+    get total_balance() { return this.total_scheduled - this.total_received; },
+    total_stages: filteredSchedule.length,
+    pending_count: filteredSchedule.filter(s => s.status === 'pending').length,
+    partial_count: filteredSchedule.filter(s => s.status === 'partial').length,
+    collected_count: filteredSchedule.filter(s => s.status === 'paid' || s.status === 'collected').length,
+  };
+
+  const handleDownloadSchedule = (format) => {
+    const rows = filteredSchedule.map(s => {
+      const dateStr = s.due_date || s.created_at;
+      const displayDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+      const balance = (s.amount || 0) - (s.amount_received || 0);
+      const statusMap = { pending: 'Pending', partial: 'Partially Collected', paid: 'Collected', collected: 'Collected', requested: 'Req. Raised' };
+      return { date: displayDate, project: s.project_name, client: s.client_name || '', stage: s.stage_name, percentage: s.percentage || '', amount: s.amount || 0, received: s.amount_received || 0, balance, status: statusMap[s.status] || s.status || 'Pending' };
+    });
+
+    if (format === 'csv') {
+      const header = 'Date,Project,Client,Stage,%,Amount,Received,Balance,Status\n';
+      const csv = header + rows.map(r => `"${r.date}","${r.project}","${r.client}","${r.stage}",${r.percentage},${r.amount},${r.received},${r.balance},"${r.status}"`).join('\n');
+      const totals = `\n\n"","","","TOTAL","",${filteredScheduleSummary.total_scheduled},${filteredScheduleSummary.total_received},${filteredScheduleSummary.total_balance},""`;
+      const blob = new Blob([csv + totals], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `payment_schedule_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success('CSV downloaded');
+    } else if (format === 'pdf') {
+      import('jspdf').then(({ jsPDF }) => {
+        import('jspdf-autotable').then(() => {
+          const doc = new jsPDF({ orientation: 'landscape' });
+          doc.setFontSize(16); doc.text('Payment Schedule Report', 14, 15);
+          doc.setFontSize(9); doc.setTextColor(100);
+          const dateLabel = scheduleDateFrom || scheduleDateTo ? `Date Range: ${scheduleDateFrom || 'Start'} to ${scheduleDateTo || 'Now'}` : 'All Dates';
+          doc.text(`${dateLabel} | Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 22);
+          doc.text(`Total Scheduled: ${formatCurrency(filteredScheduleSummary.total_scheduled)} | Collected: ${formatCurrency(filteredScheduleSummary.total_received)} | Balance: ${formatCurrency(filteredScheduleSummary.total_balance)}`, 14, 28);
+
+          doc.autoTable({
+            startY: 33,
+            head: [['Date', 'Project', 'Client', 'Stage', '%', 'Amount', 'Received', 'Balance', 'Status']],
+            body: rows.map(r => [r.date, r.project, r.client, r.stage, r.percentage, formatCurrency(r.amount), formatCurrency(r.received), formatCurrency(r.balance), r.status]),
+            foot: [['', '', '', 'TOTAL', '', formatCurrency(filteredScheduleSummary.total_scheduled), formatCurrency(filteredScheduleSummary.total_received), formatCurrency(filteredScheduleSummary.total_balance), '']],
+            styles: { fontSize: 8 },
+            headStyles: { fillColor: [79, 70, 229] },
+            footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0], fontStyle: 'bold' },
+          });
+          doc.save(`payment_schedule_${new Date().toISOString().slice(0,10)}.pdf`);
+          toast.success('PDF downloaded');
+        });
+      });
+    }
+  };
 
   const newProjectCount = newProjectsFromCRE.length;
   const requestCount = pendingRequests.length + paymentRequests.length;
@@ -548,35 +617,84 @@ export default function PlanningBoard() {
 
           {/* ==================== PAYMENT SCHEDULE ==================== */}
           <TabsContent value="payment_schedule">
+            {/* Filters Row */}
+            <Card className="mb-4">
+              <CardContent className="p-3">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label className="text-xs text-gray-500">From Date</Label>
+                    <Input type="date" value={scheduleDateFrom} onChange={e => setScheduleDateFrom(e.target.value)} className="h-8 text-sm w-36 mt-0.5" data-testid="schedule-date-from" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">To Date</Label>
+                    <Input type="date" value={scheduleDateTo} onChange={e => setScheduleDateTo(e.target.value)} className="h-8 text-sm w-36 mt-0.5" data-testid="schedule-date-to" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Status</Label>
+                    <Select value={scheduleStatusFilter} onValueChange={setScheduleStatusFilter}>
+                      <SelectTrigger className="h-8 text-sm w-40 mt-0.5" data-testid="schedule-status-filter"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Status</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="partial">Partially Collected</SelectItem>
+                        <SelectItem value="paid">Collected</SelectItem>
+                        <SelectItem value="requested">Req. Raised</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="relative">
+                    <Label className="text-xs text-gray-500">Search</Label>
+                    <div className="relative mt-0.5">
+                      <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
+                      <Input placeholder="Project / Stage..." value={scheduleSearch} onChange={e => setScheduleSearch(e.target.value)} className="pl-8 h-8 w-44 text-sm" data-testid="schedule-search" />
+                    </div>
+                  </div>
+                  {(scheduleDateFrom || scheduleDateTo || scheduleStatusFilter !== 'all' || scheduleSearch) && (
+                    <Button size="sm" variant="ghost" className="h-8 text-xs text-gray-500" onClick={() => { setScheduleDateFrom(''); setScheduleDateTo(''); setScheduleStatusFilter('all'); setScheduleSearch(''); }} data-testid="schedule-clear-filters">
+                      <X className="h-3 w-3 mr-1" />Clear
+                    </Button>
+                  )}
+                  <div className="ml-auto flex gap-1">
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleDownloadSchedule('csv')} data-testid="download-csv">
+                      <Download className="h-3 w-3 mr-1" />CSV
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleDownloadSchedule('pdf')} data-testid="download-pdf">
+                      <Download className="h-3 w-3 mr-1" />PDF
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
               <Card className="border-l-4 border-l-indigo-500">
                 <CardContent className="p-3">
                   <p className="text-[10px] text-gray-500 uppercase font-medium">Total Scheduled</p>
-                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(scheduleData.summary?.total_scheduled)}</p>
-                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.total_stages || 0} stages across {scheduleData.summary?.project_count || 0} projects</p>
+                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(filteredScheduleSummary.total_scheduled)}</p>
+                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.total_stages} stages</p>
                 </CardContent>
               </Card>
               <Card className="border-l-4 border-l-green-500">
                 <CardContent className="p-3">
                   <p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p>
-                  <p className="text-lg font-bold text-green-700">{formatCurrency(scheduleData.summary?.total_received)}</p>
-                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.collected_count || 0} stages collected</p>
+                  <p className="text-lg font-bold text-green-700">{formatCurrency(filteredScheduleSummary.total_received)}</p>
+                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.collected_count} stages collected</p>
                 </CardContent>
               </Card>
               <Card className="border-l-4 border-l-amber-500">
                 <CardContent className="p-3">
                   <p className="text-[10px] text-gray-500 uppercase font-medium">Pending Balance</p>
-                  <p className="text-lg font-bold text-amber-700">{formatCurrency(scheduleData.summary?.total_balance)}</p>
-                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.pending_count || 0} pending, {scheduleData.summary?.partial_count || 0} partial</p>
+                  <p className="text-lg font-bold text-amber-700">{formatCurrency(filteredScheduleSummary.total_balance)}</p>
+                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.pending_count} pending, {filteredScheduleSummary.partial_count} partial</p>
                 </CardContent>
               </Card>
               <Card className="border-l-4 border-l-purple-500">
                 <CardContent className="p-3">
                   <p className="text-[10px] text-gray-500 uppercase font-medium">Collection %</p>
-                  <p className="text-lg font-bold text-purple-700">{scheduleData.summary?.total_scheduled ? Math.round((scheduleData.summary.total_received / scheduleData.summary.total_scheduled) * 100) : 0}%</p>
+                  <p className="text-lg font-bold text-purple-700">{filteredScheduleSummary.total_scheduled ? Math.round((filteredScheduleSummary.total_received / filteredScheduleSummary.total_scheduled) * 100) : 0}%</p>
                   <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${scheduleData.summary?.total_scheduled ? Math.min(100, Math.round((scheduleData.summary.total_received / scheduleData.summary.total_scheduled) * 100)) : 0}%` }} />
+                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${filteredScheduleSummary.total_scheduled ? Math.min(100, Math.round((filteredScheduleSummary.total_received / filteredScheduleSummary.total_scheduled) * 100)) : 0}%` }} />
                   </div>
                 </CardContent>
               </Card>
@@ -585,13 +703,9 @@ export default function PlanningBoard() {
             {/* Schedule Table */}
             <Card>
               <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><IndianRupee className="h-4 w-4 text-green-600" />All Payment Stages ({scheduleData.stages?.length || 0})</CardTitle>
-                  <div className="relative">
-                    <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
-                    <Input placeholder="Search project..." value={scheduleSearch} onChange={(e) => setScheduleSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="schedule-search" />
-                  </div>
-                </div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <IndianRupee className="h-4 w-4 text-green-600" />All Payment Stages ({filteredSchedule.length}{filteredSchedule.length !== (scheduleData.stages || []).length ? ` of ${(scheduleData.stages || []).length}` : ''})
+                </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -608,13 +722,9 @@ export default function PlanningBoard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {(scheduleData.stages || [])
-                        .filter(s => !scheduleSearch || (s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) || (s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()))
-                        .length === 0 ? (
+                      {filteredSchedule.length === 0 ? (
                         <tr><td colSpan="7" className="p-8 text-center text-gray-400">No payment schedule entries found</td></tr>
-                      ) : (scheduleData.stages || [])
-                        .filter(s => !scheduleSearch || (s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) || (s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()))
-                        .map((s) => {
+                      ) : filteredSchedule.map((s) => {
                           const balance = (s.amount || 0) - (s.amount_received || 0);
                           const dateStr = s.due_date || s.created_at;
                           const displayDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
@@ -652,13 +762,13 @@ export default function PlanningBoard() {
                           );
                         })}
                     </tbody>
-                    {(scheduleData.stages || []).length > 0 && (
+                    {filteredSchedule.length > 0 && (
                       <tfoot className="bg-gray-50 border-t-2">
                         <tr className="font-bold text-sm">
                           <td colSpan="3" className="px-4 py-2.5 text-right text-gray-600">Total</td>
-                          <td className="px-4 py-2.5 text-right">{formatCurrency(scheduleData.summary?.total_scheduled)}</td>
-                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(scheduleData.summary?.total_received)}</td>
-                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(scheduleData.summary?.total_balance)}</td>
+                          <td className="px-4 py-2.5 text-right">{formatCurrency(filteredScheduleSummary.total_scheduled)}</td>
+                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(filteredScheduleSummary.total_received)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(filteredScheduleSummary.total_balance)}</td>
                           <td></td>
                         </tr>
                       </tfoot>
