@@ -22,6 +22,7 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | Pre-Sales | /crm-pre-sales | CRM pipeline |
 | Sales | /crm-sales | Sales pipeline |
 | Architect | /architect-dashboard | Site plans, 3D/elevation, design workflow |
+| HR | /hr-portal | Employee profiles, roles & credentials |
 | Client | /client-portal | View project status |
 
 ## Financial Model (80/20 Rule)
@@ -113,6 +114,19 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Search functionality to filter by project/stage name
   - New backend: GET /api/planning/payment-schedule-overview
 
+- [x] **HR Portal & Employee Management (Mar 18, 2026)**:
+  - Two-tab HR Portal: Employee Profiles | Roles & Credentials
+  - Employee Profiles: Full employee directory with search, department filter, add/edit/view/terminate
+  - Comprehensive employee form with accordion sections: Personal Info, Employment Details, ID & Documents, Address & Emergency Contact, Salary & Bank Details
+  - Document upload support (Photo, Resume, Aadhar, PAN) via Object Storage
+  - Real-time salary calculation (Gross, Deductions, Net) in the form
+  - Roles & Credentials tab: View all 29 users with roles, status, linked employee records
+  - Super Admin can edit user roles, reset passwords, toggle active status
+  - HR role can view/create/edit employees but cannot change roles or passwords
+  - New HR user added to demo login: hr@constructionos.com
+  - Backend: 8 new endpoints for employee profiles, document upload, user management
+  - Optimized /hr/users endpoint with batch query instead of N+1
+
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
 - GM: `gm@constructionos.com` / `Demo@1234`
@@ -125,7 +139,9 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - Pre-Sales: `presales@constructionos.com` / `Demo@1234`
 - Sales: `sales@constructionos.com` / `Demo@1234`
 - Architect: `architect@constructionos.com` / `Demo@1234`
+- HR: `hr@constructionos.com` / `Demo@1234`
 - Client: `raj@client.com` / `Demo@1234`
+- Client: `mohan@client.com` / `Demo@1234`
 
 ## Key API Endpoints - Indirect Cost Module
 | Method | Endpoint | Description |
