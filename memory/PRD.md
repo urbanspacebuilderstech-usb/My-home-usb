@@ -75,9 +75,13 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] **Rough Estimates Tab in Planning Board (Mar 18, 2026)**:
   - Moved RE Projects from separate nav link into Planning Board as "Rough Estimates" tab
   - Red badge with count shows new requests on the tab title
-  - Status cards: New Requests, In Progress, Awaiting Approval, Approved, Rejected
-  - Full RE workflow: Edit, Start, Submit for Approval, Review (Approve/Reject)
-  - Download PDF for RE projects
+  - Embeds existing REProjectsPage component with full RE workflow
+- [x] **Multi-Mode Payment Collection (Mar 18, 2026)**:
+  - CRE can collect advance/stage payments using multiple payment modes (Cash + Cheque + Bank Transfer + UPI)
+  - Each entry: amount + mode + reference; cheque mode supports multiple cheque details
+  - Running total with "Balanced" indicator when entries match total
+  - Applied to both Convert Deal (advance) and Collect Payment dialogs
+  - Backend creates separate income records per payment entry
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
