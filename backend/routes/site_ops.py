@@ -928,6 +928,172 @@ async def approve_labour_request(
     return await db.labour_expenses.find_one({id_field: request_id}, {"_id": 0})
 
 
+# ==================== PLANNING BOARD ENDPOINTS ====================
+# These endpoints are used by the Planning Board to view and approve/reject requests
+
+@router.get("/material-requests")
+async def get_material_requests_for_planning(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get material requests - accessible to Planning, Procurement, PM, Accountant, Super Admin"""
+    allowed = [UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.SUPER_ADMIN,
+               UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Enrich with project name
+    project_cache = {}
+    for r in requests:
+        pid = r.get("project_id")
+        if pid not in project_cache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            project_cache[pid] = p["name"] if p else "Unknown"
+        r["project_name"] = project_cache[pid]
+    
+    return requests
+
+
+@router.patch("/material-requests/{request_id}/planning-action")
+async def planning_action_material_request(
+    request_id: str,
+    action: str,
+    reason: Optional[str] = None,
+    approved_qty: Optional[float] = None,
+    user: User = Depends(get_current_user)
+):
+    """Planning team approves or rejects a material request"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can perform this action")
+    
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+    
+    if action == "approve":
+        if request["status"] not in ["requested", "pm_approved"]:
+            raise HTTPException(status_code=400, detail=f"Cannot approve request in status: {request['status']}")
+        update_data = {
+            "status": MaterialRequestStatus.PLANNING_APPROVED.value,
+            "planning_approved_by": user.user_id,
+            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        if approved_qty is not None:
+            update_data["approved_quantity"] = approved_qty
+        
+        await db.material_requests.update_one({"request_id": request_id}, {"$set": update_data})
+        
+        # Notify procurement
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
+        for p in proc_users:
+            await create_notification(p["user_id"], f"Material request approved by Planning: {request['material_name']} x {request['quantity']}")
+        
+        await create_audit_log(user.user_id, "planning_approve", "material_request", request_id, update_data)
+        return {"message": "Approved", "status": "planning_approved"}
+    
+    elif action == "reject":
+        update_data = {
+            "status": MaterialRequestStatus.REJECTED.value,
+            "rejection_reason": reason or "Rejected by Planning",
+            "rejected_by": user.user_id,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.material_requests.update_one({"request_id": request_id}, {"$set": update_data})
+        await create_notification(request["site_engineer_id"], f"Material request rejected: {request['material_name']}")
+        await create_audit_log(user.user_id, "reject", "material_request", request_id, update_data)
+        return {"message": "Rejected", "status": "rejected"}
+    
+    raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'reject'")
+
+
+@router.get("/labour-expenses")
+async def get_labour_expenses_for_planning(
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get labour expenses - accessible to Planning, Accountant, PM, Super Admin"""
+    allowed = [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT,
+               UserRole.PROJECT_MANAGER, UserRole.SR_SITE_ENGINEER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    requests = await db.labour_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    
+    # Enrich with project name
+    project_cache = {}
+    for r in requests:
+        pid = r.get("project_id")
+        if pid and pid not in project_cache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            project_cache[pid] = p["name"] if p else "Unknown"
+        r["project_name"] = project_cache.get(pid, "Unknown")
+    
+    return requests
+
+
+@router.patch("/labour-expenses/{expense_id}/planning-action")
+async def planning_action_labour_expense(
+    expense_id: str,
+    action: str,
+    reason: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Planning team approves or rejects a labour expense"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can perform this action")
+    
+    request = await db.labour_expenses.find_one(
+        {"$or": [{"labour_expense_id": expense_id}, {"request_id": expense_id}]}, {"_id": 0}
+    )
+    if not request:
+        raise HTTPException(status_code=404, detail="Labour request not found")
+    
+    id_field = "labour_expense_id" if "labour_expense_id" in request else "request_id"
+    
+    if action == "approve":
+        if request["status"] != "requested":
+            raise HTTPException(status_code=400, detail=f"Cannot approve in status: {request['status']}")
+        update_data = {
+            "status": LabourRequestStatus.PLANNING_APPROVED.value,
+            "planning_approved_by": user.user_id,
+            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.labour_expenses.update_one({id_field: expense_id}, {"$set": update_data})
+        
+        # Notify accountant
+        acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+        for a in acc_users:
+            await create_notification(a["user_id"], f"Labour request approved by Planning: {request.get('labour_type', request.get('description', 'Labour'))}")
+        
+        await create_audit_log(user.user_id, "planning_approve", "labour_expense", expense_id, update_data)
+        return {"message": "Approved", "status": "planning_approved"}
+    
+    elif action == "reject":
+        update_data = {
+            "status": LabourRequestStatus.REJECTED.value,
+            "rejection_reason": reason or "Rejected by Planning",
+            "rejected_by": user.user_id,
+            "rejected_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.labour_expenses.update_one({id_field: expense_id}, {"$set": update_data})
+        se_id = request.get("site_engineer_id", "")
+        await create_notification(se_id, f"Labour request rejected: {request.get('labour_type', request.get('description', 'Labour'))}")
+        await create_audit_log(user.user_id, "reject", "labour_expense", expense_id, update_data)
+        return {"message": "Rejected", "status": "rejected"}
+    
+    raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'reject'")
+
+
 # Material Receipt with OTP
 class MaterialReceiptCreate(BaseModel):
     request_id: str
