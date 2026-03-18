@@ -87,6 +87,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Auto Indian comma separator (1,00,000) on all amount/number fields
   - Only numeric entry allowed (blocks letters/symbols)
   - Created reusable NumericInput component
+- [x] **Cheque Payment Review Bug Fix (Mar 18, 2026)**:
+  - Fixed "Failed to review" error when Accountant tries to approve cheque payments
+  - Root cause: Backend IncomeReviewRequest used Dict[str, str] for cheque_verifications but frontend sent amount as number → 422 Pydantic validation error
+  - Fix: Changed backend to Dict[str, Any]; frontend now stringifies amount; validation allows approval without cheque records
+  - Also fixed operations.py: cheque records now linked to income records via income_id during deal conversion
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
