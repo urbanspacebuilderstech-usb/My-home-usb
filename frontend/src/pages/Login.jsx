@@ -46,6 +46,8 @@ const DEMO_USERS = [
   { email: 'presales@constructionos.com', name: 'Pre-Sales', role: 'pre_sales' },
   { email: 'sales@constructionos.com', name: 'Sales', role: 'sales' },
   { email: 'architect@constructionos.com', name: 'Architect', role: 'architect' },
+  { email: 'raj@client.com', name: 'Mr. Raj (Client)', role: 'client' },
+  { email: 'mohan@client.com', name: 'Mr. Mohan (Client)', role: 'client' },
 ];
 
 export default function Login() {
@@ -253,7 +255,7 @@ export default function Login() {
                 <div className="border-t border-slate-200/50 mt-3 pt-3">
                   <p className="text-xs text-center text-slate-400 mb-2">Quick Access:</p>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {DEMO_USERS.slice(0, 11).map((quick) => (
+                    {DEMO_USERS.map((quick) => (
                       <Button
                         key={quick.email}
                         data-testid={`quick-${quick.name.toLowerCase().replace(/\s/g, '-')}`}
