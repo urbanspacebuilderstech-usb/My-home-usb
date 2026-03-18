@@ -15,7 +15,7 @@ import {
   Building2, LogOut, Package, Truck, Clock, CheckCircle, XCircle, 
   DollarSign, Plus, Trash2, Check, AlertCircle, Eye, FileText,
   ArrowRight, CreditCard, TrendingUp, Send, MapPin, Phone, User,
-  Wallet, Building, Receipt, BarChart3, Users
+  Wallet, Building, Receipt, BarChart3, Users, Edit
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -30,6 +30,7 @@ const STATUS_FLOW = [
   { id: 'planning_approved', label: 'Planning Approved', color: 'bg-amber-50 text-amber-700' },
   { id: 'vendor_selected', label: 'Vendor Selected', color: 'bg-purple-100 text-purple-700' },
   { id: 'waiting_payment', label: 'Waiting Payment', color: 'bg-yellow-100 text-yellow-700' },
+  { id: 'accounts_rejected', label: 'Rejected by Accounts', color: 'bg-red-100 text-red-700' },
   { id: 'payment_approved', label: 'Payment Approved', color: 'bg-green-100 text-green-700' },
   { id: 'po_generated', label: 'PO Generated', color: 'bg-indigo-100 text-indigo-700' },
   { id: 'in_transit', label: 'In Transit', color: 'bg-orange-100 text-orange-700' },
@@ -204,7 +205,10 @@ export default function ProcurementBoardV2() {
       transport_cost: request.transport_cost?.toString() || '0',
       discount: request.discount?.toString() || '0',
       payment_type: request.payment_type || 'advance',
+      advance_mode: request.advance_mode || 'percentage',
       advance_amount: request.advance_amount?.toString() || '',
+      advance_percent: request.advance_percent?.toString() || '',
+      credit_period_days: request.credit_period_days?.toString() || '30',
       expected_delivery: request.expected_delivery || ''
     });
     setVendorDialog(true);
@@ -226,7 +230,9 @@ export default function ProcurementBoardV2() {
         transport_cost: parseFloat(vendorForm.transport_cost || 0),
         discount: parseFloat(vendorForm.discount || 0),
         payment_type: vendorForm.payment_type,
-        advance_amount: vendorForm.payment_type === 'partial' ? parseFloat(vendorForm.advance_amount || 0) : null,
+        advance_mode: vendorForm.advance_mode || 'percentage',
+        advance_amount: vendorForm.payment_type === 'advance' && vendorForm.advance_mode === 'amount' ? parseFloat(vendorForm.advance_amount || 0) : null,
+        advance_percent: vendorForm.payment_type === 'advance' && vendorForm.advance_mode !== 'amount' ? parseFloat(vendorForm.advance_percent || 0) : null,
         credit_period_days: vendorForm.payment_type === 'credit' ? parseInt(vendorForm.credit_period_days || 30) : 0,
         expected_delivery: vendorForm.expected_delivery || null
       });
@@ -691,21 +697,21 @@ export default function ProcurementBoardV2() {
             {/* Pricing / Vendor Selection Tab */}
             <TabsContent value="pricing" className="p-6">
               <h3 className="text-lg font-bold mb-4">Vendor Selection & Pricing</h3>
-              {requests.filter(r => r.status === 'vendor_selected' || r.status === 'waiting_payment').length === 0 ? (
+              {requests.filter(r => r.status === 'vendor_selected' || r.status === 'waiting_payment' || r.status === 'accounts_rejected').length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <DollarSign className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                   <p>No items in pricing stage</p>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {requests.filter(r => ['vendor_selected', 'waiting_payment', 'payment_approved', 'po_generated'].includes(r.status)).map((req) => (
+                  {requests.filter(r => ['vendor_selected', 'waiting_payment', 'payment_approved', 'po_generated', 'accounts_rejected'].includes(r.status)).map((req) => (
                     <div key={req.request_id} className="border rounded-lg p-4">
                       <div className="flex items-center justify-between">
                         <div>
                           <div className="flex items-center gap-3">
                             <span className="font-mono text-sm text-gray-500">{req.order_id}</span>
                             {getStatusBadge(req.status)}
-                            <Badge variant="outline">{req.payment_type}</Badge>
+                            <Badge variant="outline">{{advance:'Advance', full:'Full Payment', credit:'Credit', post_delivery:'Post-Delivery'}[req.payment_type] || req.payment_type}</Badge>
                           </div>
                           <h4 className="font-semibold mt-1">{req.material_name}</h4>
                           <p className="text-sm text-gray-500">
@@ -713,14 +719,24 @@ export default function ProcurementBoardV2() {
                           </p>
                         </div>
                         <div className="flex gap-2">
+                          {req.status === 'accounts_rejected' && (
+                            <div className="flex flex-col gap-1 w-full">
+                              <div className="bg-red-50 border border-red-200 rounded px-2 py-1 text-xs text-red-700 mb-1">
+                                <span className="font-medium">Rejected:</span> {req.rejection_reason || 'No reason given'}
+                              </div>
+                              <Button onClick={() => openVendorDialog(req)} className="gap-2 bg-amber-600 hover:bg-amber-700" data-testid={`resubmit-${req.request_id}`}>
+                                <Edit className="h-4 w-4" /> Re-edit & Resubmit
+                              </Button>
+                            </div>
+                          )}
                           {req.status === 'payment_approved' && (
                             <Button onClick={() => handleGeneratePO(req)} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
                               <FileText className="h-4 w-4" /> Generate PO
                             </Button>
                           )}
-                          {req.status === 'vendor_selected' && req.payment_type === 'credit' && (
+                          {req.status === 'vendor_selected' && (req.payment_type === 'credit' || req.payment_type === 'post_delivery') && (
                             <Button onClick={() => handleGeneratePO(req)} className="gap-2 bg-indigo-600 hover:bg-indigo-700">
-                              <FileText className="h-4 w-4" /> Generate PO (Credit)
+                              <FileText className="h-4 w-4" /> Generate PO ({req.payment_type === 'credit' ? 'Credit' : 'Post-Delivery'})
                             </Button>
                           )}
                           {req.status === 'po_generated' && (
@@ -761,16 +777,19 @@ export default function ProcurementBoardV2() {
                           <div className="flex items-center gap-3">
                             <span className="font-mono text-sm text-gray-500">{req.order_id}</span>
                             <Badge className="bg-yellow-100 text-yellow-700">Waiting Payment</Badge>
-                            <Badge variant="outline">{req.payment_type}</Badge>
+                            <Badge variant="outline">{{advance:'Advance', full:'Full Payment', credit:'Credit', post_delivery:'Post-Delivery'}[req.payment_type] || req.payment_type}</Badge>
                           </div>
                           <h4 className="font-semibold mt-1">{req.material_name}</h4>
                           <p className="text-sm text-gray-600">
                             Vendor: {req.vendor_name} • Total: ₹{req.total_amount?.toLocaleString()}
                           </p>
-                          {req.payment_type === 'partial' && (
+                          {(req.payment_type === 'advance' && req.advance_amount) && (
                             <p className="text-sm text-orange-600">
-                              Advance: ₹{req.advance_amount?.toLocaleString()} | Balance: ₹{req.balance_amount?.toLocaleString()}
+                              Advance: ₹{req.advance_amount?.toLocaleString('en-IN')} | Balance: ₹{req.balance_amount?.toLocaleString('en-IN')}
                             </p>
+                          )}
+                          {req.payment_type === 'post_delivery' && (
+                            <p className="text-sm text-blue-600">Payment after delivery</p>
                           )}
                         </div>
                         <div className="text-right">
@@ -1010,14 +1029,19 @@ export default function ProcurementBoardV2() {
               <Select 
                 value={vendorForm.vendor_id} 
                 onValueChange={(v) => {
+                  if (v === '__create_new__') {
+                    setVendorMasterDialog(true);
+                    return;
+                  }
                   const vendor = vendors.find(vd => vd.vendor_id === v);
                   setVendorForm({...vendorForm, vendor_id: v, vendor_name: vendor?.name || ''});
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="Choose vendor" /></SelectTrigger>
+                <SelectTrigger data-testid="select-vendor"><SelectValue placeholder="Choose vendor" /></SelectTrigger>
                 <SelectContent>
-                  {vendors.map(v => (
-                    <SelectItem key={v.vendor_id} value={v.vendor_id}>{v.name}</SelectItem>
+                  <SelectItem value="__create_new__" className="text-indigo-600 font-medium">+ Create New Vendor</SelectItem>
+                  {vendors.filter(v => v.is_active !== false).map(v => (
+                    <SelectItem key={v.vendor_id} value={v.vendor_id}>{v.name}{v.phone ? ` (${v.phone})` : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1064,33 +1088,43 @@ export default function ProcurementBoardV2() {
             </div>
             
             <div>
-              <Label>Payment Type *</Label>
+              <Label>Payment Terms *</Label>
               <Select 
                 value={vendorForm.payment_type} 
                 onValueChange={(v) => setVendorForm({...vendorForm, payment_type: v})}
               >
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger data-testid="payment-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="advance">Advance (Full Payment)</SelectItem>
-                  <SelectItem value="partial">Partial Payment</SelectItem>
-                  <SelectItem value="credit">Credit (Pay Later)</SelectItem>
+                  <SelectItem value="advance">Advance Payment (% or Amount)</SelectItem>
+                  <SelectItem value="full">Full Payment (Before Delivery)</SelectItem>
+                  <SelectItem value="credit">Credit (Pay after X Days)</SelectItem>
+                  <SelectItem value="post_delivery">Post-Delivery Full Payment</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             
-            {vendorForm.payment_type === 'partial' && (
-              <div>
-                <Label>Advance Amount (₹)</Label>
-                <NumericInput
-                  
-                  value={vendorForm.advance_amount}
-                  onChange={(e) => setVendorForm({...vendorForm, advance_amount: e.target.value})}
-                  placeholder="Amount to pay upfront"
-                />
-                {vendorForm.advance_amount && (
-                  <p className="text-sm text-orange-600 mt-1">
-                    Balance: ₹{(calculateTotal() - parseFloat(vendorForm.advance_amount || 0)).toLocaleString()}
-                  </p>
+            {vendorForm.payment_type === 'advance' && (
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <Button size="sm" variant={vendorForm.advance_mode !== 'amount' ? 'default' : 'outline'} className="text-xs" onClick={() => setVendorForm({...vendorForm, advance_mode: 'percentage'})}>% Percentage</Button>
+                  <Button size="sm" variant={vendorForm.advance_mode === 'amount' ? 'default' : 'outline'} className="text-xs" onClick={() => setVendorForm({...vendorForm, advance_mode: 'amount'})}>Fixed Amount</Button>
+                </div>
+                {vendorForm.advance_mode === 'amount' ? (
+                  <div>
+                    <Label>Advance Amount (₹)</Label>
+                    <NumericInput value={vendorForm.advance_amount} onChange={(e) => setVendorForm({...vendorForm, advance_amount: e.target.value})} placeholder="Amount to pay upfront" />
+                    {vendorForm.advance_amount && <p className="text-xs text-orange-600 mt-1">Balance after delivery: ₹{(calculateTotal() - parseFloat(vendorForm.advance_amount || 0)).toLocaleString('en-IN')}</p>}
+                  </div>
+                ) : (
+                  <div>
+                    <Label>Advance Percentage (%)</Label>
+                    <NumericInput value={vendorForm.advance_percent} onChange={(e) => setVendorForm({...vendorForm, advance_percent: e.target.value})} placeholder="e.g., 50" />
+                    {vendorForm.advance_percent && (
+                      <p className="text-xs text-orange-600 mt-1">
+                        Advance: ₹{Math.round(calculateTotal() * parseFloat(vendorForm.advance_percent || 0) / 100).toLocaleString('en-IN')} | Balance: ₹{Math.round(calculateTotal() * (1 - parseFloat(vendorForm.advance_percent || 0) / 100)).toLocaleString('en-IN')}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}

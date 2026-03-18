@@ -139,12 +139,13 @@ class NewVendorInput(BaseModel):
 @router.get("/procurement/dashboard")
 async def get_procurement_dashboard(user: User = Depends(get_current_user)):
     """Get procurement dashboard metrics"""
-    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    allowed = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Count pending (planning approved material requests waiting for procurement)
     pending_requests = await db.material_requests.count_documents({
-        "status": "planning_approved"
+        "status": {"$in": ["planning_approved", "accounts_rejected"]}
     })
     
     # Count pricing in progress
@@ -208,8 +209,9 @@ async def get_procurement_requests(
     user: User = Depends(get_current_user)
 ):
     """Get material requests by status for procurement board"""
-    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Procurement can access this")
+    view_roles = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER]
+    if user.role not in view_roles:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     results = []
     
@@ -782,9 +784,11 @@ class VendorSelectionInput(BaseModel):
     unit_rate: float
     transport_cost: float = 0
     discount: float = 0
-    payment_type: str  # advance, partial, credit
-    advance_amount: Optional[float] = None  # For partial payment
-    credit_period_days: int = 30  # Credit period in days (default 30)
+    payment_type: str  # advance, full, credit, post_delivery
+    advance_mode: str = "percentage"  # percentage or amount
+    advance_amount: Optional[float] = None  # For advance with fixed amount
+    advance_percent: Optional[float] = None  # For advance with percentage
+    credit_period_days: int = 30  # Credit period in days
     expected_delivery: Optional[str] = None
 
 
@@ -820,8 +824,8 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
-    if request.get("status") != "planning_approved":
-        raise HTTPException(status_code=400, detail="Request must be planning approved first")
+    if request.get("status") not in ["planning_approved", "accounts_rejected"]:
+        raise HTTPException(status_code=400, detail="Request must be planning approved or rejected by accounts")
     
     # Get vendor details
     vendor = await db.vendor_master.find_one({"vendor_id": data.vendor_id}, {"_id": 0})
@@ -833,9 +837,30 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
     # Determine status based on payment type
     if data.payment_type == "credit":
         new_status = "vendor_selected"  # Can generate PO directly for credit
+    elif data.payment_type == "post_delivery":
+        new_status = "vendor_selected"  # No upfront payment needed
     else:
         new_status = "waiting_payment"  # Needs accounts approval
     
+    # Calculate advance/balance
+    if data.payment_type == "advance":
+        if data.advance_mode == "amount" and data.advance_amount:
+            advance = data.advance_amount
+        elif data.advance_percent:
+            advance = round(total_amount * data.advance_percent / 100)
+        else:
+            advance = total_amount  # default: full advance
+        balance = total_amount - advance
+    elif data.payment_type == "full":
+        advance = total_amount
+        balance = 0
+    elif data.payment_type == "post_delivery":
+        advance = 0
+        balance = total_amount
+    else:  # credit
+        advance = 0
+        balance = total_amount
+
     update_data = {
         "vendor_id": data.vendor_id,
         "vendor_name": data.vendor_name,
@@ -844,8 +869,10 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
         "discount": data.discount,
         "total_amount": total_amount,
         "payment_type": data.payment_type,
-        "advance_amount": data.advance_amount if data.payment_type == "partial" else (total_amount if data.payment_type == "advance" else 0),
-        "balance_amount": total_amount - (data.advance_amount or 0) if data.payment_type == "partial" else (0 if data.payment_type == "advance" else total_amount),
+        "advance_mode": data.advance_mode,
+        "advance_amount": advance,
+        "advance_percent": data.advance_percent,
+        "balance_amount": balance,
         "credit_period_days": data.credit_period_days if data.payment_type == "credit" else 0,
         "expected_delivery": data.expected_delivery,
         "status": new_status,
@@ -859,7 +886,7 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
     )
     
     # Notify accounts if payment required
-    if data.payment_type in ["advance", "partial"]:
+    if data.payment_type in ["advance", "full"]:
         accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
         for acc in accountants:
             await create_notification(
@@ -904,12 +931,17 @@ async def accounts_approval_v2(request_id: str, data: PaymentApprovalInput, user
         await db.material_requests.update_one(
             {"request_id": request_id},
             {"$set": {
-                "status": "rejected",
+                "status": "accounts_rejected",
                 "rejection_reason": data.remarks,
-                "rejected_by": user.user_id
+                "rejected_by": user.user_id,
+                "rejected_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-        return {"message": "Payment rejected", "status": "rejected"}
+        # Notify procurement to review
+        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0, "user_id": 1}).to_list(50)
+        for pu in proc_users:
+            await create_notification(pu["user_id"], f"Payment rejected for {request.get('material_name')}: {data.remarks or 'No reason given'}. Please review and resubmit.")
+        return {"message": "Payment rejected", "status": "accounts_rejected"}
 
 
 @router.post("/procurement/v2/generate-po/{request_id}")
