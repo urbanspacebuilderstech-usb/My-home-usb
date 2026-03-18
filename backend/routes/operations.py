@@ -196,6 +196,14 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
     return deals
 
 
+class PaymentEntry(BaseModel):
+    """Individual payment entry within a multi-mode collection"""
+    amount: float
+    payment_mode: str  # cash, cheque, bank_transfer, upi, card
+    reference: Optional[str] = None
+    cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount, cheque_date}]
+
+
 class ConvertDealInput(BaseModel):
     # Project details (editable by CRE)
     project_name: Optional[str] = None
@@ -209,11 +217,13 @@ class ConvertDealInput(BaseModel):
     package_id: Optional[str] = None
     # Advance payment details
     advance_amount: float
-    payment_mode: str
+    payment_mode: Optional[str] = None  # Legacy single mode
     payment_reference: Optional[str] = ""
     accountant_confirmed: bool = False
-    # Cheque details (for cheque payments)
-    cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount, cheque_date}]
+    # Cheque details (for cheque payments) - legacy
+    cheque_details: Optional[list] = None
+    # Multi-mode payment entries
+    payment_entries: Optional[list] = None  # [{amount, payment_mode, reference, cheque_details}]
 
 
 @router.post("/cre/convert-deal/{lead_id}")
@@ -289,7 +299,8 @@ async def convert_deal_to_project(
         # Financial
         "total_value": total_value,
         "advance_amount": data.advance_amount,
-        "advance_payment_mode": data.payment_mode,
+        "advance_payment_entries": data.payment_entries or [{"amount": data.advance_amount, "payment_mode": data.payment_mode or "cash", "reference": data.payment_reference or ""}],
+        "advance_payment_mode": data.payment_mode or (data.payment_entries[0]["payment_mode"] if data.payment_entries else "cash"),
         "advance_payment_reference": data.payment_reference,
         "advance_received_at": now,
         "advance_collected_by": user.user_id,
@@ -322,28 +333,62 @@ async def convert_deal_to_project(
     
     await db.projects.insert_one(main_project)
     
-    # Auto-create cheque records if payment mode is cheque
-    if data.payment_mode == "cheque" and data.cheque_details:
-        for chq in data.cheque_details:
-            cheque_record = {
-                "cheque_id": f"chq_{secrets.token_hex(6)}",
-                "cheque_number": chq.get("cheque_number", ""),
-                "bank_name": chq.get("bank_name", ""),
-                "branch_name": chq.get("branch_name", ""),
-                "amount": chq.get("amount", 0),
-                "cheque_date": chq.get("cheque_date", now.isoformat()),
-                "cheque_type": "incoming",
-                "party_name": client_name,
-                "party_type": "client",
+    # Process payment entries (multi-mode) or legacy single mode
+    payment_entries = data.payment_entries or []
+    if not payment_entries and data.payment_mode:
+        payment_entries = [{"amount": data.advance_amount, "payment_mode": data.payment_mode, "reference": data.payment_reference or "", "cheque_details": data.cheque_details}]
+    
+    for entry in payment_entries:
+        entry_mode = entry.get("payment_mode", "cash")
+        entry_amount = float(entry.get("amount", 0))
+        entry_ref = entry.get("reference", "")
+        entry_cheques = entry.get("cheque_details")
+        
+        # Auto-create cheque records if payment mode is cheque
+        if entry_mode == "cheque" and entry_cheques:
+            for chq in entry_cheques:
+                cheque_record = {
+                    "cheque_id": f"chq_{secrets.token_hex(6)}",
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "branch_name": chq.get("branch_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_type": "incoming",
+                    "party_name": client_name,
+                    "party_type": "client",
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "status": "issued",
+                    "is_post_dated": chq.get("is_post_dated", False),
+                    "remarks": f"Advance cheque for project {project_name}",
+                    "created_by": user.user_id,
+                    "created_at": now.isoformat(),
+                }
+                await db.cheques.insert_one(cheque_record)
+        
+        # Create income record for each payment entry
+        if entry_amount > 0:
+            income_record = {
+                "income_id": f"inc_{secrets.token_hex(6)}",
                 "project_id": project_id,
                 "project_name": project_name,
-                "status": "issued",
-                "is_post_dated": chq.get("is_post_dated", False),
-                "remarks": f"Advance cheque for project {project_name}",
-                "created_by": user.user_id,
-                "created_at": now.isoformat(),
+                "category": "advance_payment",
+                "sub_category": f"Advance - {entry_mode.replace('_', ' ').title()}",
+                "amount": entry_amount,
+                "payment_mode": entry_mode,
+                "payment_reference": entry_ref,
+                "payment_date": now.isoformat(),
+                "stage": "Advance Payment",
+                "description": f"Advance payment ({entry_mode.replace('_', ' ')}) from deal conversion - {client_name}",
+                "remarks": f"Deal closed by CRE. Client: {client_name}",
+                "collected_by": user.user_id,
+                "collected_by_name": user.name,
+                "status": "pending_approval",
+                "source": "approval",
+                "created_at": now.isoformat()
             }
-            await db.cheques.insert_one(cheque_record)
+            await db.income.insert_one(income_record)
     
     # Update lead - use 'leads' collection
     await db.leads.update_one(
@@ -368,29 +413,6 @@ async def convert_deal_to_project(
                 "advance_collected": data.advance_amount
             }}
         )
-    
-    # Create income record for advance payment - pending accountant approval
-    if data.advance_amount and data.advance_amount > 0:
-        income_record = {
-            "income_id": f"inc_{secrets.token_hex(6)}",
-            "project_id": project_id,
-            "project_name": project_name,
-            "category": "advance_payment",
-            "sub_category": "Deal Conversion Advance",
-            "amount": data.advance_amount,
-            "payment_mode": data.payment_mode or "cash",
-            "payment_reference": data.payment_reference or "",
-            "payment_date": now.isoformat(),
-            "stage": "Advance Payment",
-            "description": f"Advance payment from deal conversion - {client_name}",
-            "remarks": f"Deal closed by CRE. Client: {client_name}",
-            "collected_by": user.user_id,
-            "collected_by_name": user.name,
-            "status": "pending_approval",
-            "source": "approval",
-            "created_at": now.isoformat()
-        }
-        await db.income.insert_one(income_record)
     
     return {
         "success": True,

@@ -1554,11 +1554,12 @@ class PaymentStageUpdate(BaseModel):
 class PaymentCollectionInput(BaseModel):
     """Input for CRE to collect a payment"""
     amount_received: float
-    payment_mode: str  # cash, cheque, bank_transfer, upi
+    payment_mode: Optional[str] = None  # Legacy single mode
     payment_reference: Optional[str] = None
     payment_date: Optional[str] = None
     remarks: Optional[str] = None
     cheque_details: Optional[list] = None  # [{cheque_number, bank_name, amount, cheque_date}]
+    payment_entries: Optional[list] = None  # [{amount, payment_mode, reference, cheque_details}]
 
 
 class AdditionalCostCreate(BaseModel):
@@ -1897,7 +1898,8 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
         "amount_received": new_received,
         "status": new_status,
         "workflow_status": "collected",
-        "payment_mode": collection.payment_mode,
+        "payment_entries": collection.payment_entries or [{"amount": collection.amount_received, "payment_mode": collection.payment_mode or "cash", "reference": collection.payment_reference or ""}],
+        "payment_mode": collection.payment_mode or (collection.payment_entries[0]["payment_mode"] if collection.payment_entries else "cash"),
         "payment_reference": collection.payment_reference,
         "payment_date": payment_date,
         "collected_by": user.user_id,
@@ -1907,49 +1909,60 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     
     await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_data})
     
-    # Create income record for this payment - pending accountant approval
-    income_record = {
-        "income_id": f"inc_{uuid.uuid4().hex[:12]}",
-        "project_id": stage["project_id"],
-        "project_name": project.get("name") if project else "",
-        "category": "payment_collection",
-        "sub_category": stage.get("stage_name", "Payment Stage"),
-        "amount": collection.amount_received,
-        "payment_mode": collection.payment_mode,
-        "payment_reference": collection.payment_reference,
-        "payment_date": payment_date,
-        "stage": stage.get("stage_label", stage.get("stage_name", "")),
-        "description": f"Payment collection: {stage.get('stage_label', '')} - {stage.get('stage_name', '')}",
-        "collected_by": user.user_id,
-        "collected_by_name": user.name,
-        "status": "pending_approval",
-        "source": "approval",
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    await db.income.insert_one(income_record)
-    income_id = income_record["income_id"]
-    del income_record["_id"]
+    # Process payment entries (multi-mode) or legacy single mode
+    entries = collection.payment_entries or []
+    if not entries and collection.payment_mode:
+        entries = [{"amount": collection.amount_received, "payment_mode": collection.payment_mode, "reference": collection.payment_reference or "", "cheque_details": collection.cheque_details}]
     
-    # Save cheque records if payment mode is cheque
-    if collection.payment_mode == "cheque" and collection.cheque_details:
-        for chq in collection.cheque_details:
-            if chq.get("cheque_number"):
-                cheque_record = {
-                    "cheque_id": f"chq_{uuid.uuid4().hex[:8]}",
-                    "project_id": stage["project_id"],
-                    "income_id": income_id,
-                    "cheque_number": chq.get("cheque_number", ""),
-                    "bank_name": chq.get("bank_name", ""),
-                    "amount": float(chq.get("amount", 0)),
-                    "cheque_date": chq.get("cheque_date", payment_date),
-                    "cheque_type": "incoming",
-                    "category": "payment_collection",
-                    "stage_id": stage_id,
-                    "status": "received",
-                    "collected_by": user.user_id,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await db.cheques.insert_one(cheque_record)
+    for entry in entries:
+        entry_mode = entry.get("payment_mode", "cash")
+        entry_amount = float(entry.get("amount", 0))
+        entry_ref = entry.get("reference", "")
+        entry_cheques = entry.get("cheque_details")
+        
+        if entry_amount > 0:
+            # Create income record for each payment entry
+            income_record = {
+                "income_id": f"inc_{uuid.uuid4().hex[:12]}",
+                "project_id": stage["project_id"],
+                "project_name": project.get("name") if project else "",
+                "category": "payment_collection",
+                "sub_category": f"{stage.get('stage_name', 'Payment Stage')} - {entry_mode.replace('_', ' ').title()}",
+                "amount": entry_amount,
+                "payment_mode": entry_mode,
+                "payment_reference": entry_ref,
+                "payment_date": payment_date,
+                "stage": stage.get("stage_label", stage.get("stage_name", "")),
+                "description": f"Payment collection ({entry_mode.replace('_', ' ')}): {stage.get('stage_label', '')} - {stage.get('stage_name', '')}",
+                "collected_by": user.user_id,
+                "collected_by_name": user.name,
+                "status": "pending_approval",
+                "source": "approval",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.income.insert_one(income_record)
+            income_id = income_record["income_id"]
+            
+            # Save cheque records if payment mode is cheque
+            if entry_mode == "cheque" and entry_cheques:
+                for chq in entry_cheques:
+                    if chq.get("cheque_number"):
+                        cheque_record = {
+                            "cheque_id": f"chq_{uuid.uuid4().hex[:8]}",
+                            "project_id": stage["project_id"],
+                            "income_id": income_id,
+                            "cheque_number": chq.get("cheque_number", ""),
+                            "bank_name": chq.get("bank_name", ""),
+                            "amount": float(chq.get("amount", 0)),
+                            "cheque_date": chq.get("cheque_date", payment_date),
+                            "cheque_type": "incoming",
+                            "category": "payment_collection",
+                            "stage_id": stage_id,
+                            "status": "received",
+                            "collected_by": user.user_id,
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        }
+                        await db.cheques.insert_one(cheque_record)
     
     # Notify Planning team
     planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(10)

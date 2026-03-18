@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { MultiPaymentInput } from '../components/MultiPaymentInput';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -78,7 +79,8 @@ export default function CREBoard() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [collectDialog, setCollectDialog] = useState(false);
   const [selectedPaymentStage, setSelectedPaymentStage] = useState(null);
-  const [collectForm, setCollectForm] = useState({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
+  const [collectForm, setCollectForm] = useState({ amount: '', remarks: '' });
+  const [collectPaymentEntries, setCollectPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
 
   // Search
   const [projectSearch, setProjectSearch] = useState('');
@@ -88,8 +90,9 @@ export default function CREBoard() {
     location: '', sqft: '', building_type: 'residential',
     expected_start_date: new Date().toISOString().split('T')[0],
     package_id: '', advance_date: new Date().toISOString().split('T')[0],
-    advance_amount: '', advance_payment_mode: '', rough_estimate_url: ''
+    advance_amount: '', rough_estimate_url: ''
   });
+  const [advancePaymentEntries, setAdvancePaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
   const [selectedPackage, setSelectedPackage] = useState(null);
 
   useEffect(() => { fetchData(); }, []);
@@ -175,7 +178,9 @@ export default function CREBoard() {
     if (!clientName?.trim()) { toast.error('Client name is required'); return; }
     if (!location?.trim()) { toast.error('Location is required'); return; }
     if (!advanceAmount || parseFloat(advanceAmount) <= 0) { toast.error('Please enter advance amount'); return; }
-    if (!advanceMode) { toast.error('Please select payment mode'); return; }
+    const totalPayEntries = advancePaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    if (advancePaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
+    if (Math.abs(totalPayEntries - parseFloat(advanceAmount)) > 1) { toast.error(`Payment entries (₹${totalPayEntries.toLocaleString('en-IN')}) must equal advance amount (₹${parseFloat(advanceAmount).toLocaleString('en-IN')})`); return; }
     if (!accountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
     try {
       const endpoint = selectedDeal.deal_type === 're_project'
@@ -188,9 +193,15 @@ export default function CREBoard() {
         location, sqft: form.sqft ? parseFloat(form.sqft) : null,
         building_type: form.building_type, expected_start_date: form.expected_start_date,
         package_id: form.package_id, advance_amount: parseFloat(advanceAmount),
-        payment_mode: advanceMode, payment_reference: advanceRef,
+        payment_entries: advancePaymentEntries.map(e => ({
+          amount: parseFloat(e.amount) || 0,
+          payment_mode: e.payment_mode,
+          reference: e.reference || '',
+          cheque_details: e.payment_mode === 'cheque' ? e.cheque_details : null
+        })),
+        payment_mode: advancePaymentEntries[0]?.payment_mode || 'cash',
+        payment_reference: advancePaymentEntries[0]?.reference || '',
         accountant_confirmed: accountantConfirmed,
-        cheque_details: advanceMode === 'cheque' ? chequeEntries : null,
       });
       toast.success('Project created successfully!');
       setConvertDealDialog(false);
@@ -280,20 +291,26 @@ export default function CREBoard() {
 
   const handleCollectPayment = async () => {
     if (!selectedPaymentStage || !collectForm.amount) { toast.error('Enter amount'); return; }
+    const totalPayEntries = collectPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    if (collectPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
+    if (Math.abs(totalPayEntries - parseFloat(collectForm.amount)) > 1) { toast.error('Payment entries must equal collection amount'); return; }
     try {
       const payload = {
         amount_received: parseFloat(collectForm.amount),
-        payment_mode: collectForm.mode,
-        payment_reference: collectForm.reference || null,
+        payment_entries: collectPaymentEntries.map(e => ({
+          amount: parseFloat(e.amount) || 0,
+          payment_mode: e.payment_mode,
+          reference: e.reference || '',
+          cheque_details: e.payment_mode === 'cheque' ? e.cheque_details : null
+        })),
+        payment_mode: collectPaymentEntries[0]?.payment_mode || 'cash',
         remarks: collectForm.remarks || null
       };
-      if (collectForm.mode === 'cheque' && collectForm.cheque_details?.length > 0) {
-        payload.cheque_details = collectForm.cheque_details.filter(c => c.cheque_number);
-      }
       await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, payload);
       toast.success('Payment collected successfully');
       setCollectDialog(false);
-      setCollectForm({ amount: '', mode: 'bank_transfer', reference: '', remarks: '', num_cheques: 1, cheque_details: [] });
+      setCollectForm({ amount: '', remarks: '' });
+      setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
@@ -849,7 +866,7 @@ export default function CREBoard() {
 
       {/* ==================== COLLECT PAYMENT DIALOG ==================== */}
       <Dialog open={collectDialog} onOpenChange={setCollectDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-green-600" />Collect Payment</DialogTitle>
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
@@ -860,40 +877,20 @@ export default function CREBoard() {
               <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
             </div>
             <div>
-              <Label>Amount *</Label>
-              <Input type="number" value={collectForm.amount} onChange={(e) => setCollectForm({ ...collectForm, amount: e.target.value })} placeholder="Amount" className="mt-1" />
+              <Label>Total Collection Amount *</Label>
+              <Input type="number" value={collectForm.amount} onChange={(e) => {
+                setCollectForm({ ...collectForm, amount: e.target.value });
+                if (collectPaymentEntries.length === 1) {
+                  setCollectPaymentEntries([{ ...collectPaymentEntries[0], amount: e.target.value }]);
+                }
+              }} placeholder="Amount" className="mt-1" data-testid="collect-amount-input" />
             </div>
-            <div>
-              <Label>Payment Mode *</Label>
-              <Select value={collectForm.mode} onValueChange={(mode) => setCollectForm({ ...collectForm, mode, num_cheques: mode === 'cheque' ? 1 : 0, cheque_details: mode === 'cheque' ? [{ cheque_number: '', bank_name: '', amount: collectForm.amount || '', cheque_date: new Date().toISOString().split('T')[0] }] : [] })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>{PAYMENT_MODES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            {collectForm.mode === 'cheque' && (
-              <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
-                <div className="flex items-center gap-3">
-                  <Label className="text-sm whitespace-nowrap">No. of Cheques</Label>
-                  <Input type="number" min="1" max="20" value={collectForm.num_cheques || 1} onChange={(e) => {
-                    const count = Math.min(20, Math.max(1, parseInt(e.target.value) || 1));
-                    const existing = collectForm.cheque_details || [];
-                    const cheques = Array.from({ length: count }, (_, i) => existing[i] || { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] });
-                    setCollectForm({ ...collectForm, num_cheques: count, cheque_details: cheques });
-                  }} className="w-20" data-testid="collect-num-cheques" />
-                </div>
-                {(collectForm.cheque_details || []).map((cheque, idx) => (
-                  <div key={idx} className="grid grid-cols-4 gap-2" data-testid={`collect-cheque-${idx}`}>
-                    <div><Label className="text-xs">Cheque #{idx + 1}</Label><Input value={cheque.cheque_number} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], cheque_number: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="Number" className="text-xs" /></div>
-                    <div><Label className="text-xs">Bank</Label><Input value={cheque.bank_name} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], bank_name: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="Bank" className="text-xs" /></div>
-                    <div><Label className="text-xs">Amount</Label><Input type="number" value={cheque.amount} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], amount: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} placeholder="0" className="text-xs" /></div>
-                    <div><Label className="text-xs">Date</Label><Input type="date" value={cheque.cheque_date || ''} onChange={(e) => { const c = [...(collectForm.cheque_details || [])]; c[idx] = { ...c[idx], cheque_date: e.target.value }; setCollectForm({ ...collectForm, cheque_details: c }); }} className="text-xs" /></div>
-                  </div>
-                ))}
-                {(collectForm.cheque_details || []).length > 0 && <p className="text-xs text-gray-500">Total: {formatCurrency((collectForm.cheque_details || []).reduce((s, c) => s + (parseFloat(c.amount) || 0), 0))}</p>}
-              </div>
-            )}
-            {collectForm.mode !== 'cheque' && (
-              <div><Label>Reference / Transaction ID</Label><Input value={collectForm.reference} onChange={(e) => setCollectForm({ ...collectForm, reference: e.target.value })} placeholder="Transaction ID" className="mt-1" /></div>
+            {collectForm.amount && parseFloat(collectForm.amount) > 0 && (
+              <MultiPaymentInput
+                totalAmount={parseFloat(collectForm.amount) || 0}
+                entries={collectPaymentEntries}
+                onChange={setCollectPaymentEntries}
+              />
             )}
             <div><Label>Remarks</Label><Input value={collectForm.remarks} onChange={(e) => setCollectForm({ ...collectForm, remarks: e.target.value })} placeholder="Optional" className="mt-1" /></div>
           </div>
@@ -950,39 +947,21 @@ export default function CREBoard() {
               </div>
               <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
                 <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><CreditCard className="h-4 w-4" />Advance Payment</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-green-700">Amount *</Label>
-                    <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><Input type="number" placeholder="Amount" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} className="pl-8" data-testid="advance-amount-input" /></div>
-                  </div>
-                  <div>
-                    <Label className="text-green-700">Payment Mode *</Label>
-                    <Select value={advanceMode} onValueChange={setAdvanceMode}>
-                      <SelectTrigger className="mt-1" data-testid="payment-mode-select"><SelectValue placeholder="Select mode" /></SelectTrigger>
-                      <SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="upi">UPI</SelectItem><SelectItem value="bank_transfer">Bank Transfer</SelectItem><SelectItem value="cheque">Cheque</SelectItem><SelectItem value="card">Card</SelectItem></SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2"><Label className="text-green-700">Reference</Label><Input placeholder="Transaction ID / Cheque No." value={advanceRef} onChange={(e) => setAdvanceRef(e.target.value)} className="mt-1" data-testid="payment-ref-input" /></div>
+                <div className="mb-3">
+                  <Label className="text-green-700">Total Advance Amount *</Label>
+                  <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><Input type="number" placeholder="Amount" value={advanceAmount} onChange={(e) => {
+                    setAdvanceAmount(e.target.value);
+                    if (advancePaymentEntries.length === 1) {
+                      setAdvancePaymentEntries([{ ...advancePaymentEntries[0], amount: e.target.value }]);
+                    }
+                  }} className="pl-8" data-testid="advance-amount-input" /></div>
                 </div>
-                {advanceMode === 'cheque' && (
-                  <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200" data-testid="cheque-details-section">
-                    <div className="flex items-center justify-between mb-2">
-                      <Label className="text-purple-700 font-semibold text-sm">Cheque Details</Label>
-                      <Button size="sm" variant="outline" className="h-7 text-xs border-purple-300 text-purple-700" onClick={() => setChequeEntries([...chequeEntries, { cheque_number: '', bank_name: '', amount: '', cheque_date: new Date().toISOString().split('T')[0] }])}>+ Add Cheque</Button>
-                    </div>
-                    {chequeEntries.map((chq, idx) => (
-                      <div key={idx} className="grid grid-cols-4 gap-2 mb-2 items-end">
-                        <div><Label className="text-xs text-purple-600">Cheque No</Label><Input className="h-8 text-xs" value={chq.cheque_number} onChange={e => { const n = [...chequeEntries]; n[idx].cheque_number = e.target.value; setChequeEntries(n); }} /></div>
-                        <div><Label className="text-xs text-purple-600">Bank</Label><Input className="h-8 text-xs" value={chq.bank_name} onChange={e => { const n = [...chequeEntries]; n[idx].bank_name = e.target.value; setChequeEntries(n); }} /></div>
-                        <div><Label className="text-xs text-purple-600">Amount</Label><Input type="number" className="h-8 text-xs" value={chq.amount} onChange={e => { const n = [...chequeEntries]; n[idx].amount = e.target.value; setChequeEntries(n); }} /></div>
-                        <div className="flex gap-1">
-                          <div className="flex-1"><Label className="text-xs text-purple-600">Date</Label><Input type="date" className="h-8 text-xs" value={chq.cheque_date} onChange={e => { const n = [...chequeEntries]; n[idx].cheque_date = e.target.value; setChequeEntries(n); }} /></div>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 mt-4 text-red-400" onClick={() => setChequeEntries(chequeEntries.filter((_, i) => i !== idx))}>x</Button>
-                        </div>
-                      </div>
-                    ))}
-                    {chequeEntries.length > 0 && <p className="text-xs text-purple-600 mt-1">Total: {formatCurrency(chequeEntries.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0))} ({chequeEntries.length} cheque{chequeEntries.length > 1 ? 's' : ''})</p>}
-                  </div>
+                {advanceAmount && parseFloat(advanceAmount) > 0 && (
+                  <MultiPaymentInput
+                    totalAmount={parseFloat(advanceAmount) || 0}
+                    entries={advancePaymentEntries}
+                    onChange={setAdvancePaymentEntries}
+                  />
                 )}
                 {advanceAmount && parseFloat(advanceAmount) > 0 && selectedDealRE?.estimated_total && (
                   <div className="mt-3 p-3 bg-white rounded border border-green-300">
@@ -1002,7 +981,7 @@ export default function CREBoard() {
           )}
           <DialogFooter className="gap-2 mt-4">
             <Button variant="outline" onClick={() => setConvertDealDialog(false)}>Cancel</Button>
-            <Button onClick={handleConvertDeal} className="bg-green-600 hover:bg-green-700" disabled={!advanceAmount || parseFloat(advanceAmount) <= 0 || !advanceMode || !accountantConfirmed} data-testid="confirm-convert-deal">
+            <Button onClick={handleConvertDeal} className="bg-green-600 hover:bg-green-700" disabled={!advanceAmount || parseFloat(advanceAmount) <= 0 || advancePaymentEntries.length === 0 || !accountantConfirmed} data-testid="confirm-convert-deal">
               <CheckCircle className="h-4 w-4 mr-2" />Create Project
             </Button>
           </DialogFooter>
