@@ -1430,7 +1430,57 @@ async def get_project_stage_history(project_id: str, user: User = Depends(get_cu
     }
 
 
-# ==================== GM / SUPER ADMIN APPROVAL ENDPOINTS ====================
+@router.get("/planning/payment-schedule-overview")
+async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
+    """Get all payment schedule stages across all projects for planning dashboard"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get all payment stages
+    all_stages = await db.payment_stages.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000)
+
+    # Get project names in bulk
+    project_ids = list(set(s.get("project_id") for s in all_stages if s.get("project_id")))
+    projects = {}
+    if project_ids:
+        proj_docs = await db.projects.find(
+            {"project_id": {"$in": project_ids}},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1, "current_stage": 1}
+        ).to_list(1000)
+        projects = {p["project_id"]: p for p in proj_docs}
+
+    # Enrich stages with project info
+    enriched = []
+    for s in all_stages:
+        proj = projects.get(s.get("project_id"), {})
+        enriched.append({
+            **s,
+            "project_name": proj.get("name", "Unknown"),
+            "client_name": proj.get("client_name", ""),
+            "project_value": proj.get("total_value", 0),
+            "project_stage": proj.get("current_stage", ""),
+        })
+
+    # Summary stats
+    total_scheduled = sum(s.get("amount", 0) for s in all_stages)
+    total_received = sum(s.get("amount_received", 0) or 0 for s in all_stages)
+    pending_count = sum(1 for s in all_stages if s.get("status") == "pending")
+    partial_count = sum(1 for s in all_stages if s.get("status") == "partial")
+    collected_count = sum(1 for s in all_stages if s.get("status") in ("paid", "collected"))
+
+    return {
+        "stages": enriched,
+        "summary": {
+            "total_scheduled": total_scheduled,
+            "total_received": total_received,
+            "total_balance": total_scheduled - total_received,
+            "total_stages": len(all_stages),
+            "pending_count": pending_count,
+            "partial_count": partial_count,
+            "collected_count": collected_count,
+            "project_count": len(project_ids),
+        }
+    }
 
 @router.get("/approvals/projects")
 async def get_projects_for_approval(user: User = Depends(get_current_user)):

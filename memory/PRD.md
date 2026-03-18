@@ -103,6 +103,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - "Edit Team" button opens assignment dialog with Sr SE and SE dropdowns
   - Remove (X) button on each team member for quick removal
   - New backend endpoint: DELETE /api/pm/projects/{project_id}/team/{user_id}
+- [x] **Removed "Generate Payment Schedule" Button (Mar 18, 2026)**:
+  - Removed the "Generate Payment Schedule" button and handler from ProjectDetail - manual raise request flow is sufficient
+- [x] **Planning Payment Schedule Overview Tab (Mar 18, 2026)**:
+  - Added "Payment Schedule" tab to Planning Board with comprehensive overview of ALL payment stages across ALL projects
+  - Summary cards: Total Scheduled, Collected, Pending Balance, Collection %
+  - Table: Date, Project, Stage (%), Amount, Received, Balance, Status - sorted by date
+  - Clickable rows navigate directly to the project detail page
+  - Search functionality to filter by project/stage name
+  - New backend: GET /api/planning/payment-schedule-overview
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`

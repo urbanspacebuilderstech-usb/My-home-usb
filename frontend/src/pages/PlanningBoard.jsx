@@ -12,9 +12,10 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
+import { useNavigate } from 'react-router-dom';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
@@ -27,6 +28,7 @@ const MATERIAL_UNITS = ['bag','ton','kg','load','nos','sqft','cft','rft','litre'
 const WORK_TYPES = ['Masonry','Plumbing','Electrical','Carpentry','Painting','Flooring','Roofing','HVAC','Civil','Finishing','Tiling','Waterproofing'];
 
 export default function PlanningBoard() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all_projects');
@@ -69,6 +71,10 @@ export default function PlanningBoard() {
   const [vendorDialog, setVendorDialog] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null);
   const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
+
+  // Payment Schedule Overview
+  const [scheduleData, setScheduleData] = useState({ stages: [], summary: {} });
+  const [scheduleSearch, setScheduleSearch] = useState('');
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
@@ -115,6 +121,14 @@ export default function PlanningBoard() {
     if (tab === 'materials' && materials.length === 0) fetchMaterials();
     if (tab === 'labours' && contractors.length === 0) fetchContractors();
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
+    if (tab === 'payment_schedule') fetchPaymentSchedule();
+  };
+
+  const fetchPaymentSchedule = async () => {
+    try {
+      const r = await axios.get(`${API}/planning/payment-schedule-overview`);
+      setScheduleData(r.data || { stages: [], summary: {} });
+    } catch { /* ignore */ }
   };
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
@@ -264,6 +278,9 @@ export default function PlanningBoard() {
             <TabsTrigger value="suppliers" className="text-xs sm:text-sm" data-testid="tab-suppliers">Suppliers</TabsTrigger>
             <TabsTrigger value="rough_estimates" className="text-xs sm:text-sm" data-testid="tab-rough-estimates">
               Rough Estimates<CountBadge count={reNewCount} />
+            </TabsTrigger>
+            <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm" data-testid="tab-payment-schedule">
+              <Calendar className="h-3 w-3 mr-1" />Payment Schedule
             </TabsTrigger>
           </TabsList>
 
@@ -527,6 +544,129 @@ export default function PlanningBoard() {
           {/* ==================== ROUGH ESTIMATES ==================== */}
           <TabsContent value="rough_estimates">
             <REProjectsPage embedded />
+          </TabsContent>
+
+          {/* ==================== PAYMENT SCHEDULE ==================== */}
+          <TabsContent value="payment_schedule">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <Card className="border-l-4 border-l-indigo-500">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Total Scheduled</p>
+                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(scheduleData.summary?.total_scheduled)}</p>
+                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.total_stages || 0} stages across {scheduleData.summary?.project_count || 0} projects</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-green-500">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p>
+                  <p className="text-lg font-bold text-green-700">{formatCurrency(scheduleData.summary?.total_received)}</p>
+                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.collected_count || 0} stages collected</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-amber-500">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Pending Balance</p>
+                  <p className="text-lg font-bold text-amber-700">{formatCurrency(scheduleData.summary?.total_balance)}</p>
+                  <p className="text-[10px] text-gray-400">{scheduleData.summary?.pending_count || 0} pending, {scheduleData.summary?.partial_count || 0} partial</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-purple-500">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Collection %</p>
+                  <p className="text-lg font-bold text-purple-700">{scheduleData.summary?.total_scheduled ? Math.round((scheduleData.summary.total_received / scheduleData.summary.total_scheduled) * 100) : 0}%</p>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${scheduleData.summary?.total_scheduled ? Math.min(100, Math.round((scheduleData.summary.total_received / scheduleData.summary.total_scheduled) * 100)) : 0}%` }} />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Schedule Table */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2"><IndianRupee className="h-4 w-4 text-green-600" />All Payment Stages ({scheduleData.stages?.length || 0})</CardTitle>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                    <Input placeholder="Search project..." value={scheduleSearch} onChange={(e) => setScheduleSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="schedule-search" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="payment-schedule-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {(scheduleData.stages || [])
+                        .filter(s => !scheduleSearch || (s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) || (s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()))
+                        .length === 0 ? (
+                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">No payment schedule entries found</td></tr>
+                      ) : (scheduleData.stages || [])
+                        .filter(s => !scheduleSearch || (s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) || (s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()))
+                        .map((s) => {
+                          const balance = (s.amount || 0) - (s.amount_received || 0);
+                          const dateStr = s.due_date || s.created_at;
+                          const displayDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+                          const statusConfig = {
+                            pending: { label: 'Pending', cls: 'bg-gray-100 text-gray-700' },
+                            partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
+                            paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+                            collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+                            requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
+                          };
+                          const sc = statusConfig[s.status] || statusConfig.pending;
+                          return (
+                            <tr
+                              key={s.stage_id}
+                              className="hover:bg-indigo-50 cursor-pointer transition-colors"
+                              onClick={() => navigate(`/projects/${s.project_id}`)}
+                              data-testid={`schedule-row-${s.stage_id}`}
+                            >
+                              <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{displayDate}</td>
+                              <td className="px-4 py-2.5">
+                                <p className="font-medium text-indigo-700 hover:underline">{s.project_name}</p>
+                                <p className="text-[10px] text-gray-400">{s.client_name}</p>
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className="font-medium">{s.stage_name}</span>
+                                {s.percentage && <span className="text-xs text-gray-400 ml-1">({s.percentage}%)</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(s.amount)}</td>
+                              <td className="px-4 py-2.5 text-right text-green-600 font-medium">{formatCurrency(s.amount_received)}</td>
+                              <td className="px-4 py-2.5 text-right text-red-600 font-medium">{formatCurrency(balance)}</td>
+                              <td className="px-4 py-2.5 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                    {(scheduleData.stages || []).length > 0 && (
+                      <tfoot className="bg-gray-50 border-t-2">
+                        <tr className="font-bold text-sm">
+                          <td colSpan="3" className="px-4 py-2.5 text-right text-gray-600">Total</td>
+                          <td className="px-4 py-2.5 text-right">{formatCurrency(scheduleData.summary?.total_scheduled)}</td>
+                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(scheduleData.summary?.total_received)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(scheduleData.summary?.total_balance)}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
