@@ -63,7 +63,7 @@ const WorkflowBadge = ({ status }) => {
 // ============ PAYMENT SUMMARY SECTION WITH INCOME/EXPENSE VIEWS ============
 const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 
-function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, handleGenerateSchedule, getPaymentStatusBadge, openCollectDialog }) {
+function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, getPaymentStatusBadge, openCollectDialog }) {
   const [incomeData, setIncomeData] = useState(null);
   const [expenseData, setExpenseData] = useState(null);
   const [loadingFinance, setLoadingFinance] = useState(true);
@@ -104,11 +104,6 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
           <h3 className="text-base sm:text-lg font-bold">Payment Summary</h3>
           <p className="text-xs sm:text-sm text-gray-500">Complete payment schedule from advance to handover</p>
         </div>
-        {user?.role === 'planning' && (!paymentSummary || paymentSummary.payment_stages?.length === 0) && (
-          <Button onClick={handleGenerateSchedule} className="bg-green-600 hover:bg-green-700">
-            <Plus className="h-4 w-4 mr-2" /> Generate Payment Schedule
-          </Button>
-        )}
       </div>
 
       {/* Totals - Only for Super Admin & Accountant */}
@@ -1148,16 +1143,6 @@ export default function ProjectDetail() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect payment');
-    }
-  };
-
-  const handleGenerateSchedule = async () => {
-    try {
-      await axios.post(`${API}/projects/${projectId}/payment-schedule/generate`);
-      toast.success('Payment schedule generated');
-      fetchData(false);
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to generate schedule');
     }
   };
 
@@ -2967,7 +2952,6 @@ export default function ProjectDetail() {
                 projectId={projectId}
                 paymentSummary={paymentSummary}
                 formatCurrency={formatCurrency}
-                handleGenerateSchedule={handleGenerateSchedule}
                 getPaymentStatusBadge={getPaymentStatusBadge}
                 openCollectDialog={openCollectDialog}
               />
