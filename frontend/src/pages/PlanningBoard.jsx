@@ -12,10 +12,13 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle,
+  Clock, RefreshCw, CheckCircle, XCircle, FileText, Calculator, Phone, Mail,
+  MapPin, Target, Download, Save
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { generateREPDF } from '../utils/pdfGenerator';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -69,6 +72,18 @@ export default function PlanningBoard() {
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
+  // RE Projects (Rough Estimates)
+  const [reProjects, setReProjects] = useState([]);
+  const [reDashboard, setReDashboard] = useState(null);
+  const [reActiveTab, setReActiveTab] = useState('new');
+  const [reEditDialog, setReEditDialog] = useState(false);
+  const [reApprovalDialog, setReApprovalDialog] = useState(false);
+  const [reSelectedProject, setReSelectedProject] = useState(null);
+  const [reEditForm, setReEditForm] = useState({
+    project_name: '', client_name: '', client_phone: '', client_email: '',
+    location: '', total_area_sqft: '', estimated_rate_per_sqft: '', additional_notes: ''
+  });
+
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
@@ -80,19 +95,23 @@ export default function PlanningBoard() {
       }
       setUser(userRes.data);
 
-      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes] = await Promise.allSettled([
+      const [dashRes, projRes, payReqRes, matReqRes, labReqRes, newCRERes, reDashRes, reProjRes] = await Promise.allSettled([
         axios.get(`${API}/planning/stage-dashboard`),
         axios.get(`${API}/planning/projects-by-stage`),
         axios.get(`${API}/work-orders/payment-requests`),
         axios.get(`${API}/material-requests?status=requested`),
         axios.get(`${API}/labour-expenses?status=requested`),
-        axios.get(`${API}/planning/projects?status=new`)
+        axios.get(`${API}/planning/projects?status=new`),
+        axios.get(`${API}/crm/planning/re-dashboard`).catch(() => null),
+        axios.get(`${API}/crm/re-projects`).catch(() => null)
       ]);
 
       if (dashRes.status === 'fulfilled') setStages(dashRes.value.data.stages || []);
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
       if (payReqRes.status === 'fulfilled') setPaymentRequests(payReqRes.value.data || []);
       if (newCRERes.status === 'fulfilled') setNewProjectsFromCRE(newCRERes.value.data || []);
+      if (reDashRes.status === 'fulfilled' && reDashRes.value?.data) setReDashboard(reDashRes.value.data);
+      if (reProjRes.status === 'fulfilled' && reProjRes.value?.data) setReProjects(reProjRes.value.data || []);
 
       const allReqs = [];
       if (matReqRes.status === 'fulfilled') allReqs.push(...(matReqRes.value.data || []).map(r => ({ ...r, type: 'material' })));
@@ -235,6 +254,71 @@ export default function PlanningBoard() {
 
   const newProjectCount = newProjectsFromCRE.length;
   const requestCount = pendingRequests.length + paymentRequests.length;
+  const reNewCount = reProjects.filter(p => p.status === 're_requested').length;
+
+  const RE_STATUS_CONFIG = {
+    re_requested: { label: 'New Request', color: 'bg-amber-50 text-amber-700 border-blue-300', icon: Clock },
+    re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: RefreshCw },
+    re_submitted: { label: 'Submitted', color: 'bg-purple-100 text-purple-700 border-purple-300', icon: FileText },
+    re_approved: { label: 'Approved', color: 'bg-green-100 text-green-700 border-green-300', icon: CheckCircle },
+    re_rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700 border-red-300', icon: XCircle },
+    deal_closed: { label: 'Deal Closed', color: 'bg-emerald-100 text-emerald-700 border-emerald-300', icon: Target },
+    converted: { label: 'Converted', color: 'bg-teal-100 text-teal-700 border-teal-300', icon: Building2 }
+  };
+
+  const reFilteredProjects = (status) => {
+    const statusMap = {
+      'new': ['re_requested'],
+      'in_progress': ['re_in_progress'],
+      'awaiting': ['re_submitted'],
+      'approved': ['re_approved', 'deal_closed', 'converted'],
+      'rejected': ['re_rejected']
+    };
+    return reProjects.filter(p => (statusMap[status] || []).includes(p.status));
+  };
+
+  const openReEdit = (p) => {
+    setReSelectedProject(p);
+    setReEditForm({
+      project_name: p.project_name || '', client_name: p.client_name || '',
+      client_phone: p.client_phone || '', client_email: p.client_email || '',
+      location: p.location || '', total_area_sqft: p.total_area_sqft || '',
+      estimated_rate_per_sqft: p.estimated_rate_per_sqft || '', additional_notes: p.additional_notes || ''
+    });
+    setReEditDialog(true);
+  };
+
+  const handleReSaveEdit = async () => {
+    if (!reSelectedProject) return;
+    try {
+      await axios.patch(`${API}/crm/re-projects/${reSelectedProject.re_project_id}`, {
+        ...reEditForm,
+        total_area_sqft: parseFloat(reEditForm.total_area_sqft) || 0,
+        estimated_rate_per_sqft: parseFloat(reEditForm.estimated_rate_per_sqft) || 0
+      });
+      toast.success('RE Project updated');
+      setReEditDialog(false);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
+  };
+
+  const handleReStatusChange = async (projectId, newStatus) => {
+    try {
+      await axios.patch(`${API}/crm/re-projects/${projectId}/status`, { status: newStatus });
+      toast.success(`Status updated to ${RE_STATUS_CONFIG[newStatus]?.label || newStatus}`);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleReApproval = async (approved) => {
+    if (!reSelectedProject) return;
+    try {
+      await axios.patch(`${API}/crm/re-projects/${reSelectedProject.re_project_id}/approval`, { approved });
+      toast.success(approved ? 'RE Project approved' : 'RE Project rejected');
+      setReApprovalDialog(false);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
 
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
 
@@ -256,6 +340,9 @@ export default function PlanningBoard() {
             <TabsTrigger value="materials" className="text-xs sm:text-sm" data-testid="tab-materials">Materials</TabsTrigger>
             <TabsTrigger value="labours" className="text-xs sm:text-sm" data-testid="tab-labours">Labours</TabsTrigger>
             <TabsTrigger value="suppliers" className="text-xs sm:text-sm" data-testid="tab-suppliers">Suppliers</TabsTrigger>
+            <TabsTrigger value="rough_estimates" className="text-xs sm:text-sm" data-testid="tab-rough-estimates">
+              Rough Estimates<CountBadge count={reNewCount} />
+            </TabsTrigger>
           </TabsList>
 
           {/* ==================== ALL PROJECTS ==================== */}
@@ -514,6 +601,100 @@ export default function PlanningBoard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ==================== ROUGH ESTIMATES ==================== */}
+          <TabsContent value="rough_estimates">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Calculator className="h-4 w-4 text-violet-600" />Rough Estimates ({reProjects.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* RE Status Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+                  {[
+                    { key: 'new', label: 'New Requests', count: reFilteredProjects('new').length, icon: Clock, color: 'amber' },
+                    { key: 'in_progress', label: 'In Progress', count: reFilteredProjects('in_progress').length, icon: RefreshCw, color: 'yellow' },
+                    { key: 'awaiting', label: 'Awaiting Approval', count: reFilteredProjects('awaiting').length, icon: FileText, color: 'purple' },
+                    { key: 'approved', label: 'Approved', count: reFilteredProjects('approved').length, icon: CheckCircle, color: 'green' },
+                    { key: 'rejected', label: 'Rejected', count: reFilteredProjects('rejected').length, icon: XCircle, color: 'red' },
+                  ].map(s => (
+                    <div key={s.key}
+                      className={`rounded-lg border p-2.5 text-center cursor-pointer transition-all hover:shadow-md ${reActiveTab === s.key ? 'ring-2 ring-violet-400 ring-offset-1' : ''} bg-${s.color}-50 border-${s.color}-200`}
+                      onClick={() => setReActiveTab(s.key)} data-testid={`re-status-${s.key}`}>
+                      <s.icon className={`h-5 w-5 mx-auto mb-1 text-${s.color}-600`} />
+                      <p className={`text-xl font-bold text-${s.color}-700`}>{s.count}</p>
+                      <p className={`text-[10px] text-${s.color}-600`}>{s.label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* RE Projects List */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-violet-600" />
+                    RE Projects - {reActiveTab === 'new' ? 'New' : reActiveTab === 'in_progress' ? 'In Progress' : reActiveTab === 'awaiting' ? 'Awaiting Approval' : reActiveTab === 'approved' ? 'Approved' : 'Rejected'}
+                  </h3>
+                  {reFilteredProjects(reActiveTab).length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">No RE projects in this category</div>
+                  ) : reFilteredProjects(reActiveTab).map(p => {
+                    const cfg = RE_STATUS_CONFIG[p.status] || {};
+                    const est = (parseFloat(p.total_area_sqft) || 0) * (parseFloat(p.estimated_rate_per_sqft) || 0);
+                    return (
+                      <Card key={p.re_project_id} className="border hover:shadow-md transition-shadow" data-testid={`re-project-${p.re_project_id}`}>
+                        <CardContent className="p-3 sm:p-4">
+                          <div className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-sm">{p.project_name || `RE - ${p.client_name}`}</span>
+                                <Badge className={`text-[10px] ${cfg.color}`}>{cfg.label || p.status}</Badge>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 mt-2 text-xs text-gray-600">
+                                <div><span className="text-gray-400">Client:</span> {p.client_name}</div>
+                                <div><span className="text-gray-400">Location:</span> {p.location || '-'}</div>
+                                <div><span className="text-gray-400">Size:</span> {p.total_area_sqft ? `${p.total_area_sqft} sqft` : '-'}</div>
+                                <div><span className="text-gray-400">Estimated Total:</span> <span className="font-semibold text-violet-700">{formatCurrency(est)}</span></div>
+                              </div>
+                              {p.client_phone && <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                                <span className="flex items-center gap-0.5"><Phone className="h-3 w-3" /> {p.client_phone}</span>
+                                {p.client_email && <span className="flex items-center gap-0.5"><Mail className="h-3 w-3" /> {p.client_email}</span>}
+                              </div>}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => openReEdit(p)} data-testid={`re-edit-${p.re_project_id}`}>
+                                <Edit className="h-3 w-3" /> Edit
+                              </Button>
+                              {typeof generateREPDF === 'function' && (
+                                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => generateREPDF(p)}>
+                                  <Download className="h-3 w-3" />
+                                </Button>
+                              )}
+                              {p.status === 're_requested' && (
+                                <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700 gap-1" onClick={() => handleReStatusChange(p.re_project_id, 're_in_progress')}>
+                                  <RefreshCw className="h-3 w-3" /> Start
+                                </Button>
+                              )}
+                              {p.status === 're_in_progress' && (
+                                <Button size="sm" className="h-7 text-xs bg-purple-600 hover:bg-purple-700 gap-1" onClick={() => handleReStatusChange(p.re_project_id, 're_submitted')}>
+                                  <Send className="h-3 w-3" /> Submit
+                                </Button>
+                              )}
+                              {p.status === 're_submitted' && (
+                                <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700 gap-1" onClick={() => { setReSelectedProject(p); setReApprovalDialog(true); }}>
+                                  <Eye className="h-3 w-3" /> Review
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
 
@@ -595,6 +776,58 @@ export default function PlanningBoard() {
             <div><Label>Materials Supplied</Label><div className="flex flex-wrap gap-1 mt-1 max-h-28 overflow-y-auto">{materials.filter(m=>m.is_active!==false).map(m => (<button key={m.material_id} type="button" className={`px-2 py-0.5 text-xs border rounded ${vendorForm.materials_supplied.includes(m.material_id) ? 'bg-teal-100 border-teal-400 text-teal-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setVendorForm({...vendorForm,materials_supplied:vendorForm.materials_supplied.includes(m.material_id)?vendorForm.materials_supplied.filter(id=>id!==m.material_id):[...vendorForm.materials_supplied,m.material_id]})}>{m.name}</button>))}</div></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setVendorDialog(false)}>Cancel</Button><Button onClick={handleSaveVendor} className="bg-teal-600 hover:bg-teal-700" data-testid="save-vendor-btn">{editingVendor ? 'Update' : 'Create'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* RE Edit Dialog */}
+      <Dialog open={reEditDialog} onOpenChange={setReEditDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Edit Rough Estimate</DialogTitle><DialogDescription>Update RE project details</DialogDescription></DialogHeader>
+          <div className="space-y-3">
+            <div><Label className="text-xs">Project Name</Label><Input value={reEditForm.project_name} onChange={(e) => setReEditForm({ ...reEditForm, project_name: e.target.value })} className="mt-1" data-testid="re-edit-name" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Client Name</Label><Input value={reEditForm.client_name} onChange={(e) => setReEditForm({ ...reEditForm, client_name: e.target.value })} className="mt-1" /></div>
+              <div><Label className="text-xs">Client Phone</Label><Input value={reEditForm.client_phone} onChange={(e) => setReEditForm({ ...reEditForm, client_phone: e.target.value })} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Email</Label><Input value={reEditForm.client_email} onChange={(e) => setReEditForm({ ...reEditForm, client_email: e.target.value })} className="mt-1" /></div>
+              <div><Label className="text-xs">Location</Label><Input value={reEditForm.location} onChange={(e) => setReEditForm({ ...reEditForm, location: e.target.value })} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">Total Area (sqft)</Label><Input type="number" value={reEditForm.total_area_sqft} onChange={(e) => setReEditForm({ ...reEditForm, total_area_sqft: e.target.value })} className="mt-1" /></div>
+              <div><Label className="text-xs">Rate per sqft</Label><Input type="number" value={reEditForm.estimated_rate_per_sqft} onChange={(e) => setReEditForm({ ...reEditForm, estimated_rate_per_sqft: e.target.value })} className="mt-1" /></div>
+            </div>
+            {reEditForm.total_area_sqft && reEditForm.estimated_rate_per_sqft && (
+              <div className="bg-violet-50 rounded-lg p-2 text-center">
+                <span className="text-xs text-gray-500">Estimated Total: </span>
+                <span className="text-sm font-bold text-violet-700">{formatCurrency(parseFloat(reEditForm.total_area_sqft || 0) * parseFloat(reEditForm.estimated_rate_per_sqft || 0))}</span>
+              </div>
+            )}
+            <div><Label className="text-xs">Notes</Label><Input value={reEditForm.additional_notes} onChange={(e) => setReEditForm({ ...reEditForm, additional_notes: e.target.value })} className="mt-1" /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setReEditDialog(false)}>Cancel</Button><Button onClick={handleReSaveEdit} className="bg-violet-600 hover:bg-violet-700" data-testid="re-save-edit-btn"><Save className="h-4 w-4 mr-1" />Save</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* RE Approval Dialog */}
+      <Dialog open={reApprovalDialog} onOpenChange={setReApprovalDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Review Rough Estimate</DialogTitle><DialogDescription>Approve or reject this RE submission</DialogDescription></DialogHeader>
+          {reSelectedProject && (
+            <Card className="bg-violet-50 border-violet-200">
+              <CardContent className="p-3">
+                <p className="font-semibold text-sm">{reSelectedProject.project_name || `RE - ${reSelectedProject.client_name}`}</p>
+                <p className="text-xs text-gray-600 mt-1">Client: {reSelectedProject.client_name}</p>
+                <p className="text-xs text-gray-600">Area: {reSelectedProject.total_area_sqft} sqft @ {formatCurrency(reSelectedProject.estimated_rate_per_sqft)}/sqft</p>
+                <p className="text-lg font-bold text-violet-700 mt-1">{formatCurrency((reSelectedProject.total_area_sqft || 0) * (reSelectedProject.estimated_rate_per_sqft || 0))}</p>
+              </CardContent>
+            </Card>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReApprovalDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => handleReApproval(false)} data-testid="re-reject-btn"><XCircle className="h-4 w-4 mr-1" />Reject</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={() => handleReApproval(true)} data-testid="re-approve-btn"><CheckCircle className="h-4 w-4 mr-1" />Approve</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -40,7 +40,6 @@ const ROLE_NAV = {
   ],
   planning: [
     { label: 'Planning Board', path: '/planning-board' },
-    { label: 'RE Projects', path: '/crm/re-projects' },
     { label: 'Projects', path: '/projects' },
     { label: 'BOQ', path: '/planning-board' },
   ],

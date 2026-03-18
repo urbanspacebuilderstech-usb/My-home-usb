@@ -1,0 +1,128 @@
+{
+  "summary": "Frontend testing of Rough Estimates (RE) tab in Planning Board. Most UI features working correctly but critical API integration bugs found - Start/Submit/Approve buttons call non-existent backend endpoints.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "critical": [
+      {
+        "component": "PlanningBoard.jsx - handleReStatusChange",
+        "issue": "Start button calls /api/crm/re-projects/{id}/status endpoint which does NOT exist on backend. Returns 404.",
+        "line": 307,
+        "expected_endpoint": "PATCH /api/crm/re-projects/{id} (auto-changes status to re_in_progress)",
+        "priority": "HIGH"
+      },
+      {
+        "component": "PlanningBoard.jsx - handleReStatusChange",
+        "issue": "Submit button also uses the non-existent /status endpoint",
+        "line": 307,
+        "expected_endpoint": "POST /api/crm/re-projects/{id}/submit-for-approval",
+        "priority": "HIGH"
+      },
+      {
+        "component": "PlanningBoard.jsx - handleReApproval",
+        "issue": "Approval handler calls /api/crm/re-projects/{id}/approval but backend has /approve",
+        "line": 316,
+        "expected_endpoint": "PATCH /api/crm/re-projects/{id}/approve",
+        "priority": "HIGH"
+      }
+    ],
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "RE Project Status Change",
+        "issue": "All status change buttons (Start, Submit, Review) fail due to wrong API endpoints",
+        "affected_components": ["handleReStatusChange", "handleReApproval"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_65.json"
+  ],
+  "action_items": [
+    "FIX handleReStatusChange in PlanningBoard.jsx line 305-310: For 'Start' (re_requested -> re_in_progress), use PATCH /api/crm/re-projects/{id} with any field update (backend auto-changes status). For 'Submit' (re_in_progress -> re_submitted), use POST /api/crm/re-projects/{id}/submit-for-approval",
+    "FIX handleReApproval in PlanningBoard.jsx line 313-321: Change /approval to /approve in the endpoint URL"
+  ],
+  "critical_code_review_comments": [
+    "Frontend RE status change endpoints don't match backend routes - /status endpoint does not exist",
+    "Frontend approval endpoint uses /approval but backend has /approve",
+    "Console shows 404 errors on page load due to these API mismatches"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A - Frontend only testing",
+    "frontend": "70% - UI displays correctly but API integrations broken"
+  },
+  "test_credentials": {
+    "planning": "planning@constructionos.com (demo-login)"
+  },
+  "seed_data_creation": "N/A - Used existing RE project (re_09738c8b2088)",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "RE tab in Planning Board has correct UI but broken API calls. Key data-testids working: tab-rough-estimates, re-status-new, re-status-in_progress, re-edit-{id}, re-project-{id}. 1 RE project exists with status re_requested. After fixing API endpoints, test Start->Submit->Review workflow.",
+  "tests_executed": {
+    "re_projects_removed_from_nav": {
+      "status": "PASS",
+      "details": "Planning user nav does NOT show 'RE Projects' link - only has Planning Board, Projects, BOQ"
+    },
+    "rough_estimates_tab_visible": {
+      "status": "PASS",
+      "details": "Tab exists with red badge showing count (1)"
+    },
+    "status_cards_visible": {
+      "status": "PASS",
+      "details": "All 5 status cards visible - New Requests (1), In Progress (0), Awaiting Approval (0), Approved (0), Rejected (0)"
+    },
+    "re_project_card_fields": {
+      "status": "PASS",
+      "details": "Card shows Client name, Location, Size, Estimated Total, phone, email, Edit button, Start button"
+    },
+    "edit_dialog_functionality": {
+      "status": "PASS",
+      "details": "Edit button opens dialog with all form fields (Project Name, Client Name, Phone, Email, Location, Area, Rate, Notes)"
+    },
+    "start_button_functionality": {
+      "status": "FAIL",
+      "details": "Clicking Start does not change status - API returns 404 for /status endpoint"
+    },
+    "submit_button_functionality": {
+      "status": "NOT TESTED",
+      "details": "Could not test - depends on Start button working first"
+    },
+    "review_button_functionality": {
+      "status": "NOT TESTED",
+      "details": "Could not test - depends on Submit button working first"
+    }
+  },
+  "verified_features": [
+    "Planning user header nav does NOT contain 'RE Projects' link",
+    "Planning Board has 'Rough Estimates' tab with red badge count",
+    "RE status cards (New, In Progress, Awaiting, Approved, Rejected) display correctly",
+    "RE project card shows Client, Location, Size, Estimated Total",
+    "RE project card shows phone/email contact info",
+    "RE Edit button opens dialog with correct form fields",
+    "RE Edit dialog has Cancel and Save buttons"
+  ],
+  "bugs_found": [
+    {
+      "severity": "HIGH",
+      "location": "PlanningBoard.jsx line 307",
+      "description": "handleReStatusChange uses non-existent /status endpoint",
+      "reproduction_steps": "1. Login as planning user, 2. Go to Planning Board, 3. Click Rough Estimates tab, 4. Click Start button on RE project, 5. See 404 error in console"
+    },
+    {
+      "severity": "HIGH", 
+      "location": "PlanningBoard.jsx line 316",
+      "description": "handleReApproval uses /approval instead of /approve endpoint"
+    }
+  ],
+  "backend_available_endpoints": {
+    "list_re_projects": "GET /api/crm/re-projects",
+    "get_re_project": "GET /api/crm/re-projects/{id}",
+    "update_re_project": "PATCH /api/crm/re-projects/{id} (auto-changes status to re_in_progress if status was re_requested/re_rejected)",
+    "submit_for_approval": "POST /api/crm/re-projects/{id}/submit-for-approval",
+    "approve_re_project": "PATCH /api/crm/re-projects/{id}/approve"
+  }
+}
