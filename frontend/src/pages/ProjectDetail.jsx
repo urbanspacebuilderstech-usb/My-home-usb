@@ -2639,6 +2639,7 @@ export default function ProjectDetail() {
                                 <th className="px-2 py-2 text-left">#</th>
                                 <th className="px-2 py-2 text-left">Description *</th>
                                 <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
+                                <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2668,6 +2669,13 @@ export default function ProjectDetail() {
                                       }}
                                       className="h-8"
                                     />
+                                  </td>
+                                  <td className="px-2 py-1 text-center">
+                                    {bulkAdditionRows.length > 1 && (
+                                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-600" onClick={() => setBulkAdditionRows(bulkAdditionRows.filter((_, i) => i !== idx))}>
+                                        <X className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                   </td>
                                 </tr>
                               ))}
@@ -2818,6 +2826,7 @@ export default function ProjectDetail() {
                                 <th className="px-2 py-2 text-left">Description *</th>
                                 <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
                                 <th className="px-2 py-2 text-left">Remarks</th>
+                                <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
@@ -2858,6 +2867,13 @@ export default function ProjectDetail() {
                                       }}
                                       className="h-8"
                                     />
+                                  </td>
+                                  <td className="px-2 py-1 text-center">
+                                    {bulkDeductionRows.length > 1 && (
+                                      <Button variant="ghost" size="icon" className="h-7 w-7 text-red-400 hover:text-red-600" onClick={() => setBulkDeductionRows(bulkDeductionRows.filter((_, i) => i !== idx))}>
+                                        <X className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                   </td>
                                 </tr>
                               ))}
