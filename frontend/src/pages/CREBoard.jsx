@@ -291,13 +291,14 @@ export default function CREBoard() {
   };
 
   const handleCollectPayment = async () => {
-    if (!selectedPaymentStage || !collectForm.amount) { toast.error('Enter amount'); return; }
+    if (!selectedPaymentStage) return;
     const totalPayEntries = collectPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
     if (collectPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
-    if (Math.abs(totalPayEntries - parseFloat(collectForm.amount)) > 1) { toast.error('Payment entries must equal collection amount'); return; }
+    const balance = (selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0);
+    if (totalPayEntries > balance + 1) { toast.error(`Amount exceeds remaining balance of ${formatCurrency(balance)}`); return; }
     try {
       const payload = {
-        amount_received: parseFloat(collectForm.amount),
+        amount_received: totalPayEntries,
         payment_entries: collectPaymentEntries.map(e => ({
           amount: parseFloat(e.amount) || 0,
           payment_mode: e.payment_mode,
@@ -873,26 +874,17 @@ export default function CREBoard() {
             <DialogDescription>{selectedPaymentStage?.project_name} - {selectedPaymentStage?.stage_name}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg">
+            <div className="grid grid-cols-3 gap-3 bg-gray-50 p-3 rounded-lg">
               <div><p className="text-xs text-gray-500">Stage Amount</p><p className="font-semibold">{formatCurrency(selectedPaymentStage?.amount)}</p></div>
               <div><p className="text-xs text-gray-500">Already Received</p><p className="font-semibold text-green-600">{formatCurrency(selectedPaymentStage?.amount_received || 0)}</p></div>
+              <div><p className="text-xs text-gray-500">Balance</p><p className="font-semibold text-red-600">{formatCurrency((selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0))}</p></div>
             </div>
-            <div>
-              <Label>Total Collection Amount *</Label>
-              <NumericInput value={collectForm.amount} onChange={(e) => {
-                setCollectForm({ ...collectForm, amount: e.target.value });
-                if (collectPaymentEntries.length === 1) {
-                  setCollectPaymentEntries([{ ...collectPaymentEntries[0], amount: e.target.value }]);
-                }
-              }} placeholder="Amount" className="mt-1" data-testid="collect-amount-input" />
-            </div>
-            {collectForm.amount && parseFloat(collectForm.amount) > 0 && (
-              <MultiPaymentInput
-                totalAmount={parseFloat(collectForm.amount) || 0}
-                entries={collectPaymentEntries}
-                onChange={setCollectPaymentEntries}
-              />
-            )}
+            <MultiPaymentInput
+              totalAmount={(selectedPaymentStage?.amount || 0) - (selectedPaymentStage?.amount_received || 0)}
+              entries={collectPaymentEntries}
+              onChange={setCollectPaymentEntries}
+              allowPartial={true}
+            />
             <div><Label>Remarks</Label><Input value={collectForm.remarks} onChange={(e) => setCollectForm({ ...collectForm, remarks: e.target.value })} placeholder="Optional" className="mt-1" /></div>
           </div>
           <DialogFooter>

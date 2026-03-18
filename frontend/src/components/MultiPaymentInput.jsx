@@ -17,7 +17,7 @@ const PAYMENT_MODES = [
 
 const fmtCurrency = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 
-export function MultiPaymentInput({ totalAmount, entries, onChange }) {
+export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial = false }) {
   const [expandedIdx, setExpandedIdx] = useState(null);
 
   const addEntry = () => {
@@ -63,17 +63,20 @@ export function MultiPaymentInput({ totalAmount, entries, onChange }) {
   const totalEntered = entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
   const remaining = totalAmount - totalEntered;
   const isBalanced = Math.abs(remaining) < 1;
+  const isOver = remaining < -1;
 
   return (
     <div className="space-y-2" data-testid="multi-payment-input">
       {/* Summary Bar */}
       <div className="flex items-center justify-between bg-gray-50 rounded-lg p-2 border">
         <div className="flex items-center gap-3 text-xs">
-          <span className="text-gray-500">Total: <span className="font-bold text-gray-800">{fmtCurrency(totalAmount)}</span></span>
+          <span className="text-gray-500">{allowPartial ? 'Balance' : 'Total'}: <span className="font-bold text-gray-800">{fmtCurrency(totalAmount)}</span></span>
           <span className="text-gray-400">|</span>
-          <span className="text-gray-500">Entered: <span className={`font-bold ${isBalanced ? 'text-green-600' : 'text-orange-600'}`}>{fmtCurrency(totalEntered)}</span></span>
-          {!isBalanced && <Badge className={`text-[10px] ${remaining > 0 ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>{remaining > 0 ? `${fmtCurrency(remaining)} remaining` : `${fmtCurrency(Math.abs(remaining))} over`}</Badge>}
-          {isBalanced && <Badge className="text-[10px] bg-green-100 text-green-700">Balanced</Badge>}
+          <span className="text-gray-500">Entered: <span className={`font-bold ${isOver ? 'text-red-600' : totalEntered > 0 ? 'text-green-600' : 'text-orange-600'}`}>{fmtCurrency(totalEntered)}</span></span>
+          {isOver && <Badge className="text-[10px] bg-red-100 text-red-700">{fmtCurrency(Math.abs(remaining))} over</Badge>}
+          {!isOver && !isBalanced && remaining > 0 && totalEntered > 0 && allowPartial && <Badge className="text-[10px] bg-blue-100 text-blue-700">Partial - {fmtCurrency(remaining)} remaining</Badge>}
+          {!isOver && !isBalanced && remaining > 0 && !allowPartial && <Badge className="text-[10px] bg-orange-100 text-orange-700">{fmtCurrency(remaining)} remaining</Badge>}
+          {isBalanced && <Badge className="text-[10px] bg-green-100 text-green-700">{allowPartial ? 'Full Amount' : 'Balanced'}</Badge>}
         </div>
         <Button type="button" size="sm" variant="outline" className="h-6 text-[10px] gap-1 border-blue-300 text-blue-700 hover:bg-blue-50"
           onClick={addEntry} data-testid="add-payment-entry-btn">

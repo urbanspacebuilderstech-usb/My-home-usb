@@ -2549,8 +2549,8 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
-                                {/* Request Payment - for Planning/Admin, only if draft and balance > 0 */}
-                                {canManage && balance > 0 && (
+                                {/* Request Payment - for Planning/Admin when balance > 0 and not already requested */}
+                                {canManage && balance > 0 && !isPartial && !isRequested && !isPaid && (
                                   <Button
                                     data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
