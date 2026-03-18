@@ -153,6 +153,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | PATCH | /api/financial/indirect-costs/{id}/approve | Approve/reject |
 | PATCH | /api/financial/indirect-costs/{id}/confirm | Confirm payment + auto-distribute |
 
+- [x] **Material Request Workflow Fix (Mar 18, 2026)**:
+  - Fixed broken Planning Board → Requests tab (endpoints returned 404)
+  - Created 4 new endpoints: GET /api/material-requests, GET /api/labour-expenses, PATCH /api/material-requests/{id}/planning-action, PATCH /api/labour-expenses/{id}/planning-action
+  - Full workflow verified: Site Engineer → Planning approve → Procurement → Accountant
+  - Fixed React key warning on Planning Board
+
 ## Backlog
 - [ ] Aadhar Document Upload with encrypted storage (P1)
 - [ ] UI/UX review across all screens (P2)

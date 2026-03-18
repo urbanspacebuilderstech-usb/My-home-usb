@@ -418,7 +418,7 @@ export default function PlanningBoard() {
                   ) : (
                     <div className="divide-y">
                       {pendingRequests.map((req) => (
-                        <div key={req.request_id || req.expense_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`request-${req.request_id || req.expense_id}`}>
+                        <div key={`${req.type}-${req.request_id || req.expense_id}`} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`request-${req.request_id || req.expense_id}`}>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-0.5">
                               <Badge variant={req.type === 'material' ? 'default' : 'secondary'} className="text-xs">{req.type}</Badge>
