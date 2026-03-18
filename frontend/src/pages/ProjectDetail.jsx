@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -442,6 +443,12 @@ export default function ProjectDetail() {
   const [materialsData, setMaterialsData] = useState({ summary: {}, materials: [] });
   const [laboursData, setLaboursData] = useState({ summary: {}, labours: [] });
 
+  // Team editing state
+  const [teamEditDialog, setTeamEditDialog] = useState(false);
+  const [allTeamMembers, setAllTeamMembers] = useState([]);
+  const [teamAssignSrSE, setTeamAssignSrSE] = useState('');
+  const [teamAssignSE, setTeamAssignSE] = useState('');
+
   useEffect(() => {
     fetchData();
   }, [projectId]);
@@ -520,6 +527,43 @@ export default function ProjectDetail() {
       const res = await axios.get(`${API}/projects/${projectId}/team`);
       setTeamData(res.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
     } catch { /* No team data */ }
+  };
+
+  const openTeamEditDialog = async () => {
+    try {
+      const res = await axios.get(`${API}/pm/team-members`);
+      setAllTeamMembers(res.data || []);
+    } catch { setAllTeamMembers([]); }
+    setTeamAssignSrSE(''); setTeamAssignSE('');
+    setTeamEditDialog(true);
+  };
+
+  const handleTeamAssign = async () => {
+    const toAssign = [teamAssignSrSE, teamAssignSE].filter(Boolean);
+    if (toAssign.length === 0) { toast.error('Select at least one member'); return; }
+    try {
+      for (const uid of toAssign) {
+        await axios.post(`${API}/pm/assign-team`, { project_id: projectId, user_id: uid });
+      }
+      toast.success(`${toAssign.length} member(s) assigned`);
+      setTeamAssignSrSE(''); setTeamAssignSE('');
+      fetchTeamData();
+      const res = await axios.get(`${API}/pm/team-members`);
+      setAllTeamMembers(res.data || []);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to assign'); }
+  };
+
+  const handleTeamRemove = async (userId, name) => {
+    if (!window.confirm(`Remove ${name} from this project?`)) return;
+    try {
+      await axios.delete(`${API}/pm/projects/${projectId}/team/${userId}`);
+      toast.success('Removed');
+      fetchTeamData();
+      if (allTeamMembers.length > 0) {
+        const res = await axios.get(`${API}/pm/team-members`);
+        setAllTeamMembers(res.data || []);
+      }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to remove'); }
   };
 
   const fetchMaterialsData = async () => {
@@ -2936,9 +2980,16 @@ export default function ProjectDetail() {
             {/* ==================== TEAM TAB ==================== */}
             <TabsContent value="team" className="p-3 sm:p-6">
               <div className="space-y-4">
-                <h3 className="text-base font-bold flex items-center gap-2">
-                  <Users className="h-5 w-5 text-indigo-600" />Project Team
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <Users className="h-5 w-5 text-indigo-600" />Project Team
+                  </h3>
+                  {(user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'planning') && (
+                    <Button size="sm" onClick={openTeamEditDialog} className="bg-indigo-600 hover:bg-indigo-700" data-testid="edit-team-btn">
+                      <Edit className="h-3.5 w-3.5 mr-1" />Edit Team
+                    </Button>
+                  )}
+                </div>
 
                 {/* Project Manager */}
                 <div>
@@ -2964,12 +3015,19 @@ export default function ProjectDetail() {
                   ) : (
                     <div className="space-y-2">
                       {teamData.sr_site_engineers.map(m => (
-                        <div key={m.user_id} className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200" data-testid={`team-sr-se-${m.user_id}`}>
-                          <div className="h-9 w-9 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'S'}</div>
-                          <div>
-                            <p className="font-medium text-sm">{m.name}</p>
-                            <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                        <div key={m.user_id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200" data-testid={`team-sr-se-${m.user_id}`}>
+                          <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'S'}</div>
+                            <div>
+                              <p className="font-medium text-sm">{m.name}</p>
+                              <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                            </div>
                           </div>
+                          {(user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'planning') && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleTeamRemove(m.user_id, m.name)} data-testid={`remove-sr-se-${m.user_id}`}>
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -2984,18 +3042,64 @@ export default function ProjectDetail() {
                   ) : (
                     <div className="space-y-2">
                       {teamData.site_engineers.map(m => (
-                        <div key={m.user_id} className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-200" data-testid={`team-se-${m.user_id}`}>
-                          <div className="h-9 w-9 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'E'}</div>
-                          <div>
-                            <p className="font-medium text-sm">{m.name}</p>
-                            <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                        <div key={m.user_id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200" data-testid={`team-se-${m.user_id}`}>
+                          <div className="flex items-center gap-3">
+                            <div className="h-9 w-9 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'E'}</div>
+                            <div>
+                              <p className="font-medium text-sm">{m.name}</p>
+                              <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                            </div>
                           </div>
+                          {(user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'planning') && (
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleTeamRemove(m.user_id, m.name)} data-testid={`remove-se-${m.user_id}`}>
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* Team Edit Dialog */}
+              <Dialog open={teamEditDialog} onOpenChange={setTeamEditDialog}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader><DialogTitle>Assign Team Members</DialogTitle><DialogDescription>Add engineers to this project</DialogDescription></DialogHeader>
+                  <div className="py-3 space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-500" />Senior Site Engineer
+                      </Label>
+                      <Select value={teamAssignSrSE} onValueChange={setTeamAssignSrSE}>
+                        <SelectTrigger className="mt-1" data-testid="team-select-sr-se"><SelectValue placeholder="Select Sr. Site Engineer" /></SelectTrigger>
+                        <SelectContent>
+                          {allTeamMembers.filter(m => m.role === 'sr_site_engineer' && m.is_active !== false && !teamData.sr_site_engineers.find(t => t.user_id === m.user_id)).map(m => (
+                            <SelectItem key={m.user_id} value={m.user_id}>{m.name} ({m.active_projects || 0} projects)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-500" />Site Engineer
+                      </Label>
+                      <Select value={teamAssignSE} onValueChange={setTeamAssignSE}>
+                        <SelectTrigger className="mt-1" data-testid="team-select-se"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
+                        <SelectContent>
+                          {allTeamMembers.filter(m => m.role === 'site_engineer' && m.is_active !== false && !teamData.site_engineers.find(t => t.user_id === m.user_id)).map(m => (
+                            <SelectItem key={m.user_id} value={m.user_id}>{m.name} ({m.active_projects || 0} projects)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setTeamEditDialog(false)}>Close</Button>
+                    <Button onClick={handleTeamAssign} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-team-assign">Assign Selected</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </TabsContent>
 
             {/* ==================== MATERIALS TAB ==================== */}

@@ -36,7 +36,8 @@ export default function PMDashboard() {
   // Team Assignment
   const [assignDialog, setAssignDialog] = useState(false);
   const [assignProject, setAssignProject] = useState(null);
-  const [assignUserId, setAssignUserId] = useState('');
+  const [selectedSrSE, setSelectedSrSE] = useState('');
+  const [selectedSE, setSelectedSE] = useState('');
 
   // Requests
   const [materialRequests, setMaterialRequests] = useState([]);
@@ -92,12 +93,16 @@ export default function PMDashboard() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update stage'); }
   };
 
-  const openAssignDialog = (p) => { setAssignProject(p); setAssignUserId(''); setAssignDialog(true); };
+  const openAssignDialog = (p) => { setAssignProject(p); setSelectedSrSE(''); setSelectedSE(''); setAssignDialog(true); };
   const handleAssignTeam = async () => {
-    if (!assignProject || !assignUserId) { toast.error('Select a team member'); return; }
+    if (!assignProject) return;
+    const toAssign = [selectedSrSE, selectedSE].filter(Boolean);
+    if (toAssign.length === 0) { toast.error('Select at least one team member'); return; }
     try {
-      await axios.post(`${API}/pm/assign-team`, { project_id: assignProject.project_id, user_id: assignUserId });
-      toast.success('Team member assigned');
+      for (const uid of toAssign) {
+        await axios.post(`${API}/pm/assign-team`, { project_id: assignProject.project_id, user_id: uid });
+      }
+      toast.success(`${toAssign.length} member(s) assigned`);
       setAssignDialog(false); fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to assign'); }
   };
@@ -151,6 +156,15 @@ export default function PMDashboard() {
       toast.success('Member deactivated');
       fetchData(false);
     } catch { toast.error('Failed'); }
+  };
+
+  const handleRemoveFromProject = async (projectId, userId, memberName) => {
+    if (!window.confirm(`Remove ${memberName} from this project?`)) return;
+    try {
+      await axios.delete(`${API}/pm/projects/${projectId}/team/${userId}`);
+      toast.success('Removed from project');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to remove'); }
   };
 
   // === HELPERS ===
@@ -214,10 +228,30 @@ export default function PMDashboard() {
                           <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
                           <td className="px-4 py-2.5">
                             <div className="flex flex-wrap gap-1">
-                              {(p.team || []).length > 0 ? p.team.map(t => (
-                                <span key={t.user_id} className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">{t.name} <span className="text-blue-400">({t.role?.replace(/_/g, ' ')})</span></span>
-                              )) : <span className="text-xs text-gray-400">No team assigned</span>}
+                              {(p.team || []).length > 0 ? (
+                                <>
+                                  {p.team.filter(t => t.role === 'sr_site_engineer').map(t => (
+                                    <span key={t.user_id} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                                      {t.name} <span className="text-amber-400 text-[10px]">Sr.SE</span>
+                                    </span>
+                                  ))}
+                                  {p.team.filter(t => t.role === 'site_engineer').map(t => (
+                                    <span key={t.user_id} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                                      {t.name} <span className="text-blue-400 text-[10px]">SE</span>
+                                    </span>
+                                  ))}
+                                  {p.team.filter(t => !['sr_site_engineer', 'site_engineer'].includes(t.role)).map(t => (
+                                    <span key={t.user_id} className="text-xs bg-gray-50 text-gray-700 border border-gray-200 px-1.5 py-0.5 rounded">{t.name}</span>
+                                  ))}
+                                </>
+                              ) : <span className="text-xs text-gray-400">No team assigned</span>}
                             </div>
+                            {(p.team || []).length > 0 && (
+                              <div className="flex gap-2 mt-1">
+                                <span className="text-[10px] text-amber-600">{p.team.filter(t => t.role === 'sr_site_engineer').length} Sr.SE</span>
+                                <span className="text-[10px] text-blue-600">{p.team.filter(t => t.role === 'site_engineer').length} SE</span>
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-2.5">
                             <div className="flex justify-center gap-1">
@@ -367,28 +401,70 @@ export default function PMDashboard() {
 
       {/* Assign Team */}
       <Dialog open={assignDialog} onOpenChange={setAssignDialog}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Assign Team to Project</DialogTitle><DialogDescription>Assign a Site Engineer or Sr. Site Engineer to "{assignProject?.name}"</DialogDescription></DialogHeader>
-          <div className="py-4">
-            <Label>Select Team Member</Label>
-            <Select value={assignUserId} onValueChange={setAssignUserId}>
-              <SelectTrigger className="mt-1" data-testid="select-team-member"><SelectValue placeholder="Choose team member" /></SelectTrigger>
-              <SelectContent>
-                {teamMembers.filter(m => m.is_active !== false).map(m => (
-                  <SelectItem key={m.user_id} value={m.user_id}>
-                    {m.name} ({m.role?.replace(/_/g, ' ')}) - {m.active_projects || 0} projects
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Assign Team to Project</DialogTitle><DialogDescription>Assign engineers to "{assignProject?.name}"</DialogDescription></DialogHeader>
+          <div className="py-3 space-y-4">
+            {/* Currently assigned */}
             {assignProject?.team?.length > 0 && (
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">Currently assigned:</p>
-                <div className="flex flex-wrap gap-1">{assignProject.team.map(t => <Badge key={t.user_id} variant="outline" className="text-xs">{t.name} ({t.role?.replace(/_/g,' ')})</Badge>)}</div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1.5 font-medium">Currently Assigned</p>
+                <div className="space-y-1">
+                  {assignProject.team.map(t => (
+                    <div key={t.user_id} className="flex items-center justify-between bg-gray-50 rounded px-2.5 py-1.5">
+                      <div className="flex items-center gap-2">
+                        {getRoleBadge(t.role)}
+                        <span className="text-sm">{t.name}</span>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400 hover:text-red-600" onClick={() => handleRemoveFromProject(assignProject.project_id, t.user_id, t.name)} data-testid={`remove-from-project-${t.user_id}`}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
+
+            {/* Sr. Site Engineer dropdown */}
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />Senior Site Engineer
+              </Label>
+              <Select value={selectedSrSE} onValueChange={setSelectedSrSE}>
+                <SelectTrigger className="mt-1" data-testid="select-sr-se"><SelectValue placeholder="Select Sr. Site Engineer" /></SelectTrigger>
+                <SelectContent>
+                  {teamMembers.filter(m => m.role === 'sr_site_engineer' && m.is_active !== false && !(assignProject?.team || []).find(t => t.user_id === m.user_id)).map(m => (
+                    <SelectItem key={m.user_id} value={m.user_id}>
+                      {m.name} ({m.active_projects || 0} projects)
+                    </SelectItem>
+                  ))}
+                  {teamMembers.filter(m => m.role === 'sr_site_engineer' && m.is_active !== false && !(assignProject?.team || []).find(t => t.user_id === m.user_id)).length === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-gray-400">No available Sr. Site Engineers</div>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Site Engineer dropdown */}
+            <div>
+              <Label className="text-sm font-medium flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />Site Engineer
+              </Label>
+              <Select value={selectedSE} onValueChange={setSelectedSE}>
+                <SelectTrigger className="mt-1" data-testid="select-se"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
+                <SelectContent>
+                  {teamMembers.filter(m => m.role === 'site_engineer' && m.is_active !== false && !(assignProject?.team || []).find(t => t.user_id === m.user_id)).map(m => (
+                    <SelectItem key={m.user_id} value={m.user_id}>
+                      {m.name} ({m.active_projects || 0} projects)
+                    </SelectItem>
+                  ))}
+                  {teamMembers.filter(m => m.role === 'site_engineer' && m.is_active !== false && !(assignProject?.team || []).find(t => t.user_id === m.user_id)).length === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-gray-400">No available Site Engineers</div>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setAssignDialog(false)}>Cancel</Button><Button onClick={handleAssignTeam} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-assign">Assign</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setAssignDialog(false)}>Cancel</Button><Button onClick={handleAssignTeam} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-assign">Assign Selected</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

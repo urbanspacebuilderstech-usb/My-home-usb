@@ -1652,7 +1652,7 @@ async def get_recorded_expenses(
 class TeamAssignmentCreate(BaseModel):
     project_id: str
     user_id: str
-    role: str  # associate_pm, sr_site_engineer, site_engineer
+    role: Optional[str] = None  # Optional: associate_pm, sr_site_engineer, site_engineer (fetched from user if not provided)
 
 @router.get("/pm/dashboard")
 async def get_pm_dashboard(user: User = Depends(get_current_user)):
@@ -1808,10 +1808,8 @@ async def pm_verify_labour_request(
 @router.post("/pm/assign-team")
 async def assign_team_to_project(data: TeamAssignmentCreate, user: User = Depends(get_current_user)):
     """Project Manager assigns team members to project"""
-    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Project Manager can assign team")
-    
-    # Validate project exists
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Project Manager, Super Admin, or Planning can assign team")
     project = await db.projects.find_one({"project_id": data.project_id})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1867,11 +1865,32 @@ async def assign_team_to_project(data: TeamAssignmentCreate, user: User = Depend
     return {"message": f"Assigned {team_member['name']} to {project['name']}", "assignment": assignment}
 
 
+@router.delete("/pm/projects/{project_id}/team/{user_id}")
+async def remove_team_from_project(project_id: str, user_id: str, user: User = Depends(get_current_user)):
+    """Remove a specific team member from a specific project"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    result = await db.site_engineer_assignments.update_one(
+        {"project_id": project_id, "user_id": user_id, "is_active": True},
+        {"$set": {"is_active": False, "removed_by": user.user_id, "removed_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    # Clear project shortcut fields if applicable
+    project = await db.projects.find_one({"project_id": project_id})
+    if project and project.get("assigned_se") == user_id:
+        await db.projects.update_one({"project_id": project_id}, {"$unset": {"assigned_se": "", "assigned_se_name": ""}})
+    
+    await create_notification(user_id, f"You have been removed from project: {project.get('name', project_id) if project else project_id}")
+    return {"message": "Team member removed from project"}
+
 @router.get("/pm/team-members")
 async def get_team_members(user: User = Depends(get_current_user)):
     """Get all team members (Associate PM, Sr. Site Engineer, Site Engineer)"""
-    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Project Manager can access this")
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Access denied")
     
     team = await db.users.find({
         "role": {"$in": ["associate_pm", "sr_site_engineer", "site_engineer"]}
