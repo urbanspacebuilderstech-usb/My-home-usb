@@ -2550,7 +2550,7 @@ export default function ProjectDetail() {
                             <td className="px-4 py-3 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 {/* Request Payment - for Planning/Admin when balance > 0 and not already requested */}
-                                {canManage && balance > 0 && !isPartial && !isRequested && !isPaid && (
+                                {canManage && balance > 0 && !isRequested && !isPaid && (
                                   <Button
                                     data-testid={`req-payment-${stage.stage_id}`}
                                     variant="outline"
@@ -2562,21 +2562,8 @@ export default function ProjectDetail() {
                                     Req Payment
                                   </Button>
                                 )}
-                                {/* Request Balance - for partially collected */}
-                                {canManage && isPartial && !isRequested && (
-                                  <Button
-                                    data-testid={`req-balance-${stage.stage_id}`}
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
-                                    onClick={() => handleRequestPayment(stage.stage_id)}
-                                  >
-                                    <Send className="h-3 w-3 mr-1" />
-                                    Req Balance
-                                  </Button>
-                                )}
-                                {/* Edit button - only for draft items that are not paid */}
-                                {canManage && !isPaid && (
+                                {/* Edit button - only for stages with no collection yet */}
+                                {canManage && !isPaid && !isPartial && (
                                   <Button
                                     data-testid={`edit-payment-${stage.stage_id}`}
                                     variant="ghost"
@@ -2587,8 +2574,8 @@ export default function ProjectDetail() {
                                     <Edit className="h-4 w-4 text-amber-600" />
                                   </Button>
                                 )}
-                                {/* Delete button - only for draft items that are not paid */}
-                                {canManage && !isPaid && (
+                                {/* Delete button - only for stages with no collection yet */}
+                                {canManage && !isPaid && !isPartial && (
                                   <Button 
                                     data-testid={`delete-payment-${stage.stage_id}`}
                                     variant="ghost" 
