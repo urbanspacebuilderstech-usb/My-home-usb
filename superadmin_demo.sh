@@ -3,7 +3,7 @@
 # ConstructionOS Super Admin Demo Script
 # This demonstrates all super admin capabilities
 
-API_URL="https://finance-module-v2.preview.emergentagent.com/api"
+API_URL="https://procure-pay-4.preview.emergentagent.com/api"
 TOKEN="superadmin_demo_1768204210044"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -91,7 +91,7 @@ echo "📱 HOW TO USE"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "1. WEB ACCESS:"
-echo "   URL: https://finance-module-v2.preview.emergentagent.com"
+echo "   URL: https://procure-pay-4.preview.emergentagent.com"
 echo "   Login: admin@constructionos.com (via Google OAuth)"
 echo ""
 echo "2. API ACCESS:"

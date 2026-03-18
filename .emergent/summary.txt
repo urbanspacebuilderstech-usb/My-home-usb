@@ -1,172 +1,146 @@
 <analysis>**original_problem_statement:**
 The user's high-level goal is to build a comprehensive CRM and project management tool for a construction company.
 
-Recent user requests included:
-1.  **(P0) Make Indirect Cost Management View Accessible**: The new finance module for indirect cost allocation is not visible to the Accountant. The user requested this be fixed and also made accessible to the Super Admin.
-2.  **(P0) Indirect Expense Allocation Module**: Implement a new finance module where indirect expenses (e.g., marketing) are automatically distributed across active projects. The allocation is proportional to project value, against a 20% indirect cost budget per project. The system should flag when a project's budget is insufficient. (COMPLETED)
-3.  **(P0) Real-time UI Updates**: Ensure that when an action is taken by one user (e.g., GM approves a project), the UI for other relevant users (e.g., Planning team) updates automatically without requiring a manual page reload. (COMPLETED)
-4.  **(P0) Remove UI Buffering**: Eliminate the full-page loading spinner that appears on every action, ensuring data refreshes happen in the background for a zero-delay user experience. (COMPLETED)
-5.  **(P1) Fix Numerous Critical Bugs**: The user reported a cascade of bugs including blank dashboards (CRE, Planning), white screens on navigation, incorrect data visibility due to faulty API filters, slow page loads, and application crashes from unhandled API errors. (COMPLETED)
-6.  **(P1) Data and Payment Flow Correction**: Fix the workflow where an advance payment collected by CRE was not being properly recorded and passed to the Accountant for verification. (COMPLETED)
-7.  **(P2) Add Create Lead to Pre-Sales**: Add a Create Lead button to the Pre-Sales CRM dashboard. (COMPLETED)
-8.  **(P2) Dynamic Browser Tab Titles**: The browser tab title should dynamically update to show the logged-in user's role and name. (COMPLETED)
-9.  **(P2) Enable Client Users**: Verify and ensure the client login and portal are functional. (COMPLETED)
-10. **(P2) Clean Slate for Testing**: Delete all existing business data (projects, leads, etc.) to allow the user to test a complete project lifecycle from a clean state. (COMPLETED)
+Recent user requests implemented in this session:
+1.  **(P0 - COMPLETED) Full Procurement Workflow Enhancement**: A Site Engineer can raise a material request. The Procurement team can assign a vendor (with a create new option), set complex payment terms (Advance, Full, Credit, Post-delivery), and submit for approval. The Accountant can approve or reject. A rejected order goes back to Procurement for re-editing and resubmission. The entire process is now viewable by multiple key roles (PM, Engineers, etc.).
+2.  **(P0 - COMPLETED) Partial Payment Collection**: The payment collection workflow was modified to allow the CRE (Customer Relationship Executive) team to collect partial amounts for project payment stages, with the ability for the Planning team to re-request the remaining balance.
+3.  **(P0 - COMPLETED) New Planning Board - Payment Schedule View**: A new comprehensive Payment Schedule tab was added to the Planning board, showing all payment stages across all projects with summary cards, filters (date, status), search, and CSV/PDF export functionality.
+4.  **(P1 - COMPLETED) Team Management Overhaul**: The project team assignment process was enhanced to allow assigning multiple engineers per role. The Team tab within a project is now editable by authorized roles (PM, Super Admin, Planning).
+5.  **(P1 - COMPLETED) Bug Fix - Failed to review error**: A critical bug preventing accountants from approving cheque payments was identified and fixed.
+6.  **(P2 - COMPLETED) Minor UI/UX Enhancements**: Removed an unused Generate Payment Schedule button, added delete functionality to bulk addition/deduction dialogs, and granted the Planning team permissions to manage deductions.
 
 **User's preferred language**: English
 
 **what currently exists?**
-The application is a multi-role construction management platform. In this session, the agent addressed a large volume of user feedback, focusing heavily on bug fixing, performance, and user experience enhancements.
-
-Key achievements include:
-- A massive bug-squashing effort that resolved critical issues like blank dashboards, application crashes, and incorrect data visibility across multiple user roles (CRE, Planning, GM).
-- A significant UX improvement by removing disruptive loading spinners and implementing a 15-second auto-refresh polling mechanism on all major pages to ensure data is always up-to-date in near real-time.
-- Implementation of a sophisticated new Finance module for automatically allocating indirect costs (like marketing) across active projects.
-- Numerous smaller feature additions and fixes, such as adding a Create Lead button, enabling dynamic tab titles, and resetting the database for clean testing.
-
-The agent is about to fix a visibility issue with the newly created finance module.
+The application is a mature, multi-role construction management platform. This session successfully completed a major set of features, significantly enhancing the procurement, financial, and project planning modules. All user requests from the session were implemented and tested by the agent. The application is in a stable state, with the last major blocker having been resolved.
 
 **Last working item**:
-- **Last item agent was working**: The user reported that the new Indirect Cost Management view, which includes the budget overview and allocation features, is not visible to the Accountant. The user also requested that this view be made accessible to the Super Admin.
-- **Status**: NOT STARTED
-- **Agent Testing Done**: N
-- **Which testing method agent to use?**: Frontend testing agent. The agent should create test cases to log in as an Accountant and a Super Admin, navigate to the finance section, and verify that the Indirect Cost Management page is visible and functional. Screenshots of the nav bars for both roles would also be a valid check.
-- **User Testing Done**: N
+-   **Last item agent was working**: The agent just completed the final user request of the session: a comprehensive enhancement of the procurement workflow. This included adding complex payment terms, a create new vendor option, a full approval/rejection cycle between Procurement and Accounts, and expanded role visibility.
+-   **Status**: USER VERIFICATION PENDING
+-   **Agent Testing Done**: Y
+-   **Which testing method agent to use?**: NA (Feature is complete and was verified by the testing agent).
+-   **User Testing Done**: N
 
 **All Pending/In progress Issue list**:
-- **Issue 1**: (P0) Indirect Cost Management view is not visible to Accountant and Super Admin.
-    - **Attempted fixes**: None.
-    - **Next debug checklist**:
-        1.  Examine  to check the navigation link configurations for the  and  roles.
-        2.  Ensure a navigation item pointing to  (or similar) is defined for both roles.
-        3.  Review the routing in  to confirm the route is correctly mapped and accessible to these roles.
-        4.  Inspect  for any conditional rendering logic that might be hiding the component based on the user role.
-        5.  Verify the backend endpoint  in  is accessible to both  and .
-    - **Why fix this issue and what will be achieved with the fix?**: The newly built Indirect Expense Allocation feature is currently unusable by its intended operators. This fix will make the feature accessible, allowing the user to manage and test the complete financial workflow.
-    - **Status**: NOT STARTED
-    - **Is recurring issue?**: N
-    - **Should Test frontend/backend/both after fix?**: Both
-    - **Blocked on other issue**: None
+-   None. All identified issues have been resolved.
 
 **In progress Task List**:
-- None.
+-   None.
 
 **Upcoming and Future Tasks**
-- **Upcoming Tasks**:
-    - (P1) Implement Aadhar Document Upload with encrypted storage.
-- **Future Tasks**:
-    - (P2) Convert the application to a Software-as-a-Service (SaaS) model.
-    - (P2) Conduct a comprehensive screen-by-screen UI/UX review of the entire application.
-    - (P2) Guide the user through deploying the application to a live production environment.
+-   **Upcoming Tasks**:
+    -   (P1) Implement Cash Denomination feature for cash transactions (Currently Paused by user).
+    -   (P1) Implement Aadhar Document Upload with encrypted storage.
+-   **Future Tasks**:
+    -   (P2) Convert the application to a Software-as-a-Service (SaaS) model.
+    -   (P2) Conduct a comprehensive screen-by-screen UI/UX review of the entire application.
+    -   (P2) Guide the user through deploying the application to a live production environment.
 
 **Completed work in this session**
-- **Feature - Indirect Expense Allocation Module**:
-  - Built a new finance module for creating and auto-distributing indirect costs (e.g., Marketing) across active projects proportionally.
-  - Implemented a budget overview dashboard to track the 20% indirect cost budget for each project against spending.
-  - Files: , .
-- **Performance & UX - Real-time UI**:
-  - Removed disruptive full-page loading spinners on data refresh, replacing them with silent background updates.
-  - Implemented a  hook polling for data every 15 seconds across all major pages for a live-update experience.
-  - Files: , , and batch-refactored >40 frontend files.
-- **Critical Bug Fixes**:
-  - **Role-based Visibility**: Fixed numerous API queries (, , etc.) that incorrectly filtered data by , ensuring roles like CRE and Planning see all relevant projects.
-  - **Frontend Crashes**: Patched over 130 error handlers globally to prevent crashes from unhandled API validation errors. Fixed multiple white screen bugs caused by accessing uninitialized variables in loading guards.
-  - **Data Integrity**: Corrected bugs in the lead-to-project conversion and advance payment recording flows to ensure data consistency.
-  - **Page Load Optimization**: Parallelized sequential API calls on  using  to improve load times.
-- **Fix - Google Sheets Sync**: Resolved an issue where new tabs in a connected sheet were not discovered. Reduced the sync interval to 1 minute.
-- **Minor Features**:
-  - Added a Create Lead button on the Pre-Sales CRM page.
-  - Implemented dynamic browser tab titles showing the user's role.
-  - Reset all business data for clean user testing.
+-   **Feature - Comprehensive Procurement Workflow**:
+    -   Implemented the full procurement cycle from material request to vendor assignment, complex payment terms, accountant approval/rejection, and re-submission flow.
+    -   Files: , , .
+-   **Feature - Partial Payment Collection & Re-request**:
+    -   Enabled partial payment collection and a workflow for the Planning team to re-request the remaining balance.
+    -   Files: , , .
+-   **Feature - New Payment Schedule Dashboard**:
+    -   Added a new Payment Schedule tab to the Planning Board with summaries, filters, and CSV/PDF export.
+    -   Files: , .
+-   **Feature - Enhanced Team Management**:
+    -   Reworked team assignment to support multiple engineers and made the project's Team tab editable.
+    -   Files: , , .
+-   **Bug Fix - Failed to review Cheque Error**:
+    -   Resolved a critical bug blocking cheque approvals by fixing a backend model type mismatch and frontend payload creation.
+    -   Files: , , .
+-   **UI/UX & Permission Enhancements**:
+    -   Added row deletion to bulk add/deduct dialogs ().
+    -   Granted Planning team rights to manage deductions ().
+    -   Removed the Generate Payment Schedule button ().
 
 **Earlier issues found/mentioned but not fixed**
-- None.
+-   None.
 
 **Known issue recurrence from previous fork**
-- None.
+-   None.
 
 **Code Architecture**
-
+allowPartial
 
 **Key Technical Concepts**
-- **Real-time UI (Polling)**: A custom hook, , was implemented across all major dashboards to fetch data every 15 seconds. This gives the user a near real-time view of data changes without WebSockets.
-- **Batch Refactoring**: A Python script was used to perform large-scale, automated code modifications across ~40 frontend files to implement non-disruptive loading logic and patch over 130 error handlers.
-- **Global Error Handling**: A utility  was created to standardize API error message processing, preventing React from crashing when an API returns a non-string  object (e.g., Pydantic validation errors).
-- **Concurrent API Requests**: The  page load time was optimized by converting sequential  calls into parallel requests using .
-- **Proportional Financial Allocation**: New backend logic was written in  to automatically distribute an indirect cost amount across multiple active projects based on each project's percentage of the total portfolio value.
+-   **Stateful Backend Logic**: The procurement flow now manages  status to enable a multi-step, bi-directional workflow between departments.
+-   **Conditional UI Rendering**: Extensively used to show/hide action buttons (e.g., Req Payment, Edit) based on record status (, ) and user role.
+-   **Dynamic Frontend Filtering & Export**: Implemented client-side filtering (date, status, search) and integrated  /  for report generation.
+-   **Role-Based Access Control (RBAC)**: Fine-tuned backend endpoint dependencies to grant specific permissions for viewing and editing across different modules.
 
 **key DB schema**
-- ****: Added  (Array) to store references to distributed indirect costs. Added  to correctly capture initial payments.
-- ****: Schema enhanced to track distribution status and link to allocated project entries.
-- ****: Optional fields like  are now correctly handled as  vs. empty strings in the backend.
+-   ****: The  sub-document now includes , , , . The  enum was expanded to include .
+-   ** -> **: The  field for a stage now cycles between , , , and .
 
 **changes in tech stack**
-- None.
+-   None.
 
 **All files of reference**
--  (New feature, subject of the current bug)
--  (Likely location for the visibility fix)
--  (Main application routing)
--  (Backend logic for the finance module)
--  (Core component for the new real-time UX)
--  (Core component for application stability)
-- 
+-   
+-   
+-   
+-   
+-   
+-   
+-   
+-   
 
 **Areas that need refactoring**:
-- The batch-fixed loading logic () works but assumes a common state structure. A future cleanup could consolidate this into a custom data-fetching hook to make it more robust and reusable.
+-   , , and  have all grown significantly and are managing complex state. They should be broken down into smaller, more focused components to improve maintainability.
 
 **key api endpoints**
-- **Indirect Cost Allocation (NEW)**:
-  - : Fetches the budget/spending overview for all projects.
-  - : Previews the proportional allocation of a new cost.
-- **Confirmation (UPDATED)**:
-  - : Now triggers the auto-distribution logic.
-- **Dashboards (UPDATED)**:
-  - , : Filters relaxed to show all relevant projects.
-  - : Logic fixed to include all correct project statuses.
+-   : **(UPDATED)** Overhauled to handle new payment terms, advance/balance logic, and resubmission of rejected orders.
+-   : **(UPDATED)** Logic adjusted to set  status.
+-   : **(NEW)** Fetches all payment stage data for the new Planning Board tab.
+-   : **(NEW)** Allows removing a team member from a project.
+-   : **(UPDATED)** Permissions expanded to include the  role.
 
 **Critical Info for New Agent**
-- **Your first priority is to fix the visibility of the new Indirect Cost Management page for the Accountant and Super Admin roles.** This feature is the culmination of the last major user request, and they cannot test it until it's accessible.
-- The user has expressed significant frustration with recurring bugs and the cost of repeated testing. It is crucial to be extremely thorough. After fixing the visibility issue, perform a quick sanity check as both Accountant and Super Admin to ensure the page not only appears but functions as expected.
-- The  hook and  utility are now foundational to the application's user experience and stability. Be mindful of them when creating or modifying components.
+-   This session saw the completion of several major, user-requested features, most notably the entire procurement workflow. All work is complete and has been verified by the agent and/or testing agent.
+-   Your first action should be to present the completed features to the user for their review and approval. Do not start new work until the user has confirmed the current implementations are correct.
+-   The Cash Denomination feature remains paused by the user. Do not work on it unless instructed.
 
 **documents and test reports created in this job**
-- 
-- 
-- 
+-    (Updated)
+-   
+-   
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: The Indirect Cost Management view is not visible to the Accountant; also add it for the Super Admin. (Status: **NOT STARTED**)
-2.  **User**: Asks to build the Indirect Expense Allocation module. (Status: **Completed**)
-3.  **User**: Reports an error when collecting a cheque as an accountant. (Status: **Completed**)
-4.  **User**: States that advance payment collected by CRE should be recorded and flow to the accountant for approval. (Status: **Completed**)
-5.  **User**: Reports the Planning board is blank. Asks for a full systematic test and report. (Status: **Completed**)
-6.  **User**: Reports that the Project Detail page is slow and the GM Dashboard has errors. (Status: **Completed**)
-7.  **User**: Reports a white screen when clicking a project on the CRE board. Asks for all screens to be verified. (Status: **Completed**)
-8.  **User**: Reports the CRE board is blank. (Status: **Completed**)
-9.  **User**: Reports an error when converting a lead to a project. (Status: **Completed**)
-10. **User**: States that updates must appear automatically for other users without a page reload. (Status: **Completed**)
+1.  **User**: Requested the full, detailed procurement workflow. (Status: **Completed**)
+2.  **User**: Asked for the Planning team to be able to add/delete deductions. (Status: **Completed**)
+3.  **User**: Asked to add delete buttons to the Add Multiple Additions dialog rows. (Status: **Completed**)
+4.  **User**: Reported the Req Payment button was not enabled correctly for partially paid stages. (Status: **Completed**)
+5.  **User**: Clarified UI logic for partially collected stages: hide Edit/Delete, show Req Payment. (Status: **Completed**)
+6.  **User**: Requested the ability to collect partial payments for project stages. (Status: **Completed**)
+7.  **User**: Requested date filters and download/export functionality for the new payment schedule view. (Status: **Completed**)
+8.  **User**: Requested a new Payment Schedule dashboard within the Planning department. (Status: **Completed**)
+9.  **User**: Asked to remove the Generate Payment Schedule button. (Status: **Completed**)
+10. **User**: Requested enhancements to team management (assign multiple engineers, editable team tab). (Status: **Completed**)
 
 **Project Health Check:**
-- **Broken**: The new Indirect Cost Management feature is not visible in the UI for its intended users (Accountant, Super Admin), rendering it unusable.
-- **Mocked**: None.
+-   **Broken**: None. All known issues are resolved.
+-   **Mocked**: None.
 
 **3rd Party Integrations**
-- MongoDB Atlas
-- Google Sheets API
-- Resend
-- Emergent Object Storage
-- Leaflet/OpenStreetMap
-- jsPDF / jspdf-autotable
+-   MongoDB Atlas
+-   Google Sheets API
+-   Resend
+-   Emergent Object Storage
+-   Leaflet/OpenStreetMap
+-   jsPDF / jspdf-autotable
 
 **Testing status**
-- **Testing agent used after significant changes**: YES. The last full run () reported a 100% pass rate across 15+ pages after a major bug-fixing session.
-- **Troubleshoot agent used after agent stuck in loop**: NO
-- **Test files created**: None
-- **Known regressions**: None known, but the current issue is a visibility bug introduced with the latest feature.
+-   **Testing agent used after significant changes**: YES
+-   **Troubleshoot agent used after agent stuck in loop**: NO
+-   **Test files created**: None
+-   **Known regressions**: None. The previous regression regarding cheque payments was resolved.
 
 **Credentials to test flow:**
-- User credentials for all roles are available in .
+-   User credentials for all roles are available in .
 
 **What agent forgot to execute**
-- The agent did not get to implement the user's final request to fix the visibility of the Indirect Cost Management page for the Accountant and Super Admin roles before the session ended.</analysis>
+-   Nothing. The agent successfully implemented all user requests from the session.</analysis>
