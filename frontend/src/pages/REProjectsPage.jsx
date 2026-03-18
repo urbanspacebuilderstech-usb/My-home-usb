@@ -33,7 +33,7 @@ const RE_STATUS_CONFIG = {
   converted: { label: 'Converted to Project', color: 'bg-teal-100 text-teal-700 border-teal-300', icon: Building2 }
 };
 
-export default function REProjectsPage() {
+export default function REProjectsPage({ embedded = false }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState(null);
@@ -216,11 +216,11 @@ export default function REProjectsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
       {/* Navigation */}
-      <AppHeader user={user} />
+      {!embedded && <AppHeader user={user} />}
 
-      <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
+      <div className={embedded ? '' : 'max-w-7xl mx-auto px-4 py-6 sm:px-6'}>
         {/* Stats Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <Card 
@@ -714,7 +714,7 @@ export default function REProjectsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <MobileBottomNav user={user} />
+      {!embedded && <MobileBottomNav user={user} />}
     </div>
   );
 }
