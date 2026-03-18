@@ -501,7 +501,7 @@ class IncomeReviewRequest(BaseModel):
     verification_mode: str  # cash, cheque, bank, dt
     denomination: Optional[Dict[str, int]] = None  # for cash: {"2000": 1, "500": 4, ...}
     cheque_number: Optional[str] = None  # for single cheque
-    cheque_verifications: Optional[List[Dict[str, str]]] = None  # for multiple cheques: [{"cheque_id": "...", "entered_number": "..."}]
+    cheque_verifications: Optional[List[Dict[str, Any]]] = None  # for multiple cheques: [{"cheque_id": "...", "entered_number": "...", "amount": ...}]
     transaction_id: Optional[str] = None  # for bank
     dt_id: Optional[str] = None  # for dt
     notes: Optional[str] = None

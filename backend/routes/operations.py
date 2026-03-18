@@ -344,33 +344,11 @@ async def convert_deal_to_project(
         entry_ref = entry.get("reference", "")
         entry_cheques = entry.get("cheque_details")
         
-        # Auto-create cheque records if payment mode is cheque
-        if entry_mode == "cheque" and entry_cheques:
-            for chq in entry_cheques:
-                cheque_record = {
-                    "cheque_id": f"chq_{secrets.token_hex(6)}",
-                    "cheque_number": chq.get("cheque_number", ""),
-                    "bank_name": chq.get("bank_name", ""),
-                    "branch_name": chq.get("branch_name", ""),
-                    "amount": float(chq.get("amount", 0)),
-                    "cheque_date": chq.get("cheque_date", now.isoformat()),
-                    "cheque_type": "incoming",
-                    "party_name": client_name,
-                    "party_type": "client",
-                    "project_id": project_id,
-                    "project_name": project_name,
-                    "status": "issued",
-                    "is_post_dated": chq.get("is_post_dated", False),
-                    "remarks": f"Advance cheque for project {project_name}",
-                    "created_by": user.user_id,
-                    "created_at": now.isoformat(),
-                }
-                await db.cheques.insert_one(cheque_record)
-        
-        # Create income record for each payment entry
+        # Create income record first so we can link cheques to it
+        income_id = f"inc_{secrets.token_hex(6)}"
         if entry_amount > 0:
             income_record = {
-                "income_id": f"inc_{secrets.token_hex(6)}",
+                "income_id": income_id,
                 "project_id": project_id,
                 "project_name": project_name,
                 "category": "advance_payment",
@@ -389,6 +367,30 @@ async def convert_deal_to_project(
                 "created_at": now.isoformat()
             }
             await db.income.insert_one(income_record)
+        
+        # Auto-create cheque records linked to the income record
+        if entry_mode == "cheque" and entry_cheques:
+            for chq in entry_cheques:
+                cheque_record = {
+                    "cheque_id": f"chq_{secrets.token_hex(6)}",
+                    "income_id": income_id,
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "branch_name": chq.get("branch_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_type": "incoming",
+                    "party_name": client_name,
+                    "party_type": "client",
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "status": "issued",
+                    "is_post_dated": chq.get("is_post_dated", False),
+                    "remarks": f"Advance cheque for project {project_name}",
+                    "created_by": user.user_id,
+                    "created_at": now.isoformat(),
+                }
+                await db.cheques.insert_one(cheque_record)
     
     # Update lead - use 'leads' collection
     await db.leads.update_one(
@@ -554,29 +556,11 @@ async def convert_re_project_to_project(
         entry_ref = entry.get("reference", "")
         entry_cheques = entry.get("cheque_details")
         
-        if entry_mode == "cheque" and entry_cheques:
-            for chq in entry_cheques:
-                cheque_record = {
-                    "cheque_id": f"chq_{secrets.token_hex(6)}",
-                    "cheque_number": chq.get("cheque_number", ""),
-                    "bank_name": chq.get("bank_name", ""),
-                    "amount": float(chq.get("amount", 0)),
-                    "cheque_date": chq.get("cheque_date", now.isoformat()),
-                    "cheque_type": "incoming",
-                    "party_name": client_name,
-                    "party_type": "client",
-                    "project_id": project_id,
-                    "project_name": project_name,
-                    "status": "issued",
-                    "remarks": f"Advance cheque for project {project_name}",
-                    "created_by": user.user_id,
-                    "created_at": now.isoformat(),
-                }
-                await db.cheques.insert_one(cheque_record)
-        
+        # Create income record first so we can link cheques to it
+        income_id = f"inc_{secrets.token_hex(6)}"
         if entry_amount > 0:
             income_record = {
-                "income_id": f"inc_{secrets.token_hex(6)}",
+                "income_id": income_id,
                 "project_id": project_id,
                 "project_name": project_name,
                 "category": "advance_payment",
@@ -594,6 +578,27 @@ async def convert_re_project_to_project(
                 "created_at": now.isoformat()
             }
             await db.income.insert_one(income_record)
+        
+        if entry_mode == "cheque" and entry_cheques:
+            for chq in entry_cheques:
+                cheque_record = {
+                    "cheque_id": f"chq_{secrets.token_hex(6)}",
+                    "income_id": income_id,
+                    "cheque_number": chq.get("cheque_number", ""),
+                    "bank_name": chq.get("bank_name", ""),
+                    "amount": float(chq.get("amount", 0)),
+                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_type": "incoming",
+                    "party_name": client_name,
+                    "party_type": "client",
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "status": "issued",
+                    "remarks": f"Advance cheque for project {project_name}",
+                    "created_by": user.user_id,
+                    "created_at": now.isoformat(),
+                }
+                await db.cheques.insert_one(cheque_record)
     
     return {
         "success": True,

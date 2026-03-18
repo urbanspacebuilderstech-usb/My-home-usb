@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="1" tests="8" time="21.755" timestamp="2026-03-18T02:30:38.941184+00:00" hostname="agent-env-929be979-9b24-4095-9c7f-cdbe606199b1"><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_get_unified_approvals_returns_pending_income" time="1.702" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_get_income_cheques_endpoint" time="2.720" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_review_income_cheque_with_amount_as_number" time="4.093" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_review_income_cheque_with_no_cheques_in_db" time="4.322"><skipped type="pytest.skip" message="No pending cheque income without cheque records to test">/app/backend/tests/test_income_review_cheque_fix.py:151: No pending cheque income without cheque records to test</skipped></testcase><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_review_income_cash_mode" time="3.012" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewChequeFix" name="test_review_income_bank_mode" time="3.143" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewValidation" name="test_review_non_existent_income_returns_404" time="1.710" /><testcase classname="backend.tests.test_income_review_cheque_fix.TestIncomeReviewValidation" name="test_cheque_verifications_accepts_any_type" time="0.892"><failure message="requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:644: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:474: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+During handling of the above exception, another exception occurred:
+backend/tests/test_income_review_cheque_fix.py:254: in test_cheque_verifications_accepts_any_type
+    resp = self.session.get(f"{BASE_URL}/api/approvals/unified")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:602: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:659: in send
+    raise ConnectionError(err, request=request)
+E   requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))</failure></testcase></testsuite></testsuites>

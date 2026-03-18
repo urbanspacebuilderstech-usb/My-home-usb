@@ -2270,8 +2270,8 @@ function ApprovalsTab() {
       toast.error(`Denomination total (₹${denominationTotal.toLocaleString('en-IN')}) doesn't match amount (₹${inc.amount.toLocaleString('en-IN')})`);
       return;
     }
-    if (reviewForm.verification_mode === 'cheque') {
-      const allVerified = projectCheques.length > 0 && projectCheques.every(c => chequeVerifications[c.cheque_id]?.trim());
+    if (reviewForm.verification_mode === 'cheque' && projectCheques.length > 0) {
+      const allVerified = projectCheques.every(c => chequeVerifications[c.cheque_id]?.trim());
       if (!allVerified) { toast.error('Please re-enter all cheque numbers'); return; }
     }
     if (reviewForm.verification_mode === 'bank' && !reviewForm.transaction_id.trim()) {
@@ -2294,10 +2294,10 @@ function ApprovalsTab() {
         Object.entries(reviewForm.denomination).forEach(([k, v]) => { if (parseInt(v) > 0) denom[k] = parseInt(v); });
         payload.denomination = denom;
       }
-      if (reviewForm.verification_mode === 'cheque') {
+      if (reviewForm.verification_mode === 'cheque' && projectCheques.length > 0) {
         payload.cheque_verifications = projectCheques.map(c => ({
           cheque_id: c.cheque_id, cheque_number: c.cheque_number,
-          entered_number: chequeVerifications[c.cheque_id] || '', amount: c.amount, bank: c.bank_name
+          entered_number: chequeVerifications[c.cheque_id] || '', amount: String(c.amount || ''), bank: c.bank_name || ''
         }));
       }
       if (reviewForm.verification_mode === 'bank') payload.transaction_id = reviewForm.transaction_id;
@@ -2559,7 +2559,7 @@ function ApprovalsTab() {
                 <div data-testid="review-cheque-section">
                   <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
                   {projectCheques.length === 0 && (
-                    <p className="text-sm text-gray-400 italic py-2">No cheques found for this project</p>
+                    <p className="text-sm text-amber-600 italic py-2">No cheque records found. You can still approve with a note.</p>
                   )}
                   <div className="space-y-3">
                     {projectCheques.map((cheque, idx) => (

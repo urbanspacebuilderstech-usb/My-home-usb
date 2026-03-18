@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://indirect-costs-ui.preview.emergentagent.com
-- Backend API: https://indirect-costs-ui.preview.emergentagent.com/api
+- Frontend: https://finance-module-v2.preview.emergentagent.com
+- Backend API: https://finance-module-v2.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
