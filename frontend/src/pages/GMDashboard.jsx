@@ -1027,14 +1027,18 @@ const GMDashboard = () => {
                           <span className="text-gray-500">Name:</span>
                           <p className="font-medium">{viewItem.client_name}</p>
                         </div>
+                        {viewItem.client_phone && (
                         <div>
                           <span className="text-gray-500">Phone:</span>
-                          <p>{viewItem.client_phone || '-'}</p>
+                          <p>{viewItem.client_phone}</p>
                         </div>
+                        )}
+                        {viewItem.client_email && (
                         <div>
                           <span className="text-gray-500">Email:</span>
-                          <p>{viewItem.client_email || '-'}</p>
+                          <p>{viewItem.client_email}</p>
                         </div>
+                        )}
                         <div>
                           <span className="text-gray-500">Location:</span>
                           <p>{viewItem.location || '-'}</p>

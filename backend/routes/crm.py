@@ -16,6 +16,7 @@ import re
 from core.database import db
 from core.deps import get_current_user, create_notification, create_audit_log
 from core.models import UserRole, User
+from core.contact_visibility import filter_contacts_re_projects, filter_contacts_leads, strip_contact_fields, PRIVILEGED_ROLES
 from security import InputValidator
 
 logger = logging.getLogger(__name__)
@@ -379,6 +380,7 @@ async def get_pre_sales_leads(
             query["created_at"] = {"$lte": datetime.fromisoformat(date_to.replace('Z', '+00:00'))}
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    leads = await filter_contacts_leads(db, leads, user.role)
     return leads
 
 
@@ -1089,6 +1091,7 @@ async def get_sales_leads(
             query["re_project_id"] = None
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    leads = await filter_contacts_leads(db, leads, user.role)
     return leads
 
 
@@ -1418,6 +1421,7 @@ async def get_re_projects(
         query["status"] = status
     
     projects = await db.re_projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    projects = await filter_contacts_re_projects(db, projects, user.role)
     return projects
 
 
@@ -1431,7 +1435,13 @@ async def get_re_project(re_project_id: str, user: User = Depends(get_current_us
     # Get linked lead
     lead = await db.leads.find_one({"lead_id": project["lead_id"]}, {"_id": 0})
     
-    return {**project, "lead": lead}
+    result = {**project, "lead": lead}
+    if user.role not in PRIVILEGED_ROLES:
+        from core.contact_visibility import get_approved_re_project_ids
+        approved = await get_approved_re_project_ids(db, [re_project_id])
+        if re_project_id not in approved:
+            result = strip_contact_fields(result)
+    return result
 
 
 class REProjectUpdate(BaseModel):

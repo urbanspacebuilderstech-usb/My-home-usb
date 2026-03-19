@@ -451,14 +451,18 @@ export default function REProjectsPage({ embedded = false }) {
                       <span className="text-gray-500">Name:</span>
                       <p className="font-medium">{selectedProject.client_name}</p>
                     </div>
+                    {selectedProject.client_phone && (
                     <div>
                       <span className="text-gray-500">Phone:</span>
-                      <p>{selectedProject.client_phone || '-'}</p>
+                      <p>{selectedProject.client_phone}</p>
                     </div>
+                    )}
+                    {selectedProject.client_email && (
                     <div>
                       <span className="text-gray-500">Email:</span>
-                      <p>{selectedProject.client_email || '-'}</p>
+                      <p>{selectedProject.client_email}</p>
                     </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -20,6 +20,7 @@ from bson import ObjectId
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
+from core.contact_visibility import strip_contact_fields, PRIVILEGED_ROLES, filter_contacts_leads
 from security import InputValidator
 
 logger = logging.getLogger(__name__)
@@ -192,6 +193,9 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
                 lead["re_project"] = re_project
             
             deals.append(lead)
+    
+    if user.role not in PRIVILEGED_ROLES:
+        deals = [strip_contact_fields(d) for d in deals]
     
     return deals
 

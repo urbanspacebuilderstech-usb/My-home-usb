@@ -452,7 +452,7 @@ export default function CREBoard() {
                               {deal.deal_type === 're_project' ? <Badge className="bg-green-100 text-green-700 text-xs shrink-0">GM Approved RE</Badge> : <Badge className="bg-yellow-100 text-yellow-700 text-xs shrink-0">Sales Deal</Badge>}
                             </div>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{deal.phone || deal.client_phone || '-'}</span>
+                              {(deal.phone || deal.client_phone) && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{deal.phone || deal.client_phone}</span>}
                               <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{deal.location || deal.city || deal.re_project?.location || '-'}</span>
                               {(deal.estimated_total || deal.re_project?.estimated_total) && <span className="font-medium text-green-600">{formatCurrency(deal.estimated_total || deal.re_project?.estimated_total)}</span>}
                             </div>
