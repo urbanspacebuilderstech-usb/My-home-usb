@@ -143,6 +143,17 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - New "POs" tab in ProcurementBoardV2 with approve/dispatch/deliver workflow
   - POs marked with "Auto" badge when auto-generated
   - ProjectDetail and SiteEngineerProject show PO badges on material requests
+- [x] **Site Engineer Labour Count by Category (Mar 19, 2026)**:
+  - New "Labour Count" tab on SE project page
+  - Date picker + category-wise worker count inputs (17 categories from contractor_categories)
+  - Auto-total counter, save button, and day's entry history
+  - Backend: POST /api/labour-attendance (contractor_id now optional for direct count)
+- [x] **Site Engineer Stock Register (Mar 19, 2026)**:
+  - New "Stock Register" tab on SE project page
+  - Add material flow (name + unit), editable table with Opening/Received/Used/Closing columns
+  - Closing stock auto-calculated as opening + received - used (negative shown in red)
+  - Current Stock Levels cards showing latest stock per material
+  - Backend: POST /api/material-inventory, GET /api/material-inventory/latest
 
 ## Backlog
 - [ ] Escrow Account Integration (P0)
