@@ -176,10 +176,18 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] **Standardized Unit Dropdown Sitewide (Mar 19, 2026)**:
   - Created reusable `UnitSelect.jsx` component with searchable dropdown and category grouping
   - 75 construction industry units organized in 9 categories: Count, Weight, Volume, Area, Length, Packaging, Transport, Construction, Work
-  - Replaced old unit inputs across 5 pages: PlanningBoard, SiteEngineerProject, REProjectsPage, PackageManagement, MaterialManagement
+  - Replaced old unit inputs across 6 pages: PlanningBoard, SiteEngineerProject, REProjectsPage, PackageManagement, MaterialManagement, ProjectDetail
   - Removed all hardcoded UNITS/MATERIAL_UNITS arrays
   - Search filters by unit label, value, or category name
   - Selected unit shows checkmark, grouped by category headers
+
+- [x] **Contact Visibility Rules (Mar 19, 2026)**:
+  - Phone/email only visible to: Super Admin, Sales, Pre-Sales
+  - All other roles (GM, CRE, Planning, Accountant, PM, etc.) see contacts hidden
+  - Once project is converted AND payment approved by accountant, contacts visible to everyone
+  - Backend: Created `/app/backend/core/contact_visibility.py` utility
+  - Modified 4 API endpoints to strip contacts for non-privileged roles: `/api/crm/re-projects`, `/api/crm/sales/leads`, `/api/crm/pre-sales/leads`, `/api/cre/new-deals`
+  - Frontend: Conditional rendering in REProjectsPage, CREBoard, GMDashboard - fields hidden entirely (not masked)
 
 - [x] **Material Request Workflow Fix (Mar 18, 2026)**:
   - Fixed broken Planning Board → Requests tab (endpoints returned 404)
