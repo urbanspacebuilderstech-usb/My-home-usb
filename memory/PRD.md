@@ -129,9 +129,22 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | GET | /api/material-inventory/latest | Latest stock per material |
 | GET | /api/projects/{project_id}/contractor-assignments | Project's labour work orders |
 
+- [x] **Vendor Auto-Assignment in Material Requests (Mar 19, 2026)**:
+  - When SE creates a material request, system auto-looks up vendor assigned for that material category
+  - Fuzzy matching: "Cement OPC 53 Grade" matches category "Cement"
+  - Assigned vendor info (vendor_id, name, category) attached to request
+  - New endpoint: GET /api/projects/{project_id}/vendor-suggestion?material_name=X
+  - Frontend: Green vendor suggestion banner in SE material request dialog
+- [x] **Auto Purchase Order Flow (Mar 19, 2026)**:
+  - When Planning approves a material request with an assigned vendor, PO is auto-generated
+  - PO includes: project info, vendor info, material details, quantity
+  - Both approval endpoints support auto-PO: /planning-action and /approve?action=planning_approve
+  - Procurement notified about auto-PO via notifications
+  - New "POs" tab in ProcurementBoardV2 with approve/dispatch/deliver workflow
+  - POs marked with "Auto" badge when auto-generated
+  - ProjectDetail and SiteEngineerProject show PO badges on material requests
+
 ## Backlog
-- [ ] Connect Site Engineer Request Flow to assigned vendors (P0)
-- [ ] Auto Purchase Order (PO) Flow (P0)
 - [ ] Escrow Account Integration (P0)
 - [ ] Two-Factor Authentication (2FA) via mobile OTP (P0)
 - [ ] Advanced Cybersecurity Practices (P1)
