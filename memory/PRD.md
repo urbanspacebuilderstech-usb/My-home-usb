@@ -189,6 +189,22 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Modified 4 API endpoints to strip contacts for non-privileged roles: `/api/crm/re-projects`, `/api/crm/sales/leads`, `/api/crm/pre-sales/leads`, `/api/cre/new-deals`
   - Frontend: Conditional rendering in REProjectsPage, CREBoard, GMDashboard - fields hidden entirely (not masked)
 
+- [x] **Vendor Management System (Mar 19, 2026)**:
+  - Full vendor CRUD: Create/Edit/View vendors with enhanced details
+  - Vendor form with 4 tabs: Basic Details, Account Details (bank, IFSC, UPI), Brands per Material, GST & Payment
+  - Dynamic vendor categories (16 seeded: Cement, Sand, Steel, etc.) with inline "Add New Category" — no approval needed
+  - Brands management: per material category with comma-separated input
+  - Payment Cycle dropdown: Immediate, 7/15/30/45/60/90 days
+  - GST Details: GST number + type (Regular/Composition/Unregistered)
+  - Vendor Detail view with 3 tabs: Details, Brands & Materials, Summary (orders, payments, stats)
+  - Planning header → "Vendors" nav link added
+  - Project-level vendor assignment: Materials tab → 4 sub-tabs (Materials, Vendors, Orders Status, Payment Status)
+  - Assign vendor per material category with brand selection
+  - Purchase Orders framework: auto-created from approved material requests (Procurement creates/approves)
+  - Backend: 10+ new endpoints for vendor categories, vendor summary, project assignments, purchase orders
+  - Collections: `vendor_categories`, `project_vendor_assignments`, `purchase_orders`
+  - Role-based access: Planning + Procurement can manage, others can view
+
 - [x] **Material Request Workflow Fix (Mar 18, 2026)**:
   - Fixed broken Planning Board → Requests tab (endpoints returned 404)
   - Created 4 new endpoints: GET /api/material-requests, GET /api/labour-expenses, PATCH /api/material-requests/{id}/planning-action, PATCH /api/labour-expenses/{id}/planning-action
