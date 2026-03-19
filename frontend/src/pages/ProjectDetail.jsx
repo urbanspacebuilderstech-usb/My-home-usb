@@ -23,6 +23,7 @@ import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import { UnitSelect } from '../components/UnitSelect';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -1658,14 +1659,15 @@ export default function ProjectDetail() {
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
+                                    <UnitSelect 
                                       value={row.unit}
-                                      onChange={(e) => {
+                                      onChange={(v) => {
                                         const newRows = [...bulkScopeRows];
-                                        newRows[idx].unit = e.target.value;
+                                        newRows[idx].unit = v;
                                         setBulkScopeRows(newRows);
                                       }}
                                       className="h-8"
+                                      data-testid={`bulk-scope-unit-${idx}`}
                                     />
                                   </td>
                                   <td className="px-2 py-1">
@@ -1823,11 +1825,11 @@ export default function ProjectDetail() {
                             </td>
                             <td className="px-4 py-3 text-center">
                               {isEditing ? (
-                                <Input
+                                <UnitSelect
                                   data-testid={`edit-scope-unit-${item.scope_id}`}
                                   value={editScopeForm.unit}
-                                  onChange={(e) => setEditScopeForm({...editScopeForm, unit: e.target.value})}
-                                  className="h-8 w-16 text-center"
+                                  onChange={(v) => setEditScopeForm({...editScopeForm, unit: v})}
+                                  className="w-24"
                                 />
                               ) : (
                                 item.unit
