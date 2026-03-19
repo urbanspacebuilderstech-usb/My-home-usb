@@ -536,6 +536,8 @@ class LeadStageUpdate(BaseModel):
     appointment_date: Optional[str] = None
     appointment_time: Optional[str] = None
     appointment_type: Optional[str] = None  # office_visit, online, home_visit
+    # Rough Estimate fields
+    rough_requirement: Optional[str] = None
 
 
 @router.patch("/crm/leads/{lead_id}/stage")
@@ -685,6 +687,11 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         )
         
         re_dict = re_project.model_dump()
+        # Store rough requirement from Sales
+        if data.rough_requirement:
+            re_dict["rough_requirement"] = data.rough_requirement
+            re_dict["rough_requirement_by"] = user.name
+            re_dict["rough_requirement_at"] = datetime.now(timezone.utc).isoformat()
         await db.re_projects.insert_one(re_dict)
         
         # Link RE project to lead

@@ -13,7 +13,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar
+  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -58,6 +58,12 @@ export default function CRMSales() {
   const [apptDialog, setApptDialog] = useState(false);
   const [apptForm, setApptForm] = useState({ date: '', time: '', type: '' });
   
+  // Rough Estimate dialog
+  const [roughEstDialog, setRoughEstDialog] = useState(false);
+  const [roughEstForm, setRoughEstForm] = useState('');
+  const [roughEstLeadId, setRoughEstLeadId] = useState(null);
+  const [roughEstStageId, setRoughEstStageId] = useState(null);
+  
   const [draggedLead, setDraggedLead] = useState(null);
 
   useEffect(() => {
@@ -97,11 +103,25 @@ export default function CRMSales() {
     window.location.href = '/login';
   };
 
-  const handleStageChange = async (leadId, newStageId) => {
+  const handleStageChange = async (leadId, newStageId, roughRequirement = null) => {
     try {
       const stage = stages.find(s => s.stage_id === newStageId);
       
-      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, { stage_id: newStageId });
+      // Intercept: Show rough requirement popup for "Rough Estimate Requested"
+      if (stage?.name === 'Rough Estimate Requested' && !roughRequirement) {
+        setRoughEstLeadId(leadId);
+        setRoughEstStageId(newStageId);
+        setRoughEstForm('');
+        setRoughEstDialog(true);
+        return;
+      }
+      
+      const payload = { stage_id: newStageId };
+      if (roughRequirement) {
+        payload.rough_requirement = roughRequirement;
+      }
+      
+      const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, payload);
       
       if (result.data.re_project_created) {
         toast.success('Rough Estimate Project created! Planning team notified.');
@@ -115,6 +135,15 @@ export default function CRMSales() {
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update stage');
     }
+  };
+
+  const handleSubmitRoughEstimate = async () => {
+    if (!roughEstForm.trim()) {
+      toast.error('Please enter the rough requirement');
+      return;
+    }
+    setRoughEstDialog(false);
+    await handleStageChange(roughEstLeadId, roughEstStageId, roughEstForm);
   };
   const handleViewREProject = async (reProjectId) => {
     try {
@@ -1054,6 +1083,48 @@ export default function CRMSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Rough Estimate Requirement Dialog */}
+      <Dialog open={roughEstDialog} onOpenChange={setRoughEstDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-amber-600" />
+              Rough Requirement for Estimate
+            </DialogTitle>
+            <DialogDescription>
+              Describe the client's requirements. This will be sent to the Planning team for rough estimation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Client Requirement *</Label>
+              <Textarea
+                value={roughEstForm}
+                onChange={(e) => setRoughEstForm(e.target.value)}
+                placeholder="Enter the rough requirement details here...&#10;&#10;Example:&#10;- 2 BHK house, ground + 1 floor&#10;- Plot size: 1200 sqft&#10;- Budget range: 30-40 lakhs&#10;- Modern design with car parking&#10;- Timeline: 8-10 months"
+                className="min-h-[200px] mt-1.5 text-sm"
+                data-testid="rough-requirement-textarea"
+              />
+            </div>
+            <p className="text-xs text-gray-500">
+              This requirement will be visible to the Planning team when they prepare the rough estimate.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoughEstDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSubmitRoughEstimate} 
+              disabled={!roughEstForm.trim()} 
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="submit-rough-estimate"
+            >
+              <Send className="h-4 w-4 mr-1.5" />
+              Submit & Request Estimate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );

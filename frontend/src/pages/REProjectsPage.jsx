@@ -349,6 +349,13 @@ export default function REProjectsPage({ embedded = false }) {
                             <p className="text-sm text-red-600">{project.gm_rejection_reason}</p>
                           </div>
                         )}
+                        
+                        {project.rough_requirement && (
+                          <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg" data-testid="rough-requirement-card">
+                            <p className="text-xs font-semibold text-amber-700 mb-1">Sales Rough Requirement:</p>
+                            <p className="text-sm text-gray-700 line-clamp-3 whitespace-pre-wrap">{project.rough_requirement}</p>
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-2 ml-4">
@@ -454,6 +461,25 @@ export default function REProjectsPage({ embedded = false }) {
                   </div>
                 </CardContent>
               </Card>
+              
+              {/* Rough Requirement from Sales */}
+              {selectedProject.rough_requirement && (
+                <Card className="bg-amber-50 border-amber-200">
+                  <CardContent className="p-4">
+                    <h4 className="font-semibold mb-2 text-sm text-amber-800 flex items-center gap-1.5">
+                      <FileText className="h-4 w-4" />
+                      Rough Requirement from Sales
+                    </h4>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{selectedProject.rough_requirement}</p>
+                    {selectedProject.rough_requirement_by && (
+                      <p className="text-xs text-amber-600 mt-2">
+                        Submitted by: {selectedProject.rough_requirement_by}
+                        {selectedProject.rough_requirement_at && ` on ${new Date(selectedProject.rough_requirement_at).toLocaleDateString('en-IN')}`}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
               
               {/* Project Details */}
               <div className="grid grid-cols-2 gap-4">
