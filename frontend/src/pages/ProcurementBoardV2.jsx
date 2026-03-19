@@ -121,6 +121,7 @@ export default function ProcurementBoardV2() {
   // View PO Dialog
   const [poDialog, setPoDialog] = useState(false);
   const [selectedPO, setSelectedPO] = useState(null);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -140,6 +141,7 @@ export default function ProcurementBoardV2() {
       await fetchRequests('pending');
       await fetchTransitOrders();
       await fetchCreditLedger();
+      await fetchPurchaseOrders();
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -175,12 +177,29 @@ export default function ProcurementBoardV2() {
     }
   };
 
+  const fetchPurchaseOrders = async () => {
+    try {
+      const res = await axios.get(`${API}/purchase-orders`);
+      setPurchaseOrders(res.data);
+    } catch { /* may not have access */ }
+  };
+
+  const handleUpdatePOStatus = async (poId, newStatus) => {
+    try {
+      await axios.patch(`${API}/purchase-orders/${poId}/status`, { status: newStatus });
+      toast.success(`PO updated to ${newStatus}`);
+      fetchPurchaseOrders();
+    } catch { toast.error('Failed to update PO'); }
+  };
+
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     if (tab === 'transit') {
       fetchTransitOrders();
     } else if (tab === 'credit') {
       fetchCreditLedger();
+    } else if (tab === 'purchase_orders') {
+      fetchPurchaseOrders();
     } else {
       fetchRequests(tab);
     }
@@ -650,10 +669,11 @@ export default function ProcurementBoardV2() {
         <Card>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b pb-4">
-              <TabsList className="grid grid-cols-6 w-full max-w-3xl">
+              <TabsList className="grid grid-cols-7 w-full max-w-4xl">
                 <TabsTrigger value="pending">Pending</TabsTrigger>
                 <TabsTrigger value="pricing">Pricing</TabsTrigger>
                 <TabsTrigger value="payment">Payment</TabsTrigger>
+                <TabsTrigger value="purchase_orders" data-testid="tab-purchase-orders">POs{purchaseOrders.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] h-4 px-1">{purchaseOrders.length}</Badge>}</TabsTrigger>
                 <TabsTrigger value="transit">Transit</TabsTrigger>
                 <TabsTrigger value="credit">Credit</TabsTrigger>
                 <TabsTrigger value="vendors">Vendors</TabsTrigger>
@@ -1007,6 +1027,81 @@ export default function ProcurementBoardV2() {
                     </CardContent>
                   </Card>
                 ))}
+              </div>
+            </TabsContent>
+
+            {/* Purchase Orders Tab */}
+            <TabsContent value="purchase_orders" className="p-6">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-lg">Purchase Orders</h3>
+                  <Badge variant="outline">{purchaseOrders.length} orders</Badge>
+                </div>
+                {purchaseOrders.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p>No purchase orders yet</p>
+                    <p className="text-xs mt-1">POs are auto-generated when Planning approves material requests with assigned vendors</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">PO ID</th>
+                          <th className="text-left px-3 py-2 font-medium">Project</th>
+                          <th className="text-left px-3 py-2 font-medium">Vendor</th>
+                          <th className="text-left px-3 py-2 font-medium">Material</th>
+                          <th className="text-right px-3 py-2 font-medium">Amount</th>
+                          <th className="text-center px-3 py-2 font-medium">Status</th>
+                          <th className="text-center px-3 py-2 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {purchaseOrders.map(po => (
+                          <tr key={po.po_id} className="hover:bg-gray-50" data-testid={`po-row-${po.po_id}`}>
+                            <td className="px-3 py-2.5 font-mono text-xs">
+                              {po.po_id}
+                              {po.auto_generated && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">Auto</Badge>}
+                            </td>
+                            <td className="px-3 py-2.5 text-xs">{po.project_name || '-'}</td>
+                            <td className="px-3 py-2.5">{po.vendor_name || '-'}</td>
+                            <td className="px-3 py-2.5 text-xs">
+                              {po.items?.map((item, i) => (
+                                <span key={i}>{item.material_name} ({item.quantity} {item.unit}){i < po.items.length - 1 ? ', ' : ''}</span>
+                              )) || '-'}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-medium">{(po.total_amount || 0).toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <Badge variant={po.status === 'pending' ? 'secondary' : po.status === 'approved' ? 'default' : po.status === 'dispatched' ? 'outline' : 'secondary'} className="text-xs capitalize">
+                                {po.status}
+                              </Badge>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <div className="flex gap-1 justify-center">
+                                {po.status === 'pending' && (
+                                  <Button size="sm" variant="outline" className="text-xs h-7" data-testid={`approve-po-${po.po_id}`} onClick={() => handleUpdatePOStatus(po.po_id, 'approved')}>
+                                    <Check className="h-3 w-3 mr-1" />Approve
+                                  </Button>
+                                )}
+                                {po.status === 'approved' && (
+                                  <Button size="sm" variant="outline" className="text-xs h-7" data-testid={`dispatch-po-${po.po_id}`} onClick={() => handleUpdatePOStatus(po.po_id, 'dispatched')}>
+                                    <Truck className="h-3 w-3 mr-1" />Dispatch
+                                  </Button>
+                                )}
+                                {po.status === 'dispatched' && (
+                                  <Button size="sm" variant="outline" className="text-xs h-7 text-green-600" data-testid={`deliver-po-${po.po_id}`} onClick={() => handleUpdatePOStatus(po.po_id, 'delivered')}>
+                                    <CheckCircle className="h-3 w-3 mr-1" />Delivered
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

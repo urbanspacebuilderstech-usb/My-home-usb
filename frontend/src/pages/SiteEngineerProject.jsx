@@ -73,6 +73,7 @@ export default function SiteEngineerProject() {
   const [otpDialog, setOtpDialog] = useState({ open: false, receipt: null });
   
   const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
+  const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '' });
   const [otpCode, setOtpCode] = useState('');
@@ -149,6 +150,14 @@ export default function SiteEngineerProject() {
     );
   };
 
+  const fetchVendorSuggestion = async (matName) => {
+    if (!matName || matName.length < 2) { setVendorSuggestion(null); return; }
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/vendor-suggestion?material_name=${encodeURIComponent(matName)}`);
+      setVendorSuggestion(res.data?.found ? res.data : null);
+    } catch { setVendorSuggestion(null); }
+  };
+
   const handleMaterialRequest = async () => {
     if ((!materialForm.material_id && !materialForm.material_name) || !materialForm.quantity) {
       toast.error('Please fill material name and quantity');
@@ -173,6 +182,7 @@ export default function SiteEngineerProject() {
       toast.success('Material request submitted');
       setMaterialRequestDialog(false);
       setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
+      setVendorSuggestion(null);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit request');
@@ -392,7 +402,9 @@ export default function SiteEngineerProject() {
                         {materials.length > 0 ? (
                           <Select value={materialForm.material_id} onValueChange={(v) => {
                             const mat = materials.find(m => m.material_id === v);
-                            setMaterialForm({...materialForm, material_id: v, material_name: mat?.name || '', unit: mat?.unit || 'kg'});
+                            const name = mat?.name || '';
+                            setMaterialForm({...materialForm, material_id: v, material_name: name, unit: mat?.unit || 'kg'});
+                            fetchVendorSuggestion(name);
                           }}>
                             <SelectTrigger className="text-xs sm:text-sm">
                               <SelectValue placeholder="Select material" />
@@ -409,6 +421,7 @@ export default function SiteEngineerProject() {
                           <Input 
                             value={materialForm.material_name}
                             onChange={(e) => setMaterialForm({...materialForm, material_name: e.target.value})}
+                            onBlur={(e) => fetchVendorSuggestion(e.target.value)}
                             placeholder="e.g., TMT Steel 12mm, Cement OPC 53, Sand River"
                             className="text-sm"
                             data-testid="material-name-input"
@@ -432,6 +445,17 @@ export default function SiteEngineerProject() {
                           <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} data-testid="material-unit-select" />
                         </div>
                       </div>
+                      {vendorSuggestion && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 flex items-center gap-2" data-testid="vendor-suggestion-banner">
+                          <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                          <div className="text-xs sm:text-sm">
+                            <span className="text-green-800 font-medium">Pre-assigned Vendor:</span>{' '}
+                            <span className="text-green-700">{vendorSuggestion.vendor_name}</span>
+                            {vendorSuggestion.brand && <span className="text-green-600 ml-1">({vendorSuggestion.brand})</span>}
+                            <span className="text-green-500 ml-1">— {vendorSuggestion.category}</span>
+                          </div>
+                        </div>
+                      )}
                       <div>
                         <Label className="text-xs sm:text-sm">Remarks</Label>
                         <Textarea 
@@ -479,6 +503,12 @@ export default function SiteEngineerProject() {
                                   <div className="text-xs text-gray-600 space-y-0.5">
                                     <p><strong>ID:</strong> {req.order_id}</p>
                                     <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                                    {req.assigned_vendor_name && (
+                                      <p className="flex items-center gap-1">
+                                        <span className="font-medium text-blue-700">Vendor:</span> {req.assigned_vendor_name}
+                                        {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                                 {canReceive(req.status) && (

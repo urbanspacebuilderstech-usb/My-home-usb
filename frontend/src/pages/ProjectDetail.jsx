@@ -3319,7 +3319,11 @@ export default function ProjectDetail() {
                                     'border-gray-300'
                                   }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
                                 </td>
-                                <td className="px-3 py-2.5 text-xs">{m.vendor_name || '-'}</td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  {m.vendor_name || m.assigned_vendor_name || '-'}
+                                  {m.po_id && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">PO</Badge>}
+                                  {m.auto_po_generated && !m.vendor_name && m.assigned_vendor_name && <Badge variant="secondary" className="ml-1 text-[9px] bg-green-50 text-green-600">Auto</Badge>}
+                                </td>
                                 <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
                                 {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
                               </tr>
@@ -3399,7 +3403,10 @@ export default function ProjectDetail() {
                           <tbody className="divide-y">
                             {purchaseOrders.map(po => (
                               <tr key={po.po_id} className="hover:bg-gray-50">
-                                <td className="px-3 py-2.5 font-mono text-xs">{po.po_id}</td>
+                                <td className="px-3 py-2.5 font-mono text-xs">
+                                  {po.po_id}
+                                  {po.auto_generated && <Badge variant="secondary" className="ml-1 text-[9px] bg-blue-50 text-blue-600">Auto</Badge>}
+                                </td>
                                 <td className="px-3 py-2.5">{po.vendor_name || '-'}</td>
                                 <td className="px-3 py-2.5 text-right font-medium">{formatCurrency(po.total_amount || 0)}</td>
                                 <td className="px-3 py-2.5 text-center">

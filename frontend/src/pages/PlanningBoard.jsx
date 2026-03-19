@@ -165,7 +165,13 @@ export default function PlanningBoard() {
   const handleApproveRequest = async (req) => {
     try {
       const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
-      await axios.patch(ep, null, { params: { action: 'approve' } }); toast.success('Approved'); fetchData(false);
+      const res = await axios.patch(ep, null, { params: { action: 'approve' } });
+      if (res.data?.auto_po) {
+        toast.success('Approved — Purchase Order auto-generated for assigned vendor');
+      } else {
+        toast.success('Approved');
+      }
+      fetchData(false);
     } catch { toast.error('Failed'); }
   };
   const handleRejectRequest = async (req) => {
@@ -418,6 +424,9 @@ export default function PlanningBoard() {
                               <span className="font-medium text-sm">{req.material_name || req.labour_type}</span>
                             </div>
                             <p className="text-xs text-gray-500">{req.type === 'material' ? `Qty: ${req.quantity} ${req.unit}` : `Workers: ${req.workers_count}, Days: ${req.days}`} | {req.project_name}</p>
+                            {req.assigned_vendor_name && (
+                              <p className="text-xs text-blue-600 font-medium mt-0.5">Vendor: {req.assigned_vendor_name} ({req.assigned_vendor_category})</p>
+                            )}
                           </div>
                           <div className="flex gap-2">
                             <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveRequest(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>

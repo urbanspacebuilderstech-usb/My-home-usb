@@ -34,6 +34,65 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+# ==================== VENDOR AUTO-MATCH HELPERS ====================
+
+async def find_assigned_vendor_for_material(project_id: str, material_name: str):
+    """Match a material name to a vendor category and return the assigned vendor if any.
+    Uses case-insensitive substring matching: e.g. 'Cement OPC 53 Grade' matches category 'Cement'.
+    """
+    if not material_name or not project_id:
+        return None
+    # Get all vendor assignments for this project
+    assignments = await db.project_vendor_assignments.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).to_list(100)
+    if not assignments:
+        return None
+    mat_lower = material_name.lower()
+    # Try exact prefix match first, then substring
+    for a in assignments:
+        cat = a.get("category", "")
+        if mat_lower.startswith(cat.lower()):
+            return a
+    for a in assignments:
+        cat = a.get("category", "")
+        if cat.lower() in mat_lower:
+            return a
+    return None
+
+
+async def auto_create_purchase_order(request_doc: dict, vendor_assignment: dict, approved_by: str):
+    """Auto-generate a Purchase Order from an approved material request + assigned vendor."""
+    now = datetime.now(timezone.utc).isoformat()
+    po = {
+        "po_id": f"po_{uuid.uuid4().hex[:8]}",
+        "project_id": request_doc.get("project_id"),
+        "project_name": request_doc.get("project_name", ""),
+        "vendor_id": vendor_assignment.get("vendor_id"),
+        "vendor_name": vendor_assignment.get("vendor_name", ""),
+        "material_request_id": request_doc.get("request_id"),
+        "items": [{
+            "material_name": request_doc.get("material_name"),
+            "quantity": request_doc.get("quantity"),
+            "unit": request_doc.get("unit", ""),
+            "category": vendor_assignment.get("category", ""),
+        }],
+        "total_amount": request_doc.get("estimated_price") or request_doc.get("total_amount") or 0,
+        "paid_amount": 0,
+        "status": "pending",
+        "payment_status": "unpaid",
+        "auto_generated": True,
+        "notes": f"Auto-generated from material request {request_doc.get('request_id')}",
+        "created_by": approved_by,
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.purchase_orders.insert_one(po)
+    po.pop("_id", None)
+    return po
+
+
 # ==================== SITE ENGINEER MODULE ====================
 
 class MaterialRequestStatus(str, Enum):
@@ -587,6 +646,14 @@ async def create_material_request(
     req_dict["project_name"] = project["name"] if project else "Unknown"
     req_dict["site_engineer_name"] = user.name
     req_dict["required_date"] = data.required_date
+
+    # Auto-lookup assigned vendor for this material category
+    vendor_match = await find_assigned_vendor_for_material(data.project_id, mat_name)
+    if vendor_match:
+        req_dict["assigned_vendor_id"] = vendor_match.get("vendor_id")
+        req_dict["assigned_vendor_name"] = vendor_match.get("vendor_name")
+        req_dict["assigned_vendor_category"] = vendor_match.get("category")
+
     await db.material_requests.insert_one(req_dict)
     req_dict.pop("_id", None)
     
@@ -635,6 +702,25 @@ async def get_material_requests(
     return requests
 
 
+@router.get("/projects/{project_id}/vendor-suggestion")
+async def get_vendor_suggestion_for_material(
+    project_id: str,
+    material_name: str,
+    user: User = Depends(get_current_user)
+):
+    """Get the assigned vendor for a material category in a project (for auto-suggestion)."""
+    match = await find_assigned_vendor_for_material(project_id, material_name)
+    if match:
+        return {
+            "found": True,
+            "vendor_id": match.get("vendor_id"),
+            "vendor_name": match.get("vendor_name"),
+            "category": match.get("category"),
+            "brand": match.get("brand", "")
+        }
+    return {"found": False}
+
+
 @router.patch("/site-engineer/material-requests/{request_id}/approve")
 async def approve_material_request(
     request_id: str,
@@ -674,15 +760,50 @@ async def approve_material_request(
             raise HTTPException(status_code=403, detail="Only Planning can approve this")
         if request["status"] not in ["requested", "pm_approved"]:
             raise HTTPException(status_code=400, detail="Invalid status for planning approval")
+        now_iso = datetime.now(timezone.utc).isoformat()
         update_data = {
             "status": MaterialRequestStatus.PLANNING_APPROVED.value,
             "planning_approved_by": user.user_id,
-            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+            "planning_approved_at": now_iso
         }
-        # Notify procurement
-        proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
-        for p in proc_users:
-            await create_notification(p["user_id"], f"Material request ready for vendor assignment: {request['material_name']}")
+
+        # Auto-lookup assigned vendor for this material category
+        vendor_match = request.get("assigned_vendor_id") and {
+            "vendor_id": request.get("assigned_vendor_id"),
+            "vendor_name": request.get("assigned_vendor_name"),
+            "category": request.get("assigned_vendor_category"),
+        }
+        if not vendor_match:
+            vendor_match = await find_assigned_vendor_for_material(
+                request["project_id"], request["material_name"]
+            )
+        if vendor_match:
+            update_data["assigned_vendor_id"] = vendor_match.get("vendor_id")
+            update_data["assigned_vendor_name"] = vendor_match.get("vendor_name")
+            update_data["assigned_vendor_category"] = vendor_match.get("category")
+            update_data["vendor_id"] = vendor_match.get("vendor_id")
+            update_data["vendor_name"] = vendor_match.get("vendor_name")
+
+            # Auto-create Purchase Order
+            merged_req = {**request, **update_data}
+            po = await auto_create_purchase_order(merged_req, vendor_match, user.user_id)
+            if po:
+                update_data["po_id"] = po["po_id"]
+                update_data["po_generated_at"] = now_iso
+                update_data["auto_po_generated"] = True
+
+            # Notify procurement about auto-PO
+            proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
+            for p in proc_users:
+                await create_notification(
+                    p["user_id"],
+                    f"Auto PO generated for {request['material_name']} → Vendor: {vendor_match.get('vendor_name')}. Review PO."
+                )
+        else:
+            # No vendor assigned — notify procurement to manually assign
+            proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
+            for p in proc_users:
+                await create_notification(p["user_id"], f"Material request ready for vendor assignment: {request['material_name']}")
     
     # Step 3: Procurement assigns vendor
     elif action == "procurement_assign":
@@ -979,23 +1100,49 @@ async def planning_action_material_request(
     if action == "approve":
         if request["status"] not in ["requested", "pm_approved"]:
             raise HTTPException(status_code=400, detail=f"Cannot approve request in status: {request['status']}")
+        now_iso = datetime.now(timezone.utc).isoformat()
         update_data = {
             "status": MaterialRequestStatus.PLANNING_APPROVED.value,
             "planning_approved_by": user.user_id,
-            "planning_approved_at": datetime.now(timezone.utc).isoformat()
+            "planning_approved_at": now_iso
         }
         if approved_qty is not None:
             update_data["approved_quantity"] = approved_qty
-        
+
+        # Auto-lookup assigned vendor for this material category
+        vendor_match = request.get("assigned_vendor_id") and {
+            "vendor_id": request.get("assigned_vendor_id"),
+            "vendor_name": request.get("assigned_vendor_name"),
+            "category": request.get("assigned_vendor_category"),
+        }
+        if not vendor_match:
+            vendor_match = await find_assigned_vendor_for_material(
+                request["project_id"], request["material_name"]
+            )
+        if vendor_match:
+            update_data["assigned_vendor_id"] = vendor_match.get("vendor_id")
+            update_data["assigned_vendor_name"] = vendor_match.get("vendor_name")
+            update_data["assigned_vendor_category"] = vendor_match.get("category")
+            update_data["vendor_id"] = vendor_match.get("vendor_id")
+            update_data["vendor_name"] = vendor_match.get("vendor_name")
+            # Auto-create Purchase Order
+            merged_req = {**request, **update_data}
+            po = await auto_create_purchase_order(merged_req, vendor_match, user.user_id)
+            if po:
+                update_data["po_id"] = po["po_id"]
+                update_data["po_generated_at"] = now_iso
+                update_data["auto_po_generated"] = True
+
         await db.material_requests.update_one({"request_id": request_id}, {"$set": update_data})
         
         # Notify procurement
         proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
         for p in proc_users:
-            await create_notification(p["user_id"], f"Material request approved by Planning: {request['material_name']} x {request['quantity']}")
+            msg = f"Auto PO generated for {request['material_name']} → Vendor: {vendor_match.get('vendor_name')}. Review PO." if vendor_match else f"Material request approved by Planning: {request['material_name']} x {request['quantity']}"
+            await create_notification(p["user_id"], msg)
         
         await create_audit_log(user.user_id, "planning_approve", "material_request", request_id, update_data)
-        return {"message": "Approved", "status": "planning_approved"}
+        return {"message": "Approved", "status": "planning_approved", "auto_po": bool(vendor_match)}
     
     elif action == "reject":
         update_data = {
