@@ -20,11 +20,11 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
 
+import { UnitSelect } from '../components/UnitSelect';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles','electrical','plumbing','paint','wood','hardware','other'];
-const MATERIAL_UNITS = ['bag','ton','kg','load','nos','sqft','cft','rft','litre','meter','bundle','set'];
 const WORK_TYPES = ['Masonry','Plumbing','Electrical','Carpentry','Painting','Flooring','Roofing','HVAC','Civil','Finishing','Tiling','Waterproofing'];
 
 export default function PlanningBoard() {
@@ -798,7 +798,7 @@ export default function PlanningBoard() {
             <div><Label>Name *</Label><Input value={materialForm.name} onChange={(e) => setMaterialForm({ ...materialForm, name: e.target.value })} placeholder="Material name" className="mt-1" data-testid="material-name-input" /></div>
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Category</Label><Select value={materialForm.category} onValueChange={(v) => setMaterialForm({ ...materialForm, category: v })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{MATERIAL_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase())}</SelectItem>)}</SelectContent></Select></div>
-              <div><Label>Unit</Label><Select value={materialForm.unit} onValueChange={(v) => setMaterialForm({ ...materialForm, unit: v })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent>{MATERIAL_UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}</SelectContent></Select></div>
+              <div><Label>Unit</Label><UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({ ...materialForm, unit: v })} className="mt-1" /></div>
             </div>
             <div><Label>Description</Label><Input value={materialForm.description} onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })} placeholder="Optional" className="mt-1" /></div>
             <div><Label>HSN Code</Label><Input value={materialForm.hsn_code} onChange={(e) => setMaterialForm({ ...materialForm, hsn_code: e.target.value })} placeholder="e.g. 2523" className="mt-1" /></div>

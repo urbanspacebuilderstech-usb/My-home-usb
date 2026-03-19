@@ -18,10 +18,10 @@ import {
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import { UnitSelect } from '../components/UnitSelect';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
-
 const BUILDING_TYPES = [
   { value: 'residential', label: 'Residential' },
   { value: 'commercial', label: 'Commercial' },
@@ -30,8 +30,6 @@ const BUILDING_TYPES = [
   { value: 'industrial', label: 'Industrial' },
   { value: 'office', label: 'Office' }
 ];
-
-const UNITS = ['nos', 'sqft', 'rft', 'cft', 'kg', 'ton', 'bag', 'load', 'trip', 'lumpsum'];
 
 export default function PackageManagement() {
   const [user, setUser] = useState(null);
@@ -415,14 +413,7 @@ export default function PackageManagement() {
                       onChange={(e) => updateScopeItem(index, 'quantity', e.target.value)}
                       placeholder="Qty"
                     />
-                    <Select value={item.unit} onValueChange={(v) => updateScopeItem(index, 'unit', v)}>
-                      <SelectTrigger className="col-span-2">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <UnitSelect value={item.unit} onChange={(v) => updateScopeItem(index, 'unit', v)} className="col-span-2" data-testid={`scope-unit-${index}`} />
                     <NumericInput 
                       className="col-span-2"
                       

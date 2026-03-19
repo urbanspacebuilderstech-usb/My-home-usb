@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import { UnitSelect } from '../components/UnitSelect';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -428,21 +429,7 @@ export default function SiteEngineerProject() {
                         </div>
                         <div>
                           <Label className="text-xs sm:text-sm">Unit</Label>
-                          <Select value={materialForm.unit} onValueChange={(v) => setMaterialForm({...materialForm, unit: v})}>
-                            <SelectTrigger className="text-xs sm:text-sm">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="kg">kg</SelectItem>
-                              <SelectItem value="ton">Ton</SelectItem>
-                              <SelectItem value="bags">Bags</SelectItem>
-                              <SelectItem value="cft">CFT</SelectItem>
-                              <SelectItem value="sqft">SqFt</SelectItem>
-                              <SelectItem value="nos">Nos</SelectItem>
-                              <SelectItem value="litre">Litre</SelectItem>
-                              <SelectItem value="bundle">Bundle</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          <UnitSelect value={materialForm.unit} onChange={(v) => setMaterialForm({...materialForm, unit: v})} data-testid="material-unit-select" />
                         </div>
                       </div>
                       <div>

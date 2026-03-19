@@ -20,6 +20,7 @@ import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import { UnitSelect } from '../components/UnitSelect';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -579,10 +580,10 @@ export default function REProjectsPage({ embedded = false }) {
                               />
                             </td>
                             <td className="px-3 py-2">
-                              <Input
+                              <UnitSelect
                                 value={item.unit}
-                                onChange={(e) => updateScopeItem(idx, 'unit', e.target.value)}
-                                className="h-8 text-center"
+                                onChange={(v) => updateScopeItem(idx, 'unit', v)}
+                                className="h-8"
                                 disabled={!canEdit}
                               />
                             </td>

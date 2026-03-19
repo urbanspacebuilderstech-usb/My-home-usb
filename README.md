@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://procure-pay-4.preview.emergentagent.com
-- Backend API: https://procure-pay-4.preview.emergentagent.com/api
+- Frontend: https://hr-portal-preview.preview.emergentagent.com
+- Backend API: https://hr-portal-preview.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

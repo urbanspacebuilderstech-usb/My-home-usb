@@ -14,14 +14,10 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { UnitSelect } from '../components/UnitSelect';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
-
-const UNITS = [
-  'Nos', 'Kg', 'Ton', 'Bag', 'Load', 'CFT', 'SFT', 'RFT', 
-  'Litre', 'Metre', 'Bundle', 'Box', 'Set', 'Pair', 'Roll'
-];
 
 const CATEGORY_COLORS = {
   cement: 'bg-gray-100 text-gray-800',
@@ -226,20 +222,12 @@ export default function MaterialManagement() {
                     </div>
                     <div className="space-y-2">
                       <Label>Unit *</Label>
-                      <Select
+                      <UnitSelect
                         value={formData.unit}
-                        onValueChange={(v) => setFormData({...formData, unit: v})}
-                        required
-                      >
-                        <SelectTrigger data-testid="material-unit-select">
-                          <SelectValue placeholder="Select unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {UNITS.map(unit => (
-                            <SelectItem key={unit} value={unit}>{unit}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        onChange={(v) => setFormData({...formData, unit: v})}
+                        data-testid="material-unit-select"
+                        placeholder="Select unit"
+                      />
                     </div>
                   </div>
                   <div className="space-y-2">
