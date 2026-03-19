@@ -3,7 +3,8 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   HardHat, LogOut, ArrowLeft, Plus, Package, Users, MapPin, Building2,
-  Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send
+  Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
+  Calendar, ClipboardList, Warehouse, Save, Trash2, History
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -80,6 +81,21 @@ export default function SiteEngineerProject() {
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
 
+  // Labour Count state
+  const [labourCountDate, setLabourCountDate] = useState(new Date().toISOString().split('T')[0]);
+  const [labourCategories, setLabourCategories] = useState([]);
+  const [labourCountEntries, setLabourCountEntries] = useState({});
+  const [labourCountHistory, setLabourCountHistory] = useState([]);
+  const [savingLabourCount, setSavingLabourCount] = useState(false);
+
+  // Stock Register state
+  const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
+  const [stockEntries, setStockEntries] = useState({});
+  const [latestStock, setLatestStock] = useState([]);
+  const [stockHistory, setStockHistory] = useState([]);
+  const [savingStock, setSavingStock] = useState(false);
+  const [addStockMaterial, setAddStockMaterial] = useState({ name: '', unit: 'bags' });
+
   useEffect(() => {
     fetchData();
   }, [projectId]);
@@ -92,9 +108,10 @@ export default function SiteEngineerProject() {
         axios.get(`${API}/site-engineer/project/${projectId}`)
       ]);
       // Load optional data gracefully
-      const [materialsRes, labourTypesRes] = await Promise.allSettled([
+      const [materialsRes, labourTypesRes, labourCatsRes] = await Promise.allSettled([
         axios.get(`${API}/materials`),
-        axios.get(`${API}/site-engineer/labour-types`)
+        axios.get(`${API}/site-engineer/labour-types`),
+        axios.get(`${API}/contractor-categories`)
       ]);
       setUser(userRes.data);
       setProjectData(projectRes.data);
@@ -102,6 +119,9 @@ export default function SiteEngineerProject() {
       setLabourTypes(labourTypesRes.status === 'fulfilled' ? labourTypesRes.value.data : [
         'Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Bar Bender', 'Tile Worker'
       ]);
+      const cats = labourCatsRes.status === 'fulfilled' ? labourCatsRes.value.data.map(c => c.name) : 
+        ['Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Bar Bender', 'Tile Worker'];
+      setLabourCategories(cats);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -115,6 +135,104 @@ export default function SiteEngineerProject() {
     }
   };
   useAutoRefresh(fetchData, 15000);
+
+  // ============ LABOUR COUNT FUNCTIONS ============
+  const fetchLabourCount = async (date) => {
+    try {
+      const res = await axios.get(`${API}/labour-attendance/daily-summary?project_id=${projectId}&date=${date}`);
+      setLabourCountHistory(res.data?.entries || []);
+      // Pre-populate entries from existing data for the day
+      const existing = {};
+      (res.data?.entries || []).forEach(entry => {
+        (entry.entries || []).forEach(e => {
+          existing[e.type || e.label] = (existing[e.type || e.label] || 0) + (e.count || 0);
+        });
+      });
+      setLabourCountEntries(existing);
+    } catch { setLabourCountHistory([]); }
+  };
+
+  const handleSaveLabourCount = async () => {
+    const entries = Object.entries(labourCountEntries)
+      .filter(([, count]) => count > 0)
+      .map(([category, count]) => ({ type: category, label: category, count: Number(count), per_day_cost: 0 }));
+    if (entries.length === 0) { toast.error('Enter at least one labour count'); return; }
+    setSavingLabourCount(true);
+    try {
+      await axios.post(`${API}/labour-attendance`, {
+        project_id: projectId,
+        date: labourCountDate,
+        entries,
+        notes: 'Daily labour count by Site Engineer'
+      });
+      toast.success('Labour count saved');
+      fetchLabourCount(labourCountDate);
+    } catch { toast.error('Failed to save'); }
+    finally { setSavingLabourCount(false); }
+  };
+
+  // ============ STOCK REGISTER FUNCTIONS ============
+  const fetchStockData = async (date) => {
+    try {
+      const [latestRes, historyRes] = await Promise.all([
+        axios.get(`${API}/material-inventory/latest?project_id=${projectId}`),
+        axios.get(`${API}/material-inventory?project_id=${projectId}`)
+      ]);
+      setLatestStock(latestRes.data || []);
+      setStockHistory(historyRes.data || []);
+      // Pre-populate from latest stock or empty
+      const entries = {};
+      (latestRes.data || []).forEach(item => {
+        entries[item.material_name] = {
+          unit: item.unit || '',
+          opening_stock: item.closing_stock || 0,
+          received: 0,
+          used: 0
+        };
+      });
+      setStockEntries(entries);
+    } catch { setLatestStock([]); setStockHistory([]); }
+  };
+
+  const handleSaveStock = async () => {
+    const items = Object.entries(stockEntries).filter(([, v]) => v.opening_stock > 0 || v.received > 0 || v.used > 0);
+    if (items.length === 0) { toast.error('Enter at least one material stock'); return; }
+    setSavingStock(true);
+    try {
+      for (const [name, data] of items) {
+        await axios.post(`${API}/material-inventory`, {
+          project_id: projectId,
+          material_name: name,
+          unit: data.unit || '',
+          date: stockDate,
+          opening_stock: Number(data.opening_stock) || 0,
+          received: Number(data.received) || 0,
+          used: Number(data.used) || 0
+        });
+      }
+      toast.success('Stock register saved');
+      fetchStockData(stockDate);
+    } catch { toast.error('Failed to save stock'); }
+    finally { setSavingStock(false); }
+  };
+
+  const handleAddStockMaterial = () => {
+    if (!addStockMaterial.name.trim()) return;
+    setStockEntries(prev => ({
+      ...prev,
+      [addStockMaterial.name.trim()]: { unit: addStockMaterial.unit, opening_stock: 0, received: 0, used: 0 }
+    }));
+    setAddStockMaterial({ name: '', unit: 'bags' });
+  };
+
+  // Load labour count and stock data when tabs change or dates change
+  useEffect(() => {
+    if (activeTab === 'labour_count' && projectId) fetchLabourCount(labourCountDate);
+  }, [activeTab, labourCountDate, projectId]);
+
+  useEffect(() => {
+    if (activeTab === 'stock_register' && projectId) fetchStockData(stockDate);
+  }, [activeTab, stockDate, projectId]);
 
   const handleLogout = async () => {
     try {
@@ -361,14 +479,26 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-2">
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
             <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <Package className="h-3 w-3 sm:h-4 sm:w-4" />
-              Materials
+              <span className="hidden sm:inline">Materials</span>
+              <span className="sm:hidden">Mat</span>
             </TabsTrigger>
             <TabsTrigger value="labours" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-              Labours
+              <span className="hidden sm:inline">Labours</span>
+              <span className="sm:hidden">Lab</span>
+            </TabsTrigger>
+            <TabsTrigger value="labour_count" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-labour-count">
+              <ClipboardList className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Labour Count</span>
+              <span className="sm:hidden">Count</span>
+            </TabsTrigger>
+            <TabsTrigger value="stock_register" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-stock-register">
+              <Warehouse className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Stock Register</span>
+              <span className="sm:hidden">Stock</span>
             </TabsTrigger>
           </TabsList>
 
@@ -696,6 +826,239 @@ export default function SiteEngineerProject() {
                     )}
                   </TabsContent>
                 </Tabs>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* LABOUR COUNT TAB */}
+          <TabsContent value="labour_count">
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <ClipboardList className="h-4 w-4 text-blue-600" />
+                      Daily Labour Count
+                    </CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Log workers present today by category</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-500" />
+                    <Input
+                      type="date"
+                      value={labourCountDate}
+                      onChange={(e) => setLabourCountDate(e.target.value)}
+                      className="w-40 text-sm"
+                      data-testid="labour-count-date"
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-6 pt-0">
+                <div className="space-y-4">
+                  {/* Entry Form */}
+                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                    <h4 className="text-sm font-semibold mb-3 text-gray-700">Workers by Category</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+                      {labourCategories.map(cat => (
+                        <div key={cat} className="flex items-center gap-2 bg-white rounded-lg p-2 border" data-testid={`labour-cat-${cat}`}>
+                          <label className="text-xs sm:text-sm font-medium text-gray-700 flex-1 truncate">{cat}</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            className="w-16 sm:w-20 text-sm text-center h-8"
+                            value={labourCountEntries[cat] || ''}
+                            onChange={(e) => setLabourCountEntries(prev => ({ ...prev, [cat]: e.target.value === '' ? '' : parseInt(e.target.value) || 0 }))}
+                            placeholder="0"
+                            data-testid={`labour-count-input-${cat}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t">
+                      <div className="text-sm font-medium">
+                        Total Workers: <span className="text-blue-600 text-lg">{Object.values(labourCountEntries).reduce((sum, v) => sum + (Number(v) || 0), 0)}</span>
+                      </div>
+                      <Button onClick={handleSaveLabourCount} disabled={savingLabourCount} size="sm" className="gap-1" data-testid="save-labour-count-btn">
+                        <Save className="h-3 w-3" />
+                        {savingLabourCount ? 'Saving...' : 'Save Count'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Today's History */}
+                  {labourCountHistory.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1 text-gray-700">
+                        <History className="h-3.5 w-3.5" />
+                        Entries for {labourCountDate}
+                      </h4>
+                      <div className="space-y-2">
+                        {labourCountHistory.map((entry, idx) => (
+                          <div key={entry.attendance_id || idx} className="bg-blue-50 rounded-lg p-3 border border-blue-100">
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-xs text-gray-500">{new Date(entry.created_at).toLocaleTimeString()}</span>
+                              <Badge variant="secondary" className="text-xs">{entry.total_workers} workers</Badge>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(entry.entries || []).map((e, i) => (
+                                <span key={i} className="inline-flex items-center text-xs bg-white px-2 py-0.5 rounded border">
+                                  {e.label || e.type}: <strong className="ml-1">{e.count}</strong>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* STOCK REGISTER TAB */}
+          <TabsContent value="stock_register">
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <Warehouse className="h-4 w-4 text-amber-600" />
+                      Daily Stock Register
+                    </CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Log opening and closing stock for each material</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-gray-500" />
+                    <Input
+                      type="date"
+                      value={stockDate}
+                      onChange={(e) => setStockDate(e.target.value)}
+                      className="w-40 text-sm"
+                      data-testid="stock-register-date"
+                    />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-6 pt-0">
+                <div className="space-y-4">
+                  {/* Add Material Row */}
+                  <div className="flex items-end gap-2 bg-gray-50 rounded-lg p-3">
+                    <div className="flex-1">
+                      <Label className="text-xs">Material Name</Label>
+                      <Input
+                        value={addStockMaterial.name}
+                        onChange={(e) => setAddStockMaterial(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="e.g. Cement, Sand, Steel"
+                        className="text-sm"
+                        data-testid="add-stock-material-name"
+                      />
+                    </div>
+                    <div className="w-24">
+                      <Label className="text-xs">Unit</Label>
+                      <UnitSelect value={addStockMaterial.unit} onChange={(v) => setAddStockMaterial(prev => ({ ...prev, unit: v }))} />
+                    </div>
+                    <Button size="sm" onClick={handleAddStockMaterial} className="gap-1" data-testid="add-stock-material-btn">
+                      <Plus className="h-3 w-3" /> Add
+                    </Button>
+                  </div>
+
+                  {/* Stock Entry Table */}
+                  {Object.keys(stockEntries).length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" data-testid="stock-register-table">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium text-xs">Material</th>
+                            <th className="text-left px-2 py-2 font-medium text-xs w-14">Unit</th>
+                            <th className="text-center px-2 py-2 font-medium text-xs">Opening</th>
+                            <th className="text-center px-2 py-2 font-medium text-xs">Received</th>
+                            <th className="text-center px-2 py-2 font-medium text-xs">Used</th>
+                            <th className="text-center px-2 py-2 font-medium text-xs bg-green-50">Closing</th>
+                            <th className="w-8"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {Object.entries(stockEntries).map(([name, data]) => {
+                            const closing = (Number(data.opening_stock) || 0) + (Number(data.received) || 0) - (Number(data.used) || 0);
+                            return (
+                              <tr key={name} className="hover:bg-gray-50" data-testid={`stock-row-${name}`}>
+                                <td className="px-3 py-2 font-medium text-xs sm:text-sm">{name}</td>
+                                <td className="px-2 py-2 text-xs text-gray-500">{data.unit}</td>
+                                <td className="px-1 py-1">
+                                  <Input
+                                    type="number" min="0" className="text-center text-sm h-8 w-20 mx-auto"
+                                    value={data.opening_stock || ''}
+                                    onChange={(e) => setStockEntries(prev => ({ ...prev, [name]: { ...prev[name], opening_stock: e.target.value } }))}
+                                    data-testid={`stock-opening-${name}`}
+                                  />
+                                </td>
+                                <td className="px-1 py-1">
+                                  <Input
+                                    type="number" min="0" className="text-center text-sm h-8 w-20 mx-auto"
+                                    value={data.received || ''}
+                                    onChange={(e) => setStockEntries(prev => ({ ...prev, [name]: { ...prev[name], received: e.target.value } }))}
+                                    data-testid={`stock-received-${name}`}
+                                  />
+                                </td>
+                                <td className="px-1 py-1">
+                                  <Input
+                                    type="number" min="0" className="text-center text-sm h-8 w-20 mx-auto"
+                                    value={data.used || ''}
+                                    onChange={(e) => setStockEntries(prev => ({ ...prev, [name]: { ...prev[name], used: e.target.value } }))}
+                                    data-testid={`stock-used-${name}`}
+                                  />
+                                </td>
+                                <td className="px-2 py-2 text-center font-bold text-sm bg-green-50">
+                                  <span className={closing < 0 ? 'text-red-600' : 'text-green-700'}>{closing}</span>
+                                </td>
+                                <td className="px-1 py-1">
+                                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => {
+                                    setStockEntries(prev => { const next = { ...prev }; delete next[name]; return next; });
+                                  }}>
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-end mt-3">
+                        <Button onClick={handleSaveStock} disabled={savingStock} className="gap-1" data-testid="save-stock-btn">
+                          <Save className="h-3.5 w-3.5" />
+                          {savingStock ? 'Saving...' : 'Save Stock Register'}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">
+                      <Warehouse className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">No materials added yet</p>
+                      <p className="text-xs mt-1">Add materials above to start tracking stock</p>
+                    </div>
+                  )}
+
+                  {/* Latest Stock Summary */}
+                  {latestStock.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1 text-gray-700">
+                        <History className="h-3.5 w-3.5" />
+                        Current Stock Levels
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                        {latestStock.map((item, idx) => (
+                          <div key={idx} className="bg-amber-50 rounded-lg p-2.5 border border-amber-100" data-testid={`latest-stock-${item.material_name}`}>
+                            <p className="text-xs font-medium text-gray-700 truncate">{item.material_name}</p>
+                            <p className="text-lg font-bold text-amber-700">{item.closing_stock} <span className="text-xs font-normal text-gray-500">{item.unit}</span></p>
+                            <p className="text-[10px] text-gray-400">as of {item.date}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
