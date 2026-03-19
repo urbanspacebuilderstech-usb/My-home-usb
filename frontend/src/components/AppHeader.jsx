@@ -44,6 +44,7 @@ const ROLE_NAV = {
     { label: 'Planning Board', path: '/planning-board' },
     { label: 'Projects', path: '/projects' },
     { label: 'Vendors', path: '/vendor-management' },
+    { label: 'Contractors', path: '/contractor-management' },
     { label: 'BOQ', path: '/planning-board' },
   ],
   procurement: [

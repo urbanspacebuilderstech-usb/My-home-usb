@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -445,6 +446,17 @@ export default function ProjectDetail() {
   const [materialSubTab, setMaterialSubTab] = useState('materials');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
+  const [workOrders, setWorkOrders] = useState([]);
+  const [allContractors, setAllContractors] = useState([]);
+  const [labourSubTab, setLabourSubTab] = useState('requests');
+  const [showWOForm, setShowWOForm] = useState(false);
+  const [woForm, setWoForm] = useState({ contractor_id: '', description: '', total_amount: 0, payment_stages: [{ stage_name: 'Stage 1', amount: 0, percentage: 0 }] });
+  const [labourAttendance, setLabourAttendance] = useState([]);
+  const [showAttendanceForm, setShowAttendanceForm] = useState(false);
+  const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
+  const [materialInventory, setMaterialInventory] = useState([]);
+  const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [invForm, setInvForm] = useState({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
 
   // Team editing state
   const [teamEditDialog, setTeamEditDialog] = useState(false);
@@ -498,6 +510,20 @@ export default function ProjectDetail() {
       if (vendorsRes) setAllVendors(vendorsRes.data || []);
       if (vendorCatsRes) setVendorCategories(vendorCatsRes.data || []);
       if (poRes) setPurchaseOrders(poRes.data || []);
+
+      // Load work orders, contractors, attendance, inventory
+      try {
+        const [woRes, contRes, attRes, invRes] = await Promise.all([
+          axios.get(`${API}/work-orders?project_id=${projectId}`).catch(() => null),
+          axios.get(`${API}/contractors`).catch(() => null),
+          axios.get(`${API}/labour-attendance?project_id=${projectId}`).catch(() => null),
+          axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null)
+        ]);
+        if (woRes) setWorkOrders(woRes.data || []);
+        if (contRes) setAllContractors(contRes.data || []);
+        if (attRes) setLabourAttendance(attRes.data || []);
+        if (invRes) setMaterialInventory(invRes.data || []);
+      } catch { /* ignore */ }
       
       // Fetch RE project if available (depends on projectRes)
       if (projectRes.data.project?.re_project_id) {
@@ -617,6 +643,82 @@ export default function ProjectDetail() {
       toast.success('Removed');
       fetchVendorData();
     } catch { toast.error('Failed to remove'); }
+  };
+
+  const fetchWorkOrderData = async () => {
+    try {
+      const [woRes, cRes, attRes, invRes] = await Promise.all([
+        axios.get(`${API}/work-orders?project_id=${projectId}`),
+        axios.get(`${API}/contractors`),
+        axios.get(`${API}/labour-attendance?project_id=${projectId}`),
+        axios.get(`${API}/material-inventory?project_id=${projectId}`)
+      ]);
+      setWorkOrders(woRes.data || []);
+      setAllContractors(cRes.data || []);
+      setLabourAttendance(attRes.data || []);
+      setMaterialInventory(invRes.data || []);
+    } catch { /* ignore */ }
+  };
+
+  const handleCreateWO = async () => {
+    if (!woForm.contractor_id || !woForm.total_amount) return toast.error('Select contractor and amount');
+    const contractor = allContractors.find(c => c.contractor_id === woForm.contractor_id);
+    try {
+      await axios.post(`${API}/work-orders`, {
+        project_id: projectId,
+        project_name: project?.name || '',
+        contractor_id: woForm.contractor_id,
+        contractor_name: contractor?.name || '',
+        contractor_type: contractor?.contractor_type || '',
+        description: woForm.description,
+        total_amount: woForm.total_amount,
+        payment_stages: woForm.payment_stages
+      });
+      toast.success('Work order created');
+      setShowWOForm(false);
+      setWoForm({ contractor_id: '', description: '', total_amount: 0, payment_stages: [{ stage_name: 'Stage 1', amount: 0, percentage: 0 }] });
+      fetchWorkOrderData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleRequestStagePayment = async (woId, stageId, amount) => {
+    try {
+      await axios.patch(`${API}/work-orders/${woId}/stages/${stageId}/request-payment`, { requested_amount: amount });
+      toast.success('Payment requested');
+      fetchWorkOrderData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleSubmitAttendance = async () => {
+    if (!attForm.contractor_id) return toast.error('Select contractor');
+    const contractor = allContractors.find(c => c.contractor_id === attForm.contractor_id);
+    try {
+      await axios.post(`${API}/labour-attendance`, {
+        project_id: projectId,
+        contractor_id: attForm.contractor_id,
+        contractor_name: contractor?.name || '',
+        work_order_id: attForm.work_order_id,
+        stage_id: attForm.stage_id,
+        date: attForm.date,
+        entries: attForm.entries
+      });
+      toast.success('Attendance saved');
+      setShowAttendanceForm(false);
+      fetchWorkOrderData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleSubmitInventory = async () => {
+    if (!invForm.material_name) return toast.error('Select material');
+    try {
+      await axios.post(`${API}/material-inventory`, {
+        project_id: projectId,
+        ...invForm
+      });
+      toast.success('Inventory entry saved');
+      setShowInventoryForm(false);
+      fetchWorkOrderData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
   const fetchLaboursData = async () => {
@@ -3152,11 +3254,12 @@ export default function ProjectDetail() {
 
                 {/* Sub-tabs */}
                 <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
-                  <TabsList className="grid grid-cols-4 w-full">
+                  <TabsList className="grid grid-cols-5 w-full">
                     <TabsTrigger value="materials" data-testid="subtab-materials">Materials</TabsTrigger>
                     <TabsTrigger value="vendors" data-testid="subtab-vendors">Vendors</TabsTrigger>
-                    <TabsTrigger value="orders" data-testid="subtab-orders">Orders Status</TabsTrigger>
-                    <TabsTrigger value="payments" data-testid="subtab-payments">Payment Status</TabsTrigger>
+                    <TabsTrigger value="orders" data-testid="subtab-orders">Orders</TabsTrigger>
+                    <TabsTrigger value="payments" data-testid="subtab-payments">Payments</TabsTrigger>
+                    <TabsTrigger value="inventory" data-testid="subtab-inventory">Inventory</TabsTrigger>
                   </TabsList>
 
                   {/* MATERIALS SUB-TAB */}
@@ -3377,7 +3480,85 @@ export default function ProjectDetail() {
                       </div>
                     )}
                   </TabsContent>
+                  {/* INVENTORY SUB-TAB */}
+                  <TabsContent value="inventory" className="mt-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-sm text-gray-500">Daily Opening & Closing Stock</p>
+                      {['super_admin','planning','site_engineer'].includes(user?.role) && (
+                        <Button size="sm" data-testid="add-inventory-btn" onClick={() => {
+                          setInvForm({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
+                          setShowInventoryForm(true);
+                        }}>
+                          <Plus className="h-4 w-4 mr-1" /> Stock Entry
+                        </Button>
+                      )}
+                    </div>
+                    {materialInventory.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Opening</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Received</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Used</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Closing</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {materialInventory.map(inv => (
+                              <tr key={inv.inventory_id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-medium">{inv.date}</td>
+                                <td className="px-3 py-2.5">{inv.material_name} {inv.unit && <span className="text-gray-400">({inv.unit})</span>}</td>
+                                <td className="px-3 py-2.5 text-center">{inv.opening_stock}</td>
+                                <td className="px-3 py-2.5 text-center text-green-600">+{inv.received}</td>
+                                <td className="px-3 py-2.5 text-center text-red-600">-{inv.used}</td>
+                                <td className="px-3 py-2.5 text-center font-bold">{inv.closing_stock}</td>
+                                <td className="px-3 py-2.5 text-xs text-gray-500">{inv.notes || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No inventory entries</p></div>}
+                  </TabsContent>
                 </Tabs>
+
+                {/* Inventory Entry Dialog */}
+                <Dialog open={showInventoryForm} onOpenChange={setShowInventoryForm}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Stock Entry</DialogTitle>
+                      <DialogDescription>Record daily opening and closing stock.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                      <div>
+                        <Label>Material Name *</Label>
+                        <Input data-testid="inv-material" value={invForm.material_name} onChange={e => setInvForm({ ...invForm, material_name: e.target.value })} placeholder="e.g. Cement" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div><Label>Unit</Label><Input value={invForm.unit} onChange={e => setInvForm({ ...invForm, unit: e.target.value })} placeholder="e.g. bags" /></div>
+                        <div><Label>Date</Label><Input type="date" value={invForm.date} onChange={e => setInvForm({ ...invForm, date: e.target.value })} /></div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div><Label>Opening Stock</Label><Input type="number" value={invForm.opening_stock} onChange={e => setInvForm({ ...invForm, opening_stock: parseFloat(e.target.value) || 0 })} /></div>
+                        <div><Label>Received</Label><Input type="number" value={invForm.received} onChange={e => setInvForm({ ...invForm, received: parseFloat(e.target.value) || 0 })} /></div>
+                        <div><Label>Used</Label><Input type="number" value={invForm.used} onChange={e => setInvForm({ ...invForm, used: parseFloat(e.target.value) || 0 })} /></div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <p className="text-xs text-gray-500">Closing Stock</p>
+                        <p className="text-2xl font-bold">{invForm.opening_stock + invForm.received - invForm.used}</p>
+                      </div>
+                      <div><Label>Notes</Label><Input value={invForm.notes} onChange={e => setInvForm({ ...invForm, notes: e.target.value })} /></div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setShowInventoryForm(false)}>Cancel</Button>
+                        <Button data-testid="save-inventory-btn" onClick={handleSubmitInventory}>Save</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
 
                 {/* Assign Vendor Dialog */}
                 <Dialog open={assignVendorDialog} onOpenChange={setAssignVendorDialog}>
@@ -3441,80 +3622,332 @@ export default function ProjectDetail() {
             {/* ==================== LABOURS TAB ==================== */}
             <TabsContent value="labours" className="p-3 sm:p-6">
               <div className="space-y-4">
-                <h3 className="text-base font-bold flex items-center gap-2">
-                  <HardHat className="h-5 w-5 text-teal-600" />Labours
-                </h3>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="labours-summary">
-                  <div className="rounded-lg p-3 text-center border bg-gray-50">
-                    <p className="text-xl font-bold">{laboursData.summary.total || 0}</p>
-                    <p className="text-xs text-gray-500">Total Requests</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
-                    <p className="text-xl font-bold text-amber-700">{laboursData.summary.requested || 0}</p>
-                    <p className="text-xs text-gray-500">Pending</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
-                    <p className="text-xl font-bold text-green-700">{laboursData.summary.approved || 0}</p>
-                    <p className="text-xs text-gray-500">Approved</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
-                    <p className="text-xl font-bold text-blue-700">{laboursData.summary.total_workers || 0}</p>
-                    <p className="text-xs text-gray-500">Total Workers</p>
-                  </div>
-                  {!isPM && laboursData.summary.total_cost !== undefined && (
-                    <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
-                      <p className="text-xl font-bold text-purple-700">{formatCurrency(laboursData.summary.total_cost || 0)}</p>
-                      <p className="text-xs text-gray-500">Total Cost</p>
-                    </div>
-                  )}
+                <div className="flex justify-between items-center">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <HardHat className="h-5 w-5 text-teal-600" />Labour & Work Orders
+                  </h3>
                 </div>
 
-                {/* Labours Table */}
-                {laboursData.labours.length > 0 ? (
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm" data-testid="labours-table">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Contractor</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Workers</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Days</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
-                          {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {laboursData.labours.map(l => (
-                          <tr key={l.labour_expense_id} className="hover:bg-gray-50" data-testid={`lab-row-${l.labour_expense_id}`}>
-                            <td className="px-3 py-2.5">
-                              <p className="font-medium">{l.description || l.labour_type || '-'}</p>
-                            </td>
-                            <td className="px-3 py-2.5 text-xs">{l.contractor_name || '-'}</td>
-                            <td className="px-3 py-2.5 text-center font-medium">{l.num_workers || '-'}</td>
-                            <td className="px-3 py-2.5 text-center">{l.num_days || '-'}</td>
-                            <td className="px-3 py-2.5 text-center">
-                              <Badge variant="outline" className={`text-xs capitalize ${
-                                l.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
-                                ['accounts_approved','payment_approved','pm_approved'].includes(l.status) ? 'border-green-300 text-green-700 bg-green-50' :
-                                'border-gray-300'
-                              }`}>{(l.status || '').replace(/_/g, ' ')}</Badge>
-                            </td>
-                            <td className="px-3 py-2.5 text-xs">{l.requested_by_name || '-'}</td>
-                            {!isPM && <td className="px-3 py-2.5 text-right font-medium">{l.total_amount ? formatCurrency(l.total_amount) : '-'}</td>}
-                          </tr>
+                <Tabs value={labourSubTab} onValueChange={setLabourSubTab}>
+                  <TabsList className="grid grid-cols-3 w-full">
+                    <TabsTrigger value="requests" data-testid="subtab-labour-req">Labour Requests</TabsTrigger>
+                    <TabsTrigger value="workorders" data-testid="subtab-workorders">Work Orders</TabsTrigger>
+                    <TabsTrigger value="attendance" data-testid="subtab-attendance">Attendance</TabsTrigger>
+                  </TabsList>
+
+                  {/* LABOUR REQUESTS SUB-TAB */}
+                  <TabsContent value="requests" className="mt-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4" data-testid="labours-summary">
+                      <div className="rounded-lg p-3 text-center border bg-gray-50">
+                        <p className="text-xl font-bold">{laboursData.summary.total || 0}</p>
+                        <p className="text-xs text-gray-500">Total Requests</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
+                        <p className="text-xl font-bold text-amber-700">{laboursData.summary.requested || 0}</p>
+                        <p className="text-xs text-gray-500">Pending</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                        <p className="text-xl font-bold text-green-700">{laboursData.summary.approved || 0}</p>
+                        <p className="text-xs text-gray-500">Approved</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                        <p className="text-xl font-bold text-blue-700">{laboursData.summary.total_workers || 0}</p>
+                        <p className="text-xs text-gray-500">Total Workers</p>
+                      </div>
+                      {!isPM && laboursData.summary.total_cost !== undefined && (
+                        <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
+                          <p className="text-xl font-bold text-purple-700">{formatCurrency(laboursData.summary.total_cost || 0)}</p>
+                          <p className="text-xs text-gray-500">Total Cost</p>
+                        </div>
+                      )}
+                    </div>
+                    {laboursData.labours.length > 0 ? (
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full text-sm" data-testid="labours-table">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Contractor</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Workers</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Days</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                              {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {laboursData.labours.map(l => (
+                              <tr key={l.labour_expense_id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-medium">{l.description || l.labour_type || '-'}</td>
+                                <td className="px-3 py-2.5 text-xs">{l.contractor_name || '-'}</td>
+                                <td className="px-3 py-2.5 text-center">{l.num_workers || '-'}</td>
+                                <td className="px-3 py-2.5 text-center">{l.num_days || '-'}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <Badge variant="outline" className={`text-xs capitalize ${
+                                    l.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                    ['accounts_approved','payment_approved','pm_approved'].includes(l.status) ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300'
+                                  }`}>{(l.status || '').replace(/_/g, ' ')}</Badge>
+                                </td>
+                                {!isPM && <td className="px-3 py-2.5 text-right font-medium">{l.total_amount ? formatCurrency(l.total_amount) : '-'}</td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="text-center py-8 text-gray-400"><HardHat className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No labour requests</p></div>}
+                  </TabsContent>
+
+                  {/* WORK ORDERS SUB-TAB */}
+                  <TabsContent value="workorders" className="mt-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-sm text-gray-500">{workOrders.length} work orders</p>
+                      {['super_admin','planning'].includes(user?.role) && (
+                        <Button size="sm" data-testid="create-wo-btn" onClick={() => setShowWOForm(true)}>
+                          <Plus className="h-4 w-4 mr-1" /> Create Work Order
+                        </Button>
+                      )}
+                    </div>
+                    {workOrders.length > 0 ? (
+                      <div className="space-y-4">
+                        {workOrders.map(wo => (
+                          <Card key={wo.work_order_id} data-testid={`wo-card-${wo.work_order_id}`}>
+                            <CardContent className="p-4">
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <p className="font-semibold">{wo.contractor_name}</p>
+                                  <p className="text-xs text-gray-500">{wo.contractor_type} | {wo.work_order_id}</p>
+                                  {wo.description && <p className="text-sm text-gray-600 mt-1">{wo.description}</p>}
+                                </div>
+                                <div className="text-right">
+                                  <p className="font-bold text-lg">{formatCurrency(wo.total_amount)}</p>
+                                  <p className="text-xs text-green-600">Paid: {formatCurrency(wo.paid_amount || 0)}</p>
+                                </div>
+                              </div>
+                              {wo.payment_stages?.length > 0 && (
+                                <div className="mt-3 border-t pt-3">
+                                  <p className="text-xs font-medium text-gray-500 mb-2">Payment Stages</p>
+                                  <div className="space-y-2">
+                                    {wo.payment_stages.map(s => (
+                                      <div key={s.stage_id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
+                                        <span className="font-medium">{s.stage_name}</span>
+                                        <div className="flex items-center gap-3">
+                                          <span>{formatCurrency(s.amount)}</span>
+                                          <Badge variant="outline" className={`text-xs capitalize ${
+                                            s.status === 'approved' ? 'border-green-300 text-green-700 bg-green-50' :
+                                            s.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                            'border-gray-300'
+                                          }`}>{s.status}</Badge>
+                                          {s.status === 'pending' && user?.role === 'site_engineer' && (
+                                            <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => handleRequestStagePayment(wo.work_order_id, s.stage_id, s.amount)}>
+                                              Request Payment
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
                         ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-400">
-                    <HardHat className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No labour requests for this project</p>
-                  </div>
-                )}
+                      </div>
+                    ) : <div className="text-center py-8 text-gray-400"><FileText className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No work orders</p></div>}
+                  </TabsContent>
+
+                  {/* ATTENDANCE SUB-TAB */}
+                  <TabsContent value="attendance" className="mt-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-sm text-gray-500">{labourAttendance.length} entries</p>
+                      {['super_admin','planning','site_engineer'].includes(user?.role) && (
+                        <Button size="sm" data-testid="add-attendance-btn" onClick={() => {
+                          setAttForm({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
+                          setShowAttendanceForm(true);
+                        }}>
+                          <Plus className="h-4 w-4 mr-1" /> Daily Entry
+                        </Button>
+                      )}
+                    </div>
+                    {/* Daily summary */}
+                    {labourAttendance.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                        <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                          <p className="text-xl font-bold text-blue-700">{labourAttendance.reduce((s, a) => s + (a.total_workers || 0), 0)}</p>
+                          <p className="text-xs text-gray-500">Total Workers (All Days)</p>
+                        </div>
+                        <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                          <p className="text-xl font-bold text-green-700">{formatCurrency(labourAttendance.reduce((s, a) => s + (a.total_cost || 0), 0))}</p>
+                          <p className="text-xs text-gray-500">Total Cost</p>
+                        </div>
+                        <div className="rounded-lg p-3 text-center border bg-gray-50">
+                          <p className="text-xl font-bold">{labourAttendance.length}</p>
+                          <p className="text-xs text-gray-500">Total Entries</p>
+                        </div>
+                      </div>
+                    )}
+                    {labourAttendance.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Contractor</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Workers</th>
+                              <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {labourAttendance.map(a => (
+                              <tr key={a.attendance_id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-medium">{a.date}</td>
+                                <td className="px-3 py-2.5">{a.contractor_name || '-'}</td>
+                                <td className="px-3 py-2.5 text-center font-bold">{a.total_workers}</td>
+                                <td className="px-3 py-2.5 text-right">{formatCurrency(a.total_cost || 0)}</td>
+                                <td className="px-3 py-2.5 text-xs">
+                                  {a.entries?.map((e, i) => (
+                                    <span key={i} className="mr-2">{e.label || e.type}: {e.count}</span>
+                                  ))}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <div className="text-center py-8 text-gray-400"><Users className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No attendance entries</p></div>}
+                  </TabsContent>
+                </Tabs>
+
+                {/* Create Work Order Dialog */}
+                <Dialog open={showWOForm} onOpenChange={setShowWOForm}>
+                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Create Work Order</DialogTitle>
+                      <DialogDescription>Assign a contractor and define payment stages.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                      <div>
+                        <Label>Contractor *</Label>
+                        <Select value={woForm.contractor_id} onValueChange={v => setWoForm({ ...woForm, contractor_id: v })}>
+                          <SelectTrigger data-testid="wo-contractor"><SelectValue placeholder="Select contractor" /></SelectTrigger>
+                          <SelectContent>
+                            {allContractors.map(c => <SelectItem key={c.contractor_id} value={c.contractor_id}>{c.name} ({c.contractor_type || 'General'})</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Description</Label>
+                        <Textarea value={woForm.description} onChange={e => setWoForm({ ...woForm, description: e.target.value })} rows={2} />
+                      </div>
+                      <div>
+                        <Label>Total Amount *</Label>
+                        <Input type="number" data-testid="wo-amount" value={woForm.total_amount} onChange={e => setWoForm({ ...woForm, total_amount: parseFloat(e.target.value) || 0 })} />
+                      </div>
+                      <div>
+                        <Label className="flex justify-between"><span>Payment Stages</span>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setWoForm({ ...woForm, payment_stages: [...woForm.payment_stages, { stage_name: `Stage ${woForm.payment_stages.length + 1}`, amount: 0, percentage: 0 }] })}>+ Add Stage</Button>
+                        </Label>
+                        <div className="space-y-2 mt-2">
+                          {woForm.payment_stages.map((s, i) => (
+                            <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded">
+                              <Input className="h-8 flex-1" value={s.stage_name} onChange={e => { const stages = [...woForm.payment_stages]; stages[i].stage_name = e.target.value; setWoForm({ ...woForm, payment_stages: stages }); }} />
+                              <Input className="h-8 w-28" type="number" placeholder="Amount" value={s.amount} onChange={e => { const stages = [...woForm.payment_stages]; stages[i].amount = parseFloat(e.target.value) || 0; setWoForm({ ...woForm, payment_stages: stages }); }} />
+                              <Button variant="ghost" size="sm" className="h-8 text-red-500" onClick={() => setWoForm({ ...woForm, payment_stages: woForm.payment_stages.filter((_, j) => j !== i) })}><X className="h-3 w-3" /></Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setShowWOForm(false)}>Cancel</Button>
+                        <Button data-testid="save-wo-btn" onClick={handleCreateWO}>Create</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Attendance Entry Dialog */}
+                <Dialog open={showAttendanceForm} onOpenChange={setShowAttendanceForm}>
+                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>Daily Labour Entry</DialogTitle>
+                      <DialogDescription>Enter attendance for each labour type.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                      <div>
+                        <Label>Contractor *</Label>
+                        <Select value={attForm.contractor_id} onValueChange={v => {
+                          const contractor = allContractors.find(c => c.contractor_id === v);
+                          const entries = (contractor?.labour_types || []).map(lt => ({
+                            type: lt.type, label: lt.label, count: 0, per_day_cost: lt.per_day_cost
+                          }));
+                          setAttForm({ ...attForm, contractor_id: v, entries });
+                        }}>
+                          <SelectTrigger data-testid="att-contractor"><SelectValue placeholder="Select contractor" /></SelectTrigger>
+                          <SelectContent>
+                            {allContractors.map(c => <SelectItem key={c.contractor_id} value={c.contractor_id}>{c.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Work Order</Label>
+                        <Select value={attForm.work_order_id} onValueChange={v => setAttForm({ ...attForm, work_order_id: v })}>
+                          <SelectTrigger><SelectValue placeholder="Select work order (optional)" /></SelectTrigger>
+                          <SelectContent>
+                            {workOrders.filter(wo => wo.contractor_id === attForm.contractor_id).map(wo => (
+                              <SelectItem key={wo.work_order_id} value={wo.work_order_id}>{wo.description || wo.work_order_id} ({formatCurrency(wo.total_amount)})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {attForm.work_order_id && (() => {
+                        const wo = workOrders.find(w => w.work_order_id === attForm.work_order_id);
+                        const openStages = wo?.payment_stages?.filter(s => s.status === 'pending') || [];
+                        return openStages.length > 0 ? (
+                          <div>
+                            <Label>Stage</Label>
+                            <Select value={attForm.stage_id} onValueChange={v => setAttForm({ ...attForm, stage_id: v })}>
+                              <SelectTrigger><SelectValue placeholder="Select stage" /></SelectTrigger>
+                              <SelectContent>
+                                {openStages.map(s => <SelectItem key={s.stage_id} value={s.stage_id}>{s.stage_name}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : null;
+                      })()}
+                      <div>
+                        <Label>Date</Label>
+                        <Input type="date" value={attForm.date} onChange={e => setAttForm({ ...attForm, date: e.target.value })} />
+                      </div>
+                      {attForm.entries.length > 0 && (
+                        <div className="space-y-3">
+                          <Label>Labour Count</Label>
+                          {attForm.entries.map((e, i) => (
+                            <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
+                              <span className="flex-1 text-sm font-medium">{e.label}</span>
+                              <Input className="w-20 h-8 text-center" type="number" min="0" value={e.count} onChange={ev => {
+                                const entries = [...attForm.entries];
+                                entries[i].count = parseInt(ev.target.value) || 0;
+                                setAttForm({ ...attForm, entries });
+                              }} />
+                              <span className="text-xs text-gray-500 w-20 text-right">{e.per_day_cost}/day</span>
+                              <span className="text-sm font-bold w-24 text-right">{((e.count || 0) * (e.per_day_cost || 0)).toLocaleString('en-IN')}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between items-center bg-blue-50 rounded-lg p-3">
+                            <span className="font-semibold">Total</span>
+                            <div className="text-right">
+                              <span className="text-sm mr-4">{attForm.entries.reduce((s, e) => s + (e.count || 0), 0)} workers</span>
+                              <span className="font-bold">{attForm.entries.reduce((s, e) => s + (e.count || 0) * (e.per_day_cost || 0), 0).toLocaleString('en-IN')}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setShowAttendanceForm(false)}>Cancel</Button>
+                        <Button data-testid="save-attendance-btn" onClick={handleSubmitAttendance}>Submit</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </TabsContent>
 

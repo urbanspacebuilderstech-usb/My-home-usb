@@ -82,6 +82,7 @@ from routes.operations import router as operations_router
 from routes.crm import router as crm_router
 from routes.files import router as files_router
 from routes.architect import router as architect_router
+from routes.contractors import router as contractors_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -92,6 +93,7 @@ app.include_router(operations_router, prefix="/api")
 app.include_router(crm_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(architect_router, prefix="/api")
+app.include_router(contractors_router, prefix="/api")
 
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -100,7 +102,7 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'https://hr-portal-preview.preview.emergentagent.com').split(',') + [
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://site-inventory-track.preview.emergentagent.com').split(',') + [
         f"https://construction-crm-6.cluster-{i}.preview.emergentcf.cloud" for i in range(10)
     ],
     allow_methods=["*"],

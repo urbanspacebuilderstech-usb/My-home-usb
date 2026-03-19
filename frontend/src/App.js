@@ -29,6 +29,7 @@ import Settings from '@/pages/Settings';
 import StageManagement from '@/pages/StageManagement';
 import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
+import ContractorManagement from '@/pages/ContractorManagement';
 import SiteEngineerDashboard from '@/pages/SiteEngineerDashboard';
 import SiteEngineerProject from '@/pages/SiteEngineerProject';
 import MaterialReceipt from '@/pages/MaterialReceipt';
@@ -116,6 +117,7 @@ function AppRouter() {
       <Route path="/settings/stages" element={<ProtectedRoute><StageManagement /></ProtectedRoute>} />
       <Route path="/materials" element={<ProtectedRoute><MaterialManagement /></ProtectedRoute>} />
       <Route path="/vendor-management" element={<ProtectedRoute><VendorMasterManagement /></ProtectedRoute>} />
+      <Route path="/contractor-management" element={<ProtectedRoute><ContractorManagement /></ProtectedRoute>} />
       <Route path="/vendor-portal" element={<ProtectedRoute><VendorPortal /></ProtectedRoute>} />
       <Route path="/procurement-board" element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} />
       <Route path="/procurement-board-v2" element={<ProtectedRoute><ProcurementBoardV2 /></ProtectedRoute>} />

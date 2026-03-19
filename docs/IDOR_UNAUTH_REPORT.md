@@ -4,7 +4,7 @@
 ---
 
 **Test Date:** March 4, 2026  
-**Target:** https://hr-portal-preview.preview.emergentagent.com/api  
+**Target:** https://site-inventory-track.preview.emergentagent.com/api  
 **Focus:** IDOR (Insecure Direct Object Reference) & Unauthenticated API Access  
 
 ---
