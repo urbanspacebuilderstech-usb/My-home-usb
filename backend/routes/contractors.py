@@ -155,7 +155,7 @@ async def get_contractor_summary(contractor_id: str, user: User = Depends(get_cu
     if not contractor:
         raise HTTPException(status_code=404, detail="Contractor not found")
 
-    work_orders = await db.work_orders.find(
+    work_orders = await db.labour_work_orders.find(
         {"contractor_id": contractor_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
 
@@ -185,8 +185,8 @@ async def get_contractor_summary(contractor_id: str, user: User = Depends(get_cu
 
 # ==================== WORK ORDERS ====================
 
-@router.get("/work-orders")
-async def get_work_orders(
+@router.get("/labour-work-orders")
+async def get_labour_work_orders(
     project_id: Optional[str] = None,
     contractor_id: Optional[str] = None,
     user: User = Depends(get_current_user)
@@ -196,7 +196,7 @@ async def get_work_orders(
         query["project_id"] = project_id
     if contractor_id:
         query["contractor_id"] = contractor_id
-    orders = await db.work_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    orders = await db.labour_work_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
     # Site engineer only sees open stages
     if user.role == UserRole.SITE_ENGINEER:
@@ -209,8 +209,8 @@ async def get_work_orders(
     return orders
 
 
-@router.post("/work-orders")
-async def create_work_order(data: dict, user: User = Depends(get_current_user)):
+@router.post("/labour-work-orders")
+async def create_labour_work_order(data: dict, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -244,29 +244,29 @@ async def create_work_order(data: dict, user: User = Depends(get_current_user)):
         "created_at": now,
         "updated_at": now
     }
-    await db.work_orders.insert_one(wo)
+    await db.labour_work_orders.insert_one(wo)
     wo.pop("_id", None)
     return wo
 
 
-@router.patch("/work-orders/{wo_id}")
-async def update_work_order(wo_id: str, data: dict, user: User = Depends(get_current_user)):
+@router.patch("/labour-work-orders/{wo_id}")
+async def update_labour_work_order(wo_id: str, data: dict, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     update = {"updated_at": datetime.now(timezone.utc).isoformat()}
     for field in ["description", "total_amount", "status", "payment_stages"]:
         if field in data:
             update[field] = data[field]
-    await db.work_orders.update_one({"work_order_id": wo_id}, {"$set": update})
-    return await db.work_orders.find_one({"work_order_id": wo_id}, {"_id": 0})
+    await db.labour_work_orders.update_one({"work_order_id": wo_id}, {"$set": update})
+    return await db.labour_work_orders.find_one({"work_order_id": wo_id}, {"_id": 0})
 
 
 # ==================== STAGE PAYMENT REQUESTS ====================
 
-@router.patch("/work-orders/{wo_id}/stages/{stage_id}/request-payment")
+@router.patch("/labour-work-orders/{wo_id}/stages/{stage_id}/request-payment")
 async def request_stage_payment(wo_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Site Engineer requests payment for a completed stage"""
-    wo = await db.work_orders.find_one({"work_order_id": wo_id})
+    wo = await db.labour_work_orders.find_one({"work_order_id": wo_id})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
 
@@ -287,20 +287,20 @@ async def request_stage_payment(wo_id: str, stage_id: str, data: dict, user: Use
     if not updated:
         raise HTTPException(status_code=404, detail="Stage not found")
 
-    await db.work_orders.update_one(
+    await db.labour_work_orders.update_one(
         {"work_order_id": wo_id},
         {"$set": {"payment_stages": wo["payment_stages"], "updated_at": now}}
     )
     return {"message": "Payment requested"}
 
 
-@router.patch("/work-orders/{wo_id}/stages/{stage_id}/review")
+@router.patch("/labour-work-orders/{wo_id}/stages/{stage_id}/review")
 async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
     """Planning reviews stage payment request"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    wo = await db.work_orders.find_one({"work_order_id": wo_id})
+    wo = await db.labour_work_orders.find_one({"work_order_id": wo_id})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
 
@@ -323,7 +323,7 @@ async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User
                 stage["review_notes"] = data.get("notes", "Rejected by planning")
             break
 
-    await db.work_orders.update_one(
+    await db.labour_work_orders.update_one(
         {"work_order_id": wo_id},
         {"$set": {
             "payment_stages": wo["payment_stages"],
@@ -486,7 +486,7 @@ async def get_latest_inventory(
 @router.get("/projects/{project_id}/contractor-assignments")
 async def get_project_contractors(project_id: str, user: User = Depends(get_current_user)):
     """Get all contractors assigned to a project via work orders"""
-    work_orders = await db.work_orders.find(
+    work_orders = await db.labour_work_orders.find(
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
 

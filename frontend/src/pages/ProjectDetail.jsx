@@ -514,7 +514,7 @@ export default function ProjectDetail() {
       // Load work orders, contractors, attendance, inventory
       try {
         const [woRes, contRes, attRes, invRes] = await Promise.all([
-          axios.get(`${API}/work-orders?project_id=${projectId}`).catch(() => null),
+          axios.get(`${API}/labour-work-orders?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/contractors`).catch(() => null),
           axios.get(`${API}/labour-attendance?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null)
@@ -648,7 +648,7 @@ export default function ProjectDetail() {
   const fetchWorkOrderData = async () => {
     try {
       const [woRes, cRes, attRes, invRes] = await Promise.all([
-        axios.get(`${API}/work-orders?project_id=${projectId}`),
+        axios.get(`${API}/labour-work-orders?project_id=${projectId}`),
         axios.get(`${API}/contractors`),
         axios.get(`${API}/labour-attendance?project_id=${projectId}`),
         axios.get(`${API}/material-inventory?project_id=${projectId}`)
@@ -664,7 +664,7 @@ export default function ProjectDetail() {
     if (!woForm.contractor_id || !woForm.total_amount) return toast.error('Select contractor and amount');
     const contractor = allContractors.find(c => c.contractor_id === woForm.contractor_id);
     try {
-      await axios.post(`${API}/work-orders`, {
+      await axios.post(`${API}/labour-work-orders`, {
         project_id: projectId,
         project_name: project?.name || '',
         contractor_id: woForm.contractor_id,
@@ -683,7 +683,7 @@ export default function ProjectDetail() {
 
   const handleRequestStagePayment = async (woId, stageId, amount) => {
     try {
-      await axios.patch(`${API}/work-orders/${woId}/stages/${stageId}/request-payment`, { requested_amount: amount });
+      await axios.patch(`${API}/labour-work-orders/${woId}/stages/${stageId}/request-payment`, { requested_amount: amount });
       toast.success('Payment requested');
       fetchWorkOrderData();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }

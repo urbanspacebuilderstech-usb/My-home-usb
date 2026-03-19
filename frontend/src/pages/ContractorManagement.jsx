@@ -343,8 +343,10 @@ export default function ContractorManagement() {
                   <div className="flex justify-between items-start">
                     <div>
                       <DialogTitle className="text-xl">{viewContractor.name}</DialogTitle>
-                      <DialogDescription className="flex items-center gap-2 mt-1">
-                        {viewContractor.contractor_type && <Badge variant="outline">{viewContractor.contractor_type}</Badge>}
+                      <DialogDescription asChild>
+                        <div className="flex items-center gap-2 mt-1">
+                          {viewContractor.contractor_type && <Badge variant="outline">{viewContractor.contractor_type}</Badge>}
+                        </div>
                       </DialogDescription>
                     </div>
                     <Button variant="outline" size="sm" onClick={() => { setViewContractor(null); openEdit(viewContractor); }}>
