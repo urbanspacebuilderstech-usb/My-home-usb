@@ -153,6 +153,18 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | PATCH | /api/financial/indirect-costs/{id}/approve | Approve/reject |
 | PATCH | /api/financial/indirect-costs/{id}/confirm | Confirm payment + auto-distribute |
 
+- [x] **Monthly Payment Schedule System (Mar 19, 2026)**:
+  - Planning creates monthly schedules by selecting project stages per month
+  - Auto-carryover: Uncollected stages from previous months auto-appear as "Due from [month]"
+  - Planning can request payment for stages → Sends to CRE for collection
+  - 5 summary cards: Total Planned, Collected, Balance, Carry Over Due, Requested
+  - Month navigation (prev/next) with all entries in table format
+  - "Add Stages" dialog to select available project stages
+  - Standalone `/payment-schedule` page for Super Admin
+  - Super Admin header updated with Payment Schedule and HR links
+  - Backend: 6 new endpoints for schedule CRUD, add-stages, request-payment, months-list
+  - Role-based: Planning has full access, CRE has read-only, Super Admin sees all
+
 - [x] **Material Request Workflow Fix (Mar 18, 2026)**:
   - Fixed broken Planning Board → Requests tab (endpoints returned 404)
   - Created 4 new endpoints: GET /api/material-requests, GET /api/labour-expenses, PATCH /api/material-requests/{id}/planning-action, PATCH /api/labour-expenses/{id}/planning-action
