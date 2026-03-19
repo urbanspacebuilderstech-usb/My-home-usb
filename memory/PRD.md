@@ -47,85 +47,53 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - [x] PM Dashboard - Team, Materials, Labours Tabs
 - [x] Google Sheets Sync Fix (auto-discover new tabs, 1-min interval)
 - [x] Dynamic browser tab title (Role | My Home USB)
-- [x] Auto-refresh (15s polling) across all 30+ pages — no reload needed
-- [x] Loading spinner fix — only on initial load, not during refreshes
-- [x] Safe error handling for 132 toast error catches (prevents React crashes)
-- [x] CRE Board visibility fix (sees all projects, not just own)
-- [x] Planning Board visibility fix (added missing status filters)
-- [x] **Indirect Cost Management Module (Mar 17, 2026)**:
-  - Budget Overview: 80/20 split per project with portfolio totals
-  - Distribution Preview: Shows per-project allocation before submitting
-  - Auto-Distribution: On payment confirmation, costs auto-split by project value %
-  - Smart Balance: Exhausted projects get skipped, excess goes to others
-  - Allocations History: Full audit trail of distributions
-  - Access: Accountant + Super Admin create, GM/Super Admin approve
-- [x] **Indirect Cost Management Visibility Fix (Mar 17, 2026)**:
-  - Added "Indirect Costs" nav item to Accountant's main nav bar
-  - Added "Indirect Costs" to Super Admin's Finance sub-menu
-  - Fixed Finance sub-nav conflict (Financial Overview was duplicated in GM sub-menu)
-- [x] **Indirect Expenses Integrated into Accounts Board (Mar 17, 2026)**:
-  - Split Cashbook expense tab into 3 sub-tabs: Income, Direct Expense, Indirect
-  - Indirect tab embeds full indirect cost management (expenses, budget overview, allocations)
-  - Create/Approve/Confirm workflows available inline via dialogs
-  - No separate page needed — all data accessible from Accounts Board
-- [x] **Configurable Direct/Indirect Cost Split (Mar 17, 2026)**:
-  - Super Admin can configure the indirect cost % via Settings and inline in Accounts Board
-  - Visual Cost Split bar in Accountant's Indirect tab (read-only, shows "Set by Admin")
-  - Super Admin gets Edit button to change % inline with save/cancel
-  - All budget calculations and UI labels dynamically reflect the configured percentage
-- [x] **Rough Estimates Tab in Planning Board (Mar 18, 2026)**:
-  - Moved RE Projects from separate nav link into Planning Board as "Rough Estimates" tab
-  - Red badge with count shows new requests on the tab title
-  - Embeds existing REProjectsPage component with full RE workflow
-- [x] **Multi-Mode Payment Collection (Mar 18, 2026)**:
-  - CRE can collect advance/stage payments using multiple payment modes (Cash + Cheque + Bank Transfer + UPI)
-  - Each entry: amount + mode + reference; cheque mode supports multiple cheque details
-  - Running total with "Balanced" indicator when entries match total
-  - Applied to both Convert Deal (advance) and Collect Payment dialogs
-  - Backend creates separate income records per payment entry
-- [x] **Numeric Input Formatting (Mar 18, 2026)**:
-  - Removed spinner arrows from all 125 numeric inputs across 38 files
-  - Auto Indian comma separator (1,00,000) on all amount/number fields
-  - Only numeric entry allowed (blocks letters/symbols)
-  - Created reusable NumericInput component
-- [x] **Cheque Payment Review Bug Fix (Mar 18, 2026)**:
-  - Fixed "Failed to review" error when Accountant tries to approve cheque payments
-  - Root cause: Backend IncomeReviewRequest used Dict[str, str] for cheque_verifications but frontend sent amount as number → 422 Pydantic validation error
-  - Fix: Changed backend to Dict[str, Any]; frontend now stringifies amount; validation allows approval without cheque records
-  - Also fixed operations.py: cheque records now linked to income records via income_id during deal conversion
-- [x] **PM Dashboard Team Assignment Enhancement (Mar 18, 2026)**:
-  - Reworked Assign popup with TWO separate dropdowns: Sr. Site Engineer and Site Engineer
-  - Each dropdown shows names with total project count for workload visibility
-  - Multiple members of each role can be assigned per project
-  - Currently assigned members visible in dialog with inline remove (X) button
-  - Team column in All Projects table shows role-specific badges (Sr.SE / SE) with counts
-- [x] **Project Detail Team Tab - Editable (Mar 18, 2026)**:
-  - PM, Super Admin, and Planning roles can now edit team from within Project Detail
-  - "Edit Team" button opens assignment dialog with Sr SE and SE dropdowns
-  - Remove (X) button on each team member for quick removal
-  - New backend endpoint: DELETE /api/pm/projects/{project_id}/team/{user_id}
-- [x] **Removed "Generate Payment Schedule" Button (Mar 18, 2026)**:
-  - Removed the "Generate Payment Schedule" button and handler from ProjectDetail - manual raise request flow is sufficient
-- [x] **Planning Payment Schedule Overview Tab (Mar 18, 2026)**:
-  - Added "Payment Schedule" tab to Planning Board with comprehensive overview of ALL payment stages across ALL projects
-  - Summary cards: Total Scheduled, Collected, Pending Balance, Collection %
-  - Table: Date, Project, Stage (%), Amount, Received, Balance, Status - sorted by date
-  - Clickable rows navigate directly to the project detail page
-  - Search functionality to filter by project/stage name
-  - New backend: GET /api/planning/payment-schedule-overview
-
-- [x] **HR Portal & Employee Management (Mar 18, 2026)**:
-  - Two-tab HR Portal: Employee Profiles | Roles & Credentials
-  - Employee Profiles: Full employee directory with search, department filter, add/edit/view/terminate
-  - Comprehensive employee form with accordion sections: Personal Info, Employment Details, ID & Documents, Address & Emergency Contact, Salary & Bank Details
-  - Document upload support (Photo, Resume, Aadhar, PAN) via Object Storage
-  - Real-time salary calculation (Gross, Deductions, Net) in the form
-  - Roles & Credentials tab: View all 29 users with roles, status, linked employee records
-  - Super Admin can edit user roles, reset passwords, toggle active status
-  - HR role can view/create/edit employees but cannot change roles or passwords
-  - New HR user added to demo login: hr@constructionos.com
-  - Backend: 8 new endpoints for employee profiles, document upload, user management
-  - Optimized /hr/users endpoint with batch query instead of N+1
+- [x] Auto-refresh (15s polling) across all 30+ pages
+- [x] Loading spinner fix
+- [x] Safe error handling for 132 toast error catches
+- [x] CRE Board visibility fix
+- [x] Planning Board visibility fix
+- [x] Indirect Cost Management Module
+- [x] Configurable Direct/Indirect Cost Split
+- [x] Rough Estimates Tab in Planning Board
+- [x] Multi-Mode Payment Collection
+- [x] Numeric Input Formatting (Indian commas)
+- [x] Cheque Payment Review Bug Fix
+- [x] PM Dashboard Team Assignment Enhancement
+- [x] Project Detail Team Tab - Editable
+- [x] Removed "Generate Payment Schedule" Button
+- [x] Planning Payment Schedule Overview Tab
+- [x] HR Portal & Employee Management
+- [x] Sales Rough Estimate Requirement Popup
+- [x] Monthly Payment Schedule System
+- [x] Standardized Unit Dropdown Sitewide (UnitSelect.jsx)
+- [x] Contact Visibility Rules
+- [x] Vendor Management System (CRUD, categories, project assignments)
+- [x] Material Request Workflow Fix
+- [x] **Contractor Management System (Mar 19, 2026)**:
+  - Full CRUD for contractors with categories and labour types
+  - Dynamic contractor categories (20 seeded: Mason, Painter, Electrician, etc.)
+  - Labour types per contractor with per-day costs (Skilled, Semi-Skilled, Non-Skilled)
+  - Contractor detail view with Work Orders and Payment Summary tabs
+  - Frontend: /contractor-management page with 3-tab create/edit dialog
+  - Backend: 10+ endpoints in /app/backend/routes/contractors.py
+- [x] **Labour Work Orders System (Mar 19, 2026)**:
+  - Work orders with payment stages (amount + percentage per stage)
+  - Stage payment request flow: Site Engineer requests -> Planning approves/rejects
+  - Routes: /api/labour-work-orders (separate from material work orders in projects.py)
+  - DB collection: labour_work_orders (separate from work_orders)
+- [x] **Labour Attendance System (Mar 19, 2026)**:
+  - Daily attendance logging by Site Engineers
+  - Auto cost calculation based on worker count x per-day cost
+  - Daily summary endpoint per project
+- [x] **Material Inventory System (Mar 19, 2026)**:
+  - Daily opening/closing stock tracking
+  - Auto closing stock calculation (opening + received - used)
+  - Latest stock per material endpoint
+- [x] **Route Conflict Fix (Mar 19, 2026)**:
+  - Fixed CRITICAL route conflict: POST /api/work-orders was shared between projects.py and contractors.py
+  - Renamed contractor work order routes to /api/labour-work-orders
+  - Changed DB collection from work_orders to labour_work_orders
+  - Updated all frontend API calls in ProjectDetail.jsx
 
 ## Credentials
 - Super Admin: `admin@constructionos.com` / `Demo@1234`
@@ -143,79 +111,32 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 - Client: `raj@client.com` / `Demo@1234`
 - Client: `mohan@client.com` / `Demo@1234`
 
-## Key API Endpoints - Indirect Cost Module
+## Key API Endpoints - Labour & Contractor System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/financial/project-budget-overview | All projects with 80/20 budget split |
-| GET | /api/financial/indirect-cost-distribution-preview?amount=X | Preview auto-distribution |
-| GET | /api/financial/indirect-cost-allocations | Distribution history |
-| POST | /api/financial/indirect-costs | Create indirect cost (pending approval) |
-| PATCH | /api/financial/indirect-costs/{id}/approve | Approve/reject |
-| PATCH | /api/financial/indirect-costs/{id}/confirm | Confirm payment + auto-distribute |
-
-- [x] **Sales Rough Estimate Requirement Popup (Mar 19, 2026)**:
-  - When Sales moves a lead to "Rough Estimate Requested" stage, popup with large text area appears
-  - Sales types rough client requirements (building type, size, budget, etc.)
-  - Requirement stored in RE project and sent to Planning team
-  - Planning sees the rough requirement in amber card on RE Projects page (both card listing and detail view)
-  - Backward compatible: works even without rough requirement
-  - Backend: Added rough_requirement field to LeadStageUpdate model and RE project creation
-
-- [x] **Monthly Payment Schedule System (Mar 19, 2026)**:
-  - Planning creates monthly schedules by selecting project stages per month
-  - Auto-carryover: Uncollected stages from previous months auto-appear as "Due from [month]"
-  - Planning can request payment for stages → Sends to CRE for collection
-  - 5 summary cards: Total Planned, Collected, Balance, Carry Over Due, Requested
-  - Month navigation (prev/next) with all entries in table format
-  - "Add Stages" dialog to select available project stages
-  - Standalone `/payment-schedule` page for Super Admin
-  - Super Admin header updated with Payment Schedule and HR links
-  - Backend: 6 new endpoints for schedule CRUD, add-stages, request-payment, months-list
-  - Role-based: Planning has full access, CRE has read-only, Super Admin sees all
-
-- [x] **Standardized Unit Dropdown Sitewide (Mar 19, 2026)**:
-  - Created reusable `UnitSelect.jsx` component with searchable dropdown and category grouping
-  - 75 construction industry units organized in 9 categories: Count, Weight, Volume, Area, Length, Packaging, Transport, Construction, Work
-  - Replaced old unit inputs across 6 pages: PlanningBoard, SiteEngineerProject, REProjectsPage, PackageManagement, MaterialManagement, ProjectDetail
-  - Removed all hardcoded UNITS/MATERIAL_UNITS arrays
-  - Search filters by unit label, value, or category name
-  - Selected unit shows checkmark, grouped by category headers
-
-- [x] **Contact Visibility Rules (Mar 19, 2026)**:
-  - Phone/email only visible to: Super Admin, Sales, Pre-Sales
-  - All other roles (GM, CRE, Planning, Accountant, PM, etc.) see contacts hidden
-  - Once project is converted AND payment approved by accountant, contacts visible to everyone
-  - Backend: Created `/app/backend/core/contact_visibility.py` utility
-  - Modified 4 API endpoints to strip contacts for non-privileged roles: `/api/crm/re-projects`, `/api/crm/sales/leads`, `/api/crm/pre-sales/leads`, `/api/cre/new-deals`
-  - Frontend: Conditional rendering in REProjectsPage, CREBoard, GMDashboard - fields hidden entirely (not masked)
-
-- [x] **Vendor Management System (Mar 19, 2026)**:
-  - Full vendor CRUD: Create/Edit/View vendors with enhanced details
-  - Vendor form with 4 tabs: Basic Details, Account Details (bank, IFSC, UPI), Brands per Material, GST & Payment
-  - Dynamic vendor categories (16 seeded: Cement, Sand, Steel, etc.) with inline "Add New Category" — no approval needed
-  - Brands management: per material category with comma-separated input
-  - Payment Cycle dropdown: Immediate, 7/15/30/45/60/90 days
-  - GST Details: GST number + type (Regular/Composition/Unregistered)
-  - Vendor Detail view with 3 tabs: Details, Brands & Materials, Summary (orders, payments, stats)
-  - Planning header → "Vendors" nav link added
-  - Project-level vendor assignment: Materials tab → 4 sub-tabs (Materials, Vendors, Orders Status, Payment Status)
-  - Assign vendor per material category with brand selection
-  - Purchase Orders framework: auto-created from approved material requests (Procurement creates/approves)
-  - Backend: 10+ new endpoints for vendor categories, vendor summary, project assignments, purchase orders
-  - Collections: `vendor_categories`, `project_vendor_assignments`, `purchase_orders`
-  - Role-based access: Planning + Procurement can manage, others can view
-
-- [x] **Material Request Workflow Fix (Mar 18, 2026)**:
-  - Fixed broken Planning Board → Requests tab (endpoints returned 404)
-  - Created 4 new endpoints: GET /api/material-requests, GET /api/labour-expenses, PATCH /api/material-requests/{id}/planning-action, PATCH /api/labour-expenses/{id}/planning-action
-  - Full workflow verified: Site Engineer → Planning approve → Procurement → Accountant
-  - Fixed React key warning on Planning Board
+| GET/POST | /api/contractor-categories | Manage contractor work type categories |
+| GET/POST | /api/contractors | CRUD for contractors |
+| GET | /api/contractors/{id} | Single contractor |
+| PATCH | /api/contractors/{id} | Update contractor |
+| GET | /api/contractors/{id}/summary | Work orders + payment stats |
+| GET/POST | /api/labour-work-orders | CRUD for labour work orders |
+| PATCH | /api/labour-work-orders/{wo_id} | Update work order |
+| PATCH | /api/labour-work-orders/{wo_id}/stages/{stage_id}/request-payment | Site Engineer requests |
+| PATCH | /api/labour-work-orders/{wo_id}/stages/{stage_id}/review | Planning approves/rejects |
+| GET/POST | /api/labour-attendance | Daily attendance entries |
+| GET | /api/labour-attendance/daily-summary | Per-project daily totals |
+| GET/POST | /api/material-inventory | Daily stock entries |
+| GET | /api/material-inventory/latest | Latest stock per material |
+| GET | /api/projects/{project_id}/contractor-assignments | Project's labour work orders |
 
 ## Backlog
+- [ ] Connect Site Engineer Request Flow to assigned vendors (P0)
+- [ ] Auto Purchase Order (PO) Flow (P0)
 - [ ] Escrow Account Integration (P0)
 - [ ] Two-Factor Authentication (2FA) via mobile OTP (P0)
 - [ ] Advanced Cybersecurity Practices (P1)
 - [ ] Aadhar Document Upload with encrypted storage (P1)
+- [ ] Refactor ProjectDetail.jsx (4000+ lines) into sub-components (P1)
 - [ ] Cash Denomination feature (P2 - Paused)
 - [ ] UI/UX review across all screens (P2)
 - [ ] Convert to SaaS model (multi-tenancy, subscriptions) (P2)
