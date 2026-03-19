@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="5" tests="18" time="28.036" timestamp="2026-03-19T03:46:32.950614+00:00" hostname="agent-env-4c7d113d-0d57-450c-a5b9-757369f1d554"><testcase classname="tests.test_contractor_management" name="test_get_contractor_categories" time="2.049" /><testcase classname="tests.test_contractor_management" name="test_create_contractor_category" time="1.036" /><testcase classname="tests.test_contractor_management" name="test_create_contractor_with_labour_types" time="0.794" /><testcase classname="tests.test_contractor_management" name="test_get_contractors_list" time="0.804" /><testcase classname="tests.test_contractor_management" name="test_get_single_contractor" time="1.616" /><testcase classname="tests.test_contractor_management" name="test_update_contractor" time="1.838" /><testcase classname="tests.test_contractor_management" name="test_get_contractor_summary" time="2.127" /><testcase classname="tests.test_contractor_management" name="test_get_work_orders" time="0.801" /><testcase classname="tests.test_contractor_management" name="test_create_work_order_with_payment_stages" time="2.701"><failure message="AssertionError: Failed: {&quot;detail&quot;:[{&quot;type&quot;:&quot;missing&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;boq_id&quot;],&quot;msg&quot;:&quot;Field required&quot;,&quot;input&quot;:{&quot;project_id&quot;:&quot;proj_12f23331b542&quot;,&quot;project_name&quot;:&quot;Mr. Vinoth Kumar Babu&quot;,&quot;contractor_id&quot;:&quot;cont_a8b5e96e&quot;,&quot;contractor_name&quot;:&quot;TEST_Contractor_034523&quot;,&quot;contractor_type&quot;:&quot;Mason&quot;,&quot;description&quot;:&quot;TEST_WorkOrder_034646&quot;,&quot;total_amount&quot;:100000,&quot;payment_stages&quot;:[{&quot;stage_name&quot;:&quot;Stage 1 - Foundation&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000},{&quot;stage_name&quot;:&quot;Stage 2 - Structure&quot;,&quot;percentage&quot;:40,&quot;amount&quot;:40000},{&quot;stage_name&quot;:&quot;Stage 3 - Finishing&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000}]},&quot;url&quot;:&quot;https://errors.pydantic.dev/2.12/v/missing&quot;},{&quot;type&quot;:&quot;missing&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;requested_quantity&quot;],&quot;msg&quot;:&quot;Field required&quot;,&quot;input&quot;:{&quot;project_id&quot;:&quot;proj_12f23331b542&quot;,&quot;project_name&quot;:&quot;Mr. Vinoth Kumar Babu&quot;,&quot;contractor_id&quot;:&quot;cont_a8b5e96e&quot;,&quot;contractor_name&quot;:&quot;TEST_Contractor_034523&quot;,&quot;contractor_type&quot;:&quot;Mason&quot;,&quot;description&quot;:&quot;TEST_WorkOrder_034646&quot;,&quot;total_amount&quot;:100000,&quot;payment_stages&quot;:[{&quot;stage_name&quot;:&quot;Stage 1 - Foundation&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000},{&quot;stage_name&quot;:&quot;Stage 2 - Structure&quot;,&quot;percentage&quot;:40,&quot;amount&quot;:40000},{&quot;stage_name&quot;:&quot;Stage 3 - Finishing&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000}]},&quot;url&quot;:&quot;https://errors.pydantic.dev/2.12/v/missing&quot;},{&quot;type&quot;:&quot;missing&quot;,&quot;loc&quot;:[&quot;body&quot;,&quot;purpose&quot;],&quot;msg&quot;:&quot;Field required&quot;,&quot;input&quot;:{&quot;project_id&quot;:&quot;proj_12f23331b542&quot;,&quot;project_name&quot;:&quot;Mr. Vinoth Kumar Babu&quot;,&quot;contractor_id&quot;:&quot;cont_a8b5e96e&quot;,&quot;contractor_name&quot;:&quot;TEST_Contractor_034523&quot;,&quot;contractor_type&quot;:&quot;Mason&quot;,&quot;description&quot;:&quot;TEST_WorkOrder_034646&quot;,&quot;total_amount&quot;:100000,&quot;payment_stages&quot;:[{&quot;stage_name&quot;:&quot;Stage 1 - Foundation&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000},{&quot;stage_name&quot;:&quot;Stage 2 - Structure&quot;,&quot;percentage&quot;:40,&quot;amount&quot;:40000},{&quot;stage_name&quot;:&quot;Stage 3 - Finishing&quot;,&quot;percentage&quot;:30,&quot;amount&quot;:30000}]},&quot;url&quot;:&quot;https://errors.pydantic.dev/2.12/v/missing&quot;}]}&#10;assert 422 == 200&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_contractor_management.py:216: in test_create_work_order_with_payment_stages
+    assert res.status_code == 200, f"Failed: {res.text}"
+E   AssertionError: Failed: {"detail":[{"type":"missing","loc":["body","boq_id"],"msg":"Field required","input":{"project_id":"proj_12f23331b542","project_name":"Mr. Vinoth Kumar Babu","contractor_id":"cont_a8b5e96e","contractor_name":"TEST_Contractor_034523","contractor_type":"Mason","description":"TEST_WorkOrder_034646","total_amount":100000,"payment_stages":[{"stage_name":"Stage 1 - Foundation","percentage":30,"amount":30000},{"stage_name":"Stage 2 - Structure","percentage":40,"amount":40000},{"stage_name":"Stage 3 - Finishing","percentage":30,"amount":30000}]},"url":"https://errors.pydantic.dev/2.12/v/missing"},{"type":"missing","loc":["body","requested_quantity"],"msg":"Field required","input":{"project_id":"proj_12f23331b542","project_name":"Mr. Vinoth Kumar Babu","contractor_id":"cont_a8b5e96e","contractor_name":"TEST_Contractor_034523","contractor_type":"Mason","description":"TEST_WorkOrder_034646","total_amount":100000,"payment_stages":[{"stage_name":"Stage 1 - Foundation","percentage":30,"amount":30000},{"stage_name":"Stage 2 - Structure","percentage":40,"amount":40000},{"stage_name":"Stage 3 - Finishing","percentage":30,"amount":30000}]},"url":"https://errors.pydantic.dev/2.12/v/missing"},{"type":"missing","loc":["body","purpose"],"msg":"Field required","input":{"project_id":"proj_12f23331b542","project_name":"Mr. Vinoth Kumar Babu","contractor_id":"cont_a8b5e96e","contractor_name":"TEST_Contractor_034523","contractor_type":"Mason","description":"TEST_WorkOrder_034646","total_amount":100000,"payment_stages":[{"stage_name":"Stage 1 - Foundation","percentage":30,"amount":30000},{"stage_name":"Stage 2 - Structure","percentage":40,"amount":40000},{"stage_name":"Stage 3 - Finishing","percentage":30,"amount":30000}]},"url":"https://errors.pydantic.dev/2.12/v/missing"}]}
+E   assert 422 == 200
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase><testcase classname="tests.test_contractor_management" name="test_request_payment_by_site_engineer" time="3.982"><failure message="assert 422 == 200&#10; +  where 422 = &lt;Response [422]&gt;.status_code">tests/test_contractor_management.py:256: in test_request_payment_by_site_engineer
+    assert create_res.status_code == 200
+E   assert 422 == 200
+E    +  where 422 = &lt;Response [422]&gt;.status_code</failure></testcase><testcase classname="tests.test_contractor_management" name="test_review_approve_by_planning" time="2.658"><failure message="KeyError: 'work_order_id'">tests/test_contractor_management.py:295: in test_review_approve_by_planning
+    wo_id = work_order["work_order_id"]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'work_order_id'</failure></testcase><testcase classname="tests.test_contractor_management" name="test_create_labour_attendance" time="2.041"><skipped type="pytest.skip" message="No contractors or projects available">/app/backend/tests/test_contractor_management.py:323: No contractors or projects available</skipped></testcase><testcase classname="tests.test_contractor_management" name="test_get_labour_attendance" time="1.279"><skipped type="pytest.skip" message="No projects">/app/backend/tests/test_contractor_management.py:353: No projects</skipped></testcase><testcase classname="tests.test_contractor_management" name="test_get_daily_summary" time="1.275"><skipped type="pytest.skip" message="No projects">/app/backend/tests/test_contractor_management.py:370: No projects</skipped></testcase><testcase classname="tests.test_contractor_management" name="test_create_inventory_entry" time="1.268"><skipped type="pytest.skip" message="No projects">/app/backend/tests/test_contractor_management.py:394: No projects</skipped></testcase><testcase classname="tests.test_contractor_management" name="test_get_material_inventory" time="0.013"><failure message="requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:644: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:474: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+During handling of the above exception, another exception occurred:
+tests/test_contractor_management.py:419: in test_get_material_inventory
+    projects = session.get(f"{BASE_URL}/api/projects").json()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:602: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:659: in send
+    raise ConnectionError(err, request=request)
+E   requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))</failure></testcase><testcase classname="tests.test_contractor_management" name="test_get_latest_inventory" time="1.426"><skipped type="pytest.skip" message="No projects">/app/backend/tests/test_contractor_management.py:439: No projects</skipped></testcase><testcase classname="tests.test_contractor_management" name="test_get_project_contractor_assignments" time="0.014"><failure message="requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))">/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   http.client.RemoteDisconnected: Remote end closed connection without response
+
+During handling of the above exception, another exception occurred:
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:644: in send
+    resp = conn.urlopen(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:841: in urlopen
+    retries = retries.increment(
+/root/.venv/lib/python3.11/site-packages/urllib3/util/retry.py:474: in increment
+    raise reraise(type(error), error, _stacktrace)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/util/util.py:38: in reraise
+    raise value.with_traceback(tb)
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:787: in urlopen
+    response = self._make_request(
+/root/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py:534: in _make_request
+    response = conn.getresponse()
+               ^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/urllib3/connection.py:571: in getresponse
+    httplib_response = super().getresponse()
+                       ^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:1395: in getresponse
+    response.begin()
+/usr/local/lib/python3.11/http/client.py:325: in begin
+    version, status, reason = self._read_status()
+                              ^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.11/http/client.py:294: in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+E   urllib3.exceptions.ProtocolError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+
+During handling of the above exception, another exception occurred:
+tests/test_contractor_management.py:455: in test_get_project_contractor_assignments
+    projects = session.get(f"{BASE_URL}/api/projects").json()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:602: in get
+    return self.request("GET", url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:589: in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/sessions.py:703: in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/root/.venv/lib/python3.11/site-packages/requests/adapters.py:659: in send
+    raise ConnectionError(err, request=request)
+E   requests.exceptions.ConnectionError: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))</failure></testcase></testsuite></testsuites>

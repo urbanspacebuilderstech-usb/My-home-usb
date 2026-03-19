@@ -1,0 +1,104 @@
+{
+  "summary": "Contractor Management System testing completed. Backend contractor CRUD and categories APIs working (10/18 tests passed - 55%). Frontend fully working: ContractorManagement page loads with 3-tab create dialog, contractor detail view with 3 tabs, ProjectDetail Labour tab with Work Orders/Attendance sub-tabs, Materials tab with Inventory sub-tab. CRITICAL BUG: /api/work-orders POST endpoint conflict - contractors.py route shadowed by projects.py route.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/work-orders (contractors.py)",
+        "issue": "Route conflict - projects.py POST /api/work-orders registered first, shadows contractors.py work-orders endpoint. Requests require boq_id, requested_quantity, purpose instead of contractor work order fields.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "Various endpoints",
+        "issue": "Rate limiting (429) caused some test failures - needed session reuse optimization"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Contractor Detail Dialog",
+        "issues": ["Minor console warning: '<div> cannot be a descendant of <p>' in DialogDescription - Badge inside DialogDescription causing HTML nesting issue"]
+      },
+      {
+        "screen": "AppHeader Navigation",
+        "issues": ["Console warning: 'Encountered two children with the same key /planning-board' - duplicate nav items"]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_contractor_management.py",
+    "/app/test_reports/pytest/pytest_contractor_management.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix route conflict - POST /api/work-orders in contractors.py is shadowed by projects.py. Options: (1) Rename contractors.py route to /api/contractor-work-orders, (2) Reorder router registration, or (3) Merge work order logic",
+    "Fix Badge inside DialogDescription HTML nesting issue in ContractorManagement.jsx line 346-347",
+    "Fix duplicate nav key '/planning-board' in AppHeader.jsx planning role config"
+  ],
+  "critical_code_review_comments": [
+    "ROUTE CONFLICT: contractors.py lines 188-261 define /work-orders routes that are shadowed by projects.py lines 157-212 since projects_router is registered before contractors_router in server.py",
+    "contractors.py work order structure is different from projects.py - contractors version uses payment_stages, projects version uses boq_id",
+    "AppHeader.jsx line 43-49: Planning role nav has duplicate '/planning-board' paths (Planning Board and BOQ both point there)"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_contractor_management.py"
+  ],
+  "success_rate": {
+    "backend": "55% (10/18 passed, 8 failed due to route conflict and rate limiting)",
+    "frontend": "100%"
+  },
+  "test_credentials": {
+    "planning": "planning@constructionos.com / Demo@1234",
+    "site_engineer": "engineer@constructionos.com / Demo@1234",
+    "super_admin": "admin@constructionos.com / Demo@1234"
+  },
+  "seed_data_creation": "Backend tests created TEST_ prefixed contractors and categories",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Contractor Management feature partially implemented. The contractor CRUD APIs work, but work order APIs for contractors are blocked by route conflict with projects.py. Frontend ContractorManagement page fully working at /contractor-management with proper tabs. ProjectDetail.jsx has Labours tab (line 1557) with Work Orders/Attendance sub-tabs (lines 3633-3635) and Materials tab with Inventory sub-tab (line 3262). The route conflict needs immediate attention before work orders/attendance/inventory can be tested end-to-end.",
+  "verified_features": {
+    "backend_apis": {
+      "GET /api/contractor-categories": "PASS - Returns categories list",
+      "POST /api/contractor-categories": "PASS - Creates new category, rejects duplicates",
+      "GET /api/contractors": "PASS - Returns contractor list, supports ?category filter",
+      "POST /api/contractors": "PASS - Creates contractor with labour_types array",
+      "GET /api/contractors/{id}": "PASS - Returns single contractor",
+      "PATCH /api/contractors/{id}": "PASS - Updates contractor fields",
+      "GET /api/contractors/{id}/summary": "PASS - Returns work_orders, stats",
+      "GET /api/work-orders": "PASS - Returns work orders list",
+      "POST /api/work-orders": "FAIL - Route conflict, requires boq_id instead of contractor fields",
+      "PATCH /api/work-orders/{wo_id}/stages/{stage_id}/request-payment": "BLOCKED - Depends on work order creation",
+      "PATCH /api/work-orders/{wo_id}/stages/{stage_id}/review": "BLOCKED - Depends on work order creation",
+      "POST /api/labour-attendance": "NOT TESTED - Blocked by route issues",
+      "GET /api/labour-attendance": "NOT TESTED",
+      "GET /api/labour-attendance/daily-summary": "NOT TESTED",
+      "POST /api/material-inventory": "NOT TESTED",
+      "GET /api/material-inventory": "NOT TESTED",
+      "GET /api/material-inventory/latest": "NOT TESTED",
+      "GET /api/projects/{project_id}/contractor-assignments": "NOT TESTED"
+    },
+    "frontend_ui": {
+      "ContractorManagement page at /contractor-management": "PASS",
+      "Create contractor dialog with 3 tabs": "PASS - Basic Details, Labour Types, Account & GST",
+      "Contractor detail view with 3 tabs": "PASS - Details & Labour, Work Orders, Payment Summary",
+      "Contractor cards display with labour types/costs": "PASS",
+      "Planning header 'Contractors' nav link": "PASS",
+      "ProjectDetail Labour tab": "PASS - data-testid='tab-labours'",
+      "ProjectDetail Labour sub-tabs": "PASS - Labour Requests, Work Orders, Attendance",
+      "ProjectDetail Materials tab": "PASS - data-testid='tab-materials'",
+      "ProjectDetail Materials Inventory sub-tab": "PASS - data-testid='subtab-inventory' with Stock Entry button"
+    }
+  },
+  "rca_of_issue": {
+    "issue": "POST /api/work-orders fails with 422 requiring boq_id",
+    "root_cause": "In server.py, projects_router is included before contractors_router. Both routers define POST /api/work-orders. FastAPI matches first registered route - projects.py version requires boq_id, requested_quantity, purpose per WorkOrderCreate model at line 177-181",
+    "reproduction_steps": [
+      "POST to /api/work-orders with contractor work order payload (project_id, contractor_id, payment_stages)",
+      "Error: 422 Unprocessable Entity - boq_id, requested_quantity, purpose required"
+    ],
+    "mitigation": "Either (1) rename contractors.py work order routes to /api/contractor-work-orders, (2) reorder router includes in server.py, or (3) consolidate work order logic into single router"
+  }
+}
