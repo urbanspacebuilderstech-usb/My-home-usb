@@ -1616,17 +1616,17 @@ export default function ProjectDetail() {
                           <DialogTitle>Add Multiple Scope Items</DialogTitle>
                           <DialogDescription>Add rows as needed. Use X to remove empty rows.</DialogDescription>
                         </DialogHeader>
-                        <div className="overflow-x-auto">
+                        <div>
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-2 py-2 text-left w-8">#</th>
-                                <th className="px-2 py-2 text-left">Item Name *</th>
+                                <th className="px-2 py-2 text-left min-w-[180px]">Item Name *</th>
                                 <th className="px-2 py-2 text-left w-20">Qty</th>
-                                <th className="px-2 py-2 text-left w-20">Unit</th>
-                                <th className="px-2 py-2 text-left w-28">Rate (₹) *</th>
+                                <th className="px-2 py-2 text-left w-32">Unit</th>
+                                <th className="px-2 py-2 text-left w-32">Rate (₹) *</th>
                                 <th className="px-2 py-2 text-left w-28">Total</th>
-                                <th className="px-2 py-2 text-left">Remarks</th>
+                                <th className="px-2 py-2 text-left min-w-[120px]">Remarks</th>
                                 <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
