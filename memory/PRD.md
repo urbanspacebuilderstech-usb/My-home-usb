@@ -153,6 +153,14 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
 | PATCH | /api/financial/indirect-costs/{id}/approve | Approve/reject |
 | PATCH | /api/financial/indirect-costs/{id}/confirm | Confirm payment + auto-distribute |
 
+- [x] **Sales Rough Estimate Requirement Popup (Mar 19, 2026)**:
+  - When Sales moves a lead to "Rough Estimate Requested" stage, popup with large text area appears
+  - Sales types rough client requirements (building type, size, budget, etc.)
+  - Requirement stored in RE project and sent to Planning team
+  - Planning sees the rough requirement in amber card on RE Projects page (both card listing and detail view)
+  - Backward compatible: works even without rough requirement
+  - Backend: Added rough_requirement field to LeadStageUpdate model and RE project creation
+
 - [x] **Monthly Payment Schedule System (Mar 19, 2026)**:
   - Planning creates monthly schedules by selecting project stages per month
   - Auto-carryover: Uncollected stages from previous months auto-appear as "Due from [month]"
