@@ -173,6 +173,14 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Backend: 6 new endpoints for schedule CRUD, add-stages, request-payment, months-list
   - Role-based: Planning has full access, CRE has read-only, Super Admin sees all
 
+- [x] **Standardized Unit Dropdown Sitewide (Mar 19, 2026)**:
+  - Created reusable `UnitSelect.jsx` component with searchable dropdown and category grouping
+  - 75 construction industry units organized in 9 categories: Count, Weight, Volume, Area, Length, Packaging, Transport, Construction, Work
+  - Replaced old unit inputs across 5 pages: PlanningBoard, SiteEngineerProject, REProjectsPage, PackageManagement, MaterialManagement
+  - Removed all hardcoded UNITS/MATERIAL_UNITS arrays
+  - Search filters by unit label, value, or category name
+  - Selected unit shows checkmark, grouped by category headers
+
 - [x] **Material Request Workflow Fix (Mar 18, 2026)**:
   - Fixed broken Planning Board → Requests tab (endpoints returned 404)
   - Created 4 new endpoints: GET /api/material-requests, GET /api/labour-expenses, PATCH /api/material-requests/{id}/planning-action, PATCH /api/labour-expenses/{id}/planning-action
@@ -180,7 +188,11 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Fixed React key warning on Planning Board
 
 ## Backlog
+- [ ] Escrow Account Integration (P0)
+- [ ] Two-Factor Authentication (2FA) via mobile OTP (P0)
+- [ ] Advanced Cybersecurity Practices (P1)
 - [ ] Aadhar Document Upload with encrypted storage (P1)
+- [ ] Cash Denomination feature (P2 - Paused)
 - [ ] UI/UX review across all screens (P2)
 - [ ] Convert to SaaS model (multi-tenancy, subscriptions) (P2)
 - [ ] Production deployment guidance (P2)
