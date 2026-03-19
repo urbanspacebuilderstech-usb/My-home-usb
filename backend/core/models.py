@@ -318,9 +318,23 @@ class VendorMaster(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    # Vendor type / category
+    vendor_type: Optional[str] = None
+    # Bank / Account details
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_id: Optional[str] = None
+    # Brands per material category
+    brands: List[Dict[str, Any]] = []  # [{category: str, brand_names: [str]}]
+    # Payment
+    payment_cycle: Optional[str] = None  # immediate, 15_days, 30_days, 45_days, 60_days, 90_days
+    # GST
     gst_number: Optional[str] = None
-    materials_supplied: List[str] = []  # List of material_ids
-    payment_terms: str = "full"  # credit, advance, full
+    gst_type: Optional[str] = None  # regular, composition, unregistered
+    # Existing fields
+    materials_supplied: List[str] = []
+    payment_terms: str = "full"
     credit_limit: float = 0
     credit_days: int = 0
     is_active: bool = True

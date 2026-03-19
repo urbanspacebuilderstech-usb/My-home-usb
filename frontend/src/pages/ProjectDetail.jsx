@@ -5,7 +5,7 @@ import {
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
-  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat
+  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -438,6 +438,13 @@ export default function ProjectDetail() {
   const [teamData, setTeamData] = useState({ project_manager: null, sr_site_engineers: [], site_engineers: [] });
   const [materialsData, setMaterialsData] = useState({ summary: {}, materials: [] });
   const [laboursData, setLaboursData] = useState({ summary: {}, labours: [] });
+  const [vendorAssignments, setVendorAssignments] = useState([]);
+  const [allVendors, setAllVendors] = useState([]);
+  const [vendorCategories, setVendorCategories] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [materialSubTab, setMaterialSubTab] = useState('materials');
+  const [assignVendorDialog, setAssignVendorDialog] = useState(false);
+  const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
 
   // Team editing state
   const [teamEditDialog, setTeamEditDialog] = useState(false);
@@ -462,7 +469,7 @@ export default function ProjectDetail() {
       }
       
       // Run ALL data fetches in parallel
-      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes] = await Promise.all([
+      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/full-details`),
         axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
@@ -472,6 +479,10 @@ export default function ProjectDetail() {
         axios.get(`${API}/projects/${projectId}/team`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/materials-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/labours-summary`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/vendor-assignments`).catch(() => null),
+        axios.get(`${API}/vendor-master`).catch(() => null),
+        axios.get(`${API}/vendor-categories`).catch(() => null),
+        axios.get(`${API}/purchase-orders?project_id=${projectId}`).catch(() => null),
       ]);
       
       setProjectData(projectRes.data);
@@ -483,6 +494,10 @@ export default function ProjectDetail() {
       if (teamRes) setTeamData(teamRes.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
       if (materialsRes) setMaterialsData(materialsRes.data || { summary: {}, materials: [] });
       if (laboursRes) setLaboursData(laboursRes.data || { summary: {}, labours: [] });
+      if (vendorAssignRes) setVendorAssignments(vendorAssignRes.data || []);
+      if (vendorsRes) setAllVendors(vendorsRes.data || []);
+      if (vendorCatsRes) setVendorCategories(vendorCatsRes.data || []);
+      if (poRes) setPurchaseOrders(poRes.data || []);
       
       // Fetch RE project if available (depends on projectRes)
       if (projectRes.data.project?.re_project_id) {
@@ -567,6 +582,41 @@ export default function ProjectDetail() {
       const res = await axios.get(`${API}/projects/${projectId}/materials-summary`);
       setMaterialsData(res.data || { summary: {}, materials: [] });
     } catch { /* No materials data */ }
+  };
+
+  const fetchVendorData = async () => {
+    try {
+      const [aRes, vRes, cRes, poRes] = await Promise.all([
+        axios.get(`${API}/projects/${projectId}/vendor-assignments`),
+        axios.get(`${API}/vendor-master`),
+        axios.get(`${API}/vendor-categories`),
+        axios.get(`${API}/purchase-orders?project_id=${projectId}`)
+      ]);
+      setVendorAssignments(aRes.data || []);
+      setAllVendors(vRes.data || []);
+      setVendorCategories(cRes.data || []);
+      setPurchaseOrders(poRes.data || []);
+    } catch { /* ignore */ }
+  };
+
+  const handleAssignVendor = async () => {
+    if (!assignForm.category || !assignForm.vendor_id) return toast.error('Select category and vendor');
+    try {
+      await axios.post(`${API}/projects/${projectId}/vendor-assignments`, assignForm);
+      toast.success('Vendor assigned');
+      setAssignVendorDialog(false);
+      setAssignForm({ category: '', vendor_id: '', brand: '' });
+      fetchVendorData();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleRemoveAssignment = async (category) => {
+    if (!window.confirm('Remove this vendor assignment?')) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/vendor-assignments/${encodeURIComponent(category)}`);
+      toast.success('Removed');
+      fetchVendorData();
+    } catch { toast.error('Failed to remove'); }
   };
 
   const fetchLaboursData = async () => {
@@ -3094,82 +3144,297 @@ export default function ProjectDetail() {
             {/* ==================== MATERIALS TAB ==================== */}
             <TabsContent value="materials" className="p-3 sm:p-6">
               <div className="space-y-4">
-                <h3 className="text-base font-bold flex items-center gap-2">
-                  <Package className="h-5 w-5 text-orange-600" />Materials
-                </h3>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" data-testid="materials-summary">
-                  <div className="rounded-lg p-3 text-center border bg-gray-50">
-                    <p className="text-xl font-bold">{materialsData.summary.total_requests || 0}</p>
-                    <p className="text-xs text-gray-500">Total Requests</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
-                    <p className="text-xl font-bold text-amber-700">{materialsData.summary.requested || 0}</p>
-                    <p className="text-xs text-gray-500">Pending</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
-                    <p className="text-xl font-bold text-blue-700">{materialsData.summary.in_progress || 0}</p>
-                    <p className="text-xs text-gray-500">In Progress</p>
-                  </div>
-                  <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
-                    <p className="text-xl font-bold text-green-700">{materialsData.summary.delivered || 0}</p>
-                    <p className="text-xs text-gray-500">Delivered</p>
-                  </div>
-                  {!isPM && materialsData.summary.total_cost !== undefined && (
-                    <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
-                      <p className="text-xl font-bold text-purple-700">{formatCurrency(materialsData.summary.total_cost || 0)}</p>
-                      <p className="text-xs text-gray-500">Total Cost</p>
-                    </div>
-                  )}
+                <div className="flex justify-between items-center">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <Package className="h-5 w-5 text-orange-600" />Materials in Project
+                  </h3>
                 </div>
 
-                {/* Materials Table */}
-                {materialsData.materials.length > 0 ? (
-                  <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm" data-testid="materials-table">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                          <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
-                          <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
-                          {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {materialsData.materials.map(m => (
-                          <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
-                            <td className="px-3 py-2.5">
-                              <p className="font-medium">{m.material_name}</p>
-                              {m.remarks && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.remarks}</p>}
-                            </td>
-                            <td className="px-3 py-2.5 text-center">{m.quantity} {m.unit || ''}</td>
-                            <td className="px-3 py-2.5 text-center text-xs">{m.stage || '-'}</td>
-                            <td className="px-3 py-2.5 text-center">
-                              <Badge variant="outline" className={`text-xs capitalize ${
-                                m.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
-                                ['delivered','received','received_partial'].includes(m.status) ? 'border-green-300 text-green-700 bg-green-50' :
-                                ['accounts_approved','payment_approved'].includes(m.status) ? 'border-blue-300 text-blue-700 bg-blue-50' :
-                                'border-gray-300'
-                              }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
-                            </td>
-                            <td className="px-3 py-2.5 text-xs">{m.vendor_name || '-'}</td>
-                            <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
-                            {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-400">
-                    <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No material requests for this project</p>
-                  </div>
-                )}
+                {/* Sub-tabs */}
+                <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
+                  <TabsList className="grid grid-cols-4 w-full">
+                    <TabsTrigger value="materials" data-testid="subtab-materials">Materials</TabsTrigger>
+                    <TabsTrigger value="vendors" data-testid="subtab-vendors">Vendors</TabsTrigger>
+                    <TabsTrigger value="orders" data-testid="subtab-orders">Orders Status</TabsTrigger>
+                    <TabsTrigger value="payments" data-testid="subtab-payments">Payment Status</TabsTrigger>
+                  </TabsList>
+
+                  {/* MATERIALS SUB-TAB */}
+                  <TabsContent value="materials" className="mt-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4" data-testid="materials-summary">
+                      <div className="rounded-lg p-3 text-center border bg-gray-50">
+                        <p className="text-xl font-bold">{materialsData.summary.total_requests || 0}</p>
+                        <p className="text-xs text-gray-500">Total Requests</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
+                        <p className="text-xl font-bold text-amber-700">{materialsData.summary.requested || 0}</p>
+                        <p className="text-xs text-gray-500">Pending</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                        <p className="text-xl font-bold text-blue-700">{materialsData.summary.in_progress || 0}</p>
+                        <p className="text-xs text-gray-500">In Progress</p>
+                      </div>
+                      <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                        <p className="text-xl font-bold text-green-700">{materialsData.summary.delivered || 0}</p>
+                        <p className="text-xs text-gray-500">Delivered</p>
+                      </div>
+                      {!isPM && materialsData.summary.total_cost !== undefined && (
+                        <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
+                          <p className="text-xl font-bold text-purple-700">{formatCurrency(materialsData.summary.total_cost || 0)}</p>
+                          <p className="text-xs text-gray-500">Total Cost</p>
+                        </div>
+                      )}
+                    </div>
+                    {materialsData.materials.length > 0 ? (
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full text-sm" data-testid="materials-table">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Qty</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Requested By</th>
+                              {!isPM && <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {materialsData.materials.map(m => (
+                              <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
+                                <td className="px-3 py-2.5">
+                                  <p className="font-medium">{m.material_name}</p>
+                                  {m.remarks && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.remarks}</p>}
+                                </td>
+                                <td className="px-3 py-2.5 text-center">{m.quantity} {m.unit || ''}</td>
+                                <td className="px-3 py-2.5 text-center text-xs">{m.stage || '-'}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <Badge variant="outline" className={`text-xs capitalize ${
+                                    m.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                    ['delivered','received','received_partial'].includes(m.status) ? 'border-green-300 text-green-700 bg-green-50' :
+                                    ['accounts_approved','payment_approved'].includes(m.status) ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                                    'border-gray-300'
+                                  }`}>{(m.status || '').replace(/_/g, ' ')}</Badge>
+                                </td>
+                                <td className="px-3 py-2.5 text-xs">{m.vendor_name || '-'}</td>
+                                <td className="px-3 py-2.5 text-xs">{m.site_engineer_name || '-'}</td>
+                                {!isPM && <td className="px-3 py-2.5 text-right font-medium">{m.total_amount ? formatCurrency(m.total_amount) : '-'}</td>}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <Package className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No material requests for this project</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {/* VENDORS SUB-TAB */}
+                  <TabsContent value="vendors" className="mt-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <p className="text-sm text-gray-500">{vendorAssignments.length} vendor assignments</p>
+                      {['super_admin','planning','procurement'].includes(user?.role) && (
+                        <Button size="sm" data-testid="assign-vendor-btn" onClick={() => setAssignVendorDialog(true)}>
+                          <Plus className="h-4 w-4 mr-1" /> Assign Vendor
+                        </Button>
+                      )}
+                    </div>
+                    {vendorAssignments.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm" data-testid="vendor-assignments-table">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {vendorAssignments.map(a => (
+                              <tr key={a.assignment_id || a.category} className="hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-medium">{a.category}</td>
+                                <td className="px-3 py-2.5">{a.vendor_name}</td>
+                                <td className="px-3 py-2.5">{a.brand || '-'}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  {['super_admin','planning','procurement'].includes(user?.role) && (
+                                    <Button variant="ghost" size="sm" className="text-red-500 h-7" onClick={() => handleRemoveAssignment(a.category)}>
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <Building2 className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No vendors assigned to this project yet</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {/* ORDERS STATUS SUB-TAB */}
+                  <TabsContent value="orders" className="mt-4">
+                    {purchaseOrders.length > 0 ? (
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PO ID</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                              <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {purchaseOrders.map(po => (
+                              <tr key={po.po_id} className="hover:bg-gray-50">
+                                <td className="px-3 py-2.5 font-mono text-xs">{po.po_id}</td>
+                                <td className="px-3 py-2.5">{po.vendor_name || '-'}</td>
+                                <td className="px-3 py-2.5 text-right font-medium">{formatCurrency(po.total_amount || 0)}</td>
+                                <td className="px-3 py-2.5 text-center">
+                                  <Badge variant="outline" className={`text-xs capitalize ${
+                                    po.status === 'delivered' ? 'border-green-300 text-green-700 bg-green-50' :
+                                    po.status === 'approved' ? 'border-blue-300 text-blue-700 bg-blue-50' :
+                                    po.status === 'cancelled' ? 'border-red-300 text-red-700 bg-red-50' :
+                                    'border-amber-300 text-amber-700 bg-amber-50'
+                                  }`}>{po.status}</Badge>
+                                </td>
+                                <td className="px-3 py-2.5 text-xs">{po.created_at?.split('T')[0]}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No purchase orders for this project</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {/* PAYMENT STATUS SUB-TAB */}
+                  <TabsContent value="payments" className="mt-4">
+                    {purchaseOrders.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-3 gap-3 mb-4">
+                          <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
+                            <p className="text-xl font-bold text-blue-700">{formatCurrency(purchaseOrders.reduce((s, po) => s + (po.total_amount || 0), 0))}</p>
+                            <p className="text-xs text-gray-500">Total Order Value</p>
+                          </div>
+                          <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
+                            <p className="text-xl font-bold text-green-700">{formatCurrency(purchaseOrders.reduce((s, po) => s + (po.paid_amount || 0), 0))}</p>
+                            <p className="text-xs text-gray-500">Paid</p>
+                          </div>
+                          <div className="rounded-lg p-3 text-center border bg-red-50 border-red-200">
+                            <p className="text-xl font-bold text-red-700">{formatCurrency(purchaseOrders.reduce((s, po) => s + ((po.total_amount || 0) - (po.paid_amount || 0)), 0))}</p>
+                            <p className="text-xs text-gray-500">Pending</p>
+                          </div>
+                        </div>
+                        <div className="border rounded-lg overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Order Amount</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Paid</th>
+                                <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Pending</th>
+                                <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Payment Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {purchaseOrders.map(po => (
+                                <tr key={po.po_id} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2.5 font-medium">{po.vendor_name || '-'}</td>
+                                  <td className="px-3 py-2.5 text-right">{formatCurrency(po.total_amount || 0)}</td>
+                                  <td className="px-3 py-2.5 text-right text-green-600">{formatCurrency(po.paid_amount || 0)}</td>
+                                  <td className="px-3 py-2.5 text-right text-red-600">{formatCurrency((po.total_amount || 0) - (po.paid_amount || 0))}</td>
+                                  <td className="px-3 py-2.5 text-center">
+                                    <Badge variant="outline" className={`text-xs capitalize ${
+                                      po.payment_status === 'paid' ? 'border-green-300 text-green-700 bg-green-50' :
+                                      po.payment_status === 'partial' ? 'border-amber-300 text-amber-700 bg-amber-50' :
+                                      'border-red-300 text-red-700 bg-red-50'
+                                    }`}>{po.payment_status || 'unpaid'}</Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-gray-400">
+                        <CreditCard className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">No payment data for this project</p>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
+
+                {/* Assign Vendor Dialog */}
+                <Dialog open={assignVendorDialog} onOpenChange={setAssignVendorDialog}>
+                  <DialogContent className="max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Assign Vendor to Project</DialogTitle>
+                      <DialogDescription>Select a category, vendor, and optional brand.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-2">
+                      <div>
+                        <Label>Material Category *</Label>
+                        <Select value={assignForm.category} onValueChange={v => setAssignForm({ ...assignForm, category: v })}>
+                          <SelectTrigger data-testid="assign-category"><SelectValue placeholder="Select category" /></SelectTrigger>
+                          <SelectContent>
+                            {vendorCategories.map(c => (
+                              <SelectItem key={c.category_id} value={c.name}>{c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label>Vendor *</Label>
+                        <Select value={assignForm.vendor_id} onValueChange={v => {
+                          setAssignForm({ ...assignForm, vendor_id: v, brand: '' });
+                        }}>
+                          <SelectTrigger data-testid="assign-vendor"><SelectValue placeholder="Select vendor" /></SelectTrigger>
+                          <SelectContent>
+                            {allVendors.filter(v => !assignForm.category || v.vendor_type === assignForm.category || v.brands?.some(b => b.category === assignForm.category))
+                              .map(v => <SelectItem key={v.vendor_id} value={v.vendor_id}>{v.name}</SelectItem>)}
+                            {allVendors.filter(v => !assignForm.category || v.vendor_type === assignForm.category || v.brands?.some(b => b.category === assignForm.category)).length === 0 && (
+                              allVendors.map(v => <SelectItem key={v.vendor_id} value={v.vendor_id}>{v.name}</SelectItem>)
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {assignForm.vendor_id && (() => {
+                        const vendor = allVendors.find(v => v.vendor_id === assignForm.vendor_id);
+                        const brands = vendor?.brands?.find(b => b.category === assignForm.category)?.brand_names || [];
+                        return brands.length > 0 ? (
+                          <div>
+                            <Label>Brand</Label>
+                            <Select value={assignForm.brand} onValueChange={v => setAssignForm({ ...assignForm, brand: v })}>
+                              <SelectTrigger data-testid="assign-brand"><SelectValue placeholder="Select brand" /></SelectTrigger>
+                              <SelectContent>
+                                {brands.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        ) : null;
+                      })()}
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setAssignVendorDialog(false)}>Cancel</Button>
+                        <Button data-testid="confirm-assign-btn" onClick={handleAssignVendor}>Assign</Button>
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
             </TabsContent>
 

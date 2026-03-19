@@ -2115,7 +2115,15 @@ class VendorMasterCreate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    vendor_type: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_id: Optional[str] = None
+    brands: List[dict] = []
+    payment_cycle: Optional[str] = None
     gst_number: Optional[str] = None
+    gst_type: Optional[str] = None
     materials_supplied: List[str] = []
     payment_terms: str = "full"
     credit_limit: float = 0
@@ -2128,7 +2136,15 @@ class VendorMasterUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
+    vendor_type: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    upi_id: Optional[str] = None
+    brands: Optional[List[dict]] = None
+    payment_cycle: Optional[str] = None
     gst_number: Optional[str] = None
+    gst_type: Optional[str] = None
     materials_supplied: Optional[List[str]] = None
     payment_terms: Optional[str] = None
     credit_limit: Optional[float] = None
@@ -2193,7 +2209,15 @@ async def create_vendor_master(
         phone=vendor_input.phone,
         email=vendor_input.email,
         address=vendor_input.address,
+        vendor_type=vendor_input.vendor_type,
+        bank_name=vendor_input.bank_name,
+        account_number=vendor_input.account_number,
+        ifsc_code=vendor_input.ifsc_code,
+        upi_id=vendor_input.upi_id,
+        brands=vendor_input.brands,
+        payment_cycle=vendor_input.payment_cycle,
         gst_number=vendor_input.gst_number,
+        gst_type=vendor_input.gst_type,
         materials_supplied=vendor_input.materials_supplied,
         payment_terms=vendor_input.payment_terms,
         credit_limit=vendor_input.credit_limit,
@@ -2253,6 +2277,241 @@ async def delete_vendor_master(vendor_id: str, user: User = Depends(get_current_
     await create_audit_log(user.user_id, "delete", "vendor_master", vendor_id, {})
     
     return {"message": "Vendor deleted"}
+
+
+
+# ==================== VENDOR CATEGORIES ====================
+
+@router.get("/vendor-categories")
+async def get_vendor_categories(user: User = Depends(get_current_user)):
+    """Get all vendor categories"""
+    cats = await db.vendor_categories.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return cats
+
+
+@router.post("/vendor-categories")
+async def create_vendor_category(data: dict, user: User = Depends(get_current_user)):
+    """Create a new vendor category - any authorized user can add"""
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name required")
+    existing = await db.vendor_categories.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Category already exists")
+    cat = {
+        "category_id": f"vcat_{uuid.uuid4().hex[:8]}",
+        "name": name,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.vendor_categories.insert_one(cat)
+    cat.pop("_id", None)
+    return cat
+
+
+# ==================== VENDOR DETAIL / SUMMARY ====================
+
+@router.get("/vendor-master/{vendor_id}/summary")
+async def get_vendor_summary(vendor_id: str, user: User = Depends(get_current_user)):
+    """Get vendor summary: orders, payments, projects"""
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    # Get purchase orders for this vendor
+    orders = await db.purchase_orders.find(
+        {"vendor_id": vendor_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    # Get project assignments
+    assignments = await db.project_vendor_assignments.find(
+        {"vendor_id": vendor_id}, {"_id": 0}
+    ).to_list(500)
+
+    # Calculate totals
+    total_orders = len(orders)
+    total_order_value = sum(o.get("total_amount", 0) for o in orders)
+    paid_amount = sum(o.get("paid_amount", 0) for o in orders)
+    pending_amount = total_order_value - paid_amount
+
+    # Get unique project IDs
+    project_ids = list(set(
+        [o.get("project_id") for o in orders if o.get("project_id")] +
+        [a.get("project_id") for a in assignments if a.get("project_id")]
+    ))
+    projects = []
+    if project_ids:
+        projects = await db.projects.find(
+            {"project_id": {"$in": project_ids}},
+            {"_id": 0, "project_id": 1, "name": 1, "client_name": 1}
+        ).to_list(500)
+
+    return {
+        "vendor": vendor,
+        "orders": orders,
+        "assignments": assignments,
+        "projects": projects,
+        "stats": {
+            "total_orders": total_orders,
+            "total_order_value": total_order_value,
+            "paid_amount": paid_amount,
+            "pending_amount": pending_amount,
+            "project_count": len(project_ids)
+        }
+    }
+
+
+# ==================== PROJECT VENDOR ASSIGNMENTS ====================
+
+@router.get("/projects/{project_id}/vendor-assignments")
+async def get_project_vendor_assignments(project_id: str, user: User = Depends(get_current_user)):
+    """Get vendor assignments for a project"""
+    assignments = await db.project_vendor_assignments.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).to_list(500)
+    return assignments
+
+
+@router.post("/projects/{project_id}/vendor-assignments")
+async def assign_vendor_to_project(project_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Assign a vendor to a project for a specific material category"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    vendor_id = data.get("vendor_id")
+    category = data.get("category")
+    brand = data.get("brand", "")
+
+    if not vendor_id or not category:
+        raise HTTPException(status_code=400, detail="vendor_id and category required")
+
+    vendor = await db.vendor_master.find_one({"vendor_id": vendor_id}, {"_id": 0, "vendor_id": 1, "name": 1})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    # Upsert assignment
+    assignment_id = f"pva_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    existing = await db.project_vendor_assignments.find_one({
+        "project_id": project_id, "category": category
+    })
+
+    if existing:
+        await db.project_vendor_assignments.update_one(
+            {"project_id": project_id, "category": category},
+            {"$set": {
+                "vendor_id": vendor_id,
+                "vendor_name": vendor["name"],
+                "brand": brand,
+                "updated_by": user.user_id,
+                "updated_at": now
+            }}
+        )
+        return {"message": "Assignment updated"}
+    else:
+        assignment = {
+            "assignment_id": assignment_id,
+            "project_id": project_id,
+            "project_name": project.get("name", ""),
+            "vendor_id": vendor_id,
+            "vendor_name": vendor["name"],
+            "category": category,
+            "brand": brand,
+            "created_by": user.user_id,
+            "created_at": now,
+            "updated_at": now
+        }
+        await db.project_vendor_assignments.insert_one(assignment)
+        assignment.pop("_id", None)
+        return assignment
+
+
+@router.delete("/projects/{project_id}/vendor-assignments/{category}")
+async def remove_vendor_assignment(project_id: str, category: str, user: User = Depends(get_current_user)):
+    """Remove a vendor assignment from a project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    result = await db.project_vendor_assignments.delete_one({"project_id": project_id, "category": category})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    return {"message": "Assignment removed"}
+
+
+# ==================== PURCHASE ORDERS ====================
+
+@router.get("/purchase-orders")
+async def get_purchase_orders(
+    project_id: Optional[str] = None,
+    vendor_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get purchase orders with filters"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    query = {}
+    if project_id:
+        query["project_id"] = project_id
+    if vendor_id:
+        query["vendor_id"] = vendor_id
+    if status:
+        query["status"] = status
+    orders = await db.purchase_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return orders
+
+
+@router.post("/purchase-orders")
+async def create_purchase_order(data: dict, user: User = Depends(get_current_user)):
+    """Create a purchase order (usually auto-created from approved material request)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    now = datetime.now(timezone.utc).isoformat()
+    po = {
+        "po_id": f"po_{uuid.uuid4().hex[:8]}",
+        "project_id": data.get("project_id"),
+        "project_name": data.get("project_name", ""),
+        "vendor_id": data.get("vendor_id"),
+        "vendor_name": data.get("vendor_name", ""),
+        "material_request_id": data.get("material_request_id"),
+        "items": data.get("items", []),
+        "total_amount": data.get("total_amount", 0),
+        "paid_amount": 0,
+        "status": "pending",  # pending, approved, dispatched, delivered, cancelled
+        "payment_status": "unpaid",  # unpaid, partial, paid
+        "notes": data.get("notes", ""),
+        "created_by": user.user_id,
+        "created_at": now,
+        "updated_at": now
+    }
+    await db.purchase_orders.insert_one(po)
+    po.pop("_id", None)
+    return po
+
+
+@router.patch("/purchase-orders/{po_id}/status")
+async def update_purchase_order_status(po_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Update purchase order status"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    po = await db.purchase_orders.find_one({"po_id": po_id})
+    if not po:
+        raise HTTPException(status_code=404, detail="PO not found")
+    update = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if "status" in data:
+        update["status"] = data["status"]
+    if "payment_status" in data:
+        update["payment_status"] = data["payment_status"]
+    if "paid_amount" in data:
+        update["paid_amount"] = data["paid_amount"]
+    if "notes" in data:
+        update["notes"] = data["notes"]
+    await db.purchase_orders.update_one({"po_id": po_id}, {"$set": update})
+    return await db.purchase_orders.find_one({"po_id": po_id}, {"_id": 0})
 
 
 # ==================== ENHANCED USER MANAGEMENT ENDPOINTS ====================
