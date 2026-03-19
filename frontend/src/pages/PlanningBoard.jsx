@@ -72,12 +72,14 @@ export default function PlanningBoard() {
   const [editingVendor, setEditingVendor] = useState(null);
   const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
 
-  // Payment Schedule Overview
-  const [scheduleData, setScheduleData] = useState({ stages: [], summary: {} });
-  const [scheduleSearch, setScheduleSearch] = useState('');
-  const [scheduleDateFrom, setScheduleDateFrom] = useState('');
-  const [scheduleDateTo, setScheduleDateTo] = useState('');
-  const [scheduleStatusFilter, setScheduleStatusFilter] = useState('all');
+  // Monthly Payment Schedule
+  const [monthlySchedule, setMonthlySchedule] = useState({ entries: [], summary: {} });
+  const [scheduleMonth, setScheduleMonth] = useState(new Date().getMonth() + 1);
+  const [scheduleYear, setScheduleYear] = useState(new Date().getFullYear());
+  const [addStagesDialog, setAddStagesDialog] = useState(false);
+  const [availableStages, setAvailableStages] = useState([]);
+  const [selectedStageIds, setSelectedStageIds] = useState([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
@@ -124,14 +126,15 @@ export default function PlanningBoard() {
     if (tab === 'materials' && materials.length === 0) fetchMaterials();
     if (tab === 'labours' && contractors.length === 0) fetchContractors();
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
-    if (tab === 'payment_schedule') fetchPaymentSchedule();
+    if (tab === 'payment_schedule') fetchMonthlySchedule();
   };
 
-  const fetchPaymentSchedule = async () => {
+  const fetchMonthlySchedule = async () => {
     try {
-      const r = await axios.get(`${API}/planning/payment-schedule-overview`);
-      setScheduleData(r.data || { stages: [], summary: {} });
-    } catch { /* ignore */ }
+      setScheduleLoading(true);
+      const r = await axios.get(`${API}/planning/monthly-schedule?month=${scheduleMonth}&year=${scheduleYear}`);
+      setMonthlySchedule(r.data || { entries: [], summary: {} });
+    } catch { /* ignore */ } finally { setScheduleLoading(false); }
   };
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
@@ -236,6 +239,62 @@ export default function PlanningBoard() {
 
   // === HELPERS ===
   const formatCurrency = (a) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(a || 0);
+
+  // === MONTHLY SCHEDULE HANDLERS ===
+  const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  
+  const handleScheduleMonthChange = (dir) => {
+    let m = scheduleMonth + dir;
+    let y = scheduleYear;
+    if (m > 12) { m = 1; y++; }
+    if (m < 1) { m = 12; y--; }
+    setScheduleMonth(m); setScheduleYear(y);
+    setTimeout(() => fetchMonthlyScheduleFor(m, y), 100);
+  };
+
+  const fetchMonthlyScheduleFor = async (m, y) => {
+    try {
+      setScheduleLoading(true);
+      const r = await axios.get(`${API}/planning/monthly-schedule?month=${m}&year=${y}`);
+      setMonthlySchedule(r.data || { entries: [], summary: {} });
+    } catch { } finally { setScheduleLoading(false); }
+  };
+
+  const openAddStagesDialog = async () => {
+    try {
+      const r = await axios.get(`${API}/planning/monthly-schedule/available-stages?month=${scheduleMonth}&year=${scheduleYear}`);
+      setAvailableStages(r.data || []);
+      setSelectedStageIds([]);
+      setAddStagesDialog(true);
+    } catch { toast.error('Failed to load stages'); }
+  };
+
+  const handleAddStagesToSchedule = async () => {
+    if (selectedStageIds.length === 0) { toast.error('Select at least one stage'); return; }
+    try {
+      await axios.post(`${API}/planning/monthly-schedule/add-stages`, { month: scheduleMonth, year: scheduleYear, stage_ids: selectedStageIds });
+      toast.success(`Added ${selectedStageIds.length} stages`);
+      setAddStagesDialog(false);
+      fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleRemoveScheduleEntry = async (entryId) => {
+    if (!confirm('Remove this stage from the schedule?')) return;
+    try {
+      await axios.delete(`${API}/planning/monthly-schedule/${entryId}`);
+      toast.success('Removed');
+      fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+    } catch { toast.error('Failed'); }
+  };
+
+  const handleRequestPayment = async (entryId) => {
+    try {
+      await axios.patch(`${API}/planning/monthly-schedule/${entryId}/request-payment`);
+      toast.success('Payment requested — sent to CRE');
+      fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
   const getStatusBadge = (s) => {
     const m = { in_planning: 'bg-green-100 text-green-700', planning_review: 'bg-amber-100 text-amber-700', awaiting_approval: 'bg-yellow-100 text-yellow-700', gm_approved: 'bg-purple-100 text-purple-700', planning_approved: 'bg-green-100 text-green-700', active: 'bg-green-100 text-green-700', completed: 'bg-gray-100 text-gray-700' };
     return <span className={`px-2 py-0.5 rounded text-xs font-medium ${m[s] || 'bg-gray-100 text-gray-700'}`}>{s?.replace(/_/g, ' ')}</span>;
@@ -255,72 +314,6 @@ export default function PlanningBoard() {
   });
   const filteredContractors = contractors.filter(c => !contractorSearch || c.name.toLowerCase().includes(contractorSearch.toLowerCase()));
   const filteredVendors = vendors.filter(v => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()));
-
-  // Payment Schedule filtered data
-  const filteredSchedule = (scheduleData.stages || []).filter(s => {
-    if (scheduleSearch && !(s.project_name || '').toLowerCase().includes(scheduleSearch.toLowerCase()) && !(s.stage_name || '').toLowerCase().includes(scheduleSearch.toLowerCase())) return false;
-    if (scheduleStatusFilter !== 'all' && s.status !== scheduleStatusFilter) return false;
-    const dateStr = s.due_date || s.created_at;
-    if (dateStr) {
-      const d = new Date(dateStr);
-      if (scheduleDateFrom && d < new Date(scheduleDateFrom)) return false;
-      if (scheduleDateTo && d > new Date(scheduleDateTo + 'T23:59:59')) return false;
-    }
-    return true;
-  });
-  const filteredScheduleSummary = {
-    total_scheduled: filteredSchedule.reduce((a, s) => a + (s.amount || 0), 0),
-    total_received: filteredSchedule.reduce((a, s) => a + (s.amount_received || 0), 0),
-    get total_balance() { return this.total_scheduled - this.total_received; },
-    total_stages: filteredSchedule.length,
-    pending_count: filteredSchedule.filter(s => s.status === 'pending').length,
-    partial_count: filteredSchedule.filter(s => s.status === 'partial').length,
-    collected_count: filteredSchedule.filter(s => s.status === 'paid' || s.status === 'collected').length,
-  };
-
-  const handleDownloadSchedule = (format) => {
-    const rows = filteredSchedule.map(s => {
-      const dateStr = s.due_date || s.created_at;
-      const displayDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-      const balance = (s.amount || 0) - (s.amount_received || 0);
-      const statusMap = { pending: 'Pending', partial: 'Partially Collected', paid: 'Collected', collected: 'Collected', requested: 'Req. Raised' };
-      return { date: displayDate, project: s.project_name, client: s.client_name || '', stage: s.stage_name, percentage: s.percentage || '', amount: s.amount || 0, received: s.amount_received || 0, balance, status: statusMap[s.status] || s.status || 'Pending' };
-    });
-
-    if (format === 'csv') {
-      const header = 'Date,Project,Client,Stage,%,Amount,Received,Balance,Status\n';
-      const csv = header + rows.map(r => `"${r.date}","${r.project}","${r.client}","${r.stage}",${r.percentage},${r.amount},${r.received},${r.balance},"${r.status}"`).join('\n');
-      const totals = `\n\n"","","","TOTAL","",${filteredScheduleSummary.total_scheduled},${filteredScheduleSummary.total_received},${filteredScheduleSummary.total_balance},""`;
-      const blob = new Blob([csv + totals], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `payment_schedule_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-      URL.revokeObjectURL(url);
-      toast.success('CSV downloaded');
-    } else if (format === 'pdf') {
-      import('jspdf').then(({ jsPDF }) => {
-        import('jspdf-autotable').then(() => {
-          const doc = new jsPDF({ orientation: 'landscape' });
-          doc.setFontSize(16); doc.text('Payment Schedule Report', 14, 15);
-          doc.setFontSize(9); doc.setTextColor(100);
-          const dateLabel = scheduleDateFrom || scheduleDateTo ? `Date Range: ${scheduleDateFrom || 'Start'} to ${scheduleDateTo || 'Now'}` : 'All Dates';
-          doc.text(`${dateLabel} | Generated: ${new Date().toLocaleDateString('en-IN')}`, 14, 22);
-          doc.text(`Total Scheduled: ${formatCurrency(filteredScheduleSummary.total_scheduled)} | Collected: ${formatCurrency(filteredScheduleSummary.total_received)} | Balance: ${formatCurrency(filteredScheduleSummary.total_balance)}`, 14, 28);
-
-          doc.autoTable({
-            startY: 33,
-            head: [['Date', 'Project', 'Client', 'Stage', '%', 'Amount', 'Received', 'Balance', 'Status']],
-            body: rows.map(r => [r.date, r.project, r.client, r.stage, r.percentage, formatCurrency(r.amount), formatCurrency(r.received), formatCurrency(r.balance), r.status]),
-            foot: [['', '', '', 'TOTAL', '', formatCurrency(filteredScheduleSummary.total_scheduled), formatCurrency(filteredScheduleSummary.total_received), formatCurrency(filteredScheduleSummary.total_balance), '']],
-            styles: { fontSize: 8 },
-            headStyles: { fillColor: [79, 70, 229] },
-            footStyles: { fillColor: [243, 244, 246], textColor: [0, 0, 0], fontStyle: 'bold' },
-          });
-          doc.save(`payment_schedule_${new Date().toISOString().slice(0,10)}.pdf`);
-          toast.success('PDF downloaded');
-        });
-      });
-    }
-  };
 
   const newProjectCount = newProjectsFromCRE.length;
   const requestCount = pendingRequests.length + paymentRequests.length;
@@ -617,85 +610,63 @@ export default function PlanningBoard() {
 
           {/* ==================== PAYMENT SCHEDULE ==================== */}
           <TabsContent value="payment_schedule">
-            {/* Filters Row */}
+            {/* Month Navigation */}
             <Card className="mb-4">
               <CardContent className="p-3">
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <Label className="text-xs text-gray-500">From Date</Label>
-                    <Input type="date" value={scheduleDateFrom} onChange={e => setScheduleDateFrom(e.target.value)} className="h-8 text-sm w-36 mt-0.5" data-testid="schedule-date-from" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-gray-500">To Date</Label>
-                    <Input type="date" value={scheduleDateTo} onChange={e => setScheduleDateTo(e.target.value)} className="h-8 text-sm w-36 mt-0.5" data-testid="schedule-date-to" />
-                  </div>
-                  <div>
-                    <Label className="text-xs text-gray-500">Status</Label>
-                    <Select value={scheduleStatusFilter} onValueChange={setScheduleStatusFilter}>
-                      <SelectTrigger className="h-8 text-sm w-40 mt-0.5" data-testid="schedule-status-filter"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="partial">Partially Collected</SelectItem>
-                        <SelectItem value="paid">Collected</SelectItem>
-                        <SelectItem value="requested">Req. Raised</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="relative">
-                    <Label className="text-xs text-gray-500">Search</Label>
-                    <div className="relative mt-0.5">
-                      <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
-                      <Input placeholder="Project / Stage..." value={scheduleSearch} onChange={e => setScheduleSearch(e.target.value)} className="pl-8 h-8 w-44 text-sm" data-testid="schedule-search" />
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month">
+                      <ArrowRight className="h-4 w-4 rotate-180" />
+                    </Button>
+                    <div className="text-center min-w-[140px]">
+                      <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
+                      <p className="text-xs text-gray-500">Payment Schedule</p>
                     </div>
-                  </div>
-                  {(scheduleDateFrom || scheduleDateTo || scheduleStatusFilter !== 'all' || scheduleSearch) && (
-                    <Button size="sm" variant="ghost" className="h-8 text-xs text-gray-500" onClick={() => { setScheduleDateFrom(''); setScheduleDateTo(''); setScheduleStatusFilter('all'); setScheduleSearch(''); }} data-testid="schedule-clear-filters">
-                      <X className="h-3 w-3 mr-1" />Clear
-                    </Button>
-                  )}
-                  <div className="ml-auto flex gap-1">
-                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleDownloadSchedule('csv')} data-testid="download-csv">
-                      <Download className="h-3 w-3 mr-1" />CSV
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleDownloadSchedule('pdf')} data-testid="download-pdf">
-                      <Download className="h-3 w-3 mr-1" />PDF
+                    <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month">
+                      <ArrowRight className="h-4 w-4" />
                     </Button>
                   </div>
+                  <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn">
+                    <Plus className="h-4 w-4 mr-1" /> Add Stages
+                  </Button>
                 </div>
               </CardContent>
             </Card>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
               <Card className="border-l-4 border-l-indigo-500">
                 <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Total Scheduled</p>
-                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(filteredScheduleSummary.total_scheduled)}</p>
-                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.total_stages} stages</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p>
+                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(monthlySchedule.summary?.total_planned)}</p>
+                  <p className="text-[10px] text-gray-400">{monthlySchedule.summary?.total_entries || 0} stages</p>
                 </CardContent>
               </Card>
               <Card className="border-l-4 border-l-green-500">
                 <CardContent className="p-3">
                   <p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p>
-                  <p className="text-lg font-bold text-green-700">{formatCurrency(filteredScheduleSummary.total_received)}</p>
-                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.collected_count} stages collected</p>
+                  <p className="text-lg font-bold text-green-700">{formatCurrency(monthlySchedule.summary?.total_received)}</p>
+                  <p className="text-[10px] text-gray-400">{monthlySchedule.summary?.collected_count || 0} collected</p>
                 </CardContent>
               </Card>
               <Card className="border-l-4 border-l-amber-500">
                 <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Pending Balance</p>
-                  <p className="text-lg font-bold text-amber-700">{formatCurrency(filteredScheduleSummary.total_balance)}</p>
-                  <p className="text-[10px] text-gray-400">{filteredScheduleSummary.pending_count} pending, {filteredScheduleSummary.partial_count} partial</p>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p>
+                  <p className="text-lg font-bold text-amber-700">{formatCurrency(monthlySchedule.summary?.total_balance)}</p>
                 </CardContent>
               </Card>
-              <Card className="border-l-4 border-l-purple-500">
+              <Card className="border-l-4 border-l-red-500">
                 <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Collection %</p>
-                  <p className="text-lg font-bold text-purple-700">{filteredScheduleSummary.total_scheduled ? Math.round((filteredScheduleSummary.total_received / filteredScheduleSummary.total_scheduled) * 100) : 0}%</p>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                    <div className="bg-purple-600 h-1.5 rounded-full" style={{ width: `${filteredScheduleSummary.total_scheduled ? Math.min(100, Math.round((filteredScheduleSummary.total_received / filteredScheduleSummary.total_scheduled) * 100)) : 0}%` }} />
-                  </div>
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Carry Over Due</p>
+                  <p className="text-lg font-bold text-red-700">{monthlySchedule.summary?.carryover_count || 0}</p>
+                  <p className="text-[10px] text-gray-400">from prev months</p>
+                </CardContent>
+              </Card>
+              <Card className="border-l-4 border-l-blue-500">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-gray-500 uppercase font-medium">Requested</p>
+                  <p className="text-lg font-bold text-blue-700">{monthlySchedule.summary?.requested_count || 0}</p>
+                  <p className="text-[10px] text-gray-400">sent to CRE</p>
                 </CardContent>
               </Card>
             </div>
@@ -704,77 +675,96 @@ export default function PlanningBoard() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <IndianRupee className="h-4 w-4 text-green-600" />All Payment Stages ({filteredSchedule.length}{filteredSchedule.length !== (scheduleData.stages || []).length ? ` of ${(scheduleData.stages || []).length}` : ''})
+                  <IndianRupee className="h-4 w-4 text-green-600" />
+                  {MONTH_NAMES[scheduleMonth]} {scheduleYear} — Payment Entries ({(monthlySchedule.entries || []).length})
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
+                {scheduleLoading ? (
+                  <div className="p-8 text-center text-gray-400">Loading...</div>
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm" data-testid="payment-schedule-table">
                     <thead className="bg-gray-50 border-y">
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
                         <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                         <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
                         <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {filteredSchedule.length === 0 ? (
-                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">No payment schedule entries found</td></tr>
-                      ) : filteredSchedule.map((s) => {
-                          const balance = (s.amount || 0) - (s.amount_received || 0);
-                          const dateStr = s.due_date || s.created_at;
-                          const displayDate = dateStr ? new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
-                          const statusConfig = {
-                            pending: { label: 'Pending', cls: 'bg-gray-100 text-gray-700' },
-                            partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
-                            paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                            collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                            requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
-                          };
-                          const sc = statusConfig[s.status] || statusConfig.pending;
-                          return (
-                            <tr
-                              key={s.stage_id}
-                              className="hover:bg-indigo-50 cursor-pointer transition-colors"
-                              onClick={() => navigate(`/projects/${s.project_id}`)}
-                              data-testid={`schedule-row-${s.stage_id}`}
-                            >
-                              <td className="px-4 py-2.5 text-gray-500 text-xs whitespace-nowrap">{displayDate}</td>
-                              <td className="px-4 py-2.5">
-                                <p className="font-medium text-indigo-700 hover:underline">{s.project_name}</p>
-                                <p className="text-[10px] text-gray-400">{s.client_name}</p>
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className="font-medium">{s.stage_name}</span>
-                                {s.percentage && <span className="text-xs text-gray-400 ml-1">({s.percentage}%)</span>}
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(s.amount)}</td>
-                              <td className="px-4 py-2.5 text-right text-green-600 font-medium">{formatCurrency(s.amount_received)}</td>
-                              <td className="px-4 py-2.5 text-right text-red-600 font-medium">{formatCurrency(balance)}</td>
-                              <td className="px-4 py-2.5 text-center">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                      {(monthlySchedule.entries || []).length === 0 ? (
+                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}. Click "Add Stages" to plan this month's collections.</td></tr>
+                      ) : (monthlySchedule.entries || []).map((e) => {
+                        const balance = (e.amount || 0) - (e.amount_received || 0);
+                        const stageStatusConfig = {
+                          pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' },
+                          partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
+                          paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+                          collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
+                        };
+                        const wfConfig = {
+                          requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
+                          pending_collection: { label: 'Pending Collection', cls: 'bg-indigo-100 text-indigo-700' },
+                        };
+                        const sc = wfConfig[e.workflow_status] || stageStatusConfig[e.stage_status] || stageStatusConfig.pending;
+                        const canRequest = e.stage_status !== 'paid' && e.stage_status !== 'collected' && e.workflow_status !== 'requested' && e.workflow_status !== 'pending_collection';
+                        
+                        return (
+                          <tr key={e.entry_id} className="hover:bg-indigo-50/50 transition-colors" data-testid={`schedule-row-${e.entry_id}`}>
+                            <td className="px-4 py-2.5">
+                              <p className="font-medium text-indigo-700 cursor-pointer hover:underline" onClick={() => navigate(`/projects/${e.project_id}`)}>{e.project_name}</p>
+                              <p className="text-[10px] text-gray-400">{e.client_name}</p>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className="font-medium">Stage {e.stage_label}</span>
+                              <p className="text-xs text-gray-500 max-w-[200px] truncate">{e.stage_name}</p>
+                              {e.is_carryover && (
+                                <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px] mt-0.5">
+                                  Due from {MONTH_NAMES[e.carry_from_month]} {e.carry_from_year}
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
+                            <td className="px-4 py-2.5 text-right text-green-600 font-medium">{formatCurrency(e.amount_received)}</td>
+                            <td className="px-4 py-2.5 text-right text-red-600 font-medium">{formatCurrency(balance)}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
+                            </td>
+                            <td className="px-4 py-2.5 text-center">
+                              <div className="flex justify-center gap-1">
+                                {canRequest && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-200" onClick={() => handleRequestPayment(e.entry_id)} data-testid={`req-payment-${e.entry_id}`}>
+                                    <Send className="h-3 w-3 mr-1" />Req Payment
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}>
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
-                    {filteredSchedule.length > 0 && (
+                    {(monthlySchedule.entries || []).length > 0 && (
                       <tfoot className="bg-gray-50 border-t-2">
                         <tr className="font-bold text-sm">
-                          <td colSpan="3" className="px-4 py-2.5 text-right text-gray-600">Total</td>
-                          <td className="px-4 py-2.5 text-right">{formatCurrency(filteredScheduleSummary.total_scheduled)}</td>
-                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(filteredScheduleSummary.total_received)}</td>
-                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(filteredScheduleSummary.total_balance)}</td>
-                          <td></td>
+                          <td colSpan="2" className="px-4 py-2.5 text-right text-gray-600">Total</td>
+                          <td className="px-4 py-2.5 text-right">{formatCurrency(monthlySchedule.summary?.total_planned)}</td>
+                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(monthlySchedule.summary?.total_received)}</td>
+                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(monthlySchedule.summary?.total_balance)}</td>
+                          <td colSpan="2"></td>
                         </tr>
                       </tfoot>
                     )}
                   </table>
                 </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -859,6 +849,53 @@ export default function PlanningBoard() {
             <div><Label>Materials Supplied</Label><div className="flex flex-wrap gap-1 mt-1 max-h-28 overflow-y-auto">{materials.filter(m=>m.is_active!==false).map(m => (<button key={m.material_id} type="button" className={`px-2 py-0.5 text-xs border rounded ${vendorForm.materials_supplied.includes(m.material_id) ? 'bg-teal-100 border-teal-400 text-teal-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setVendorForm({...vendorForm,materials_supplied:vendorForm.materials_supplied.includes(m.material_id)?vendorForm.materials_supplied.filter(id=>id!==m.material_id):[...vendorForm.materials_supplied,m.material_id]})}>{m.name}</button>))}</div></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setVendorDialog(false)}>Cancel</Button><Button onClick={handleSaveVendor} className="bg-teal-600 hover:bg-teal-700" data-testid="save-vendor-btn">{editingVendor ? 'Update' : 'Create'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Stages to Monthly Schedule Dialog */}
+      <Dialog open={addStagesDialog} onOpenChange={setAddStagesDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Stages to {MONTH_NAMES[scheduleMonth]} {scheduleYear} Schedule</DialogTitle>
+            <DialogDescription>Select project payment stages to include in this month's collection plan.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {availableStages.length === 0 ? (
+              <p className="text-center text-gray-500 py-4">No available stages. All stages are either fully collected or already scheduled.</p>
+            ) : (
+              <div className="border rounded-lg overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 flex items-center justify-between">
+                  <span className="text-sm font-medium">{availableStages.length} stages available</span>
+                  <Button size="sm" variant="ghost" className="text-xs"
+                    onClick={() => setSelectedStageIds(selectedStageIds.length === availableStages.length ? [] : availableStages.map(s => s.stage_id))}>
+                    {selectedStageIds.length === availableStages.length ? 'Deselect All' : 'Select All'}
+                  </Button>
+                </div>
+                {availableStages.map(s => (
+                  <label key={s.stage_id} className="flex items-center gap-3 px-4 py-3 hover:bg-blue-50 cursor-pointer border-t" data-testid={`stage-option-${s.stage_id}`}>
+                    <input type="checkbox" checked={selectedStageIds.includes(s.stage_id)} onChange={(e) => {
+                      if (e.target.checked) setSelectedStageIds([...selectedStageIds, s.stage_id]);
+                      else setSelectedStageIds(selectedStageIds.filter(id => id !== s.stage_id));
+                    }} className="w-4 h-4 text-amber-600 rounded" />
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{s.project_name} <span className="text-gray-500">— {s.client_name}</span></p>
+                      <p className="text-xs text-gray-500">{s.stage_name} ({s.stage_label})</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-sm">{formatCurrency(s.amount)}</p>
+                      {(s.amount_received || 0) > 0 && <p className="text-xs text-green-600">Received: {formatCurrency(s.amount_received)}</p>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddStagesDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddStagesToSchedule} disabled={selectedStageIds.length === 0} className="bg-amber-600 hover:bg-amber-700" data-testid="confirm-add-stages">
+              Add {selectedStageIds.length} Stage{selectedStageIds.length !== 1 ? 's' : ''}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

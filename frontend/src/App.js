@@ -58,6 +58,7 @@ import MarketingBoard from '@/pages/MarketingBoard';
 import PMDashboard from '@/pages/PMDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
 import SetupWizard from '@/pages/SetupWizard';
+import PaymentSchedulePage from '@/pages/PaymentSchedulePage';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -129,6 +130,7 @@ function AppRouter() {
       <Route path="/accountant-module" element={<ProtectedRoute><Cashbook /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><ProjectFinance /></ProtectedRoute>} />
       <Route path="/hr-portal" element={<ProtectedRoute><HRPortal /></ProtectedRoute>} />
+      <Route path="/payment-schedule" element={<ProtectedRoute><PaymentSchedulePage /></ProtectedRoute>} />
       <Route path="/cheque-management" element={<ProtectedRoute><ChequeManagement /></ProtectedRoute>} />
       <Route path="/payment-processing" element={<ProtectedRoute><PaymentProcessing /></ProtectedRoute>} />
       <Route path="/indirect-costs" element={<ProtectedRoute><IndirectCostManagement /></ProtectedRoute>} />

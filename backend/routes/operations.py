@@ -1482,6 +1482,256 @@ async def get_payment_schedule_overview(user: User = Depends(get_current_user)):
         }
     }
 
+
+# ==================== MONTHLY PAYMENT SCHEDULE ====================
+
+@router.get("/planning/monthly-schedule")
+async def get_monthly_schedule(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2050),
+    user: User = Depends(get_current_user)
+):
+    """Get monthly payment schedule with auto-carryover from previous months"""
+    allowed = [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # 1. Get entries for this month
+    entries = await db.monthly_schedule_entries.find(
+        {"month": month, "year": year}, {"_id": 0}
+    ).sort("added_at", 1).to_list(1000)
+    
+    # 2. Get all uncollected entries from ALL previous months (carryover)
+    prev_entries = await db.monthly_schedule_entries.find(
+        {"$or": [
+            {"year": {"$lt": year}},
+            {"year": year, "month": {"$lt": month}}
+        ]},
+        {"_id": 0}
+    ).to_list(5000)
+    
+    # Get stage_ids already in this month
+    current_stage_ids = {e.get("stage_id") for e in entries}
+    
+    # 3. Check which previous entries are still uncollected
+    for pe in prev_entries:
+        if pe.get("stage_id") in current_stage_ids:
+            continue
+        stage = await db.payment_stages.find_one(
+            {"stage_id": pe["stage_id"]}, {"_id": 0, "status": 1}
+        )
+        if stage and stage.get("status") not in ("paid", "collected"):
+            carryover = {
+                "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+                "month": month, "year": year,
+                "project_id": pe["project_id"],
+                "stage_id": pe["stage_id"],
+                "is_carryover": True,
+                "carry_from_month": pe.get("carry_from_month") or pe["month"],
+                "carry_from_year": pe.get("carry_from_year") or pe["year"],
+                "added_by": "system",
+                "added_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.monthly_schedule_entries.insert_one(carryover)
+            current_stage_ids.add(pe["stage_id"])
+    
+    # Re-fetch all entries for this month (now includes carryovers)
+    all_entries = await db.monthly_schedule_entries.find(
+        {"month": month, "year": year}, {"_id": 0}
+    ).sort("added_at", 1).to_list(1000)
+    
+    # 4. Enrich with stage + project details
+    enriched = []
+    project_cache = {}
+    stage_ids = [e["stage_id"] for e in all_entries]
+    stages_map = {}
+    if stage_ids:
+        stages_list = await db.payment_stages.find({"stage_id": {"$in": stage_ids}}, {"_id": 0}).to_list(5000)
+        stages_map = {s["stage_id"]: s for s in stages_list}
+    
+    pid_set = list(set(e.get("project_id") for e in all_entries if e.get("project_id")))
+    if pid_set:
+        proj_docs = await db.projects.find({"project_id": {"$in": pid_set}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1}).to_list(1000)
+        project_cache = {p["project_id"]: p for p in proj_docs}
+    
+    for entry in all_entries:
+        stage = stages_map.get(entry["stage_id"])
+        if not stage:
+            continue
+        proj = project_cache.get(entry.get("project_id"), {})
+        enriched.append({
+            **entry,
+            "stage_name": stage.get("stage_name", ""),
+            "stage_label": stage.get("stage_label", ""),
+            "percentage": stage.get("percentage", 0),
+            "amount": stage.get("amount", 0),
+            "amount_received": stage.get("amount_received", 0),
+            "stage_status": stage.get("status", "pending"),
+            "workflow_status": stage.get("workflow_status", "approved"),
+            "due_date": stage.get("due_date"),
+            "project_name": proj.get("name", "Unknown"),
+            "client_name": proj.get("client_name", ""),
+            "project_value": proj.get("total_value", 0),
+        })
+    
+    # 5. Summary
+    total_planned = sum(e.get("amount", 0) for e in enriched)
+    total_received = sum(e.get("amount_received", 0) or 0 for e in enriched)
+    carryover_count = sum(1 for e in enriched if e.get("is_carryover"))
+    requested_count = sum(1 for e in enriched if e.get("workflow_status") in ("requested", "pending_collection"))
+    collected_count = sum(1 for e in enriched if e.get("stage_status") in ("paid", "collected"))
+    
+    return {
+        "month": month, "year": year,
+        "entries": enriched,
+        "summary": {
+            "total_entries": len(enriched),
+            "total_planned": total_planned,
+            "total_received": total_received,
+            "total_balance": total_planned - total_received,
+            "carryover_count": carryover_count,
+            "requested_count": requested_count,
+            "collected_count": collected_count,
+        }
+    }
+
+
+@router.get("/planning/monthly-schedule/available-stages")
+async def get_available_stages_for_schedule(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2020, le=2050),
+    user: User = Depends(get_current_user)
+):
+    """Get payment stages not yet added to this month's schedule"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
+    
+    existing = await db.monthly_schedule_entries.find(
+        {"month": month, "year": year}, {"_id": 0, "stage_id": 1}
+    ).to_list(1000)
+    existing_ids = {e["stage_id"] for e in existing}
+    
+    all_stages = await db.payment_stages.find(
+        {"status": {"$nin": ["paid", "collected"]}}, {"_id": 0}
+    ).to_list(5000)
+    
+    available = [s for s in all_stages if s["stage_id"] not in existing_ids]
+    
+    pid_set = list(set(s.get("project_id") for s in available if s.get("project_id")))
+    project_cache = {}
+    if pid_set:
+        proj_docs = await db.projects.find({"project_id": {"$in": pid_set}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1}).to_list(1000)
+        project_cache = {p["project_id"]: p for p in proj_docs}
+    
+    result = []
+    for s in available:
+        proj = project_cache.get(s.get("project_id"), {})
+        result.append({
+            "stage_id": s["stage_id"], "project_id": s.get("project_id"),
+            "project_name": proj.get("name", "Unknown"), "client_name": proj.get("client_name", ""),
+            "stage_name": s.get("stage_name", ""), "stage_label": s.get("stage_label", ""),
+            "percentage": s.get("percentage", 0), "amount": s.get("amount", 0),
+            "amount_received": s.get("amount_received", 0), "status": s.get("status", "pending"),
+        })
+    
+    return result
+
+
+@router.post("/planning/monthly-schedule/add-stages")
+async def add_stages_to_monthly_schedule(body: dict, user: User = Depends(get_current_user)):
+    """Add payment stages to a monthly schedule"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
+    
+    month, year, stage_ids = body.get("month"), body.get("year"), body.get("stage_ids", [])
+    if not month or not year or not stage_ids:
+        raise HTTPException(status_code=400, detail="month, year, and stage_ids required")
+    
+    existing = await db.monthly_schedule_entries.find(
+        {"month": month, "year": year, "stage_id": {"$in": stage_ids}}, {"_id": 0, "stage_id": 1}
+    ).to_list(1000)
+    existing_ids = {e["stage_id"] for e in existing}
+    
+    added = 0
+    for sid in stage_ids:
+        if sid in existing_ids:
+            continue
+        stage = await db.payment_stages.find_one({"stage_id": sid}, {"_id": 0})
+        if not stage:
+            continue
+        entry = {
+            "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+            "month": month, "year": year,
+            "project_id": stage.get("project_id"),
+            "stage_id": sid,
+            "is_carryover": False,
+            "carry_from_month": None, "carry_from_year": None,
+            "added_by": user.user_id,
+            "added_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.monthly_schedule_entries.insert_one(entry)
+        added += 1
+    
+    return {"message": f"Added {added} stages to {month}/{year}", "added": added}
+
+
+@router.delete("/planning/monthly-schedule/{entry_id}")
+async def remove_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
+    """Remove a stage from the monthly schedule"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can manage schedules")
+    result = await db.monthly_schedule_entries.delete_one({"entry_id": entry_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"message": "Removed from schedule"}
+
+
+@router.patch("/planning/monthly-schedule/{entry_id}/request-payment")
+async def request_payment_for_schedule_entry(entry_id: str, user: User = Depends(get_current_user)):
+    """Planning requests payment for a scheduled stage — sends to CRE"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can request payments")
+    
+    entry = await db.monthly_schedule_entries.find_one({"entry_id": entry_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Schedule entry not found")
+    
+    result = await db.payment_stages.update_one(
+        {"stage_id": entry["stage_id"]},
+        {"$set": {
+            "workflow_status": "requested",
+            "requested_at": datetime.now(timezone.utc).isoformat(),
+            "requested_by": user.user_id,
+            "requested_by_name": user.name
+        }}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Payment stage not found")
+    
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0}).to_list(50)
+    project = await db.projects.find_one({"project_id": entry["project_id"]}, {"_id": 0, "name": 1})
+    pname = project.get("name", "Unknown") if project else "Unknown"
+    for c in cre_users:
+        await create_notification(c["user_id"], f"Payment requested: {pname} - scheduled for {entry['month']}/{entry['year']}")
+    
+    return {"message": "Payment requested — sent to CRE"}
+
+
+@router.get("/planning/monthly-schedule/months-list")
+async def get_schedule_months_list(user: User = Depends(get_current_user)):
+    """Get list of months that have schedule entries"""
+    allowed = [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    pipeline = [
+        {"$group": {"_id": {"month": "$month", "year": "$year"}, "count": {"$sum": 1}}},
+        {"$sort": {"_id.year": -1, "_id.month": -1}}
+    ]
+    months = await db.monthly_schedule_entries.aggregate(pipeline).to_list(100)
+    return [{"month": m["_id"]["month"], "year": m["_id"]["year"], "count": m["count"]} for m in months]
+
+
+
 @router.get("/approvals/projects")
 async def get_projects_for_approval(user: User = Depends(get_current_user)):
     """Get projects awaiting approval"""

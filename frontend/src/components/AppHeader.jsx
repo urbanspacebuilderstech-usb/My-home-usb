@@ -13,8 +13,10 @@ const ROLE_NAV = {
     { label: 'All Projects', path: '/projects' },
     { label: 'Finance', path: '/financial-overview' },
     { label: 'Planning', path: '/planning-board' },
+    { label: 'Payment Schedule', path: '/payment-schedule' },
     { label: 'Marketing Board', path: '/marketing-board' },
     { label: 'GM', path: '/gm-dashboard' },
+    { label: 'HR', path: '/hr-portal' },
     { label: 'Users', path: '/users' },
     { label: 'Settings', path: '/settings' },
   ],
@@ -68,6 +70,10 @@ const ROLE_NAV = {
   ],
   architect: [
     { label: 'My Projects', path: '/architect-dashboard' },
+  ],
+  hr: [
+    { label: 'HR Portal', path: '/hr-portal' },
+    { label: 'Projects', path: '/projects' },
   ],
 };
 
