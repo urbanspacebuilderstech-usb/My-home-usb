@@ -144,10 +144,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - POs marked with "Auto" badge when auto-generated
   - ProjectDetail and SiteEngineerProject show PO badges on material requests
 - [x] **Site Engineer Labour Count by Category (Mar 19, 2026)**:
-  - New "Labour Count" tab on SE project page
-  - Date picker + category-wise worker count inputs (17 categories from contractor_categories)
-  - Auto-total counter, save button, and day's entry history
-  - Backend: POST /api/labour-attendance (contractor_id now optional for direct count)
+  - REDESIGNED (Mar 20): Now shows contractors assigned by Planning
+  - Click contractor → Attendance form with pre-set rates (SE only enters count)
+  - Table: Type | Rate/Day | Count | Total with auto-calculated totals
+  - Attendance Summary: Day-by-day rows with breakdown (type × rate = total) + grand total
+  - Work Orders: Stage timeline with completed (green), open (blue, raise payment), upcoming (low opacity)
+  - Backend: GET /api/projects/{project_id}/assigned-contractors (returns rates + work orders)
 - [x] **Site Engineer Stock Register (Mar 19, 2026)**:
   - New "Stock Register" tab on SE project page
   - Add material flow (name + unit), editable table with Opening/Received/Used/Closing columns
