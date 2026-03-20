@@ -35,12 +35,10 @@ export default function SetupWizard() {
 
   const checkSetupStatus = async () => {
     try {
-      const res = await axios.get(`${API}/auth/setup-status`);
-      if (!res.data.setup_needed) {
-        setSetupLocked(true);
-      }
+      await axios.get(`${API}/auth/setup-status`);
+      // Setup page always accessible for creating super admins
     } catch {
-      // If endpoint fails, allow setup
+      // Allow setup regardless
     } finally {
       setChecking(false);
     }

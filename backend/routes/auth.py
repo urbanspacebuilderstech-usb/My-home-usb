@@ -116,10 +116,11 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
 @router.post("/auth/initial-setup")
 async def initial_setup(data: InitialSetupRequest, request: Request, response: Response):
     """One-time setup to create the first Super Admin and company settings.
-    Only works when no super_admin users exist in the database."""
-    admin_count = await db.users.count_documents({"role": "super_admin"})
-    if admin_count > 0:
-        raise HTTPException(status_code=400, detail="Setup already completed. A Super Admin already exists.")
+    Creates a new super_admin account."""
+    # Check if email already exists
+    existing = await db.users.find_one({"email": data.admin_email.lower().strip()}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="A user with this email already exists.")
 
     if "@" not in data.admin_email or "." not in data.admin_email:
         raise HTTPException(status_code=400, detail="Invalid email format")
