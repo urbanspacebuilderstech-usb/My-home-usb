@@ -90,9 +90,14 @@ export default function SetupWizard() {
             </div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">Setup Already Complete</h2>
             <p className="text-gray-500 mb-4">A Super Admin account already exists. This page is locked.</p>
-            <Button onClick={() => navigate('/login')} className="bg-slate-900 hover:bg-slate-800" data-testid="go-to-login-btn">
-              Go to Login
-            </Button>
+            <div className="flex flex-col gap-3 items-center">
+              <Button onClick={() => navigate('/login')} className="bg-slate-900 hover:bg-slate-800" data-testid="go-to-login-btn">
+                Go to Login
+              </Button>
+              <button onClick={() => navigate('/forgot-password')} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline" data-testid="setup-forgot-password-link">
+                Forgot Password?
+              </button>
+            </div>
           </CardContent>
         </Card>
       </div>
