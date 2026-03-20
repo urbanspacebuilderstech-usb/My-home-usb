@@ -1761,12 +1761,12 @@ export default function ProjectDetail() {
                           <Plus className="h-3 w-3 sm:h-4 sm:w-4" /><span className="hidden sm:inline">Add </span>Scope
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-auto">
+                      <DialogContent className="max-w-5xl max-h-[90vh] mx-4 sm:mx-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Scope Items</DialogTitle>
                           <DialogDescription>Add rows as needed. Use X to remove empty rows.</DialogDescription>
                         </DialogHeader>
-                        <div>
+                        <div className="max-h-[70vh] overflow-y-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
@@ -2422,7 +2422,7 @@ export default function ProjectDetail() {
                           <Plus className="h-4 w-4" />Add Payments
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-4xl max-h-[90vh]">
                         <DialogHeader>
                           <DialogTitle>Add Payment Stages</DialogTitle>
                           <DialogDescription>
@@ -2815,7 +2815,7 @@ export default function ProjectDetail() {
                           <Plus className="h-4 w-4" />Add Additions
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-3xl max-h-[90vh]">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Additions</DialogTitle>
                           <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
@@ -3001,7 +3001,7 @@ export default function ProjectDetail() {
                           <MinusCircle className="h-4 w-4" />Add Deductions
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                      <DialogContent className="max-w-4xl max-h-[90vh]">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Deductions</DialogTitle>
                           <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
@@ -3860,7 +3860,7 @@ export default function ProjectDetail() {
 
                 {/* Create Work Order Dialog */}
                 <Dialog open={showWOForm} onOpenChange={setShowWOForm}>
-                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-lg max-h-[90vh]">
                     <DialogHeader>
                       <DialogTitle>Create Work Order</DialogTitle>
                       <DialogDescription>Assign a contractor and define payment stages.</DialogDescription>
@@ -3907,7 +3907,7 @@ export default function ProjectDetail() {
 
                 {/* Attendance Entry Dialog */}
                 <Dialog open={showAttendanceForm} onOpenChange={setShowAttendanceForm}>
-                  <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-lg max-h-[90vh]">
                     <DialogHeader>
                       <DialogTitle>Daily Labour Entry</DialogTitle>
                       <DialogDescription>Enter attendance for each labour type.</DialogDescription>
