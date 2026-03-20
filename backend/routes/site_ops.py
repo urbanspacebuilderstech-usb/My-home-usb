@@ -1579,26 +1579,54 @@ async def get_received_stock(
         if not assignment:
             raise HTTPException(status_code=403, detail="Not assigned to this project")
 
-    # Get all verified receipts for this project
-    receipts = await db.material_receipts.find(
-        {"project_id": project_id, "otp_verified": True},
-        {"_id": 0, "otp_code": 0}
-    ).sort("created_at", -1).to_list(500)
-
-    # Aggregate by material
     stock_map = {}
-    for r in receipts:
+
+    # Source 1: Material requests with received_completed status
+    received_requests = await db.material_requests.find(
+        {"project_id": project_id, "status": {"$in": ["received_completed", "received_partial"]}},
+        {"_id": 0}
+    ).to_list(500)
+
+    for r in received_requests:
         mat_name = r.get("material_name") or "Unknown"
-        if mat_name not in stock_map:
-            stock_map[mat_name] = {
+        key = mat_name
+        if key not in stock_map:
+            stock_map[key] = {
                 "material_name": mat_name,
                 "unit": r.get("unit", ""),
                 "brand": r.get("brand", ""),
                 "total_received": 0,
                 "receipts": []
             }
-        stock_map[mat_name]["total_received"] += r.get("received_qty", 0)
-        stock_map[mat_name]["receipts"].append({
+        qty = r.get("received_qty") or r.get("quantity", 0)
+        stock_map[key]["total_received"] += qty
+        stock_map[key]["receipts"].append({
+            "receipt_id": r.get("request_id"),
+            "received_qty": qty,
+            "receive_date": r.get("delivery_date") or r.get("created_at", "")[:10] if r.get("created_at") else "",
+            "receive_time": "",
+            "source": "order"
+        })
+
+    # Source 2: Verified material receipts (OTP flow)
+    receipts = await db.material_receipts.find(
+        {"project_id": project_id, "otp_verified": True},
+        {"_id": 0, "otp_code": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    for r in receipts:
+        mat_name = r.get("material_name") or "Unknown"
+        key = mat_name
+        if key not in stock_map:
+            stock_map[key] = {
+                "material_name": mat_name,
+                "unit": r.get("unit", ""),
+                "brand": r.get("brand", ""),
+                "total_received": 0,
+                "receipts": []
+            }
+        stock_map[key]["total_received"] += r.get("received_qty", 0)
+        stock_map[key]["receipts"].append({
             "receipt_id": r.get("receipt_id"),
             "received_qty": r.get("received_qty"),
             "receive_date": r.get("receive_date"),
@@ -1608,6 +1636,7 @@ async def get_received_stock(
             "lorry_image_id": r.get("lorry_image_id"),
             "material_image_id": r.get("material_image_id"),
             "created_at": r.get("created_at"),
+            "source": "receipt"
         })
 
     return list(stock_map.values())
