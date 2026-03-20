@@ -69,6 +69,7 @@ Build a comprehensive Construction OS (My Home USB) with labour and materials ma
 - [x] Comprehensive procurement board data seeding for Vinoth Kumar project (Mar 2026)
 - [x] Order Detail Popup - clickable order cards showing full details, approval timeline, and inline editing (Mar 2026)
 - [x] Work Orders Tab - replaced Labours/Labour Count with contractor-centric work order stages, daily attendance, and multi-step payment request flow (Mar 2026)
+- [x] Multi-row attendance popup (Skilled/Semi-Skilled/Unskilled with rates), stage classification (Active/Upcoming/Completed), quick attendance header button, add new stage overlay (Mar 2026)
 
 ### Demo Data Seeded (Mar 20, 2026)
 - Vinoth Kumar project: 15 material requests across all workflow states
