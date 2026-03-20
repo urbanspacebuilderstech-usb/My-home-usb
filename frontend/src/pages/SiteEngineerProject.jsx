@@ -4,7 +4,8 @@ import axios from 'axios';
 import { 
   HardHat, LogOut, ArrowLeft, Plus, Package, Users, MapPin, Building2,
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
-  Calendar, ClipboardList, Warehouse, Save, Trash2, History
+  Calendar, ClipboardList, Warehouse, Save, Trash2, History,
+  ChevronRight, Banknote, ArrowRight, Eye, Circle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -83,10 +84,12 @@ export default function SiteEngineerProject() {
 
   // Labour Count state
   const [labourCountDate, setLabourCountDate] = useState(new Date().toISOString().split('T')[0]);
-  const [labourCategories, setLabourCategories] = useState([]);
-  const [labourCountEntries, setLabourCountEntries] = useState({});
-  const [labourCountHistory, setLabourCountHistory] = useState([]);
+  const [assignedContractors, setAssignedContractors] = useState([]);
+  const [selectedContractor, setSelectedContractor] = useState(null);
+  const [attendanceCounts, setAttendanceCounts] = useState({});
+  const [contractorAttendanceHistory, setContractorAttendanceHistory] = useState([]);
   const [savingLabourCount, setSavingLabourCount] = useState(false);
+  const [requestingPayment, setRequestingPayment] = useState(false);
 
   // Stock Register state
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
@@ -108,10 +111,9 @@ export default function SiteEngineerProject() {
         axios.get(`${API}/site-engineer/project/${projectId}`)
       ]);
       // Load optional data gracefully
-      const [materialsRes, labourTypesRes, labourCatsRes] = await Promise.allSettled([
+      const [materialsRes, labourTypesRes] = await Promise.allSettled([
         axios.get(`${API}/materials`),
-        axios.get(`${API}/site-engineer/labour-types`),
-        axios.get(`${API}/contractor-categories`)
+        axios.get(`${API}/site-engineer/labour-types`)
       ]);
       setUser(userRes.data);
       setProjectData(projectRes.data);
@@ -119,9 +121,6 @@ export default function SiteEngineerProject() {
       setLabourTypes(labourTypesRes.status === 'fulfilled' ? labourTypesRes.value.data : [
         'Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Bar Bender', 'Tile Worker'
       ]);
-      const cats = labourCatsRes.status === 'fulfilled' ? labourCatsRes.value.data.map(c => c.name) : 
-        ['Mason', 'Helper', 'Carpenter', 'Electrician', 'Plumber', 'Painter', 'Welder', 'Bar Bender', 'Tile Worker'];
-      setLabourCategories(cats);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -137,38 +136,67 @@ export default function SiteEngineerProject() {
   useAutoRefresh(fetchData, 15000);
 
   // ============ LABOUR COUNT FUNCTIONS ============
-  const fetchLabourCount = async (date) => {
+  const fetchAssignedContractors = async () => {
     try {
-      const res = await axios.get(`${API}/labour-attendance/daily-summary?project_id=${projectId}&date=${date}`);
-      setLabourCountHistory(res.data?.entries || []);
-      // Pre-populate entries from existing data for the day
-      const existing = {};
-      (res.data?.entries || []).forEach(entry => {
-        (entry.entries || []).forEach(e => {
-          existing[e.type || e.label] = (existing[e.type || e.label] || 0) + (e.count || 0);
-        });
-      });
-      setLabourCountEntries(existing);
-    } catch { setLabourCountHistory([]); }
+      const res = await axios.get(`${API}/projects/${projectId}/assigned-contractors`);
+      setAssignedContractors(res.data || []);
+    } catch { setAssignedContractors([]); }
   };
 
-  const handleSaveLabourCount = async () => {
-    const entries = Object.entries(labourCountEntries)
-      .filter(([, count]) => count > 0)
-      .map(([category, count]) => ({ type: category, label: category, count: Number(count), per_day_cost: 0 }));
-    if (entries.length === 0) { toast.error('Enter at least one labour count'); return; }
+  const fetchContractorAttendance = async (contractorId, date) => {
+    try {
+      const res = await axios.get(`${API}/labour-attendance?project_id=${projectId}&contractor_id=${contractorId}`);
+      setContractorAttendanceHistory(res.data || []);
+    } catch { setContractorAttendanceHistory([]); }
+  };
+
+  const handleOpenContractor = (contractor) => {
+    setSelectedContractor(contractor);
+    // Pre-populate attendance inputs from labour_rates
+    const counts = {};
+    (contractor.labour_rates || []).forEach(r => { counts[r.type || r.label] = ''; });
+    setAttendanceCounts(counts);
+    fetchContractorAttendance(contractor.contractor_id, labourCountDate);
+  };
+
+  const handleSaveAttendance = async () => {
+    if (!selectedContractor) return;
+    const entries = (selectedContractor.labour_rates || [])
+      .map(r => ({
+        type: r.type || r.label,
+        label: r.label || r.type,
+        count: Number(attendanceCounts[r.type || r.label]) || 0,
+        per_day_cost: Number(r.rate) || 0,
+      }))
+      .filter(e => e.count > 0);
+    if (entries.length === 0) { toast.error('Enter at least one worker count'); return; }
     setSavingLabourCount(true);
     try {
       await axios.post(`${API}/labour-attendance`, {
         project_id: projectId,
+        contractor_id: selectedContractor.contractor_id,
+        contractor_name: selectedContractor.contractor_name,
         date: labourCountDate,
         entries,
-        notes: 'Daily labour count by Site Engineer'
+        notes: `Attendance for ${selectedContractor.contractor_name}`
       });
-      toast.success('Labour count saved');
-      fetchLabourCount(labourCountDate);
-    } catch { toast.error('Failed to save'); }
+      toast.success('Attendance saved');
+      fetchContractorAttendance(selectedContractor.contractor_id, labourCountDate);
+    } catch { toast.error('Failed to save attendance'); }
     finally { setSavingLabourCount(false); }
+  };
+
+  const handleRaisePayment = async (workOrderId, stageId, amount) => {
+    setRequestingPayment(true);
+    try {
+      await axios.patch(`${API}/labour-work-orders/${workOrderId}/stages/${stageId}/request-payment`, {
+        requested_amount: amount,
+        notes: 'Payment requested by Site Engineer'
+      });
+      toast.success('Payment request submitted');
+      fetchAssignedContractors();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to request payment'); }
+    finally { setRequestingPayment(false); }
   };
 
   // ============ STOCK REGISTER FUNCTIONS ============
@@ -225,10 +253,10 @@ export default function SiteEngineerProject() {
     setAddStockMaterial({ name: '', unit: 'bags' });
   };
 
-  // Load labour count and stock data when tabs change or dates change
+  // Load assigned contractors when tab changes
   useEffect(() => {
-    if (activeTab === 'labour_count' && projectId) fetchLabourCount(labourCountDate);
-  }, [activeTab, labourCountDate, projectId]);
+    if (activeTab === 'labour_count' && projectId) fetchAssignedContractors();
+  }, [activeTab, projectId]);
 
   useEffect(() => {
     if (activeTab === 'stock_register' && projectId) fetchStockData(stockDate);
@@ -832,89 +860,324 @@ export default function SiteEngineerProject() {
 
           {/* LABOUR COUNT TAB */}
           <TabsContent value="labour_count">
-            <Card>
-              <CardHeader className="p-3 sm:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                      <ClipboardList className="h-4 w-4 text-blue-600" />
-                      Daily Labour Count
-                    </CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Log workers present today by category</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-500" />
-                    <Input
-                      type="date"
-                      value={labourCountDate}
-                      onChange={(e) => setLabourCountDate(e.target.value)}
-                      className="w-40 text-sm"
-                      data-testid="labour-count-date"
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-3 sm:p-6 pt-0">
-                <div className="space-y-4">
-                  {/* Entry Form */}
-                  <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                    <h4 className="text-sm font-semibold mb-3 text-gray-700">Workers by Category</h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
-                      {labourCategories.map(cat => (
-                        <div key={cat} className="flex items-center gap-2 bg-white rounded-lg p-2 border" data-testid={`labour-cat-${cat}`}>
-                          <label className="text-xs sm:text-sm font-medium text-gray-700 flex-1 truncate">{cat}</label>
-                          <Input
-                            type="number"
-                            min="0"
-                            className="w-16 sm:w-20 text-sm text-center h-8"
-                            value={labourCountEntries[cat] || ''}
-                            onChange={(e) => setLabourCountEntries(prev => ({ ...prev, [cat]: e.target.value === '' ? '' : parseInt(e.target.value) || 0 }))}
-                            placeholder="0"
-                            data-testid={`labour-count-input-${cat}`}
-                          />
-                        </div>
-                      ))}
+            {!selectedContractor ? (
+              /* ===== CONTRACTOR LIST VIEW ===== */
+              <Card>
+                <CardHeader className="p-3 sm:p-6">
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <ClipboardList className="h-4 w-4 text-blue-600" />
+                    Assigned Contractors
+                  </CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Contractors assigned by Planning — tap to log attendance</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 sm:p-6 pt-0">
+                  {assignedContractors.length === 0 ? (
+                    <div className="text-center py-10 text-gray-400">
+                      <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm font-medium">No contractors assigned yet</p>
+                      <p className="text-xs mt-1">Planning will assign contractors to this project</p>
                     </div>
-                    <div className="flex items-center justify-between mt-4 pt-3 border-t">
-                      <div className="text-sm font-medium">
-                        Total Workers: <span className="text-blue-600 text-lg">{Object.values(labourCountEntries).reduce((sum, v) => sum + (Number(v) || 0), 0)}</span>
-                      </div>
-                      <Button onClick={handleSaveLabourCount} disabled={savingLabourCount} size="sm" className="gap-1" data-testid="save-labour-count-btn">
-                        <Save className="h-3 w-3" />
-                        {savingLabourCount ? 'Saving...' : 'Save Count'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Today's History */}
-                  {labourCountHistory.length > 0 && (
-                    <div>
-                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1 text-gray-700">
-                        <History className="h-3.5 w-3.5" />
-                        Entries for {labourCountDate}
-                      </h4>
-                      <div className="space-y-2">
-                        {labourCountHistory.map((entry, idx) => (
-                          <div key={entry.attendance_id || idx} className="bg-blue-50 rounded-lg p-3 border border-blue-100">
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="text-xs text-gray-500">{new Date(entry.created_at).toLocaleTimeString()}</span>
-                              <Badge variant="secondary" className="text-xs">{entry.total_workers} workers</Badge>
+                  ) : (
+                    <div className="space-y-2" data-testid="contractor-list">
+                      {assignedContractors.map(c => {
+                        const totalWOs = c.work_orders?.length || 0;
+                        const completedWOs = c.work_orders?.filter(wo => wo.status === 'completed').length || 0;
+                        return (
+                          <div
+                            key={c.contractor_id}
+                            className="flex items-center gap-3 p-3 sm:p-4 rounded-xl border hover:border-blue-300 hover:bg-blue-50/50 cursor-pointer transition-all group"
+                            onClick={() => handleOpenContractor(c)}
+                            data-testid={`contractor-card-${c.contractor_id}`}
+                          >
+                            <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                              <Users className="h-5 w-5 text-blue-600" />
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {(entry.entries || []).map((e, i) => (
-                                <span key={i} className="inline-flex items-center text-xs bg-white px-2 py-0.5 rounded border">
-                                  {e.label || e.type}: <strong className="ml-1">{e.count}</strong>
-                                </span>
-                              ))}
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-semibold text-gray-900 truncate">{c.contractor_name}</h4>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <Badge variant="outline" className="text-[10px] h-5">{c.contractor_type || 'General'}</Badge>
+                                <span className="text-[10px] text-gray-400">{c.labour_rates?.length || 0} labour types</span>
+                                {totalWOs > 0 && <span className="text-[10px] text-gray-400">{completedWOs}/{totalWOs} WOs done</span>}
+                              </div>
                             </div>
+                            <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            ) : (
+              /* ===== CONTRACTOR DETAIL VIEW ===== */
+              <div className="space-y-4">
+                {/* Back + Header */}
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedContractor(null)} className="gap-1 text-xs" data-testid="back-to-contractors">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back
+                  </Button>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base sm:text-lg font-bold truncate">{selectedContractor.contractor_name}</h3>
+                    <Badge variant="outline" className="text-[10px]">{selectedContractor.contractor_type || 'General'}</Badge>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+
+                {/* ===== ATTENDANCE ENTRY CARD ===== */}
+                <Card>
+                  <CardHeader className="p-3 sm:p-5 pb-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                        <ClipboardList className="h-4 w-4 text-blue-600" />
+                        Attendance
+                      </CardTitle>
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-3.5 w-3.5 text-gray-500" />
+                        <Input
+                          type="date"
+                          value={labourCountDate}
+                          onChange={(e) => setLabourCountDate(e.target.value)}
+                          className="w-36 text-xs h-8"
+                          data-testid="attendance-date-picker"
+                        />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-3 sm:p-5 pt-0">
+                    {(!selectedContractor.labour_rates || selectedContractor.labour_rates.length === 0) ? (
+                      <p className="text-sm text-gray-400 text-center py-4">No labour types defined by Planning for this contractor</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {/* Rate Inputs */}
+                        <div className="rounded-lg border overflow-hidden">
+                          <table className="w-full text-sm" data-testid="attendance-entry-table">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="text-left px-3 py-2 text-xs font-medium text-gray-600">Type</th>
+                                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Rate/Day</th>
+                                <th className="text-center px-3 py-2 text-xs font-medium text-gray-600 w-24">Count</th>
+                                <th className="text-right px-3 py-2 text-xs font-medium text-gray-600">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {selectedContractor.labour_rates.map(r => {
+                                const key = r.type || r.label;
+                                const count = Number(attendanceCounts[key]) || 0;
+                                const rate = Number(r.rate) || 0;
+                                const total = rate * count;
+                                return (
+                                  <tr key={key} className="hover:bg-gray-50" data-testid={`attendance-row-${key}`}>
+                                    <td className="px-3 py-2.5 font-medium text-gray-800">{r.label || r.type}</td>
+                                    <td className="px-3 py-2.5 text-right text-gray-600 font-mono text-xs">{formatCurrency(rate)}</td>
+                                    <td className="px-2 py-1.5 text-center">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        className="text-center text-sm h-8 w-20 mx-auto font-semibold"
+                                        value={attendanceCounts[key] || ''}
+                                        onChange={(e) => setAttendanceCounts(prev => ({ ...prev, [key]: e.target.value }))}
+                                        placeholder="0"
+                                        data-testid={`attendance-count-${key}`}
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2.5 text-right font-semibold text-gray-900">{total > 0 ? formatCurrency(total) : '-'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                            <tfoot className="bg-blue-50 border-t-2 border-blue-200">
+                              <tr>
+                                <td className="px-3 py-2.5 font-bold text-blue-800">Total</td>
+                                <td></td>
+                                <td className="text-center font-bold text-blue-800">
+                                  {selectedContractor.labour_rates.reduce((s, r) => s + (Number(attendanceCounts[r.type || r.label]) || 0), 0)}
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-bold text-lg text-blue-800" data-testid="attendance-total-cost">
+                                  {formatCurrency(
+                                    selectedContractor.labour_rates.reduce((s, r) => {
+                                      const count = Number(attendanceCounts[r.type || r.label]) || 0;
+                                      return s + (count * (Number(r.rate) || 0));
+                                    }, 0)
+                                  )}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button onClick={handleSaveAttendance} disabled={savingLabourCount} className="gap-1.5" data-testid="submit-attendance-btn">
+                            <Send className="h-3.5 w-3.5" />
+                            {savingLabourCount ? 'Saving...' : 'Submit Attendance'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* ===== ATTENDANCE SUMMARY ===== */}
+                {contractorAttendanceHistory.length > 0 && (
+                  <Card>
+                    <CardHeader className="p-3 sm:p-5 pb-2">
+                      <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                        <History className="h-4 w-4 text-gray-600" />
+                        Attendance Summary
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 sm:p-5 pt-0">
+                      <div className="rounded-lg border overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="attendance-summary-table">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="text-left px-3 py-2 text-xs font-medium">Date</th>
+                              <th className="text-left px-3 py-2 text-xs font-medium">Day</th>
+                              <th className="text-center px-3 py-2 text-xs font-medium">Workers</th>
+                              <th className="text-left px-3 py-2 text-xs font-medium">Breakdown</th>
+                              <th className="text-right px-3 py-2 text-xs font-medium">Total Cost</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {contractorAttendanceHistory.map((entry, idx) => {
+                              const d = new Date(entry.date + 'T00:00:00');
+                              const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+                              return (
+                                <tr key={entry.attendance_id || idx} className="hover:bg-gray-50" data-testid={`summary-row-${entry.date}`}>
+                                  <td className="px-3 py-2.5 text-xs font-mono">{entry.date}</td>
+                                  <td className="px-3 py-2.5 text-xs text-gray-600">{dayName}</td>
+                                  <td className="px-3 py-2.5 text-center font-semibold">{entry.total_workers}</td>
+                                  <td className="px-3 py-2.5">
+                                    <div className="flex flex-wrap gap-1">
+                                      {(entry.entries || []).map((e, i) => (
+                                        <span key={i} className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded">
+                                          {e.label}: <strong>{e.count}</strong> × {formatCurrency(e.per_day_cost)} = {formatCurrency(e.total || (e.count * e.per_day_cost))}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right font-bold text-green-700">{formatCurrency(entry.total_cost)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot className="bg-green-50 border-t-2">
+                            <tr>
+                              <td colSpan="4" className="px-3 py-2 font-bold text-green-800">Grand Total</td>
+                              <td className="px-3 py-2 text-right font-bold text-lg text-green-800">
+                                {formatCurrency(contractorAttendanceHistory.reduce((s, e) => s + (e.total_cost || 0), 0))}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* ===== WORK ORDERS (STAGES) ===== */}
+                {(selectedContractor.work_orders || []).length > 0 && (
+                  <Card>
+                    <CardHeader className="p-3 sm:p-5 pb-2">
+                      <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                        <Banknote className="h-4 w-4 text-amber-600" />
+                        Work Orders & Stages
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3 sm:p-5 pt-0">
+                      <div className="space-y-4">
+                        {selectedContractor.work_orders.map(wo => {
+                          const stages = wo.payment_stages || [];
+                          // Find first open stage (pending/requested)
+                          const openIdx = stages.findIndex(s => s.status === 'pending' || s.status === 'requested');
+                          return (
+                            <div key={wo.work_order_id} className="border rounded-xl p-3 sm:p-4" data-testid={`work-order-${wo.work_order_id}`}>
+                              <div className="flex items-center justify-between mb-3">
+                                <div>
+                                  <h4 className="text-sm font-semibold">{wo.description || wo.work_order_id}</h4>
+                                  <p className="text-xs text-gray-500">Total: {formatCurrency(wo.total_amount || 0)}</p>
+                                </div>
+                                <Badge variant={wo.status === 'completed' ? 'default' : 'secondary'} className="text-xs capitalize">{wo.status || 'active'}</Badge>
+                              </div>
+
+                              {/* Stage Timeline */}
+                              <div className="relative pl-6" data-testid={`stages-timeline-${wo.work_order_id}`}>
+                                {stages.map((stage, sIdx) => {
+                                  const isCompleted = stage.status === 'approved' || stage.status === 'paid';
+                                  const isOpen = sIdx === openIdx && !isCompleted;
+                                  const isRequested = stage.status === 'requested';
+                                  const isUpcoming = sIdx > openIdx && openIdx !== -1 && !isCompleted;
+
+                                  // Timeline dot + line
+                                  return (
+                                    <div key={stage.stage_id || sIdx} className={`relative pb-4 last:pb-0 ${isUpcoming ? 'opacity-40' : ''}`} data-testid={`stage-${stage.stage_id || sIdx}`}>
+                                      {/* Vertical line */}
+                                      {sIdx < stages.length - 1 && (
+                                        <div className={`absolute left-[-16px] top-4 w-0.5 h-full ${isCompleted ? 'bg-green-400' : isOpen || isRequested ? 'bg-blue-300' : 'bg-gray-200'}`} />
+                                      )}
+                                      {/* Dot */}
+                                      <div className={`absolute left-[-20px] top-1 h-3 w-3 rounded-full border-2 ${isCompleted ? 'bg-green-500 border-green-500' : isOpen || isRequested ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`} />
+
+                                      {isUpcoming ? (
+                                        /* Upcoming: just title, low opacity */
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs text-gray-400 font-medium">{stage.stage_name || `Stage ${sIdx + 1}`}</span>
+                                        </div>
+                                      ) : isCompleted ? (
+                                        /* Completed */
+                                        <div className="bg-green-50 rounded-lg p-2.5 border border-green-200">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <CheckCircle className="h-3.5 w-3.5 text-green-600" />
+                                              <span className="text-sm font-medium text-green-800">{stage.stage_name || `Stage ${sIdx + 1}`}</span>
+                                            </div>
+                                            <span className="text-xs font-semibold text-green-700">{formatCurrency(stage.approved_amount || stage.amount)}</span>
+                                          </div>
+                                        </div>
+                                      ) : isRequested ? (
+                                        /* Requested - waiting for approval */
+                                        <div className="bg-amber-50 rounded-lg p-2.5 border border-amber-200">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <Clock className="h-3.5 w-3.5 text-amber-600" />
+                                              <span className="text-sm font-medium text-amber-800">{stage.stage_name || `Stage ${sIdx + 1}`}</span>
+                                            </div>
+                                            <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700">Payment Requested</Badge>
+                                          </div>
+                                          <p className="text-xs text-amber-600 mt-1">Requested: {formatCurrency(stage.requested_amount || stage.amount)} — awaiting Planning approval</p>
+                                        </div>
+                                      ) : isOpen ? (
+                                        /* Open - SE can raise payment */
+                                        <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                              <Circle className="h-3.5 w-3.5 text-blue-600" />
+                                              <span className="text-sm font-semibold text-blue-800">{stage.stage_name || `Stage ${sIdx + 1}`}</span>
+                                            </div>
+                                            <span className="text-sm font-bold text-blue-700">{formatCurrency(stage.amount)}</span>
+                                          </div>
+                                          <Button
+                                            size="sm"
+                                            className="gap-1 w-full"
+                                            disabled={requestingPayment}
+                                            onClick={() => handleRaisePayment(wo.work_order_id, stage.stage_id, stage.amount)}
+                                            data-testid={`raise-payment-${stage.stage_id}`}
+                                          >
+                                            <Banknote className="h-3.5 w-3.5" />
+                                            {requestingPayment ? 'Requesting...' : 'Raise Payment Request'}
+                                          </Button>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </TabsContent>
 
           {/* STOCK REGISTER TAB */}

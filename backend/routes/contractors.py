@@ -37,6 +37,8 @@ class ContractorCreate(BaseModel):
     gst_type: Optional[str] = None
     payment_cycle: Optional[str] = None
     labour_types: List[dict] = []
+    labour_rates: List[dict] = []
+    categories: List[str] = []
 
 
 class ContractorUpdate(BaseModel):
@@ -54,6 +56,8 @@ class ContractorUpdate(BaseModel):
     gst_type: Optional[str] = None
     payment_cycle: Optional[str] = None
     labour_types: Optional[List[dict]] = None
+    labour_rates: Optional[List[dict]] = None
+    categories: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
 
@@ -499,3 +503,36 @@ async def get_project_contractors(project_id: str, user: User = Depends(get_curr
                     if s.get("status") in ["pending", "requested", "planning_reviewed"]
                 ]
     return work_orders
+
+
+@router.get("/projects/{project_id}/assigned-contractors")
+async def get_assigned_contractors_for_project(project_id: str, user: User = Depends(get_current_user)):
+    """Get contractors assigned to a project with their details, labour rates, and work orders."""
+    work_orders = await db.labour_work_orders.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    # Group by contractor
+    contractor_map = {}
+    for wo in work_orders:
+        cid = wo.get("contractor_id", "")
+        if cid not in contractor_map:
+            contractor_map[cid] = {
+                "contractor_id": cid,
+                "contractor_name": wo.get("contractor_name", ""),
+                "contractor_type": wo.get("contractor_type", ""),
+                "labour_rates": [],
+                "work_orders": []
+            }
+        contractor_map[cid]["work_orders"].append(wo)
+
+    # Enrich with contractor details (labour_rates)
+    for cid, data in contractor_map.items():
+        contractor = await db.contractors.find_one({"contractor_id": cid}, {"_id": 0})
+        if contractor:
+            data["labour_rates"] = contractor.get("labour_rates", []) or contractor.get("labour_types", [])
+            data["contractor_name"] = contractor.get("name", data["contractor_name"])
+            data["contractor_type"] = contractor.get("contractor_type", data["contractor_type"])
+            data["phone"] = contractor.get("phone", "")
+
+    return list(contractor_map.values())
