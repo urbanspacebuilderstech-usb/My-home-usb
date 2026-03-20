@@ -2,7 +2,7 @@
 
 ## Application Access
 
-**Live URL:** https://labour-materials-hub.preview.emergentagent.com
+**Live URL:** https://estimate-dialog-bugs.preview.emergentagent.com
 
 **Demo Login Credentials (via Google OAuth):**
 - Super Admin: admin@constructionos.com
@@ -154,7 +154,7 @@
 
 ## API Endpoints
 
-**Base:** `https://labour-materials-hub.preview.emergentagent.com/api`
+**Base:** `https://estimate-dialog-bugs.preview.emergentagent.com/api`
 
 ### Auth
 - POST `/auth/session` - OAuth session exchange
@@ -354,7 +354,7 @@ print(token);
 
 # Test endpoint
 curl -H "Authorization: Bearer <token>" \
-  https://labour-materials-hub.preview.emergentagent.com/api/projects
+  https://estimate-dialog-bugs.preview.emergentagent.com/api/projects
 ```
 
 ## Next Steps

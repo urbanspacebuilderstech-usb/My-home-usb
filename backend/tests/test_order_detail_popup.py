@@ -13,7 +13,7 @@ import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 if not BASE_URL:
-    BASE_URL = "https://labour-materials-hub.preview.emergentagent.com"
+    BASE_URL = "https://estimate-dialog-bugs.preview.emergentagent.com"
 
 class TestOrderDetailPopupBackend:
     """Backend tests for Order Detail Popup edit feature"""

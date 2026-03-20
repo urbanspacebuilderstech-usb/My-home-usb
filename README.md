@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://labour-materials-hub.preview.emergentagent.com
-- Backend API: https://labour-materials-hub.preview.emergentagent.com/api
+- Frontend: https://estimate-dialog-bugs.preview.emergentagent.com
+- Backend API: https://estimate-dialog-bugs.preview.emergentagent.com/api
 
 ## 📝 Key Files
 

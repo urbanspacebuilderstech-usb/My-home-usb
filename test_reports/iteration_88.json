@@ -1,0 +1,99 @@
+{
+  "summary": "UI bug fixes in Rough Estimate dialog verified. All 3 bugs FIXED: 1) UnitSelect dropdown now opens properly (z-index fix), 2) Qty field accepts decimal values like 10.5, 3) Dropdowns are NOT clipped by dialog boundary (overflow:visible + inner scroll wrapper).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend-only testing)",
+    "frontend": "100% (All 3 bug fixes verified)"
+  },
+  "test_credentials": {
+    "role": "Planning (Demo Access)",
+    "how_to_login": "Click Demo Access tab, select Planning role, click Login button"
+  },
+  "seed_data_creation": "Used existing RE projects (RE - Harini). Created test scope item 'Test Flooring Work' with decimal values.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Three UI bugs in REProjectsPage.jsx Rough Estimate dialog have been fixed and verified: 1) UnitSelect dropdown z-index issue fixed by moving overflow-y-auto to inner div wrapper, 2) Decimal input in Qty/Rate fields works (NumericInput component with allowDecimal=true), 3) Building Type dropdown also works without clipping. Save functionality persists decimal values correctly.",
+  "verified_fixes": {
+    "bug1_unit_select_dropdown": {
+      "description": "'in' button (UnitSelect) appeared stuck/non-functional",
+      "fix": "UnitSelect now uses z-50 class and dialog has overflow:visible",
+      "result": "PASS - Dropdown opens properly, search works, selections work",
+      "evidence": "Screenshot 25_unit_dropdown_open.png shows dropdown visible outside dialog"
+    },
+    "bug2_decimal_qty_input": {
+      "description": "Quantity field did not accept decimal values like 10.5",
+      "fix": "NumericInput component with allowDecimal=true, removed parseFloat from onChange",
+      "result": "PASS - Qty field accepts 10.5, displays correctly",
+      "test_value": "10.5",
+      "evidence": "Console output: Qty value: '10.5' SUCCESS: Qty field accepts decimal 10.5!"
+    },
+    "bug3_dropdown_clipped": {
+      "description": "Dropdown menu clipped by dialog boundary (z-index/overflow issue)",
+      "fix": "Removed overflow-y-auto from DialogContent, added inner div with max-h-[70vh] overflow-y-auto",
+      "result": "PASS - Both UnitSelect and Building Type dropdowns render outside dialog bounds",
+      "evidence": "Screenshot 26_building_dropdown_open.png shows 6 options visible without clipping"
+    }
+  },
+  "additional_verifications": {
+    "total_calculation": {
+      "input": "Qty=10.5, Rate=150.75",
+      "expected": "1582.875",
+      "actual": "₹1,583 (correctly rounded)",
+      "result": "PASS"
+    },
+    "rate_decimal_input": {
+      "input": "150.75",
+      "result": "PASS - Rate field accepts decimal values"
+    },
+    "save_functionality": {
+      "toast_message": "RE Project updated",
+      "result": "PASS"
+    },
+    "dialog_scroll": {
+      "description": "Dialog content scrolls with inner wrapper",
+      "result": "PASS - Dialog content scrollable, dropdowns not affected"
+    }
+  },
+  "code_changes_reviewed": {
+    "REProjectsPage.jsx": {
+      "line_451": "Inner div with max-h-[70vh] overflow-y-auto for scrollable content",
+      "line_585-605": "NumericInput for Qty and Rate fields with allowDecimal=true",
+      "line_594-599": "UnitSelect component with z-50 dropdown positioning"
+    },
+    "dialog.jsx": {
+      "line_35": "style={{ overflow: 'visible' }} on DialogPrimitive.Content"
+    },
+    "NumericInput.jsx": {
+      "line_43": "allowDecimal=true by default, handles decimal point correctly"
+    },
+    "UnitSelect.jsx": {
+      "line_135": "Dropdown uses z-50 class for proper stacking"
+    }
+  },
+  "test_flow": [
+    "1. Login as Planning role via Demo Access",
+    "2. Navigate to Rough Estimates tab",
+    "3. Click Edit on RE project",
+    "4. Click Add Item to add scope row",
+    "5. Enter decimal Qty (10.5) - VERIFIED WORKS",
+    "6. Enter decimal Rate (150.75) - VERIFIED WORKS",
+    "7. Open UnitSelect dropdown - VERIFIED NOT CLIPPED",
+    "8. Select unit (sqft) - VERIFIED WORKS",
+    "9. Open Building Type dropdown - VERIFIED NOT CLIPPED",
+    "10. Select Residential - VERIFIED WORKS",
+    "11. Verify Total calculation (₹1,583) - VERIFIED CORRECT",
+    "12. Click Save - VERIFIED SUCCESS TOAST"
+  ]
+}

@@ -111,11 +111,18 @@ export default function REProjectsPage({ embedded = false }) {
 
   const handleSaveProject = async () => {
     // Calculate total from scope items
-    const scopeTotal = editForm.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0);
+    const scopeItems = editForm.rough_scope_items.map(item => ({
+      ...item,
+      quantity: parseFloat(item.quantity) || 0,
+      rate: parseFloat(item.rate) || 0,
+      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)
+    }));
+    const scopeTotal = scopeItems.reduce((sum, item) => sum + (item.total || 0), 0);
     
     try {
       await axios.patch(`${API}/crm/re-projects/${selectedProject.re_project_id}`, {
         ...editForm,
+        rough_scope_items: scopeItems,
         sqft: editForm.sqft ? parseFloat(editForm.sqft) : null,
         handover_months: editForm.handover_months ? parseInt(editForm.handover_months) : null,
         estimated_total: scopeTotal
@@ -175,7 +182,7 @@ export default function REProjectsPage({ embedded = false }) {
     const items = [...editForm.rough_scope_items];
     items[index][field] = value;
     if (field === 'quantity' || field === 'rate') {
-      items[index].total = (items[index].quantity || 0) * (items[index].rate || 0);
+      items[index].total = (parseFloat(items[index].quantity) || 0) * (parseFloat(items[index].rate) || 0);
     }
     setEditForm({ ...editForm, rough_scope_items: items });
   };
@@ -420,7 +427,7 @@ export default function REProjectsPage({ embedded = false }) {
 
       {/* Edit RE Project Dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -441,7 +448,7 @@ export default function REProjectsPage({ embedded = false }) {
           </DialogHeader>
           
           {selectedProject && (
-            <div className="space-y-6">
+            <div className="max-h-[70vh] overflow-y-auto space-y-6 pr-1">
               {/* Client Info (Read-only) */}
               <Card className="bg-gray-50">
                 <CardContent className="p-4">
@@ -578,7 +585,7 @@ export default function REProjectsPage({ embedded = false }) {
                               <NumericInput
                                 
                                 value={item.quantity}
-                                onChange={(e) => updateScopeItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                                onChange={(e) => updateScopeItem(idx, 'quantity', e.target.value)}
                                 className="h-8 text-center"
                                 disabled={!canEdit}
                               />
@@ -595,7 +602,7 @@ export default function REProjectsPage({ embedded = false }) {
                               <NumericInput
                                 
                                 value={item.rate}
-                                onChange={(e) => updateScopeItem(idx, 'rate', parseFloat(e.target.value) || 0)}
+                                onChange={(e) => updateScopeItem(idx, 'rate', e.target.value)}
                                 className="h-8 text-right"
                                 disabled={!canEdit}
                               />
