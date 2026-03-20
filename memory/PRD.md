@@ -38,7 +38,7 @@ Build a comprehensive labour and materials management system for a Construction 
 - Phase 2: Material Receiving & Stock Management (image uploads, GPS)
 - Phase 3: Daily Progress Reports
 
-### March 2026 Session 3 (Current)
+### March 2026 Session 3
 - **Daily Stock Count Report**: Auto-populated inventory table with received materials, opening/closing stock, totals, check-in log
 - **User Account Creation (Roles & Credentials tab)**:
   - "Create User" button with form: Link Employee, Name, Email, Password, Confirm Password, Role
@@ -48,6 +48,19 @@ Build a comprehensive labour and materials management system for a Construction 
   - Delete user capability for Super Admin
   - Login with email/password for created users
 - **Test data cleanup**: Removed 4 TEST_John Doe HR Test records
+
+### March 2026 Session 4
+- **Super Admin Setup Wizard**: `/setup` page for first-time Super Admin creation
+- **Percentage-Based Payment Stages**: Stages use % of total project value; amounts auto-calculated on backend; hidden from PM role
+- **Password Visibility Toggle**: Eye icon on all password fields
+- **Demo Login CORS Fix**: Fixed CORS config blocking demo logins
+- **Global Dialog Z-Index Fix**: Modified `dialog.jsx` with `overflow: visible` to prevent dropdown clipping
+
+### March 2026 Session 5 (Current)
+- **Bug Fix - Rough Estimate Dialog (3 bugs)**:
+  1. **Unit dropdown stuck**: Moved `overflow-y-auto` from `DialogContent` to inner wrapper div so UnitSelect dropdown renders above dialog
+  2. **Decimal input blocked**: Removed premature `parseFloat` from Qty/Rate onChange handlers; parseFloat now only applied during total calculation and save
+  3. **Dropdown clipped by dialog**: Same root cause as #1 — inner scroll wrapper pattern applied
 
 ## Architecture
 ```
