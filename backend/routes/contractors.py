@@ -222,6 +222,11 @@ async def create_labour_work_order(data: dict, user: User = Depends(get_current_
             "daily_rate": s.get("daily_rate", 0),
             "start_date": s.get("start_date", ""),
             "end_date": s.get("end_date", ""),
+            "labour_rates": s.get("labour_rates", [
+                {"type": "Skilled", "rate": 0},
+                {"type": "Semi-Skilled", "rate": 0},
+                {"type": "Unskilled", "rate": 0},
+            ]),
             "status": "pending",
             "total_spend": 0,
             "total_attendance_days": 0,
@@ -253,7 +258,7 @@ async def create_labour_work_order(data: dict, user: User = Depends(get_current_
 
 @router.patch("/labour-work-orders/{wo_id}")
 async def update_labour_work_order(wo_id: str, data: dict, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     update = {"updated_at": datetime.now(timezone.utc).isoformat()}
     for field in ["description", "total_amount", "status", "payment_stages"]:
@@ -261,6 +266,49 @@ async def update_labour_work_order(wo_id: str, data: dict, user: User = Depends(
             update[field] = data[field]
     await db.labour_work_orders.update_one({"work_order_id": wo_id}, {"$set": update})
     return await db.labour_work_orders.find_one({"work_order_id": wo_id}, {"_id": 0})
+
+
+@router.post("/labour-work-orders/{wo_id}/stages")
+async def add_stage_to_work_order(wo_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Add a new stage to an existing work order"""
+    wo = await db.labour_work_orders.find_one({"work_order_id": wo_id})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    new_stage = {
+        "stage_id": f"wos_{uuid.uuid4().hex[:6]}",
+        "stage_name": data.get("stage_name", "New Stage"),
+        "amount": data.get("amount", 0),
+        "percentage": data.get("percentage", 0),
+        "daily_rate": data.get("daily_rate", 0),
+        "start_date": data.get("start_date", ""),
+        "end_date": data.get("end_date", ""),
+        "labour_rates": data.get("labour_rates", [
+            {"type": "Skilled", "rate": 0},
+            {"type": "Semi-Skilled", "rate": 0},
+            {"type": "Unskilled", "rate": 0},
+        ]),
+        "status": "pending",
+        "total_spend": 0,
+        "total_attendance_days": 0,
+        "requested_at": None,
+        "approved_at": None,
+        "notes": data.get("notes", "")
+    }
+
+    stages = wo.get("payment_stages", [])
+    stages.append(new_stage)
+    total = sum(s.get("amount", 0) for s in stages)
+
+    await db.labour_work_orders.update_one(
+        {"work_order_id": wo_id},
+        {"$set": {
+            "payment_stages": stages,
+            "total_amount": total,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    return new_stage
 
 
 # ==================== STAGE PAYMENT REQUESTS ====================

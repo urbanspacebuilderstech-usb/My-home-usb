@@ -72,9 +72,10 @@ export default function SiteEngineerProject() {
   const [labourSubTab, setLabourSubTab] = useState('orders');
   
   const [materialRequestDialog, setMaterialRequestDialog] = useState(false);
-  const [labourRequestDialog, setLabourRequestDialog] = useState(false);
   const [receiveDialog, setReceiveDialog] = useState({ open: false, request: null });
   const [otpDialog, setOtpDialog] = useState({ open: false, receipt: null });
+  
+  const [quickAttPopup, setQuickAttPopup] = useState(false);
   
   const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
@@ -508,6 +509,18 @@ export default function SiteEngineerProject() {
           </CardContent>
         </Card>
 
+        {/* Quick Attendance Button */}
+        <div className="flex items-center justify-end mb-2">
+          <Button
+            size="sm"
+            className="gap-1.5 text-xs bg-blue-600 hover:bg-blue-700"
+            onClick={() => { setActiveTab('work_orders'); setQuickAttPopup(true); }}
+            data-testid="quick-attendance-btn"
+          >
+            <ClipboardList className="h-3.5 w-3.5" /> Daily Attendance
+          </Button>
+        </div>
+
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-3">
@@ -733,7 +746,7 @@ export default function SiteEngineerProject() {
 
           {/* WORK ORDERS TAB */}
           <TabsContent value="work_orders">
-            <WorkOrderTab projectId={projectId} />
+            <WorkOrderTab projectId={projectId} quickAttPopup={quickAttPopup} onQuickAttClose={() => setQuickAttPopup(false)} />
           </TabsContent>
 
           {/* STOCK REGISTER TAB */}
