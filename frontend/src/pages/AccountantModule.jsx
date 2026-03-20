@@ -332,8 +332,8 @@ export default function AccountantModule() {
   const getRequestCounts = () => {
     return {
       cre: creRequests.filter(r => r.status === 'pending_payment').length,
-      material: materialRequests.filter(r => r.status === 'pending_accounts_approval').length,
-      labour: labourRequests.filter(r => r.status === 'pending_accounts_approval').length,
+      material: materialRequests.filter(r => ['pending_accounts_approval', 'procurement_approved'].includes(r.status)).length,
+      labour: labourRequests.filter(r => ['pending_accounts_approval', 'planning_approved'].includes(r.status)).length,
       petty_cash: pettyCashRequests.filter(r => ['requested', 'pending_settlement'].includes(r.status)).length,
       total: 0
     };
@@ -524,13 +524,13 @@ export default function AccountantModule() {
                 )}
 
                 {/* Material Requests */}
-                {(requestFilter === 'all' || requestFilter === 'material') && materialRequests.filter(r => r.status === 'pending_accounts_approval').length > 0 && (
+                {(requestFilter === 'all' || requestFilter === 'material') && materialRequests.filter(r => ['pending_accounts_approval', 'procurement_approved'].includes(r.status)).length > 0 && (
                   <div className="p-4 border-b">
                     <h3 className="text-sm font-semibold text-green-700 mb-3 flex items-center gap-2">
                       <Package className="h-4 w-4" /> Material Request Verification
                     </h3>
                     <div className="space-y-3">
-                      {materialRequests.filter(r => r.status === 'pending_accounts_approval').map(req => (
+                      {materialRequests.filter(r => ['pending_accounts_approval', 'procurement_approved'].includes(r.status)).map(req => (
                         <Card key={req.request_id} className="border-green-200" data-testid={`material-request-${req.request_id}`}>
                           <CardContent className="p-4 flex items-center justify-between">
                             <div>
@@ -555,13 +555,13 @@ export default function AccountantModule() {
                 )}
 
                 {/* Labour Requests */}
-                {(requestFilter === 'all' || requestFilter === 'labour') && labourRequests.filter(r => r.status === 'pending_accounts_approval').length > 0 && (
+                {(requestFilter === 'all' || requestFilter === 'labour') && labourRequests.filter(r => ['pending_accounts_approval', 'planning_approved'].includes(r.status)).length > 0 && (
                   <div className="p-4 border-b">
                     <h3 className="text-sm font-semibold text-orange-700 mb-3 flex items-center gap-2">
                       <Users className="h-4 w-4" /> Labour Payment Verification
                     </h3>
                     <div className="space-y-3">
-                      {labourRequests.filter(r => r.status === 'pending_accounts_approval').map(req => (
+                      {labourRequests.filter(r => ['pending_accounts_approval', 'planning_approved'].includes(r.status)).map(req => (
                         <Card key={req.labour_expense_id} className="border-orange-200" data-testid={`labour-request-${req.labour_expense_id}`}>
                           <CardContent className="p-4 flex items-center justify-between">
                             <div>

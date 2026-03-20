@@ -99,6 +99,7 @@ class MaterialRequestStatus(str, Enum):
     REQUESTED = "requested"  # Site Engineer created request
     PM_APPROVED = "pm_approved"  # Project Manager approved
     PLANNING_APPROVED = "planning_approved"  # Planning approved
+    PENDING_ACCOUNTS_APPROVAL = "pending_accounts_approval"  # Waiting for Accountant
     PROCUREMENT_ASSIGNED = "procurement_assigned"  # Procurement assigned vendor
     VENDOR_SELECTED = "vendor_selected"  # Procurement selected vendor & pricing
     WAITING_PAYMENT = "waiting_payment"  # Waiting for accounts approval
@@ -127,6 +128,7 @@ class PaymentType(str, Enum):
 class LabourRequestStatus(str, Enum):
     REQUESTED = "requested"
     PLANNING_APPROVED = "planning_approved"
+    PENDING_ACCOUNTS_APPROVAL = "pending_accounts_approval"
     ACCOUNTANT_APPROVED = "accountant_approved"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -791,8 +793,17 @@ async def approve_material_request(
                 update_data["po_id"] = po["po_id"]
                 update_data["po_generated_at"] = now_iso
                 update_data["auto_po_generated"] = True
+                # Move to accountant for payment approval
+                update_data["status"] = MaterialRequestStatus.PENDING_ACCOUNTS_APPROVAL.value
 
-            # Notify procurement about auto-PO
+            # Notify accountant about pending payment
+            acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+            for a in acc_users:
+                await create_notification(
+                    a["user_id"],
+                    f"Material payment pending approval: {request['material_name']} → Vendor: {vendor_match.get('vendor_name')}. PO auto-generated."
+                )
+            # Also notify procurement
             proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
             for p in proc_users:
                 await create_notification(
@@ -1132,17 +1143,23 @@ async def planning_action_material_request(
                 update_data["po_id"] = po["po_id"]
                 update_data["po_generated_at"] = now_iso
                 update_data["auto_po_generated"] = True
+                # Move to accountant for payment approval
+                update_data["status"] = MaterialRequestStatus.PENDING_ACCOUNTS_APPROVAL.value
 
         await db.material_requests.update_one({"request_id": request_id}, {"$set": update_data})
         
-        # Notify procurement
+        # Notify accountant if auto-PO, otherwise notify procurement
+        if vendor_match:
+            acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
+            for a in acc_users:
+                await create_notification(a["user_id"], f"Material payment pending approval: {request['material_name']} → Vendor: {vendor_match.get('vendor_name')}. PO auto-generated.")
         proc_users = await db.users.find({"role": "procurement"}, {"_id": 0}).to_list(100)
         for p in proc_users:
             msg = f"Auto PO generated for {request['material_name']} → Vendor: {vendor_match.get('vendor_name')}. Review PO." if vendor_match else f"Material request approved by Planning: {request['material_name']} x {request['quantity']}"
             await create_notification(p["user_id"], msg)
         
         await create_audit_log(user.user_id, "planning_approve", "material_request", request_id, update_data)
-        return {"message": "Approved", "status": "planning_approved", "auto_po": bool(vendor_match)}
+        return {"message": "Approved", "status": update_data.get("status", "planning_approved"), "auto_po": bool(vendor_match)}
     
     elif action == "reject":
         update_data = {
@@ -1211,7 +1228,7 @@ async def planning_action_labour_expense(
         if request["status"] != "requested":
             raise HTTPException(status_code=400, detail=f"Cannot approve in status: {request['status']}")
         update_data = {
-            "status": LabourRequestStatus.PLANNING_APPROVED.value,
+            "status": LabourRequestStatus.PENDING_ACCOUNTS_APPROVAL.value,
             "planning_approved_by": user.user_id,
             "planning_approved_at": datetime.now(timezone.utc).isoformat()
         }
@@ -1220,10 +1237,10 @@ async def planning_action_labour_expense(
         # Notify accountant
         acc_users = await db.users.find({"role": "accountant"}, {"_id": 0}).to_list(100)
         for a in acc_users:
-            await create_notification(a["user_id"], f"Labour request approved by Planning: {request.get('labour_type', request.get('description', 'Labour'))}")
+            await create_notification(a["user_id"], f"Labour payment pending approval: {request.get('labour_type', request.get('description', 'Labour'))}")
         
         await create_audit_log(user.user_id, "planning_approve", "labour_expense", expense_id, update_data)
-        return {"message": "Approved", "status": "planning_approved"}
+        return {"message": "Approved", "status": "pending_accounts_approval"}
     
     elif action == "reject":
         update_data = {
@@ -1787,7 +1804,7 @@ async def get_accountant_material_requests(user: User = Depends(get_current_user
     
     # Get requests pending accounts approval or all recent ones
     requests = await db.material_requests.find(
-        {"status": {"$in": ["pending_accounts_approval", "accounts_approved", "order_placed"]}},
+        {"status": {"$in": ["pending_accounts_approval", "procurement_approved", "accounts_approved", "order_placed", "payment_approved"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     
@@ -1856,7 +1873,7 @@ async def get_accountant_labour_requests(user: User = Depends(get_current_user))
         raise HTTPException(status_code=403, detail="Only Accountant can access this")
     
     requests = await db.labour_expenses.find(
-        {"status": {"$in": ["pending_accounts_approval", "accounts_approved"]}},
+        {"status": {"$in": ["pending_accounts_approval", "planning_approved", "accountant_approved", "accounts_approved"]}},
         {"_id": 0}
     ).sort("created_at", -1).to_list(100)
     

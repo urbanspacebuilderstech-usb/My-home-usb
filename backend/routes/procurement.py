@@ -511,7 +511,7 @@ async def submit_for_accounts(pricing_id: str, user: User = Depends(get_current_
         {"request_id": pricing.get("request_id")},
         {
             "$set": {
-                "status": "procurement_approved",
+                "status": "pending_accounts_approval",
                 "procurement_approved_by": user.user_id,
                 "procurement_approved_at": datetime.now(timezone.utc).isoformat(),
                 "procurement_pricing": pricing.get("final_amount"),
