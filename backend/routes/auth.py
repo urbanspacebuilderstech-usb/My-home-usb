@@ -56,12 +56,13 @@ class InitialSetupRequest(BaseModel):
 
 @router.get("/auth/setup-status")
 async def get_setup_status():
-    """Check if the application has been set up (any users exist)"""
-    count = await db.users.count_documents({})
+    """Check if the application has been set up (any super_admin exists)"""
+    admin_count = await db.users.count_documents({"role": "super_admin"})
     settings = await db.app_settings.find_one({"setting_key": "company_info"}, {"_id": 0})
     return {
-        "setup_complete": count > 0,
-        "user_count": count,
+        "setup_needed": admin_count == 0,
+        "admin_count": admin_count,
+        "setup_complete": admin_count > 0,
         "company_name": settings.get("company_name", "") if settings else "",
     }
 
@@ -115,10 +116,10 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
 @router.post("/auth/initial-setup")
 async def initial_setup(data: InitialSetupRequest, request: Request, response: Response):
     """One-time setup to create the first Super Admin and company settings.
-    Only works when no users exist in the database."""
-    count = await db.users.count_documents({})
-    if count > 0:
-        raise HTTPException(status_code=400, detail="Setup already completed. Users already exist.")
+    Only works when no super_admin users exist in the database."""
+    admin_count = await db.users.count_documents({"role": "super_admin"})
+    if admin_count > 0:
+        raise HTTPException(status_code=400, detail="Setup already completed. A Super Admin already exists.")
 
     if "@" not in data.admin_email or "." not in data.admin_email:
         raise HTTPException(status_code=400, detail="Invalid email format")

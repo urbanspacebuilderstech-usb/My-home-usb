@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Button } from '../components/ui/button';
 import { toast } from 'sonner';
-import { Building2, User, Mail, Phone, Lock, ArrowRight, Check, Shield } from 'lucide-react';
+import { Building2, User, Mail, Phone, Lock, ArrowRight, Check, Shield, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -14,6 +14,10 @@ export default function SetupWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [setupLocked, setSetupLocked] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [form, setForm] = useState({
     company_name: '',
     admin_name: '',
@@ -25,6 +29,23 @@ export default function SetupWizard() {
 
   const update = (field, value) => setForm(prev => ({ ...prev, [field]: value }));
 
+  useEffect(() => {
+    checkSetupStatus();
+  }, []);
+
+  const checkSetupStatus = async () => {
+    try {
+      const res = await axios.get(`${API}/auth/setup-status`);
+      if (!res.data.setup_needed) {
+        setSetupLocked(true);
+      }
+    } catch {
+      // If endpoint fails, allow setup
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!form.company_name.trim()) { toast.error('Company name is required'); return; }
     if (!form.admin_name.trim()) { toast.error('Your name is required'); return; }
@@ -32,7 +53,7 @@ export default function SetupWizard() {
     if (form.admin_password.length < 6) { toast.error('Password must be at least 6 characters'); return; }
     if (form.admin_password !== form.confirm_password) { toast.error('Passwords do not match'); return; }
 
-    if (showLoader) setLoading(true);
+    setLoading(true);
     try {
       await axios.post(`${API}/auth/initial-setup`, {
         company_name: form.company_name.trim(),
@@ -51,6 +72,33 @@ export default function SetupWizard() {
     }
   };
 
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <div className="text-white text-sm">Checking setup status...</div>
+      </div>
+    );
+  }
+
+  if (setupLocked) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4" data-testid="setup-locked">
+        <Card className="max-w-md w-full border-0 shadow-2xl text-center">
+          <CardContent className="py-12">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 mb-4">
+              <AlertTriangle className="h-8 w-8 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Setup Already Complete</h2>
+            <p className="text-gray-500 mb-4">A Super Admin account already exists. This page is locked.</p>
+            <Button onClick={() => navigate('/login')} className="bg-slate-900 hover:bg-slate-800" data-testid="go-to-login-btn">
+              Go to Login
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center px-4" data-testid="setup-wizard">
       <div className="w-full max-w-lg">
@@ -61,7 +109,7 @@ export default function SetupWizard() {
             <Building2 className="h-8 w-8 text-white" />
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome to Your Construction OS</h1>
-          <p className="text-slate-400 mt-2 text-sm">Set up your account in just a minute</p>
+          <p className="text-slate-400 mt-2 text-sm">Set up your Super Admin account in just a minute</p>
         </div>
 
         {/* Progress */}
@@ -152,14 +200,20 @@ export default function SetupWizard() {
                 <Label htmlFor="admin_password">Password *</Label>
                 <div className="relative mt-1">
                   <Lock className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                  <Input id="admin_password" type="password" placeholder="Min 6 characters" value={form.admin_password} onChange={e => update('admin_password', e.target.value)} className="pl-10" data-testid="setup-admin-password" />
+                  <Input id="admin_password" type={showPassword ? 'text' : 'password'} placeholder="Min 6 characters" value={form.admin_password} onChange={e => update('admin_password', e.target.value)} className="pl-10 pr-10" data-testid="setup-admin-password" />
+                  <button type="button" className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600" onClick={() => setShowPassword(!showPassword)} data-testid="setup-toggle-password">
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               <div>
                 <Label htmlFor="confirm_password">Confirm Password *</Label>
                 <div className="relative mt-1">
                   <Lock className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                  <Input id="confirm_password" type="password" placeholder="Re-enter password" value={form.confirm_password} onChange={e => update('confirm_password', e.target.value)} className="pl-10" data-testid="setup-confirm-password" />
+                  <Input id="confirm_password" type={showConfirmPassword ? 'text' : 'password'} placeholder="Re-enter password" value={form.confirm_password} onChange={e => update('confirm_password', e.target.value)} className="pl-10 pr-10" data-testid="setup-confirm-password" />
+                  <button type="button" className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600" onClick={() => setShowConfirmPassword(!showConfirmPassword)} data-testid="setup-toggle-confirm-password">
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               <div className="flex gap-3">
