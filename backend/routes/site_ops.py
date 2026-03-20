@@ -589,11 +589,46 @@ async def get_site_engineer_project_detail(
     }
 
 
+# ==================== APPROVED MATERIALS ENDPOINT ====================
+
+@router.get("/projects/{project_id}/approved-materials")
+async def get_project_approved_materials(
+    project_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get approved materials (with brands) for a project - accessible by Site Engineers"""
+    allowed_roles = [
+        UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM,
+        UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.SUPER_ADMIN,
+        UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT
+    ]
+    if user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # For Site Engineers, verify assignment
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        assignment = await db.site_engineer_assignments.find_one({
+            "user_id": user.user_id,
+            "project_id": project_id,
+            "is_active": True
+        }, {"_id": 0})
+        if not assignment:
+            raise HTTPException(status_code=403, detail="You are not assigned to this project")
+
+    materials = await db.project_materials.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).to_list(200)
+
+    return materials
+
+
 # Material Request Endpoints
 class MaterialRequestCreate(BaseModel):
     project_id: str
     material_id: Optional[str] = None
     material_name: Optional[str] = None
+    brand: Optional[str] = None
+    is_approved_material: bool = False
     quantity: float
     unit: Optional[str] = None
     required_date: Optional[str] = None
@@ -619,11 +654,21 @@ async def create_material_request(
     if not assignment:
         raise HTTPException(status_code=403, detail="You are not assigned to this project")
     
-    # Get material details (optional - can provide name directly)
+    # Get material details
     mat_name = data.material_name or "Unknown Material"
     mat_unit = data.unit or "unit"
-    
-    if data.material_id:
+    mat_brand = data.brand or None
+
+    # If using approved material from project_materials
+    if data.is_approved_material and data.material_id:
+        pm = await db.project_materials.find_one(
+            {"material_id": data.material_id, "project_id": data.project_id}, {"_id": 0}
+        )
+        if pm:
+            mat_name = pm.get("name", mat_name)
+            mat_unit = pm.get("unit", mat_unit)
+            mat_brand = pm.get("brand") or mat_brand
+    elif data.material_id:
         material = await db.materials.find_one({"material_id": data.material_id}, {"_id": 0})
         if material:
             mat_name = material.get("name", mat_name)
@@ -648,6 +693,8 @@ async def create_material_request(
     req_dict["project_name"] = project["name"] if project else "Unknown"
     req_dict["site_engineer_name"] = user.name
     req_dict["required_date"] = data.required_date
+    req_dict["brand"] = mat_brand
+    req_dict["is_approved_material"] = data.is_approved_material
 
     # Auto-lookup assigned vendor for this material category
     vendor_match = await find_assigned_vendor_for_material(data.project_id, mat_name)
@@ -1314,6 +1361,10 @@ class MaterialReceiptCreate(BaseModel):
     received_qty: float
     gps_latitude: float
     gps_longitude: float
+    receive_date: Optional[str] = None
+    receive_time: Optional[str] = None
+    lorry_image_id: Optional[str] = None
+    material_image_id: Optional[str] = None
     photo_url: Optional[str] = None
     remarks: Optional[str] = None
 
@@ -1367,6 +1418,14 @@ async def initiate_material_receipt(
     rcpt_dict = receipt.model_dump()
     rcpt_dict["created_at"] = rcpt_dict["created_at"].isoformat()
     rcpt_dict["otp_expires_at"] = rcpt_dict["otp_expires_at"].isoformat()
+    # Store additional Phase 2 fields
+    rcpt_dict["receive_date"] = data.receive_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rcpt_dict["receive_time"] = data.receive_time or datetime.now(timezone.utc).strftime("%H:%M")
+    rcpt_dict["lorry_image_id"] = data.lorry_image_id
+    rcpt_dict["material_image_id"] = data.material_image_id
+    rcpt_dict["material_name"] = request.get("material_name", "")
+    rcpt_dict["unit"] = request.get("unit", "")
+    rcpt_dict["brand"] = request.get("brand", "")
     await db.material_receipts.insert_one(rcpt_dict)
     rcpt_dict.pop("_id", None)
     
@@ -1505,6 +1564,124 @@ async def get_material_receipts(
     
     receipts = await db.material_receipts.find(query, {"_id": 0, "otp_code": 0}).sort("created_at", -1).to_list(1000)
     return receipts
+
+
+@router.get("/projects/{project_id}/received-stock")
+async def get_received_stock(
+    project_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get aggregated received materials for stock management view"""
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        assignment = await db.site_engineer_assignments.find_one({
+            "user_id": user.user_id, "project_id": project_id, "is_active": True
+        }, {"_id": 0})
+        if not assignment:
+            raise HTTPException(status_code=403, detail="Not assigned to this project")
+
+    # Get all verified receipts for this project
+    receipts = await db.material_receipts.find(
+        {"project_id": project_id, "otp_verified": True},
+        {"_id": 0, "otp_code": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    # Aggregate by material
+    stock_map = {}
+    for r in receipts:
+        mat_name = r.get("material_name") or "Unknown"
+        if mat_name not in stock_map:
+            stock_map[mat_name] = {
+                "material_name": mat_name,
+                "unit": r.get("unit", ""),
+                "brand": r.get("brand", ""),
+                "total_received": 0,
+                "receipts": []
+            }
+        stock_map[mat_name]["total_received"] += r.get("received_qty", 0)
+        stock_map[mat_name]["receipts"].append({
+            "receipt_id": r.get("receipt_id"),
+            "received_qty": r.get("received_qty"),
+            "receive_date": r.get("receive_date"),
+            "receive_time": r.get("receive_time"),
+            "gps_latitude": r.get("gps_latitude"),
+            "gps_longitude": r.get("gps_longitude"),
+            "lorry_image_id": r.get("lorry_image_id"),
+            "material_image_id": r.get("material_image_id"),
+            "created_at": r.get("created_at"),
+        })
+
+    return list(stock_map.values())
+
+
+# ==================== DAILY PROGRESS REPORTS ====================
+
+class DailyProgressCreate(BaseModel):
+    summary: str
+    current_stage: Optional[str] = None
+
+
+@router.post("/projects/{project_id}/daily-progress")
+async def create_daily_progress(
+    project_id: str,
+    data: DailyProgressCreate,
+    user: User = Depends(get_current_user)
+):
+    """Site Engineer logs daily progress for a project"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can log progress")
+
+    assignment = await db.site_engineer_assignments.find_one({
+        "user_id": user.user_id, "project_id": project_id, "is_active": True
+    }, {"_id": 0})
+    if not assignment:
+        raise HTTPException(status_code=403, detail="Not assigned to this project")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    day_name = now.strftime("%A")
+
+    entry = {
+        "progress_id": f"dp_{uuid.uuid4().hex[:12]}",
+        "project_id": project_id,
+        "project_name": project["name"] if project else "Unknown",
+        "site_engineer_id": user.user_id,
+        "site_engineer_name": user.name,
+        "date": today,
+        "day": day_name,
+        "summary": data.summary,
+        "current_stage": data.current_stage,
+        "created_at": now.isoformat(),
+    }
+
+    await db.daily_progress.insert_one(entry)
+    entry.pop("_id", None)
+
+    # Update project stage if provided
+    if data.current_stage:
+        await db.projects.update_one(
+            {"project_id": project_id},
+            {"$set": {"current_stage": data.current_stage}}
+        )
+
+    # Notify PM
+    pm_users = await db.users.find({"role": {"$in": ["project_manager", "general_manager"]}}, {"_id": 0}).to_list(20)
+    for p in pm_users:
+        await create_notification(p["user_id"], f"Daily progress: {project['name'] if project else project_id} - {today}")
+
+    return entry
+
+
+@router.get("/projects/{project_id}/daily-progress")
+async def get_daily_progress(
+    project_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get daily progress entries for a project"""
+    entries = await db.daily_progress.find(
+        {"project_id": project_id}, {"_id": 0}
+    ).sort("date", -1).to_list(100)
+    return entries
 
 
 # Labour types list

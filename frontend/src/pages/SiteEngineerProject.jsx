@@ -77,14 +77,26 @@ export default function SiteEngineerProject() {
   
   const [quickAttPopup, setQuickAttPopup] = useState(false);
   
-  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
+  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
+  const [approvedMaterials, setApprovedMaterials] = useState([]);
+  const [materialSearch, setMaterialSearch] = useState('');
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
-  const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '' });
+  const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [otpCode, setOtpCode] = useState('');
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [lorryImageId, setLorryImageId] = useState(null);
+  const [materialImageId, setMaterialImageId] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(null);
+  // Daily Progress state
+  const [dailyProgressDialog, setDailyProgressDialog] = useState(false);
+  const [dailyProgressForm, setDailyProgressForm] = useState({ summary: '', current_stage: '' });
+  const [dailyProgressEntries, setDailyProgressEntries] = useState([]);
+  const [savingProgress, setSavingProgress] = useState(false);
+  // Received stock
+  const [receivedStock, setReceivedStock] = useState([]);
 
   // Labour Count state
   const [labourCountDate, setLabourCountDate] = useState(new Date().toISOString().split('T')[0]);
@@ -105,7 +117,15 @@ export default function SiteEngineerProject() {
 
   useEffect(() => {
     fetchData();
+    fetchApprovedMaterials();
   }, [projectId]);
+
+  const fetchApprovedMaterials = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/approved-materials`);
+      setApprovedMaterials(res.data || []);
+    } catch { setApprovedMaterials([]); }
+  };
 
   const fetchData = async (showLoader = true) => {
     try {
@@ -263,8 +283,45 @@ export default function SiteEngineerProject() {
   }, [activeTab, projectId]);
 
   useEffect(() => {
-    if (activeTab === 'stock_register' && projectId) fetchStockData(stockDate);
+    if (activeTab === 'stock_register' && projectId) {
+      fetchStockData(stockDate);
+      fetchReceivedStock();
+    }
   }, [activeTab, stockDate, projectId]);
+
+  useEffect(() => {
+    if (activeTab === 'daily_progress' && projectId) fetchDailyProgress();
+  }, [activeTab, projectId]);
+
+  const fetchReceivedStock = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/received-stock`);
+      setReceivedStock(res.data || []);
+    } catch { setReceivedStock([]); }
+  };
+
+  const fetchDailyProgress = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/daily-progress`);
+      setDailyProgressEntries(res.data || []);
+    } catch { setDailyProgressEntries([]); }
+  };
+
+  const handleSaveDailyProgress = async () => {
+    if (!dailyProgressForm.summary.trim()) { toast.error('Please enter work summary'); return; }
+    setSavingProgress(true);
+    try {
+      await axios.post(`${API}/projects/${projectId}/daily-progress`, {
+        summary: dailyProgressForm.summary,
+        current_stage: dailyProgressForm.current_stage || null,
+      });
+      toast.success('Daily progress saved!');
+      setDailyProgressDialog(false);
+      setDailyProgressForm({ summary: '', current_stage: '' });
+      fetchDailyProgress();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to save progress'); }
+    finally { setSavingProgress(false); }
+  };
 
   const handleLogout = async () => {
     try {
@@ -319,7 +376,9 @@ export default function SiteEngineerProject() {
         project_id: projectId,
         quantity: parseFloat(materialForm.quantity),
         unit: materialForm.unit || 'kg',
-        remarks: materialForm.remarks || null
+        remarks: materialForm.remarks || null,
+        is_approved_material: materialForm.is_approved,
+        brand: materialForm.brand || null
       };
       if (materialForm.material_id) {
         payload.material_id = materialForm.material_id;
@@ -331,8 +390,9 @@ export default function SiteEngineerProject() {
       await axios.post(`${API}/site-engineer/material-requests`, payload);
       toast.success('Material request submitted! Goes to Planning for approval');
       setMaterialRequestDialog(false);
-      setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
+      setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
       setVendorSuggestion(null);
+      setMaterialSearch('');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit request');
@@ -365,8 +425,32 @@ export default function SiteEngineerProject() {
 
   const openReceiveDialog = (request) => {
     setReceiveDialog({ open: true, request });
-    setReceiveForm({ received_qty: request.quantity.toString(), remarks: '' });
+    setReceiveForm({ 
+      received_qty: request.quantity.toString(), 
+      remarks: '',
+      receive_date: new Date().toISOString().split('T')[0],
+      receive_time: new Date().toTimeString().slice(0,5)
+    });
     setGpsLocation(null);
+    setLorryImageId(null);
+    setMaterialImageId(null);
+  };
+
+  const handleImageUpload = async (file, type) => {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error('Image must be under 10MB'); return; }
+    setUploadingImage(type);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', 'material_receipt');
+    formData.append('project_id', projectId);
+    try {
+      const res = await axios.post(`${API}/files/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (type === 'lorry') setLorryImageId(res.data.file_id);
+      else setMaterialImageId(res.data.file_id);
+      toast.success(`${type === 'lorry' ? 'Lorry' : 'Material'} image uploaded`);
+    } catch { toast.error('Image upload failed'); }
+    finally { setUploadingImage(null); }
   };
 
   const handleInitiateReceive = async () => {
@@ -385,6 +469,10 @@ export default function SiteEngineerProject() {
         received_qty: parseFloat(receiveForm.received_qty),
         gps_latitude: gpsLocation.latitude,
         gps_longitude: gpsLocation.longitude,
+        receive_date: receiveForm.receive_date,
+        receive_time: receiveForm.receive_time,
+        lorry_image_id: lorryImageId,
+        material_image_id: materialImageId,
         remarks: receiveForm.remarks || null
       });
       
@@ -422,7 +510,7 @@ export default function SiteEngineerProject() {
   };
 
   const formatCurrency = (amount) => `₹${amount?.toLocaleString() || 0}`;
-  const canReceive = (status) => ['accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
+  const canReceive = (status) => ['in_transit', 'accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
 
   if (loading) {
     return (
@@ -523,7 +611,7 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-3">
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
             <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-xs sm:text-sm">
               <Package className="h-3 w-3 sm:h-4 sm:w-4" />
               <span className="hidden sm:inline">Materials</span>
@@ -536,8 +624,13 @@ export default function SiteEngineerProject() {
             </TabsTrigger>
             <TabsTrigger value="stock_register" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-stock-register">
               <Warehouse className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Stock Register</span>
+              <span className="hidden sm:inline">Stock</span>
               <span className="sm:hidden">Stock</span>
+            </TabsTrigger>
+            <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-daily-progress">
+              <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Progress</span>
+              <span className="sm:hidden">Prog</span>
             </TabsTrigger>
           </TabsList>
 
@@ -549,54 +642,150 @@ export default function SiteEngineerProject() {
                   <CardTitle className="text-base sm:text-lg">Materials</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and track orders</CardDescription>
                 </div>
-                <Dialog open={materialRequestDialog} onOpenChange={setMaterialRequestDialog}>
+                <Dialog open={materialRequestDialog} onOpenChange={(open) => {
+                  setMaterialRequestDialog(open);
+                  if (!open) {
+                    setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
+                    setMaterialSearch('');
+                    setVendorSuggestion(null);
+                  }
+                }}>
                   <DialogTrigger asChild>
                     <Button data-testid="request-material-btn" size="sm" className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs sm:text-sm whitespace-nowrap">
                       <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Request</span> Order
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
+                  <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto max-h-[85vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle className="text-base sm:text-lg">Request Material</DialogTitle>
-                      <DialogDescription className="text-xs sm:text-sm">Submit a new material request</DialogDescription>
+                      <DialogDescription className="text-xs sm:text-sm">Choose from approved list or request custom material</DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3 sm:space-y-4">
                       <div className="bg-gray-50 p-2 sm:p-3 rounded-lg text-xs sm:text-sm">
                         <p><strong>Date:</strong> {new Date().toLocaleDateString()}</p>
                         <p><strong>Site:</strong> {project.name}</p>
                       </div>
-                      <div>
-                        <Label className="text-xs sm:text-sm">Material Name *</Label>
-                        {materials.length > 0 ? (
-                          <Select value={materialForm.material_id} onValueChange={(v) => {
-                            const mat = materials.find(m => m.material_id === v);
-                            const name = mat?.name || '';
-                            setMaterialForm({...materialForm, material_id: v, material_name: name, unit: mat?.unit || 'kg'});
-                            fetchVendorSuggestion(name);
-                          }}>
-                            <SelectTrigger className="text-xs sm:text-sm">
-                              <SelectValue placeholder="Select material" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {materials.map(m => (
-                                <SelectItem key={m.material_id} value={m.material_id} className="text-xs sm:text-sm">
-                                  {m.name} ({m.unit})
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input 
-                            value={materialForm.material_name}
-                            onChange={(e) => setMaterialForm({...materialForm, material_name: e.target.value})}
-                            onBlur={(e) => fetchVendorSuggestion(e.target.value)}
-                            placeholder="e.g., TMT Steel 12mm, Cement OPC 53, Sand River"
-                            className="text-sm"
-                            data-testid="material-name-input"
-                          />
-                        )}
+
+                      {/* Toggle: Approved vs Custom */}
+                      <div className="flex rounded-lg border overflow-hidden" data-testid="material-type-toggle">
+                        <button
+                          type="button"
+                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${materialForm.is_approved ? 'bg-orange-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          onClick={() => {
+                            setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', unit: 'kg' });
+                            setMaterialSearch('');
+                          }}
+                          data-testid="toggle-approved-materials"
+                        >
+                          Approved Materials
+                        </button>
+                        <button
+                          type="button"
+                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${!materialForm.is_approved ? 'bg-orange-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          onClick={() => {
+                            setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', unit: 'kg' });
+                            setMaterialSearch('');
+                          }}
+                          data-testid="toggle-custom-material"
+                        >
+                          Custom / Other
+                        </button>
                       </div>
+
+                      {materialForm.is_approved ? (
+                        <>
+                          {/* Search & select from approved list */}
+                          <div>
+                            <Label className="text-xs sm:text-sm">Search Approved Material *</Label>
+                            <Input
+                              value={materialSearch}
+                              onChange={(e) => setMaterialSearch(e.target.value)}
+                              placeholder="Search by name or brand..."
+                              className="text-sm"
+                              data-testid="approved-material-search"
+                            />
+                          </div>
+
+                          {/* Approved material list */}
+                          <div className="max-h-44 overflow-y-auto border rounded-lg divide-y" data-testid="approved-materials-list">
+                            {approvedMaterials
+                              .filter(m => {
+                                const q = materialSearch.toLowerCase();
+                                return !q || m.name.toLowerCase().includes(q) || (m.brand || '').toLowerCase().includes(q);
+                              })
+                              .map(mat => {
+                                const isSelected = materialForm.material_id === mat.material_id;
+                                return (
+                                  <button
+                                    key={mat.material_id}
+                                    type="button"
+                                    className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-orange-50 border-l-4 border-l-orange-500' : 'hover:bg-gray-50'}`}
+                                    onClick={() => {
+                                      setMaterialForm({
+                                        ...materialForm,
+                                        material_id: mat.material_id,
+                                        material_name: mat.name,
+                                        brand: mat.brand || '',
+                                        unit: mat.unit || 'kg',
+                                      });
+                                      fetchVendorSuggestion(mat.name);
+                                    }}
+                                    data-testid={`approved-mat-${mat.material_id}`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1 min-w-0">
+                                        <span className="font-medium">{mat.name}</span>
+                                        {mat.brand && (
+                                          <span className="ml-2 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{mat.brand}</span>
+                                        )}
+                                      </div>
+                                      <span className="text-gray-400 text-xs flex-shrink-0 ml-2">{mat.unit}</span>
+                                    </div>
+                                    {mat.specification && <p className="text-[10px] text-gray-400 mt-0.5">{mat.specification}</p>}
+                                  </button>
+                                );
+                              })}
+                            {approvedMaterials.length === 0 && (
+                              <div className="text-center py-4 text-gray-400 text-xs">No approved materials configured for this project</div>
+                            )}
+                          </div>
+
+                          {/* Selected material summary */}
+                          {materialForm.material_id && (
+                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-2.5" data-testid="selected-material-info">
+                              <p className="text-xs sm:text-sm font-medium text-orange-800">{materialForm.material_name}</p>
+                              {materialForm.brand && <p className="text-xs text-orange-600">Brand: {materialForm.brand}</p>}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {/* Custom material entry */}
+                          <div>
+                            <Label className="text-xs sm:text-sm">Material Name *</Label>
+                            <Input
+                              value={materialForm.material_name}
+                              onChange={(e) => setMaterialForm({ ...materialForm, material_name: e.target.value })}
+                              onBlur={(e) => fetchVendorSuggestion(e.target.value)}
+                              placeholder="e.g., TMT Steel 12mm, Cement OPC 53, Sand River"
+                              className="text-sm"
+                              data-testid="custom-material-name-input"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs sm:text-sm">Brand (optional)</Label>
+                            <Input
+                              value={materialForm.brand}
+                              onChange={(e) => setMaterialForm({ ...materialForm, brand: e.target.value })}
+                              placeholder="e.g., UltraTech, Tata Tiscon"
+                              className="text-sm"
+                              data-testid="custom-material-brand-input"
+                            />
+                          </div>
+                        </>
+                      )}
+
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <Label className="text-xs sm:text-sm">Quantity *</Label>
@@ -621,7 +810,7 @@ export default function SiteEngineerProject() {
                             <span className="text-green-800 font-medium">Pre-assigned Vendor:</span>{' '}
                             <span className="text-green-700">{vendorSuggestion.vendor_name}</span>
                             {vendorSuggestion.brand && <span className="text-green-600 ml-1">({vendorSuggestion.brand})</span>}
-                            <span className="text-green-500 ml-1">— {vendorSuggestion.category}</span>
+                            <span className="text-green-500 ml-1">- {vendorSuggestion.category}</span>
                           </div>
                         </div>
                       )}
@@ -638,7 +827,7 @@ export default function SiteEngineerProject() {
                     </div>
                     <DialogFooter className="gap-2 sm:gap-0">
                       <Button variant="outline" size="sm" onClick={() => setMaterialRequestDialog(false)}>Cancel</Button>
-                      <Button size="sm" onClick={handleMaterialRequest}>
+                      <Button size="sm" onClick={handleMaterialRequest} data-testid="submit-material-request-btn">
                         <Send className="h-3 w-3 mr-1" />Submit
                       </Button>
                     </DialogFooter>
@@ -677,6 +866,9 @@ export default function SiteEngineerProject() {
                                   <div className="text-xs text-gray-600 space-y-0.5">
                                     <p><strong>ID:</strong> {req.order_id}</p>
                                     <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                                    {req.brand && (
+                                      <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
+                                    )}
                                     {(req.assigned_vendor_name || req.vendor_name) && (
                                       <div className="flex items-center gap-1">
                                         <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
@@ -691,8 +883,9 @@ export default function SiteEngineerProject() {
                                       size="sm"
                                       onClick={(e) => { e.stopPropagation(); openReceiveDialog(req); }}
                                       className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
+                                      data-testid={`receive-btn-${req.request_id}`}
                                     >
-                                      <Package className="h-3 w-3" />Receive
+                                      <Package className="h-3 w-3" />{req.status === 'in_transit' ? 'Receive Now' : 'Receive'}
                                     </Button>
                                   )}
                                   <Eye className="h-4 w-4 text-gray-400" />
@@ -890,7 +1083,132 @@ export default function SiteEngineerProject() {
                       </div>
                     </div>
                   )}
+
+                  {/* Received Materials from Deliveries */}
+                  {receivedStock.length > 0 && (
+                    <div data-testid="received-stock-section">
+                      <h4 className="text-sm font-semibold mb-2 flex items-center gap-1 text-gray-700">
+                        <Truck className="h-3.5 w-3.5" />
+                        Materials Received from Deliveries
+                      </h4>
+                      <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full text-xs sm:text-sm">
+                          <thead className="bg-green-50">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Material</th>
+                              <th className="text-left px-2 py-2 font-medium">Brand</th>
+                              <th className="text-center px-2 py-2 font-medium">Total Received</th>
+                              <th className="text-center px-2 py-2 font-medium">Deliveries</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {receivedStock.map((item, idx) => (
+                              <tr key={idx} className="hover:bg-gray-50">
+                                <td className="px-3 py-2 font-medium">{item.material_name}</td>
+                                <td className="px-2 py-2 text-gray-500">{item.brand || '-'}</td>
+                                <td className="px-2 py-2 text-center font-bold text-green-700">{item.total_received} {item.unit}</td>
+                                <td className="px-2 py-2 text-center">{item.receipts?.length || 0}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* DAILY PROGRESS TAB */}
+          <TabsContent value="daily_progress">
+            <Card>
+              <CardHeader className="p-3 sm:p-6 flex flex-row items-center justify-between gap-2">
+                <div>
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-blue-600" />
+                    Daily Progress
+                  </CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Log daily updates for this project</CardDescription>
+                </div>
+                <Dialog open={dailyProgressDialog} onOpenChange={setDailyProgressDialog}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-1 bg-blue-600 hover:bg-blue-700 text-xs sm:text-sm" data-testid="todays-update-btn">
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4" /> Today's Update
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
+                    <DialogHeader>
+                      <DialogTitle className="text-base sm:text-lg">Daily Progress Report</DialogTitle>
+                      <DialogDescription className="text-xs sm:text-sm">Log today's work update</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                      <div className="bg-blue-50 p-3 rounded-lg text-xs sm:text-sm space-y-1">
+                        <p><strong>Project:</strong> {project.name}</p>
+                        <p><strong>Date:</strong> {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                        <p><strong>Day:</strong> {new Date().toLocaleDateString('en-IN', { weekday: 'long' })}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs sm:text-sm">Current Project Stage</Label>
+                        <Select value={dailyProgressForm.current_stage} onValueChange={(v) => setDailyProgressForm({...dailyProgressForm, current_stage: v})}>
+                          <SelectTrigger className="text-xs sm:text-sm" data-testid="progress-stage-select">
+                            <SelectValue placeholder="Select stage" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {['Foundation', 'Plinth', 'Ground Floor Slab', 'First Floor Slab', 'Second Floor Slab', 'Roof Slab', 'Brickwork', 'Plastering', 'Electrical', 'Plumbing', 'Flooring', 'Painting', 'Finishing', 'Handover'].map(s => (
+                              <SelectItem key={s} value={s} className="text-xs sm:text-sm">{s}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs sm:text-sm">Work Summary *</Label>
+                        <Textarea
+                          value={dailyProgressForm.summary}
+                          onChange={(e) => setDailyProgressForm({...dailyProgressForm, summary: e.target.value})}
+                          placeholder="Describe today's work progress, activities completed, any issues..."
+                          rows={4}
+                          className="text-sm"
+                          data-testid="progress-summary-input"
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter className="gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setDailyProgressDialog(false)}>Cancel</Button>
+                      <Button size="sm" onClick={handleSaveDailyProgress} disabled={savingProgress} className="bg-blue-600 hover:bg-blue-700" data-testid="save-progress-btn">
+                        <Save className="h-3 w-3 mr-1" />{savingProgress ? 'Saving...' : 'Save Update'}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-6 pt-0">
+                {dailyProgressEntries.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <Calendar className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                    <p className="text-sm">No progress updates yet</p>
+                    <p className="text-xs mt-1">Click "Today's Update" to log your first entry</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3" data-testid="daily-progress-list">
+                    {dailyProgressEntries.map((entry, idx) => (
+                      <Card key={entry.progress_id || idx} className="border-l-4 border-l-blue-500">
+                        <CardContent className="p-3">
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div>
+                              <p className="text-xs font-bold text-blue-800">{entry.date} ({entry.day})</p>
+                              {entry.current_stage && (
+                                <span className="inline-block mt-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium">{entry.current_stage}</span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-400">{entry.site_engineer_name}</span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-gray-700 whitespace-pre-wrap">{entry.summary}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -899,7 +1217,7 @@ export default function SiteEngineerProject() {
 
       {/* Receive Dialog */}
       <Dialog open={receiveDialog.open} onOpenChange={(open) => !open && setReceiveDialog({ open: false, request: null })}>
-        <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto">
+        <DialogContent className="max-w-[95vw] sm:max-w-lg mx-auto max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Package className="h-4 w-4 text-green-600" />
@@ -911,16 +1229,79 @@ export default function SiteEngineerProject() {
               <div className="bg-gray-50 p-3 rounded-lg text-xs sm:text-sm">
                 <p><strong>Material:</strong> {receiveDialog.request.material_name}</p>
                 <p><strong>Requested:</strong> {receiveDialog.request.quantity} {receiveDialog.request.unit}</p>
+                {receiveDialog.request.brand && <p><strong>Brand:</strong> {receiveDialog.request.brand}</p>}
+              </div>
+
+              {/* Date & Time */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs sm:text-sm">Receive Date *</Label>
+                  <Input
+                    type="date"
+                    value={receiveForm.receive_date}
+                    onChange={(e) => setReceiveForm({...receiveForm, receive_date: e.target.value})}
+                    className="text-sm"
+                    data-testid="receive-date-input"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Receive Time *</Label>
+                  <Input
+                    type="time"
+                    value={receiveForm.receive_time}
+                    onChange={(e) => setReceiveForm({...receiveForm, receive_time: e.target.value})}
+                    className="text-sm"
+                    data-testid="receive-time-input"
+                  />
+                </div>
               </div>
               
               <div>
                 <Label className="text-xs sm:text-sm">Received Qty *</Label>
                 <NumericInput 
-                  
                   value={receiveForm.received_qty}
                   onChange={(e) => setReceiveForm({...receiveForm, received_qty: e.target.value})}
                   className="text-sm"
+                  data-testid="receive-qty-input"
                 />
+              </div>
+
+              {/* Image Uploads */}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs sm:text-sm">Lorry Image</Label>
+                  <div className="mt-1">
+                    {lorryImageId ? (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
+                        <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
+                        <p className="text-xs text-green-700 mt-1">Uploaded</p>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid="lorry-image-upload">
+                        <Camera className="h-5 w-5 text-gray-400" />
+                        <span className="text-xs text-gray-500">{uploadingImage === 'lorry' ? 'Uploading...' : 'Upload'}</span>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload(e.target.files[0], 'lorry')} disabled={uploadingImage === 'lorry'} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs sm:text-sm">Material Image</Label>
+                  <div className="mt-1">
+                    {materialImageId ? (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
+                        <CheckCircle className="h-4 w-4 text-green-600 mx-auto" />
+                        <p className="text-xs text-green-700 mt-1">Uploaded</p>
+                      </div>
+                    ) : (
+                      <label className="flex flex-col items-center gap-1 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" data-testid="material-image-upload">
+                        <Camera className="h-5 w-5 text-gray-400" />
+                        <span className="text-xs text-gray-500">{uploadingImage === 'material' ? 'Uploading...' : 'Upload'}</span>
+                        <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handleImageUpload(e.target.files[0], 'material')} disabled={uploadingImage === 'material'} />
+                      </label>
+                    )}
+                  </div>
+                </div>
               </div>
               
               <div>
@@ -943,12 +1324,25 @@ export default function SiteEngineerProject() {
                       onClick={getGPSLocation}
                       disabled={gettingLocation}
                       className="w-full text-xs sm:text-sm"
+                      data-testid="capture-gps-btn"
                     >
                       <MapPin className="h-4 w-4 mr-2" />
                       {gettingLocation ? 'Getting Location...' : 'Capture GPS'}
                     </Button>
                   )}
                 </div>
+              </div>
+
+              <div>
+                <Label className="text-xs sm:text-sm">Remarks</Label>
+                <Textarea
+                  value={receiveForm.remarks}
+                  onChange={(e) => setReceiveForm({...receiveForm, remarks: e.target.value})}
+                  placeholder="Any notes about the delivery..."
+                  rows={2}
+                  className="text-sm"
+                  data-testid="receive-remarks-input"
+                />
               </div>
               
               <div className="bg-yellow-50 border border-yellow-200 p-2 rounded-lg">
@@ -966,6 +1360,7 @@ export default function SiteEngineerProject() {
               onClick={handleInitiateReceive}
               disabled={!gpsLocation}
               className="bg-green-600 hover:bg-green-700"
+              data-testid="submit-receive-btn"
             >
               <Send className="h-3 w-3 mr-1" />Get OTP
             </Button>
