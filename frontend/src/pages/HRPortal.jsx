@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
-  Users, UserPlus, Briefcase, Calendar, Edit, Trash2, Eye,
+  Users, UserPlus, Briefcase, Calendar, Edit, Trash2, Eye, EyeOff,
   Phone, Mail, CreditCard, FileText, Search, RefreshCw, Upload,
   Shield, Key, UserCheck, ChevronDown, ChevronUp, X, Check
 } from 'lucide-react';
@@ -86,6 +86,8 @@ export default function HRPortal() {
   const [newPassword, setNewPassword] = useState('');
   const [createUserDialog, setCreateUserDialog] = useState(false);
   const [createUserForm, setCreateUserForm] = useState({ staff_id: '', email: '', password: '', confirm_password: '', role: '', name: '' });
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Form state
   const [staffForm, setStaffForm] = useState(getEmptyForm());
@@ -337,6 +339,8 @@ export default function HRPortal() {
       toast.success('User created successfully');
       setCreateUserDialog(false);
       setCreateUserForm({ staff_id: '', email: '', password: '', confirm_password: '', role: '', name: '' });
+      setShowPassword(false);
+      setShowConfirmPassword(false);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create user');
@@ -1003,11 +1007,21 @@ export default function HRPortal() {
             </div>
             <div>
               <Label>Password *</Label>
-              <Input type="password" value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} placeholder="Min 6 characters" data-testid="create-user-password" />
+              <div className="relative">
+                <Input type={showPassword ? 'text' : 'password'} value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} placeholder="Min 6 characters" className="pr-10" data-testid="create-user-password" />
+                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" onClick={() => setShowPassword(!showPassword)} data-testid="toggle-password-visibility">
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
             <div>
               <Label>Confirm Password *</Label>
-              <Input type="password" value={createUserForm.confirm_password} onChange={(e) => setCreateUserForm({ ...createUserForm, confirm_password: e.target.value })} placeholder="Confirm password" data-testid="create-user-confirm-password" />
+              <div className="relative">
+                <Input type={showConfirmPassword ? 'text' : 'password'} value={createUserForm.confirm_password} onChange={(e) => setCreateUserForm({ ...createUserForm, confirm_password: e.target.value })} placeholder="Confirm password" className="pr-10" data-testid="create-user-confirm-password" />
+                <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" onClick={() => setShowConfirmPassword(!showConfirmPassword)} data-testid="toggle-confirm-password-visibility">
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
           </div>
           <DialogFooter>
