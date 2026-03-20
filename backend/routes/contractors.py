@@ -202,14 +202,7 @@ async def get_labour_work_orders(
         query["contractor_id"] = contractor_id
     orders = await db.labour_work_orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
 
-    # Site engineer only sees open stages
-    if user.role == UserRole.SITE_ENGINEER:
-        for order in orders:
-            if "payment_stages" in order:
-                order["payment_stages"] = [
-                    s for s in order["payment_stages"]
-                    if s.get("status") in ["pending", "requested", "planning_reviewed"]
-                ]
+    # Site engineer sees all stages (greyed out if completed/approved)
     return orders
 
 
@@ -226,7 +219,12 @@ async def create_labour_work_order(data: dict, user: User = Depends(get_current_
             "stage_name": s.get("stage_name", f"Stage {i+1}"),
             "amount": s.get("amount", 0),
             "percentage": s.get("percentage", 0),
+            "daily_rate": s.get("daily_rate", 0),
+            "start_date": s.get("start_date", ""),
+            "end_date": s.get("end_date", ""),
             "status": "pending",
+            "total_spend": 0,
+            "total_attendance_days": 0,
             "requested_at": None,
             "approved_at": None,
             "notes": ""
@@ -300,8 +298,9 @@ async def request_stage_payment(wo_id: str, stage_id: str, data: dict, user: Use
 
 @router.patch("/labour-work-orders/{wo_id}/stages/{stage_id}/review")
 async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
-    """Planning reviews stage payment request"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    """Multi-step approval: Procurement approves → Planning approves → Accountant releases payment"""
+    allowed_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.ACCOUNTANT]
+    if user.role not in allowed_roles:
         raise HTTPException(status_code=403, detail="Permission denied")
 
     wo = await db.labour_work_orders.find_one({"work_order_id": wo_id})
@@ -309,22 +308,50 @@ async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User
         raise HTTPException(status_code=404, detail="Work order not found")
 
     now = datetime.now(timezone.utc).isoformat()
-    action = data.get("action")  # approve, adjust, reject
+    action = data.get("action")  # approve, reject
     for stage in wo.get("payment_stages", []):
         if stage["stage_id"] == stage_id:
-            if action == "approve":
-                approved_amount = data.get("approved_amount", stage.get("requested_amount", stage["amount"]))
-                stage["status"] = "approved"
-                stage["approved_amount"] = approved_amount
-                stage["approved_at"] = now
-                stage["approved_by"] = user.user_id
-                stage["review_notes"] = data.get("notes", "")
-                # Update paid amount on work order
-                wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
-            elif action == "reject":
+            current_status = stage["status"]
+
+            if action == "reject":
                 stage["status"] = "pending"
                 stage["requested_at"] = None
-                stage["review_notes"] = data.get("notes", "Rejected by planning")
+                stage["procurement_approved_at"] = None
+                stage["planning_approved_at"] = None
+                stage["review_notes"] = data.get("notes", f"Rejected by {user.role}")
+                stage["rejected_by"] = user.user_id
+                stage["rejected_at"] = now
+                break
+
+            if action == "approve":
+                if user.role == UserRole.PROCUREMENT and current_status == "requested":
+                    stage["status"] = "procurement_approved"
+                    stage["procurement_approved_by"] = user.user_id
+                    stage["procurement_approved_at"] = now
+                    stage["review_notes"] = data.get("notes", "")
+                elif user.role == UserRole.PLANNING and current_status in ["requested", "procurement_approved"]:
+                    stage["status"] = "planning_approved"
+                    stage["planning_approved_by"] = user.user_id
+                    stage["planning_approved_at"] = now
+                    stage["review_notes"] = data.get("notes", "")
+                elif user.role == UserRole.ACCOUNTANT and current_status == "planning_approved":
+                    approved_amount = data.get("approved_amount", stage.get("requested_amount", stage["amount"]))
+                    stage["status"] = "approved"
+                    stage["approved_amount"] = approved_amount
+                    stage["approved_by"] = user.user_id
+                    stage["approved_at"] = now
+                    stage["review_notes"] = data.get("notes", "")
+                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                elif user.role == UserRole.SUPER_ADMIN:
+                    # Super admin can approve at any step
+                    approved_amount = data.get("approved_amount", stage.get("requested_amount", stage["amount"]))
+                    stage["status"] = "approved"
+                    stage["approved_amount"] = approved_amount
+                    stage["approved_by"] = user.user_id
+                    stage["approved_at"] = now
+                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                else:
+                    raise HTTPException(status_code=400, detail=f"Cannot approve stage in '{current_status}' status with role '{user.role}'")
             break
 
     await db.labour_work_orders.update_one(
@@ -335,7 +362,7 @@ async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User
             "updated_at": now
         }}
     )
-    return {"message": f"Stage {action}d"}
+    return {"message": f"Stage {action}d successfully"}
 
 
 # ==================== LABOUR ATTENDANCE ====================
@@ -344,6 +371,8 @@ async def review_stage_payment(wo_id: str, stage_id: str, data: dict, user: User
 async def get_labour_attendance(
     project_id: Optional[str] = None,
     contractor_id: Optional[str] = None,
+    work_order_id: Optional[str] = None,
+    stage_id: Optional[str] = None,
     date: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
@@ -352,6 +381,10 @@ async def get_labour_attendance(
         query["project_id"] = project_id
     if contractor_id:
         query["contractor_id"] = contractor_id
+    if work_order_id:
+        query["work_order_id"] = work_order_id
+    if stage_id:
+        query["stage_id"] = stage_id
     if date:
         query["date"] = date
     entries = await db.labour_attendance.find(query, {"_id": 0}).sort("date", -1).to_list(500)
@@ -360,7 +393,7 @@ async def get_labour_attendance(
 
 @router.post("/labour-attendance")
 async def create_labour_attendance(data: dict, user: User = Depends(get_current_user)):
-    """Site Engineer creates daily labour attendance entry"""
+    """Site Engineer creates daily labour attendance entry for a specific stage"""
     now = datetime.now(timezone.utc).isoformat()
     entries = data.get("entries", [])
     total_workers = sum(e.get("count", 0) for e in entries)
@@ -370,14 +403,27 @@ async def create_labour_attendance(data: dict, user: User = Depends(get_current_
     for e in entries:
         e["total"] = e.get("count", 0) * e.get("per_day_cost", 0)
 
+    work_order_id = data.get("work_order_id", "")
+    stage_id = data.get("stage_id", "")
+
+    # Check for duplicate attendance on same date for same stage
+    if work_order_id and stage_id and data.get("date"):
+        existing = await db.labour_attendance.find_one({
+            "work_order_id": work_order_id,
+            "stage_id": stage_id,
+            "date": data["date"]
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Attendance already recorded for {data['date']} on this stage")
+
     attendance = {
         "attendance_id": f"att_{uuid.uuid4().hex[:8]}",
         "project_id": data.get("project_id"),
         "contractor_id": data.get("contractor_id", ""),
         "contractor_name": data.get("contractor_name", ""),
-        "work_order_id": data.get("work_order_id", ""),
+        "work_order_id": work_order_id,
         "date": data.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
-        "stage_id": data.get("stage_id", ""),
+        "stage_id": stage_id,
         "entries": entries,
         "total_workers": total_workers,
         "total_cost": total_cost,
@@ -387,6 +433,21 @@ async def create_labour_attendance(data: dict, user: User = Depends(get_current_
     }
     await db.labour_attendance.insert_one(attendance)
     attendance.pop("_id", None)
+
+    # Update stage total_spend and total_attendance_days on the work order
+    if work_order_id and stage_id:
+        wo = await db.labour_work_orders.find_one({"work_order_id": work_order_id})
+        if wo:
+            for stage in wo.get("payment_stages", []):
+                if stage["stage_id"] == stage_id:
+                    stage["total_spend"] = stage.get("total_spend", 0) + total_cost
+                    stage["total_attendance_days"] = stage.get("total_attendance_days", 0) + 1
+                    break
+            await db.labour_work_orders.update_one(
+                {"work_order_id": work_order_id},
+                {"$set": {"payment_stages": wo["payment_stages"], "updated_at": now}}
+            )
+
     return attendance
 
 
@@ -494,14 +555,7 @@ async def get_project_contractors(project_id: str, user: User = Depends(get_curr
         {"project_id": project_id}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
 
-    # Site engineer only sees open stages
-    if user.role == UserRole.SITE_ENGINEER:
-        for wo in work_orders:
-            if "payment_stages" in wo:
-                wo["payment_stages"] = [
-                    s for s in wo["payment_stages"]
-                    if s.get("status") in ["pending", "requested", "planning_reviewed"]
-                ]
+    # Return all stages - frontend handles active/completed display
     return work_orders
 
 
