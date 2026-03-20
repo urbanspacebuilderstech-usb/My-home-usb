@@ -1457,34 +1457,58 @@ class REProjectUpdate(BaseModel):
 
 @router.patch("/crm/re-projects/{re_project_id}")
 async def update_re_project(re_project_id: str, data: REProjectUpdate, user: User = Depends(get_current_user)):
-    """Update RE project (Planning Department)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
-        raise HTTPException(status_code=403, detail="Planning access required")
+    """Update RE project (Planning, GM, or Super Admin)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Planning or GM access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
     
     update = {"updated_at": datetime.now(timezone.utc)}
+    changes = []
     
     if data.project_name is not None:
+        if project.get("project_name") != data.project_name:
+            changes.append({"field": "Project Name", "old": project.get("project_name", ""), "new": data.project_name})
         update["project_name"] = data.project_name
     if data.location is not None:
+        if project.get("location") != data.location:
+            changes.append({"field": "Location", "old": project.get("location", ""), "new": data.location})
         update["location"] = data.location
     if data.sqft is not None:
+        if project.get("sqft") != data.sqft:
+            changes.append({"field": "Square Feet", "old": str(project.get("sqft", "")), "new": str(data.sqft)})
         update["sqft"] = data.sqft
     if data.building_type is not None:
+        if project.get("building_type") != data.building_type:
+            changes.append({"field": "Building Type", "old": project.get("building_type", ""), "new": data.building_type})
         update["building_type"] = data.building_type
     if data.rough_scope_items is not None:
+        old_items = project.get("rough_scope_items", [])
+        new_items = data.rough_scope_items
+        if old_items != new_items:
+            old_count = len(old_items)
+            new_count = len(new_items)
+            old_total = sum(item.get("total", 0) for item in old_items)
+            new_total = sum(item.get("total", 0) for item in new_items)
+            changes.append({
+                "field": "Scope Items",
+                "old": f"{old_count} items, total {old_total}",
+                "new": f"{new_count} items, total {new_total}"
+            })
         update["rough_scope_items"] = data.rough_scope_items
-        # Calculate total from scope items
         scope_total = sum(item.get("total", 0) for item in data.rough_scope_items)
         update["estimated_total"] = scope_total
     if data.handover_months is not None:
+        if project.get("handover_months") != data.handover_months:
+            changes.append({"field": "Handover Months", "old": str(project.get("handover_months", "")), "new": str(data.handover_months)})
         update["handover_months"] = data.handover_months
     if data.estimated_total is not None:
         update["estimated_total"] = data.estimated_total
     if data.planning_notes is not None:
+        if project.get("planning_notes") != data.planning_notes:
+            changes.append({"field": "Planning Notes", "old": project.get("planning_notes", ""), "new": data.planning_notes})
         update["planning_notes"] = data.planning_notes
     
     # Set status to in progress if it was requested or rejected
@@ -1495,7 +1519,35 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
     
     await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
     
+    # Save change log entry if there were actual changes
+    if changes:
+        user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1, "role": 1})
+        log_entry = {
+            "log_id": f"log_{uuid.uuid4().hex[:12]}",
+            "re_project_id": re_project_id,
+            "user_id": user.user_id,
+            "user_name": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "user_role": user.role,
+            "changes": changes,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        await db.re_change_logs.insert_one(log_entry)
+    
     return {"message": "RE Project updated"}
+
+
+
+@router.get("/crm/re-projects/{re_project_id}/change-logs")
+async def get_re_change_logs(re_project_id: str, user: User = Depends(get_current_user)):
+    """Get change logs for an RE project"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    logs = await db.re_change_logs.find(
+        {"re_project_id": re_project_id}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(100)
+    return logs
+
 
 
 @router.post("/crm/re-projects/{re_project_id}/submit-for-approval")

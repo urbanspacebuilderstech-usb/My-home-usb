@@ -18,11 +18,14 @@ import {
 import {
   LayoutDashboard, Building2, ClipboardCheck, Calculator, Users, Package,
   HardHat, DollarSign, CheckCircle, XCircle, Clock, AlertTriangle, Eye,
-  ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download
+  ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download,
+  Edit2, Plus, Trash2, Save
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { NumericInput } from '../components/NumericInput';
+import { UnitSelect } from '../components/UnitSelect';
 
 const API = process.env.REACT_APP_BACKEND_URL + '/api';
 
@@ -54,6 +57,15 @@ const GMDashboard = () => {
   const [viewDialog, setViewDialog] = useState(false);
   const [viewItem, setViewItem] = useState(null);
   const [viewType, setViewType] = useState('');
+
+  // RE Edit Dialog
+  const [reEditDialog, setReEditDialog] = useState(false);
+  const [reEditProject, setReEditProject] = useState(null);
+  const [reEditForm, setReEditForm] = useState({
+    project_name: '', location: '', sqft: '', building_type: '',
+    rough_scope_items: [], handover_months: '', planning_notes: ''
+  });
+  const [reChangeLogs, setReChangeLogs] = useState([]);
 
   useEffect(() => {
     fetchAllData();
@@ -261,6 +273,74 @@ const GMDashboard = () => {
     } catch (err) {
       console.error('PDF generation error:', err);
       toast.error('Failed to generate PDF');
+    }
+  };
+
+  // RE Edit functions
+  const openReEditDialog = (re) => {
+    setReEditProject(re);
+    setReEditForm({
+      project_name: re.project_name || '',
+      location: re.location || '',
+      sqft: re.sqft || '',
+      building_type: re.building_type || '',
+      rough_scope_items: re.rough_scope_items || [],
+      handover_months: re.handover_months || '',
+      planning_notes: re.planning_notes || ''
+    });
+    setReEditDialog(true);
+    fetchReChangeLogs(re.re_project_id);
+  };
+
+  const fetchReChangeLogs = async (reProjectId) => {
+    try {
+      const res = await axios.get(`${API}/crm/re-projects/${reProjectId}/change-logs`);
+      setReChangeLogs(res.data);
+    } catch { setReChangeLogs([]); }
+  };
+
+  const addReScopeItem = () => {
+    setReEditForm({
+      ...reEditForm,
+      rough_scope_items: [...reEditForm.rough_scope_items, { name: '', quantity: 1, unit: 'nos', rate: 0, total: 0 }]
+    });
+  };
+
+  const updateReScopeItem = (index, field, value) => {
+    const items = [...reEditForm.rough_scope_items];
+    items[index][field] = value;
+    if (field === 'quantity' || field === 'rate') {
+      items[index].total = (parseFloat(items[index].quantity) || 0) * (parseFloat(items[index].rate) || 0);
+    }
+    setReEditForm({ ...reEditForm, rough_scope_items: items });
+  };
+
+  const removeReScopeItem = (index) => {
+    setReEditForm({ ...reEditForm, rough_scope_items: reEditForm.rough_scope_items.filter((_, i) => i !== index) });
+  };
+
+  const handleSaveReProject = async () => {
+    const scopeItems = reEditForm.rough_scope_items.map(item => ({
+      ...item,
+      quantity: parseFloat(item.quantity) || 0,
+      rate: parseFloat(item.rate) || 0,
+      total: (parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)
+    }));
+    const scopeTotal = scopeItems.reduce((sum, item) => sum + (item.total || 0), 0);
+    try {
+      await axios.patch(`${API}/crm/re-projects/${reEditProject.re_project_id}`, {
+        ...reEditForm,
+        rough_scope_items: scopeItems,
+        sqft: reEditForm.sqft ? parseFloat(reEditForm.sqft) : null,
+        handover_months: reEditForm.handover_months ? parseInt(reEditForm.handover_months) : null,
+        estimated_total: scopeTotal
+      });
+      toast.success('RE Project updated');
+      fetchReChangeLogs(reEditProject.re_project_id);
+      setReEditDialog(false);
+      fetchAllData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update');
     }
   };
 
@@ -523,6 +603,19 @@ const GMDashboard = () => {
                             data-testid={`download-re-${re.re_project_id}`}
                           >
                             <Download className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            type="button"
+                            size="sm" 
+                            variant="outline"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              openReEditDialog(re);
+                            }}
+                            data-testid={`edit-re-${re.re_project_id}`}
+                          >
+                            <Edit2 className="h-4 w-4 mr-1" /> Edit
                           </Button>
                           <Button 
                             type="button"
@@ -1228,6 +1321,193 @@ const GMDashboard = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* RE Edit Dialog */}
+      <Dialog open={reEditDialog} onOpenChange={setReEditDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="h-5 w-5 text-purple-600" />
+                Edit Rough Estimate
+              </div>
+              <Button 
+                size="sm"
+                onClick={() => handleGenerateREPDF(reEditProject)}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                <Download className="h-4 w-4 mr-1" /> Download PDF
+              </Button>
+            </DialogTitle>
+            <DialogDescription>
+              URBAN SPACE BUILDERS - Ref: {reEditProject?.re_project_id}
+            </DialogDescription>
+          </DialogHeader>
+
+          {reEditProject && (
+            <div className="max-h-[70vh] overflow-y-auto space-y-6 pr-1">
+              {/* Client Info (Read-only) */}
+              <Card className="bg-gray-50">
+                <CardContent className="p-4">
+                  <h4 className="font-semibold mb-2 text-sm text-gray-600">Client Information</h4>
+                  <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div><span className="text-gray-500">Name:</span><p className="font-medium">{reEditProject.client_name}</p></div>
+                    {reEditProject.client_phone && <div><span className="text-gray-500">Phone:</span><p>{reEditProject.client_phone}</p></div>}
+                    {reEditProject.client_email && <div><span className="text-gray-500">Email:</span><p>{reEditProject.client_email}</p></div>}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Project Details */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Project Name</Label>
+                  <Input value={reEditForm.project_name} onChange={(e) => setReEditForm({...reEditForm, project_name: e.target.value})} />
+                </div>
+                <div>
+                  <Label>Location</Label>
+                  <Input value={reEditForm.location} onChange={(e) => setReEditForm({...reEditForm, location: e.target.value})} />
+                </div>
+                <div>
+                  <Label>Square Feet</Label>
+                  <NumericInput value={reEditForm.sqft} onChange={(e) => setReEditForm({...reEditForm, sqft: e.target.value})} />
+                </div>
+                <div>
+                  <Label>Building Type</Label>
+                  <Select value={reEditForm.building_type} onValueChange={(v) => setReEditForm({...reEditForm, building_type: v})}>
+                    <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="residential">Residential</SelectItem>
+                      <SelectItem value="commercial">Commercial</SelectItem>
+                      <SelectItem value="villa">Villa</SelectItem>
+                      <SelectItem value="apartment">Apartment</SelectItem>
+                      <SelectItem value="office">Office</SelectItem>
+                      <SelectItem value="industrial">Industrial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Scope Items */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Rough Scope of Work</Label>
+                  <Button variant="outline" size="sm" onClick={addReScopeItem}>
+                    <Plus className="h-4 w-4 mr-1" /> Add Item
+                  </Button>
+                </div>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Description</th>
+                        <th className="px-3 py-2 text-center w-20">Qty</th>
+                        <th className="px-3 py-2 text-center w-20">Unit</th>
+                        <th className="px-3 py-2 text-right w-24">Rate</th>
+                        <th className="px-3 py-2 text-right w-24">Total</th>
+                        <th className="px-3 py-2 w-12"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {reEditForm.rough_scope_items.length === 0 ? (
+                        <tr><td colSpan={6} className="px-3 py-4 text-center text-gray-500">No scope items added</td></tr>
+                      ) : (
+                        reEditForm.rough_scope_items.map((item, idx) => (
+                          <tr key={idx}>
+                            <td className="px-3 py-2">
+                              <Input value={item.name} onChange={(e) => updateReScopeItem(idx, 'name', e.target.value)} placeholder="Item description" className="h-8" />
+                            </td>
+                            <td className="px-3 py-2">
+                              <NumericInput value={item.quantity} onChange={(e) => updateReScopeItem(idx, 'quantity', e.target.value)} className="h-8 text-center" />
+                            </td>
+                            <td className="px-3 py-2">
+                              <UnitSelect value={item.unit} onChange={(v) => updateReScopeItem(idx, 'unit', v)} className="h-8" />
+                            </td>
+                            <td className="px-3 py-2">
+                              <NumericInput value={item.rate} onChange={(e) => updateReScopeItem(idx, 'rate', e.target.value)} className="h-8 text-right" />
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium">{formatCurrency(item.total)}</td>
+                            <td className="px-3 py-2">
+                              <Button variant="ghost" size="sm" onClick={() => removeReScopeItem(idx)}>
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Handover + Total */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Project Handover Time (Months)</Label>
+                  <NumericInput value={reEditForm.handover_months} onChange={(e) => setReEditForm({...reEditForm, handover_months: e.target.value})} placeholder="Enter number of months" />
+                </div>
+              </div>
+              <Card className="bg-purple-50 border-purple-200">
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-purple-600">Estimated Total (from Scope Items)</p>
+                  <p className="text-3xl font-bold text-purple-800">
+                    {formatCurrency(reEditForm.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0))}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Planning Notes */}
+              <div>
+                <Label>Planning Notes</Label>
+                <Textarea value={reEditForm.planning_notes} onChange={(e) => setReEditForm({...reEditForm, planning_notes: e.target.value})} placeholder="Add notes for this rough estimate..." rows={3} />
+              </div>
+
+              {/* Change Log */}
+              {reChangeLogs.length > 0 && (
+                <div data-testid="gm-change-log-section">
+                  <Label className="flex items-center gap-1.5 mb-2">
+                    <Clock className="h-4 w-4 text-blue-600" />
+                    Edit History
+                  </Label>
+                  <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto bg-gray-50">
+                    {reChangeLogs.map((log) => (
+                      <div key={log.log_id} className="px-3 py-2.5 text-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-gray-900">
+                            {log.user_name}
+                            <Badge className="ml-1.5 text-[10px] py-0 px-1.5 bg-blue-50 text-blue-700 border-blue-200">{log.user_role}</Badge>
+                          </span>
+                          <span className="text-xs text-gray-500">{new Date(log.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                        </div>
+                        <ul className="space-y-0.5">
+                          {log.changes.map((c, i) => (
+                            <li key={i} className="text-xs text-gray-600">
+                              <span className="font-medium text-gray-700">{c.field}</span>
+                              {c.old ? (
+                                <span>: <span className="line-through text-red-500">{c.old}</span> &rarr; <span className="text-green-700">{c.new}</span></span>
+                              ) : (
+                                <span>: set to <span className="text-green-700">{c.new}</span></span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReEditDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveReProject} variant="outline" data-testid="gm-save-re-btn">
+              <Save className="h-4 w-4 mr-1" /> Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );

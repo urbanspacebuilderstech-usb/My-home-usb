@@ -107,6 +107,19 @@ export default function REProjectsPage({ embedded = false }) {
       planning_notes: project.planning_notes || ''
     });
     setEditDialog(true);
+    fetchChangeLogs(project.re_project_id);
+  };
+
+  const fetchChangeLogs = async (reProjectId) => {
+    try {
+      setLoadingLogs(true);
+      const res = await axios.get(`${API}/crm/re-projects/${reProjectId}/change-logs`);
+      setChangeLogs(res.data);
+    } catch {
+      setChangeLogs([]);
+    } finally {
+      setLoadingLogs(false);
+    }
   };
 
   const handleSaveProject = async () => {
@@ -128,6 +141,7 @@ export default function REProjectsPage({ embedded = false }) {
         estimated_total: scopeTotal
       });
       toast.success('RE Project updated');
+      fetchChangeLogs(selectedProject.re_project_id);
       setEditDialog(false);
       fetchData(false);
     } catch (error) {
@@ -213,8 +227,10 @@ export default function REProjectsPage({ embedded = false }) {
     }
   };
 
-  const canEdit = user?.role === 'planning' || user?.role === 'super_admin';
+  const canEdit = user?.role === 'planning' || user?.role === 'super_admin' || user?.role === 'general_manager';
   const canApprove = user?.role === 'general_manager' || user?.role === 'super_admin';
+  const [changeLogs, setChangeLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
 
   if (loading && !user) {
     return (
@@ -672,6 +688,45 @@ export default function REProjectsPage({ embedded = false }) {
                   disabled={!canEdit}
                 />
               </div>
+
+              {/* Change Log / Activity History */}
+              {changeLogs.length > 0 && (
+                <div data-testid="change-log-section">
+                  <Label className="flex items-center gap-1.5 mb-2">
+                    <Clock className="h-4 w-4 text-blue-600" />
+                    Edit History
+                  </Label>
+                  <div className="border rounded-lg divide-y max-h-[200px] overflow-y-auto bg-gray-50">
+                    {changeLogs.map((log) => (
+                      <div key={log.log_id} className="px-3 py-2.5 text-sm" data-testid={`log-entry-${log.log_id}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-gray-900">
+                            {log.user_name}
+                            <Badge className="ml-1.5 text-[10px] py-0 px-1.5 bg-blue-50 text-blue-700 border-blue-200">
+                              {log.user_role}
+                            </Badge>
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(log.timestamp).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </span>
+                        </div>
+                        <ul className="space-y-0.5">
+                          {log.changes.map((c, i) => (
+                            <li key={i} className="text-xs text-gray-600">
+                              <span className="font-medium text-gray-700">{c.field}</span>
+                              {c.old ? (
+                                <span>: <span className="line-through text-red-500">{c.old}</span> &rarr; <span className="text-green-700">{c.new}</span></span>
+                              ) : (
+                                <span>: set to <span className="text-green-700">{c.new}</span></span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           
