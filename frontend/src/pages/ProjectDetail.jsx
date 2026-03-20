@@ -822,21 +822,19 @@ export default function ProjectDetail() {
   };
 
   const handleBulkAddPayment = async () => {
-    const validItems = bulkPaymentRows.filter(r => r.stage_name && r.amount);
+    const validItems = bulkPaymentRows.filter(r => r.stage_name && (r.percentage || r.amount));
     if (validItems.length === 0) {
       toast.error('Please fill at least one complete row');
       return;
     }
     
-    // Validate: total of new stages + existing stages cannot exceed balance
-    const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
-    const advanceReceived = projectData?.project?.advance_amount || 0;
-    const balance = totalValue - advanceReceived;
-    const existingTotal = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
-    const newTotal = validItems.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+    // Validate: total percentage cannot exceed 100%
+    const existingPct = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
+    const newPct = validItems.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0);
     
-    if (existingTotal + newTotal > balance) {
-      toast.error(`Total payment stages (₹${(existingTotal + newTotal).toLocaleString()}) exceeds balance amount (₹${balance.toLocaleString()}). Reduce amounts.`);
+    if (existingPct + newPct > 100) {
+      const remaining = Math.round((100 - existingPct) * 100) / 100;
+      toast.error(`Total would be ${existingPct + newPct}%. Only ${remaining}% remaining.`);
       return;
     }
     
@@ -2352,28 +2350,47 @@ export default function ProjectDetail() {
               {/* Balance Payment Info */}
               {(() => {
                 const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
-                const advanceReceived = projectData?.project?.advance_amount || 0;
-                const balanceForStages = totalValue - advanceReceived;
-                const existingStagesTotal = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
-                const remainingToAllocate = balanceForStages - existingStagesTotal;
+                const totalPctAllocated = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
+                const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
+                const totalAmountAllocated = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
+                const isPM = user?.role === 'project_manager';
+                const hasAdvance = payment_stages.some(s => s.is_advance || s.stage_name?.toLowerCase().startsWith('advance'));
                 return (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6" data-testid="payment-balance-info">
-                    <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                      <p className="text-xs text-blue-600">Total Project Value</p>
-                      <p className="text-lg font-bold text-blue-700">₹{totalValue.toLocaleString()}</p>
-                    </div>
+                    {!isPM && (
+                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                        <p className="text-xs text-blue-600">Total Project Value</p>
+                        <p className="text-lg font-bold text-blue-700">₹{totalValue.toLocaleString()}</p>
+                      </div>
+                    )}
                     <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                      <p className="text-xs text-green-600">Advance Received</p>
-                      <p className="text-lg font-bold text-green-700">₹{advanceReceived.toLocaleString()}</p>
+                      <p className="text-xs text-green-600">Allocated</p>
+                      <p className="text-lg font-bold text-green-700">{totalPctAllocated}%</p>
+                      {!isPM && <p className="text-[10px] text-green-500">₹{totalAmountAllocated.toLocaleString()}</p>}
                     </div>
-                    <div className="bg-amber-50 rounded-lg p-3 border border-amber-200">
-                      <p className="text-xs text-amber-600">Balance for Payment Stages</p>
-                      <p className="text-lg font-bold text-amber-700">₹{balanceForStages.toLocaleString()}</p>
+                    <div className={`rounded-lg p-3 border ${remainingPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                      <p className="text-xs text-gray-600">Remaining</p>
+                      <p className={`text-lg font-bold ${remainingPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>{remainingPct}%</p>
+                      {!isPM && <p className="text-[10px] text-gray-400">₹{Math.round(totalValue * remainingPct / 100).toLocaleString()}</p>}
                     </div>
-                    <div className={`rounded-lg p-3 border ${remainingToAllocate > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                      <p className="text-xs text-gray-600">Remaining to Allocate</p>
-                      <p className={`text-lg font-bold ${remainingToAllocate > 0 ? 'text-red-600' : 'text-green-600'}`}>₹{remainingToAllocate.toLocaleString()}</p>
-                    </div>
+                    {!hasAdvance && canManage && (
+                      <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200 flex flex-col justify-center">
+                        <p className="text-[10px] text-indigo-600 mb-1">Auto-add advance row</p>
+                        <Button size="sm" variant="outline" className="text-xs border-indigo-300 text-indigo-700" onClick={async () => {
+                          try {
+                            await axios.post(`${API}/payment-stages`, {
+                              project_id: projectId,
+                              stage_name: 'Advance Collection',
+                              stage_label: 'ADV',
+                              percentage: 2,
+                              amount: Math.round(totalValue * 0.02),
+                            });
+                            toast.success('Advance Collection (2%) added');
+                            fetchData(false);
+                          } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+                        }} data-testid="add-advance-btn">Add 2% Advance</Button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
@@ -2381,7 +2398,10 @@ export default function ProjectDetail() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
-                  <p className="text-sm text-gray-500">Milestone payments based on balance after advance (₹{((summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0)).toLocaleString()})</p>
+                  <p className="text-sm text-gray-500">
+                    Milestone payments as % of project value
+                    {user?.role !== 'project_manager' && ` (₹${(summary?.scope_total || projectData?.project?.total_value || 0).toLocaleString()})`}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {selectedPaymentIds.length > 0 && (
@@ -2404,8 +2424,14 @@ export default function ProjectDetail() {
                       </DialogTrigger>
                       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                          <DialogTitle>Add Multiple Payment Stages</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped). Balance for stages: ₹{((summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0)).toLocaleString()}</DialogDescription>
+                          <DialogTitle>Add Payment Stages</DialogTitle>
+                          <DialogDescription>
+                            {(() => {
+                              const allocPct = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
+                              const remPct = Math.round((100 - allocPct) * 100) / 100;
+                              return `Remaining: ${remPct}% of project value. Total stages cannot exceed 100%.`;
+                            })()}
+                          </DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
@@ -2443,10 +2469,10 @@ export default function ProjectDetail() {
                                         const newRows = [...bulkPaymentRows];
                                         const pct = parseFloat(e.target.value) || 0;
                                         newRows[idx].percentage = e.target.value;
-                                        // Auto-calculate amount from percentage of BALANCE (Total - Advance)
-                                        const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
-                                        if (balance > 0 && pct > 0) {
-                                          newRows[idx].amount = Math.round((balance * pct) / 100);
+                                        // Auto-calculate amount from percentage of TOTAL project value
+                                        const totalVal = summary?.scope_total || projectData?.project?.total_value || 0;
+                                        if (totalVal > 0 && pct > 0) {
+                                          newRows[idx].amount = Math.round((totalVal * pct) / 100);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
@@ -2635,9 +2661,13 @@ export default function ProjectDetail() {
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">%</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                      {user?.role !== 'project_manager' && (
+                        <>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                        </>
+                      )}
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                     </tr>
@@ -2689,15 +2719,19 @@ export default function ProjectDetail() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-right">{stage.percentage}%</td>
-                            <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
-                            <td className="px-4 py-3 text-right">
-                              <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <span className={balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
-                                ₹{balance.toLocaleString()}
-                              </span>
-                            </td>
+                            {user?.role !== 'project_manager' && (
+                              <>
+                                <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right">
+                                  <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <span className={balance > 0 ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}>
+                                    ₹{balance.toLocaleString()}
+                                  </span>
+                                </td>
+                              </>
+                            )}
                             <td className="px-4 py-3 text-center">
                               {statusBadge}
                             </td>

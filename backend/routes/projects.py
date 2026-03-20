@@ -1672,12 +1672,36 @@ async def get_payment_stages(project_id: str, user: User = Depends(get_current_u
 async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
+    # Get project to calculate amount from percentage
+    project = await db.projects.find_one({"project_id": stage_input.project_id}, {"_id": 0, "total_value": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    total_value = project.get("total_value", 0) or 0
+
+    # Validate total percentage does not exceed 100%
+    existing_stages = await db.payment_stages.find(
+        {"project_id": stage_input.project_id}, {"_id": 0, "percentage": 1}
+    ).to_list(200)
+    existing_pct = sum(s.get("percentage", 0) for s in existing_stages)
+    new_pct = stage_input.percentage or 0
+
+    if existing_pct + new_pct > 100:
+        remaining = round(100 - existing_pct, 2)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total percentage would be {existing_pct + new_pct}%. Only {remaining}% remaining. Please reduce the percentage."
+        )
+
+    # Auto-calculate amount from percentage if not provided or recalculate
+    amount = round((total_value * new_pct) / 100) if total_value > 0 and new_pct > 0 else (stage_input.amount or 0)
+
     stage = PaymentStage(
         project_id=stage_input.project_id,
         stage_name=stage_input.stage_name,
-        percentage=stage_input.percentage,
-        amount=stage_input.amount,
+        percentage=new_pct,
+        amount=amount,
         due_date=datetime.fromisoformat(stage_input.due_date) if stage_input.due_date else None
     )
     
@@ -1685,6 +1709,7 @@ async def create_payment_stage(stage_input: PaymentStageCreate, user: User = Dep
     if stage_dict.get("due_date"):
         stage_dict["due_date"] = stage_dict["due_date"].isoformat()
     stage_dict["created_at"] = stage_dict["created_at"].isoformat()
+    stage_dict["is_advance"] = stage_input.stage_name.lower().startswith("advance")
     
     await db.payment_stages.insert_one(stage_dict)
     await create_audit_log(user.user_id, "create", "payment_stage", stage.stage_id, {"stage_name": stage.stage_name})
@@ -2446,17 +2471,38 @@ async def create_bulk_payment_stages(
     """Create multiple payment stages at once (pending verification)"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
+    # Get project for total value
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "total_value": 1})
+    total_value = (project.get("total_value", 0) or 0) if project else 0
+
+    # Get existing percentage total
+    existing_stages = await db.payment_stages.find(
+        {"project_id": data.project_id}, {"_id": 0, "percentage": 1}
+    ).to_list(200)
+    existing_pct = sum(s.get("percentage", 0) for s in existing_stages)
+
+    # Calculate new total percentage
+    valid_items = [item for item in data.items if item.stage_name and (item.percentage or item.amount)]
+    new_pct = sum(item.percentage or 0 for item in valid_items)
+
+    if existing_pct + new_pct > 100:
+        remaining = round(100 - existing_pct, 2)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total would be {existing_pct + new_pct}%. Only {remaining}% remaining. Reduce percentages."
+        )
+
     created_items = []
-    for item in data.items:
-        if not item.stage_name or not item.amount:
-            continue  # Skip empty rows
+    for item in valid_items:
+        pct = item.percentage or 0
+        amount = round((total_value * pct) / 100) if total_value > 0 and pct > 0 else (item.amount or 0)
         
         stage = PaymentStage(
             project_id=data.project_id,
             stage_name=item.stage_name,
-            percentage=item.percentage,
-            amount=item.amount,
+            percentage=pct,
+            amount=amount,
             due_date=datetime.fromisoformat(item.due_date) if item.due_date else None,
             workflow_status="approved",
             created_by=user.user_id
@@ -2465,6 +2511,7 @@ async def create_bulk_payment_stages(
         stage_dict["created_at"] = stage_dict["created_at"].isoformat()
         if stage_dict.get("due_date"):
             stage_dict["due_date"] = stage_dict["due_date"].isoformat()
+        stage_dict["is_advance"] = item.stage_name.lower().startswith("advance")
         await db.payment_stages.insert_one(stage_dict)
         stage_dict.pop("_id", None)
         created_items.append(stage_dict)
