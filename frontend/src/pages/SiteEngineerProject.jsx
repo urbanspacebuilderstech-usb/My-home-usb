@@ -665,10 +665,10 @@ export default function SiteEngineerProject() {
                                     <p><strong>ID:</strong> {req.order_id}</p>
                                     <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
                                     {(req.assigned_vendor_name || req.vendor_name) && (
-                                      <p className="flex items-center gap-1">
+                                      <div className="flex items-center gap-1">
                                         <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
                                         {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
-                                      </p>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
