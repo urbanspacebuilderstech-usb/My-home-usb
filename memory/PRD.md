@@ -1,184 +1,98 @@
-# My Home USB - Construction Accounting CRM & Project Operations OS
+# My Home USB - Construction Management System PRD
 
 ## Original Problem Statement
-Build a comprehensive "Construction Accounting CRM & Project Operations OS" named "My Home USB" for managing construction projects end-to-end.
+Build a comprehensive Construction OS (My Home USB) with labour and materials management, multi-role workflows, project management, and vendor procurement automation.
+
+## User Personas & Roles
+- **Super Admin**: Full system access
+- **General Manager (GM)**: High-level oversight
+- **Project Manager (PM)**: Project oversight & approvals
+- **Planning**: Budget & resource allocation, material/labour approval
+- **Procurement**: Vendor management, pricing, PO generation, material tracking
+- **Accountant**: Payment approvals, financial tracking
+- **Site Engineer**: Daily logs, material requests, labour attendance
+- **CRE**: Client relationship management
+- **Pre-Sales / Sales**: Lead management
+- **HR**: Employee management
+- **Client**: Project visibility
+- **Vendor**: Order tracking
+
+## Core Requirements
+1. Multi-role authentication with demo access
+2. Project lifecycle management
+3. Material request → Planning approval → Procurement → Accountant → Delivery workflow
+4. Labour expense management with contractor-centric tracking
+5. Vendor master management
+6. Purchase order automation
+7. Credit ledger tracking
+8. Real-time notifications with workflow context
+9. Google Sheets sync for reporting
+10. Object storage for documents
 
 ## Tech Stack
-- **Frontend**: React 18, Tailwind CSS, Shadcn/UI, Lucide Icons
-- **Backend**: FastAPI (Python), MongoDB Atlas
-- **Integrations**: Google Sheets API, Resend, Emergent Object Storage, Leaflet/OpenStreetMap
+- **Frontend**: React + Shadcn UI + Tailwind CSS
+- **Backend**: FastAPI (Python)
+- **Database**: MongoDB Atlas
+- **Integrations**: Google Sheets API, Resend (email), Emergent Object Storage, Leaflet/OSM, jsPDF
 
-## Roles
-| Role | Dashboard Route | Key Capabilities |
-|------|----------------|-------------------|
-| Super Admin | /dashboard | Full access |
-| General Manager | /gm-dashboard | Approvals (RE, projects, payments, design) |
-| CRE | /cre-board | Deals, payments, collections |
-| Accountant | /accounts-board | Finance, cheques, cashbook |
-| Project Manager | /pm-dashboard | Projects (no financials), team, requests |
-| Planning | /planning-board | Materials, labour, vendors |
-| Procurement | /procurement-board-v2 | Purchase orders |
-| Site Engineer | /site-engineer | On-site ops, mini cashbook |
-| Pre-Sales | /crm-pre-sales | CRM pipeline |
-| Sales | /crm-sales | Sales pipeline |
-| Architect | /architect-dashboard | Site plans, 3D/elevation, design workflow |
-| HR | /hr-portal | Employee profiles, roles & credentials |
-| Client | /client-portal | View project status |
+## Key Database Collections
+- `users`, `sessions`, `projects`
+- `material_requests` (status workflow: draft → planning_approved → vendor_selected → waiting_payment → payment_approved → po_generated → in_transit → received_completed)
+- `labour_expenses` (similar workflow)
+- `vendor_master` (material & labour vendors)
+- `purchase_orders` (manual/auto POs)
+- `purchase_orders_v2` (auto-generated POs from procurement flow)
+- `procurement_pricing` (vendor quotes & pricing)
+- `credit_ledger` (vendor credit tracking)
+- `transit_tracking` (delivery tracking)
+- `contractor_master`, `site_engineer_assignments`
 
-## Financial Model (80/20 Rule)
-- Each project: **80% Direct Costs** (Materials, Labour, Site) / **20% Indirect + Profit**
-- Indirect expenses auto-distribute across active projects based on value %
-- When a project's 20% budget is exhausted, excess redistributes to other projects
-- Profit = whatever remains in the 20% bucket after indirect expenses
+## What's Been Implemented
 
-## What's Implemented
-- [x] Full CRM pipeline with Google Sheets auto-sync (1-min interval)
-- [x] Pre-Sales -> Sales transfer, RNR Stage + Pipeline Stage Management
-- [x] Deal conversion, project creation, work orders
-- [x] Material request/procurement/approval workflow
-- [x] Site Engineer Mini Cashbook + Petty Cash
-- [x] Accountant Cashbook, Cheque Management, Project Summary
-- [x] Income/Expense Approval System
-- [x] Masked Financial Values, Super Admin auto-creation
-- [x] Forgot Password + Role-based access control
-- [x] Production-Ready Setup Wizard (SetupWizard.jsx)
-- [x] Architect Dashboard & Design Workflow
-- [x] Gantt Chart for Project Timelines
-- [x] PM Dashboard - Team, Materials, Labours Tabs
-- [x] Google Sheets Sync Fix (auto-discover new tabs, 1-min interval)
-- [x] Dynamic browser tab title (Role | My Home USB)
-- [x] Auto-refresh (15s polling) across all 30+ pages
-- [x] Loading spinner fix
-- [x] Safe error handling for 132 toast error catches
-- [x] CRE Board visibility fix
-- [x] Planning Board visibility fix
-- [x] Indirect Cost Management Module
-- [x] Configurable Direct/Indirect Cost Split
-- [x] Rough Estimates Tab in Planning Board
-- [x] Multi-Mode Payment Collection
-- [x] Numeric Input Formatting (Indian commas)
-- [x] Cheque Payment Review Bug Fix
-- [x] PM Dashboard Team Assignment Enhancement
-- [x] Project Detail Team Tab - Editable
-- [x] Removed "Generate Payment Schedule" Button
-- [x] Planning Payment Schedule Overview Tab
-- [x] HR Portal & Employee Management
-- [x] Sales Rough Estimate Requirement Popup
-- [x] Monthly Payment Schedule System
-- [x] Standardized Unit Dropdown Sitewide (UnitSelect.jsx)
-- [x] Contact Visibility Rules
-- [x] Vendor Management System (CRUD, categories, project assignments)
-- [x] Material Request Workflow Fix
-- [x] **Contractor Management System (Mar 19, 2026)**:
-  - Full CRUD for contractors with categories and labour types
-  - Dynamic contractor categories (20 seeded: Mason, Painter, Electrician, etc.)
-  - Labour types per contractor with per-day costs (Skilled, Semi-Skilled, Non-Skilled)
-  - Contractor detail view with Work Orders and Payment Summary tabs
-  - Frontend: /contractor-management page with 3-tab create/edit dialog
-  - Backend: 10+ endpoints in /app/backend/routes/contractors.py
-- [x] **Labour Work Orders System (Mar 19, 2026)**:
-  - Work orders with payment stages (amount + percentage per stage)
-  - Stage payment request flow: Site Engineer requests -> Planning approves/rejects
-  - Routes: /api/labour-work-orders (separate from material work orders in projects.py)
-  - DB collection: labour_work_orders (separate from work_orders)
-- [x] **Labour Attendance System (Mar 19, 2026)**:
-  - Daily attendance logging by Site Engineers
-  - Auto cost calculation based on worker count x per-day cost
-  - Daily summary endpoint per project
-- [x] **Material Inventory System (Mar 19, 2026)**:
-  - Daily opening/closing stock tracking
-  - Auto closing stock calculation (opening + received - used)
-  - Latest stock per material endpoint
-- [x] **Route Conflict Fix (Mar 19, 2026)**:
-  - Fixed CRITICAL route conflict: POST /api/work-orders was shared between projects.py and contractors.py
-  - Renamed contractor work order routes to /api/labour-work-orders
-  - Changed DB collection from work_orders to labour_work_orders
-  - Updated all frontend API calls in ProjectDetail.jsx
+### Completed Features
+- [x] Multi-role authentication with demo access buttons
+- [x] Project management (CRUD, timeline, milestones)
+- [x] Material request workflow (SE → Planning → Procurement → Accountant → Delivery)
+- [x] Labour expense workflow (SE → Planning → Procurement → Accountant)
+- [x] Vendor master management (add, edit, categorize)
+- [x] Purchase Order system (auto-generated & manual)
+- [x] Credit ledger with overdue tracking
+- [x] Transit tracking with OTP verification
+- [x] Procurement Board V2 with 7 tabs (Pending, Pricing, Payment, POs, Transit, Credit, Vendors)
+- [x] Site Engineer project page with Labour Count & Stock Register tabs
+- [x] Contractor-centric labour attendance (skill types, daily cost calculation)
+- [x] Work order stage timeline for contractors
+- [x] Workflow-aware toast notifications (34 messages across 12 pages)
+- [x] Accountant approval flow (bug fixed - status transitions corrected)
+- [x] Vendor/PO automation (auto-assign vendors, auto-generate POs on planning approval)
+- [x] Google Sheets auto-sync
+- [x] Comprehensive procurement board data seeding for Vinoth Kumar project (Mar 2026)
 
-## Credentials
-- Super Admin: `admin@constructionos.com` / `Demo@1234`
-- GM: `gm@constructionos.com` / `Demo@1234`
-- CRE: `cre@constructionos.com` / `Demo@1234`
-- Accountant: `accountant@constructionos.com` / `Demo@1234`
-- PM: `pm@constructionos.com` / `Demo@1234`
-- Planning: `planning@constructionos.com` / `Demo@1234`
-- Procurement: `procurement@constructionos.com` / `Demo@1234`
-- Site Engineer: `engineer@constructionos.com` / `Demo@1234`
-- Pre-Sales: `presales@constructionos.com` / `Demo@1234`
-- Sales: `sales@constructionos.com` / `Demo@1234`
-- Architect: `architect@constructionos.com` / `Demo@1234`
-- HR: `hr@constructionos.com` / `Demo@1234`
-- Client: `raj@client.com` / `Demo@1234`
-- Client: `mohan@client.com` / `Demo@1234`
-
-## Key API Endpoints - Labour & Contractor System
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET/POST | /api/contractor-categories | Manage contractor work type categories |
-| GET/POST | /api/contractors | CRUD for contractors |
-| GET | /api/contractors/{id} | Single contractor |
-| PATCH | /api/contractors/{id} | Update contractor |
-| GET | /api/contractors/{id}/summary | Work orders + payment stats |
-| GET/POST | /api/labour-work-orders | CRUD for labour work orders |
-| PATCH | /api/labour-work-orders/{wo_id} | Update work order |
-| PATCH | /api/labour-work-orders/{wo_id}/stages/{stage_id}/request-payment | Site Engineer requests |
-| PATCH | /api/labour-work-orders/{wo_id}/stages/{stage_id}/review | Planning approves/rejects |
-| GET/POST | /api/labour-attendance | Daily attendance entries |
-| GET | /api/labour-attendance/daily-summary | Per-project daily totals |
-| GET/POST | /api/material-inventory | Daily stock entries |
-| GET | /api/material-inventory/latest | Latest stock per material |
-| GET | /api/projects/{project_id}/contractor-assignments | Project's labour work orders |
-
-- [x] **Vendor Auto-Assignment in Material Requests (Mar 19, 2026)**:
-  - When SE creates a material request, system auto-looks up vendor assigned for that material category
-  - Fuzzy matching: "Cement OPC 53 Grade" matches category "Cement"
-  - Assigned vendor info (vendor_id, name, category) attached to request
-  - New endpoint: GET /api/projects/{project_id}/vendor-suggestion?material_name=X
-  - Frontend: Green vendor suggestion banner in SE material request dialog
-- [x] **Auto Purchase Order Flow (Mar 19, 2026)**:
-  - When Planning approves a material request with an assigned vendor, PO is auto-generated
-  - PO includes: project info, vendor info, material details, quantity
-  - Both approval endpoints support auto-PO: /planning-action and /approve?action=planning_approve
-  - Procurement notified about auto-PO via notifications
-  - New "POs" tab in ProcurementBoardV2 with approve/dispatch/deliver workflow
-  - POs marked with "Auto" badge when auto-generated
-  - ProjectDetail and SiteEngineerProject show PO badges on material requests
-- [x] **Site Engineer Labour Count by Category (Mar 19, 2026)**:
-  - REDESIGNED (Mar 20): Now shows contractors assigned by Planning
-  - Click contractor → Attendance form with pre-set rates (SE only enters count)
-  - Table: Type | Rate/Day | Count | Total with auto-calculated totals
-  - Attendance Summary: Day-by-day rows with breakdown (type × rate = total) + grand total
-  - Work Orders: Stage timeline with completed (green), open (blue, raise payment), upcoming (low opacity)
-  - Backend: GET /api/projects/{project_id}/assigned-contractors (returns rates + work orders)
-- [x] **Workflow-Aware Toast Notifications (Mar 20, 2026)**:
-  - Updated 34 toast messages across 12 pages to tell user where the request goes next
-  - Examples: "Material request submitted! Goes to Planning for approval"
-  - "Approved! PO auto-generated → Goes to Procurement for processing"
-  - "Verified! Payment will be processed & released"
-  - Covers: Material Request, Labour, Work Orders, POs, Design, Projects, Payments, Expenses
-- [x] **Bug Fix: Procurement → Accountant Flow Disconnected (Mar 20, 2026)**:
-  - ROOT CAUSE: Status mismatch — Procurement set "procurement_approved", Planning set "planning_approved", but Accountant expected "pending_accounts_approval"
-  - FIX 1: Added PENDING_ACCOUNTS_APPROVAL to both MaterialRequestStatus and LabourRequestStatus enums
-  - FIX 2: Planning approve with auto-PO now sets status to "pending_accounts_approval" (both endpoints)
-  - FIX 3: Procurement submit_for_accounts now sets "pending_accounts_approval" instead of "procurement_approved"
-  - FIX 4: Labour planning approve now sets "pending_accounts_approval" instead of "planning_approved"
-  - FIX 5: Accountant queries include legacy statuses for backwards compatibility
-  - FIX 6: Frontend AccountantModule.jsx filters updated to include both new and legacy statuses
-  - Verified: 100% backend (11/11) + 100% frontend via testing_agent_v3_fork
-- [x] **Site Engineer Stock Register (Mar 19, 2026)**:
-  - New "Stock Register" tab on SE project page
-  - Add material flow (name + unit), editable table with Opening/Received/Used/Closing columns
-  - Closing stock auto-calculated as opening + received - used (negative shown in red)
-  - Current Stock Levels cards showing latest stock per material
-  - Backend: POST /api/material-inventory, GET /api/material-inventory/latest
+### Demo Data Seeded (Mar 20, 2026)
+- Vinoth Kumar project: 15 material requests across all workflow states
+- 8 vendors with complete profiles
+- 5 purchase orders (3 auto, 2 manual)
+- 3 credit ledger entries (₹91.1K outstanding, 1 overdue)
+- 3 transit orders with vehicle/OTP tracking
+- 2 procurement pricing records
 
 ## Backlog
-- [ ] Escrow Account Integration (P0)
-- [ ] Two-Factor Authentication (2FA) via mobile OTP (P0)
-- [ ] Advanced Cybersecurity Practices (P1)
-- [ ] Aadhar Document Upload with encrypted storage (P1)
-- [ ] Refactor ProjectDetail.jsx (4000+ lines) into sub-components (P1)
-- [ ] Cash Denomination feature (P2 - Paused)
-- [ ] UI/UX review across all screens (P2)
-- [ ] Convert to SaaS model (multi-tenancy, subscriptions) (P2)
-- [ ] Production deployment guidance (P2)
+
+### P0
+- [ ] Two-Factor Authentication (2FA) with mobile OTP
+
+### P1
+- [ ] Advanced Cybersecurity Practices (break into actionable items)
+- [ ] Aadhar Document Upload with encrypted storage (object storage integration)
+- [ ] Refactor ProjectDetail.jsx (4000+ lines → smaller components)
+
+### P2
+- [ ] Cash Denomination feature (paused by user)
+- [ ] Comprehensive UI/UX review
+- [ ] Convert to SaaS model
+- [ ] Production deployment guidance
+
+## Credentials
+- All demo users: password `Demo@1234`
+- Email format: `{role}@constructionos.com` (e.g., procurement@constructionos.com)
+- Demo Access buttons available on login page
