@@ -185,9 +185,14 @@ export default function ProcurementBoardV2() {
   };
 
   const handleUpdatePOStatus = async (poId, newStatus) => {
+    const messages = {
+      approved: 'PO approved! Vendor will be notified for dispatch.',
+      dispatched: 'Dispatched! Awaiting delivery at site.',
+      delivered: 'Delivered! Site Engineer can now receive materials.'
+    };
     try {
       await axios.patch(`${API}/purchase-orders/${poId}/status`, { status: newStatus });
-      toast.success(`PO updated to ${newStatus}`);
+      toast.success(messages[newStatus] || `PO updated to ${newStatus}`);
       fetchPurchaseOrders();
     } catch { toast.error('Failed to update PO'); }
   };
@@ -256,7 +261,7 @@ export default function ProcurementBoardV2() {
         expected_delivery: vendorForm.expected_delivery || null
       });
       
-      toast.success('Vendor selected successfully');
+      toast.success('Vendor selected! PO will be generated next.');
       setVendorDialog(false);
       fetchData(false);
     } catch (error) {
@@ -296,7 +301,7 @@ export default function ProcurementBoardV2() {
     
     try {
       const res = await axios.patch(`${API}/procurement/v2/dispatch/${selectedRequest.request_id}`, dispatchForm);
-      toast.success(`Dispatched! OTP for receipt: ${res.data.otp}`);
+      toast.success(`Dispatched! OTP sent to Site Engineer for material receipt.`);
       setDispatchDialog(false);
       fetchData(false);
     } catch (error) {
@@ -345,7 +350,7 @@ export default function ProcurementBoardV2() {
         payment_reference: creditPayForm.payment_reference,
         remarks: creditPayForm.remarks
       });
-      toast.success('Payment recorded');
+      toast.success('Payment recorded. Goes to Accountant for release.');
       setCreditPayDialog(false);
       fetchCreditLedger();
     } catch (error) {
@@ -950,7 +955,7 @@ export default function ProcurementBoardV2() {
                                     onClick={async () => {
                                       try {
                                         await axios.post(`${API}/procurement/credit-ledger/${entry.entry_id}/request-payment`);
-                                        toast.success('Payment request sent to accountant');
+                                        toast.success('Payment request sent to Accountant for approval.');
                                         fetchCreditLedger();
                                       } catch (err) {
                                         toast.error(typeof err.response?.data?.detail === 'string' ? err.response.data.detail : 'Failed');

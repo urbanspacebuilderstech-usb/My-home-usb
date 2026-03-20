@@ -79,7 +79,7 @@ export default function WorkOrders() {
 
       const response = await axios.post(`${API}/work-orders`, woData);
       await axios.patch(`${API}/work-orders/${response.data.work_order_id}/submit`);
-      toast.success('Work order submitted');
+      toast.success('Work order submitted! Goes to Planning for review.');
       setDialogOpen(false);
       setFormData({ project_id: '', boq_id: '', requested_quantity: '', purpose: '' });
       fetchData(false);

@@ -111,7 +111,7 @@ export default function PMDashboard() {
   const handleApproveMaterial = async (req) => {
     try {
       await axios.patch(`${API}/material-requests/${req.request_id}/planning-action`, null, { params: { action: 'approve' } });
-      toast.success('Material request approved');
+      toast.success('Material request approved! Goes to Planning for final approval.');
       fetchData(false);
     } catch { toast.error('Failed to approve'); }
   };
@@ -119,7 +119,7 @@ export default function PMDashboard() {
   const handleApproveLabour = async (req) => {
     try {
       await axios.patch(`${API}/pm/labour-requests/${req.labour_expense_id}/verify?action=approve`);
-      toast.success('Labour request approved');
+      toast.success('Labour request approved! Goes to Planning for final approval.');
       fetchData(false);
     } catch { toast.error('Failed to approve'); }
   };
@@ -133,7 +133,7 @@ export default function PMDashboard() {
       } else {
         await axios.patch(`${API}/pm/labour-requests/${rejectTarget.labour_expense_id}/verify?action=reject&rejection_reason=${encodeURIComponent(rejectReason)}`);
       }
-      toast.success('Request rejected');
+      toast.success('Rejected. Site Engineer will be notified.');
       setRejectDialog(false); fetchData(false);
     } catch { toast.error('Failed to reject'); }
   };

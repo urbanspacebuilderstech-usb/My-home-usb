@@ -141,7 +141,7 @@ const GMDashboard = () => {
       await axios.patch(`${API}/architect/site-plans/${plan.plan_id}/approve`, null, {
         params: { approved, rejection_reason: reason || '' }
       });
-      toast.success(approved ? 'Design approved' : 'Design rejected');
+      toast.success(approved ? 'Design approved! Architect will be notified.' : 'Design rejected. Architect will be notified.');
       fetchAllData(false);
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Failed');
@@ -225,10 +225,10 @@ const GMDashboard = () => {
       
       if (approvalAction === 'approve') {
         await axios.patch(endpoint, { approved: true });
-        toast.success('Approved successfully!');
+        toast.success('Approved! Planning will be notified to proceed.');
       } else {
         await axios.patch(endpoint, { approved: false, rejection_reason: rejectionReason });
-        toast.success('Rejected successfully');
+        toast.success('Rejected. Planning will be notified.');
       }
       
       setApprovalDialog(false);

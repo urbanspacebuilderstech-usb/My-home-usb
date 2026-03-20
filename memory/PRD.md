@@ -150,6 +150,12 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - Attendance Summary: Day-by-day rows with breakdown (type × rate = total) + grand total
   - Work Orders: Stage timeline with completed (green), open (blue, raise payment), upcoming (low opacity)
   - Backend: GET /api/projects/{project_id}/assigned-contractors (returns rates + work orders)
+- [x] **Workflow-Aware Toast Notifications (Mar 20, 2026)**:
+  - Updated 34 toast messages across 12 pages to tell user where the request goes next
+  - Examples: "Material request submitted! Goes to Planning for approval"
+  - "Approved! PO auto-generated → Goes to Procurement for processing"
+  - "Verified! Payment will be processed & released"
+  - Covers: Material Request, Labour, Work Orders, POs, Design, Projects, Payments, Expenses
 - [x] **Site Engineer Stock Register (Mar 19, 2026)**:
   - New "Stock Register" tab on SE project page
   - Add material flow (name + unit), editable table with Opening/Received/Used/Closing columns

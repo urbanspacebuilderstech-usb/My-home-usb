@@ -180,7 +180,7 @@ export default function SiteEngineerProject() {
         entries,
         notes: `Attendance for ${selectedContractor.contractor_name}`
       });
-      toast.success('Attendance saved');
+      toast.success('Attendance saved for ' + labourCountDate);
       fetchContractorAttendance(selectedContractor.contractor_id, labourCountDate);
     } catch { toast.error('Failed to save attendance'); }
     finally { setSavingLabourCount(false); }
@@ -193,7 +193,7 @@ export default function SiteEngineerProject() {
         requested_amount: amount,
         notes: 'Payment requested by Site Engineer'
       });
-      toast.success('Payment request submitted');
+      toast.success('Payment request sent to Planning for review');
       fetchAssignedContractors();
     } catch (err) { toast.error(err.response?.data?.detail || 'Failed to request payment'); }
     finally { setRequestingPayment(false); }
@@ -238,7 +238,7 @@ export default function SiteEngineerProject() {
           used: Number(data.used) || 0
         });
       }
-      toast.success('Stock register saved');
+      toast.success('Stock register saved for ' + stockDate);
       fetchStockData(stockDate);
     } catch { toast.error('Failed to save stock'); }
     finally { setSavingStock(false); }
@@ -325,7 +325,7 @@ export default function SiteEngineerProject() {
       }
       
       await axios.post(`${API}/site-engineer/material-requests`, payload);
-      toast.success('Material request submitted');
+      toast.success('Material request submitted! Goes to Planning for approval');
       setMaterialRequestDialog(false);
       setMaterialForm({ material_id: '', material_name: '', quantity: '', unit: 'kg', remarks: '' });
       setVendorSuggestion(null);
@@ -350,7 +350,7 @@ export default function SiteEngineerProject() {
         rate_per_day: parseFloat(labourForm.rate_per_day),
         remarks: labourForm.remarks || null
       });
-      toast.success('Labour request submitted');
+      toast.success('Labour request submitted! Goes to Planning for approval');
       setLabourRequestDialog(false);
       setLabourForm({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
       fetchData(false);

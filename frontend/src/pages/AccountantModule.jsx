@@ -221,7 +221,7 @@ export default function AccountantModule() {
       }
       
       await axios.patch(endpoint, payload);
-      toast.success('Request verified successfully');
+      toast.success('Verified! Payment will be processed & released.');
       setVerifyDialog(false);
       fetchData(false);
     } catch (error) {
@@ -260,7 +260,7 @@ export default function AccountantModule() {
           return;
       }
       
-      toast.success('Request rejected');
+      toast.success('Rejected. Requester will be notified.');
       setRejectDialog(false);
       fetchData(false);
     } catch (error) {

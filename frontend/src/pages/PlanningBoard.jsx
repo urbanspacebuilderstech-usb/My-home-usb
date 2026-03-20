@@ -153,7 +153,7 @@ export default function PlanningBoard() {
 
   // === PROJECT HANDLERS ===
   const handleSubmitForApproval = async (id) => {
-    try { await axios.patch(`${API}/planning/projects/${id}/submit-for-approval`); toast.success('Submitted for GM approval'); fetchData(false); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    try { await axios.patch(`${API}/planning/projects/${id}/submit-for-approval`); toast.success('Submitted for GM approval. GM will review & approve.'); fetchData(false); } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
   const openStageDialog = (p) => { setSelectedProject(p); setNewStage(p.current_stage || 'yet_to_start'); setStageDialog(true); };
   const handleUpdateStage = async () => {
@@ -167,9 +167,9 @@ export default function PlanningBoard() {
       const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
       const res = await axios.patch(ep, null, { params: { action: 'approve' } });
       if (res.data?.auto_po) {
-        toast.success('Approved — Purchase Order auto-generated for assigned vendor');
+        toast.success('Approved! PO auto-generated → Goes to Procurement for processing');
       } else {
-        toast.success('Approved');
+        toast.success('Approved! Goes to Procurement for vendor assignment');
       }
       fetchData(false);
     } catch { toast.error('Failed'); }
@@ -177,15 +177,15 @@ export default function PlanningBoard() {
   const handleRejectRequest = async (req) => {
     try {
       const ep = req.type === 'material' ? `${API}/material-requests/${req.request_id}/planning-action` : `${API}/labour-expenses/${req.expense_id}/planning-action`;
-      await axios.patch(ep, null, { params: { action: 'reject', reason: 'Rejected by Planning' } }); toast.success('Rejected'); fetchData(false);
+      await axios.patch(ep, null, { params: { action: 'reject', reason: 'Rejected by Planning' } }); toast.success('Rejected. Site Engineer will be notified.'); fetchData(false);
     } catch { toast.error('Failed'); }
   };
   const handleApprovePayment = async (p) => {
-    try { await axios.patch(`${API}/work-orders/${p.work_order_id}/stages/${p.stage_id}/approve-payment`); toast.success('Payment approved'); fetchData(false); } catch { toast.error('Failed'); }
+    try { await axios.patch(`${API}/work-orders/${p.work_order_id}/stages/${p.stage_id}/approve-payment`); toast.success('Payment approved! Goes to Accountant for release.'); fetchData(false); } catch { toast.error('Failed'); }
   };
   const handleRejectPayment = async () => {
     if (!selectedPayment) return;
-    try { await axios.patch(`${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`, null, { params: { reason: rejectReason || 'Not verified' } }); toast.success('Rejected'); setRejectDialog(false); fetchData(false); } catch { toast.error('Failed'); }
+    try { await axios.patch(`${API}/work-orders/${selectedPayment.work_order_id}/stages/${selectedPayment.stage_id}/reject-payment`, null, { params: { reason: rejectReason || 'Not verified' } }); toast.success('Rejected. Site Engineer will be notified.'); setRejectDialog(false); fetchData(false); } catch { toast.error('Failed'); }
   };
 
   // === MATERIAL HANDLERS ===
@@ -297,7 +297,7 @@ export default function PlanningBoard() {
   const handleRequestPayment = async (entryId) => {
     try {
       await axios.patch(`${API}/planning/monthly-schedule/${entryId}/request-payment`);
-      toast.success('Payment requested — sent to CRE');
+      toast.success('Payment requested! Sent to CRE for processing.');
       fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };

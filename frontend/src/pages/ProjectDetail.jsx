@@ -674,7 +674,7 @@ export default function ProjectDetail() {
         total_amount: woForm.total_amount,
         payment_stages: woForm.payment_stages
       });
-      toast.success('Work order created');
+      toast.success('Work order created! Site Engineer can now log attendance.');
       setShowWOForm(false);
       setWoForm({ contractor_id: '', description: '', total_amount: 0, payment_stages: [{ stage_name: 'Stage 1', amount: 0, percentage: 0 }] });
       fetchWorkOrderData();
@@ -684,7 +684,7 @@ export default function ProjectDetail() {
   const handleRequestStagePayment = async (woId, stageId, amount) => {
     try {
       await axios.patch(`${API}/labour-work-orders/${woId}/stages/${stageId}/request-payment`, { requested_amount: amount });
-      toast.success('Payment requested');
+      toast.success('Payment requested! Goes to Planning for review.');
       fetchWorkOrderData();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
@@ -702,7 +702,7 @@ export default function ProjectDetail() {
         date: attForm.date,
         entries: attForm.entries
       });
-      toast.success('Attendance saved');
+      toast.success('Attendance saved for the day.');
       setShowAttendanceForm(false);
       fetchWorkOrderData();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
@@ -715,7 +715,7 @@ export default function ProjectDetail() {
         project_id: projectId,
         ...invForm
       });
-      toast.success('Inventory entry saved');
+      toast.success('Inventory entry saved.');
       setShowInventoryForm(false);
       fetchWorkOrderData();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
@@ -933,7 +933,7 @@ export default function ProjectDetail() {
         verification_code: verifyCode
       });
       
-      toast.success('Items verified and sent for approval');
+      toast.success('Items verified! Goes to Accountant for payment approval.');
       setVerifyDialog({ open: false, type: '', ids: [] });
       fetchData(false);
     } catch (error) {
@@ -1106,7 +1106,7 @@ export default function ProjectDetail() {
   const handleRequestPayment = async (stageId) => {
     try {
       await axios.patch(`${API}/payment-stages/${stageId}/request`);
-      toast.success('Payment requested - sent to CRE');
+      toast.success('Payment requested! Goes to CRE for processing.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
@@ -1127,7 +1127,7 @@ export default function ProjectDetail() {
   const handleRequestAdditionPayment = async (costId) => {
     try {
       await axios.patch(`${API}/additional-costs/${costId}/request-payment`);
-      toast.success('Payment requested for additional work - sent to CRE');
+      toast.success('Additional work payment requested! Goes to CRE for processing.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
@@ -1193,7 +1193,7 @@ export default function ProjectDetail() {
   const handleSubmitPaymentSchedule = async () => {
     try {
       await axios.post(`${API}/projects/${projectId}/payment-schedule/submit`);
-      toast.success('Payment schedule submitted for collection');
+      toast.success('Payment schedule submitted! Goes to CRE for collection.');
       setSubmitScheduleDialog(false);
       fetchData(false);
     } catch (error) {

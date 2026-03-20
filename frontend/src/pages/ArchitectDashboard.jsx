@@ -119,7 +119,7 @@ export default function ArchitectDashboard() {
     if (!window.confirm(`Submit "${plan.floor_name}" for GM approval?`)) return;
     try {
       await axios.post(`${API}/architect/projects/${selectedProject.project_id}/site-plans/${plan.plan_id}/submit`);
-      toast.success('Submitted for approval');
+      toast.success('Submitted! Goes to GM for approval.');
       fetchProjectDesignData(selectedProject.project_id);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to submit'); }
   };

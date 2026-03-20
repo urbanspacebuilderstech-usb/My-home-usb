@@ -325,7 +325,7 @@ export default function SiteEngineerDashboard() {
         purpose: pettyCashForm.purpose,
         remarks: pettyCashForm.remarks
       });
-      toast.success('Petty cash requested');
+      toast.success('Petty cash requested! Goes to Accountant for approval.');
       setPettyCashDialog(false);
       setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
       fetchData(false);
@@ -359,7 +359,7 @@ export default function SiteEngineerDashboard() {
   const handleSubmitPettyCash = async (pettyCashId) => {
     try {
       await axios.post(`${API}/site-engineer/petty-cash/${pettyCashId}/submit`);
-      toast.success('Petty cash submitted for settlement');
+      toast.success('Petty cash submitted! Goes to Accountant for settlement.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit petty cash');
@@ -414,7 +414,7 @@ export default function SiteEngineerDashboard() {
         null,
         { params: { remarks: paymentRemarks } }
       );
-      toast.success('Payment request submitted to Planning');
+      toast.success('Payment request submitted! Goes to Planning for approval.');
       setPaymentDialog(false);
       fetchData(false);
     } catch (error) {

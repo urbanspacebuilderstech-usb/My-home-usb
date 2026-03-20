@@ -204,7 +204,7 @@ export default function CREBoard() {
         payment_reference: advancePaymentEntries[0]?.reference || '',
         accountant_confirmed: accountantConfirmed,
       });
-      toast.success('Project created successfully!');
+      toast.success('Project created! Goes to Planning for setup.');
       setConvertDealDialog(false);
       fetchData(false);
     } catch (error) {
@@ -250,7 +250,7 @@ export default function CREBoard() {
   const handleSubmitForPayment = async (projectId) => {
     try {
       await axios.patch(`${API}/cre/projects/${projectId}/submit`);
-      toast.success('Project submitted for payment verification');
+      toast.success('Project submitted! Goes to Accountant for payment verification.');
       fetchData(false);
     } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit'); }
   };
@@ -309,7 +309,7 @@ export default function CREBoard() {
         remarks: collectForm.remarks || null
       };
       await axios.post(`${API}/payment-stages/${selectedPaymentStage.stage_id}/collect`, payload);
-      toast.success('Payment collected successfully');
+      toast.success('Payment collected! Accountant will be notified.');
       setCollectDialog(false);
       setCollectForm({ amount: '', remarks: '' });
       setCollectPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);

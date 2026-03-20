@@ -566,7 +566,7 @@ function IndirectExpenseSection({ userRole }) {
         ...createForm, amount: parseFloat(createForm.amount),
         invoice_date: createForm.invoice_date ? new Date(createForm.invoice_date).toISOString() : null
       });
-      toast.success('Indirect cost created. Pending approval.');
+      toast.success('Indirect cost created. Goes to GM for approval.');
       setCreateDialog(false);
       setCreateForm({ category: '', description: '', amount: '', payment_method: 'bank_transfer', vendor_name: '', invoice_number: '', invoice_date: '', remarks: '' });
       setDistributionPreview(null);
@@ -581,7 +581,7 @@ function IndirectExpenseSection({ userRole }) {
       await axios.patch(`${API}/financial/indirect-costs/${selectedCost.indirect_cost_id}/approve`, {
         approved, rejection_reason: approved ? null : rejectionReason
       });
-      toast.success(approved ? 'Approved' : 'Rejected');
+      toast.success(approved ? 'Approved! Payment will be processed.' : 'Rejected. Requester will be notified.');
       setApproveDialog(false); setSelectedCost(null); setRejectionReason('');
       fetchIndirect(false);
     } catch (error) {
@@ -2181,7 +2181,7 @@ function ApprovalsTab() {
     setProcessing(incomeId);
     try {
       await axios.post(`${API}/approvals/income/${incomeId}/approve`);
-      toast.success('Income approved');
+      toast.success('Income approved & recorded.');
       fetchApprovals(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
@@ -2194,7 +2194,7 @@ function ApprovalsTab() {
     setProcessing(id);
     try {
       await axios.patch(`${API}/expenses/${type}/${id}/${action}`, { action: 'approved' });
-      toast.success('Expense approved');
+      toast.success('Expense approved & recorded.');
       fetchApprovals(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
@@ -2213,7 +2213,7 @@ function ApprovalsTab() {
         const actionMap = { material: 'accounts-approval', labour: 'accounts-approval', 'vendor-service': 'accounts-approval' };
         await axios.patch(`${API}/expenses/${type}/${id}/${actionMap[type]}`, { action: 'rejected', reason });
       }
-      toast.success('Rejected successfully');
+      toast.success('Rejected. Requester will be notified.');
       setRejectDialog({ open: false, type: '', id: '', reason: '' });
       fetchApprovals(false);
     } catch (error) {
@@ -2304,7 +2304,7 @@ function ApprovalsTab() {
       if (reviewForm.verification_mode === 'dt') payload.dt_id = reviewForm.dt_id;
 
       await axios.post(`${API}/approvals/income/${inc.income_id}/review`, payload);
-      toast.success('Income reviewed & approved');
+      toast.success('Income reviewed & approved. Recorded in books.');
       setReviewDialog({ open: false, income: null });
       fetchApprovals(false);
     } catch (error) {
