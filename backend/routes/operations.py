@@ -3528,6 +3528,95 @@ async def link_user_to_staff(user_id: str, body: dict, user: User = Depends(get_
     return {"message": "User linked to staff record"}
 
 
+@router.post("/hr/users/create")
+async def create_user_account(body: dict, user: User = Depends(get_current_user)):
+    """Create a new user account with email/password/role - by Super Admin or HR"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin and HR can create users")
+
+    # HR cannot create super_admin or hr roles
+    if user.role == UserRole.HR and body.get("role") in ["super_admin", "hr"]:
+        raise HTTPException(status_code=403, detail="HR cannot create Super Admin or HR roles")
+
+    email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
+    confirm_password = body.get("confirm_password", "")
+    role = body.get("role", "")
+    staff_id = body.get("staff_id")  # optional - link to employee
+    name = body.get("name", "")
+
+    if not email or not password or not role:
+        raise HTTPException(status_code=400, detail="Email, password and role are required")
+    if password != confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    # Check if email already exists
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="A user with this email already exists")
+
+    import bcrypt
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    # If staff_id provided, get name from employee record
+    if staff_id:
+        staff_doc = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0, "name": 1})
+        if staff_doc:
+            name = name or staff_doc.get("name", "")
+
+    new_user = {
+        "user_id": f"user_{uuid.uuid4().hex[:12]}",
+        "email": email,
+        "password_hash": hashed,
+        "password_set": True,
+        "name": name or email.split("@")[0],
+        "role": role,
+        "is_active": True,
+        "phone": body.get("phone", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    await db.users.insert_one(new_user)
+    new_user.pop("_id", None)
+    new_user.pop("password_hash", None)
+
+    # Link to staff record if provided
+    if staff_id:
+        await db.staff.update_one(
+            {"staff_id": staff_id},
+            {"$set": {"linked_user_id": new_user["user_id"], "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+
+    return new_user
+
+
+@router.delete("/hr/users/{user_id}")
+async def hr_delete_user(user_id: str, user: User = Depends(get_current_user)):
+    """Delete a user account - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete users")
+    if user.user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.users.delete_one({"user_id": user_id})
+    await db.user_sessions.delete_many({"user_id": user_id})
+
+    # Unlink from any staff record
+    await db.staff.update_many(
+        {"linked_user_id": user_id},
+        {"$unset": {"linked_user_id": ""}}
+    )
+
+    return {"message": "User deleted"}
+
+
 # ==================== ATTENDANCE ENDPOINTS ====================
 
 @router.get("/hr/attendance")

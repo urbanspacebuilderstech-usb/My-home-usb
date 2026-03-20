@@ -84,6 +84,8 @@ export default function HRPortal() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [resetPwdDialog, setResetPwdDialog] = useState(false);
   const [newPassword, setNewPassword] = useState('');
+  const [createUserDialog, setCreateUserDialog] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState({ staff_id: '', email: '', password: '', confirm_password: '', role: '', name: '' });
 
   // Form state
   const [staffForm, setStaffForm] = useState(getEmptyForm());
@@ -310,6 +312,48 @@ export default function HRPortal() {
     }
   };
 
+  const handleCreateUser = async () => {
+    if (!createUserForm.email || !createUserForm.password || !createUserForm.role) {
+      toast.error('Email, password and role are required');
+      return;
+    }
+    if (createUserForm.password !== createUserForm.confirm_password) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    if (createUserForm.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      await axios.post(`${API}/hr/users/create`, {
+        email: createUserForm.email,
+        password: createUserForm.password,
+        confirm_password: createUserForm.confirm_password,
+        role: createUserForm.role,
+        staff_id: createUserForm.staff_id || null,
+        name: createUserForm.name || ''
+      });
+      toast.success('User created successfully');
+      setCreateUserDialog(false);
+      setCreateUserForm({ staff_id: '', email: '', password: '', confirm_password: '', role: '', name: '' });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create user');
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    try {
+      await axios.delete(`${API}/hr/users/${userId}`);
+      toast.success('User deleted');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to delete user');
+    }
+  };
+
   // ============ FILTERS ============
   const filteredStaff = staff.filter(s => {
     const matchSearch = !searchTerm || s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.employee_code?.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone?.includes(searchTerm);
@@ -497,6 +541,9 @@ export default function HRPortal() {
                         {ALL_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    <Button onClick={() => setCreateUserDialog(true)} className="bg-blue-600 hover:bg-blue-700" data-testid="create-user-btn">
+                      <UserPlus className="h-4 w-4 mr-1" /> Create User
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -553,7 +600,13 @@ export default function HRPortal() {
                                   <Button size="sm" variant="ghost" className="text-amber-600" onClick={() => { setSelectedUser(u); setNewPassword(''); setResetPwdDialog(true); }} data-testid={`reset-pwd-${u.user_id}`}>
                                     <Key className="h-4 w-4" />
                                   </Button>
+                                  <Button size="sm" variant="ghost" className="text-red-600" onClick={() => handleDeleteUser(u.user_id)} data-testid={`delete-user-${u.user_id}`}>
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
                                 </>
+                              )}
+                              {user?.role === 'hr' && (
+                                <span className="text-xs text-gray-400">View only</span>
                               )}
                             </div>
                           </td>
@@ -894,6 +947,72 @@ export default function HRPortal() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetPwdDialog(false)}>Cancel</Button>
             <Button onClick={handleResetPassword} className="bg-red-600 hover:bg-red-700" data-testid="confirm-reset-pwd">Reset Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== CREATE USER DIALOG ==================== */}
+      <Dialog open={createUserDialog} onOpenChange={setCreateUserDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create User Account</DialogTitle>
+            <DialogDescription>Create login credentials for an employee</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Link to Employee (optional)</Label>
+              <Select value={createUserForm.staff_id} onValueChange={(v) => {
+                const emp = staff.find(s => s.staff_id === v);
+                setCreateUserForm({
+                  ...createUserForm,
+                  staff_id: v === 'none' ? '' : v,
+                  name: emp ? emp.name : createUserForm.name,
+                  email: emp?.email ? emp.email : createUserForm.email
+                });
+              }}>
+                <SelectTrigger data-testid="select-employee-link"><SelectValue placeholder="Select employee..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">-- No employee link --</SelectItem>
+                  {staff.filter(s => s.status === 'active').map(s => (
+                    <SelectItem key={s.staff_id} value={s.staff_id}>
+                      {s.employee_code} - {s.name} ({s.designation || s.department})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Name</Label>
+              <Input value={createUserForm.name} onChange={(e) => setCreateUserForm({ ...createUserForm, name: e.target.value })} placeholder="Full name" data-testid="create-user-name" />
+            </div>
+            <div>
+              <Label>Username (Email) *</Label>
+              <Input type="email" value={createUserForm.email} onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })} placeholder="user@company.com" data-testid="create-user-email" />
+            </div>
+            <div>
+              <Label>Role *</Label>
+              <Select value={createUserForm.role} onValueChange={(v) => setCreateUserForm({ ...createUserForm, role: v })}>
+                <SelectTrigger data-testid="select-user-role"><SelectValue placeholder="Select role" /></SelectTrigger>
+                <SelectContent>
+                  {ALL_ROLES
+                    .filter(r => user?.role === 'super_admin' || !['super_admin', 'hr'].includes(r.value))
+                    .map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Password *</Label>
+              <Input type="password" value={createUserForm.password} onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })} placeholder="Min 6 characters" data-testid="create-user-password" />
+            </div>
+            <div>
+              <Label>Confirm Password *</Label>
+              <Input type="password" value={createUserForm.confirm_password} onChange={(e) => setCreateUserForm({ ...createUserForm, confirm_password: e.target.value })} placeholder="Confirm password" data-testid="create-user-confirm-password" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreateUserDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateUser} className="bg-blue-600 hover:bg-blue-700" data-testid="submit-create-user">Create User</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
