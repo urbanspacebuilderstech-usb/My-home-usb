@@ -14,7 +14,7 @@ import os
 import time
 import secrets
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://labor-materials-hub.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://labour-materials-hub.preview.emergentagent.com')
 
 # Test credentials
 SITE_ENGINEER_EMAIL = "engineer@constructionos.com"
