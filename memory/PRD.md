@@ -156,6 +156,15 @@ Build a comprehensive "Construction Accounting CRM & Project Operations OS" name
   - "Approved! PO auto-generated → Goes to Procurement for processing"
   - "Verified! Payment will be processed & released"
   - Covers: Material Request, Labour, Work Orders, POs, Design, Projects, Payments, Expenses
+- [x] **Bug Fix: Procurement → Accountant Flow Disconnected (Mar 20, 2026)**:
+  - ROOT CAUSE: Status mismatch — Procurement set "procurement_approved", Planning set "planning_approved", but Accountant expected "pending_accounts_approval"
+  - FIX 1: Added PENDING_ACCOUNTS_APPROVAL to both MaterialRequestStatus and LabourRequestStatus enums
+  - FIX 2: Planning approve with auto-PO now sets status to "pending_accounts_approval" (both endpoints)
+  - FIX 3: Procurement submit_for_accounts now sets "pending_accounts_approval" instead of "procurement_approved"
+  - FIX 4: Labour planning approve now sets "pending_accounts_approval" instead of "planning_approved"
+  - FIX 5: Accountant queries include legacy statuses for backwards compatibility
+  - FIX 6: Frontend AccountantModule.jsx filters updated to include both new and legacy statuses
+  - Verified: 100% backend (11/11) + 100% frontend via testing_agent_v3_fork
 - [x] **Site Engineer Stock Register (Mar 19, 2026)**:
   - New "Stock Register" tab on SE project page
   - Add material flow (name + unit), editable table with Opening/Received/Used/Closing columns
