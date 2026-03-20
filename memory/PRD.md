@@ -1,101 +1,129 @@
 # My Home USB - Construction Management System PRD
 
 ## Original Problem Statement
-Build a comprehensive Construction OS (My Home USB) with labour and materials management, multi-role workflows, project management, and vendor procurement automation.
-
-## User Personas & Roles
-- **Super Admin**: Full system access
-- **General Manager (GM)**: High-level oversight
-- **Project Manager (PM)**: Project oversight & approvals
-- **Planning**: Budget & resource allocation, material/labour approval
-- **Procurement**: Vendor management, pricing, PO generation, material tracking
-- **Accountant**: Payment approvals, financial tracking
-- **Site Engineer**: Daily logs, material requests, labour attendance
-- **CRE**: Client relationship management
-- **Pre-Sales / Sales**: Lead management
-- **HR**: Employee management
-- **Client**: Project visibility
-- **Vendor**: Order tracking
+Build a comprehensive labour and materials management system for a Construction OS platform. The system manages projects, site engineers, material procurement, work orders, and daily progress tracking.
 
 ## Core Requirements
-1. Multi-role authentication with demo access
-2. Project lifecycle management
-3. Material request → Planning approval → Procurement → Accountant → Delivery workflow
-4. Labour expense management with contractor-centric tracking
-5. Vendor master management
-6. Purchase order automation
-7. Credit ledger tracking
-8. Real-time notifications with workflow context
-9. Google Sheets sync for reporting
-10. Object storage for documents
+- Multi-role authentication (Super Admin, Site Engineer, Procurement, Planning, Accountant, etc.)
+- Project management with assignments
+- Material procurement workflow (request → approval → order → transit → receive)
+- Work order management with contractor-centric flow
+- Stock management and daily stock counts
+- Daily progress reporting
+- Google Sheets integration for data sync
+- Email notifications via Resend
 
-## Tech Stack
-- **Frontend**: React + Shadcn UI + Tailwind CSS
-- **Backend**: FastAPI (Python)
-- **Database**: MongoDB Atlas
-- **Integrations**: Google Sheets API, Resend (email), Emergent Object Storage, Leaflet/OSM, jsPDF
+## Completed Features (by date)
 
-## Key Database Collections
-- `users`, `sessions`, `projects`
-- `material_requests` (status workflow: draft → planning_approved → vendor_selected → waiting_payment → payment_approved → po_generated → in_transit → received_completed)
-- `labour_expenses` (similar workflow)
-- `vendor_master` (material & labour vendors)
-- `purchase_orders` (manual/auto POs)
-- `purchase_orders_v2` (auto-generated POs from procurement flow)
-- `procurement_pricing` (vendor quotes & pricing)
-- `credit_ledger` (vendor credit tracking)
-- `transit_tracking` (delivery tracking)
-- `contractor_master`, `site_engineer_assignments`
+### Pre-existing (before March 2026)
+- Full authentication system with demo access
+- Project CRUD with multi-role access
+- Site Engineer assignment and project views
+- Material request workflow (SE → Planning → Procurement → Transit)
+- Procurement Board with 7 tabs (Pending, Pricing, Payment, Transit, Credit, Vendors, POs)
+- Contractor management and work order creation
+- Google Sheets auto-sync
+- Email notifications via Resend
+- Object Storage for file uploads
+- Leaflet/OpenStreetMap integration for geo-location
 
-## What's Been Implemented
+### March 2026 Session 1
+- **Procurement Board Data Seeding**: Script to populate all 7 procurement tabs with dummy data
+- **Site Engineer Order Detail Popup**: Clickable order cards showing full details + edit capability
+- **Work Orders Tab Rework**: Contractor-centric flow with stage timeline, multi-skill attendance, payment requests
 
-### Completed Features
-- [x] Multi-role authentication with demo access buttons
-- [x] Project management (CRUD, timeline, milestones)
-- [x] Material request workflow (SE → Planning → Procurement → Accountant → Delivery)
-- [x] Labour expense workflow (SE → Planning → Procurement → Accountant)
-- [x] Vendor master management (add, edit, categorize)
-- [x] Purchase Order system (auto-generated & manual)
-- [x] Credit ledger with overdue tracking
-- [x] Transit tracking with OTP verification
-- [x] Procurement Board V2 with 7 tabs (Pending, Pricing, Payment, POs, Transit, Credit, Vendors)
-- [x] Site Engineer project page with Labour Count & Stock Register tabs
-- [x] Contractor-centric labour attendance (skill types, daily cost calculation)
-- [x] Work order stage timeline for contractors
-- [x] Workflow-aware toast notifications (34 messages across 12 pages)
-- [x] Accountant approval flow (bug fixed - status transitions corrected)
-- [x] Vendor/PO automation (auto-assign vendors, auto-generate POs on planning approval)
-- [x] Google Sheets auto-sync
-- [x] Comprehensive procurement board data seeding for Vinoth Kumar project (Mar 2026)
-- [x] Order Detail Popup - clickable order cards showing full details, approval timeline, and inline editing (Mar 2026)
-- [x] Work Orders Tab - replaced Labours/Labour Count with contractor-centric work order stages, daily attendance, and multi-step payment request flow (Mar 2026)
-- [x] Multi-row attendance popup (Skilled/Semi-Skilled/Unskilled with rates), stage classification (Active/Upcoming/Completed), quick attendance header button, add new stage overlay (Mar 2026)
+### March 2026 Session 2 (Current)
+- **Phase 1: Enhanced Material Request Flow**
+  - Approved materials with brands seeded for projects (33 branded materials)
+  - SE-accessible endpoint: `GET /api/projects/{project_id}/approved-materials`
+  - Material request form redesigned with "Approved Materials" / "Custom / Other" toggle
+  - Searchable approved materials list with brand badges
+  - Brand field included in material requests and order cards
+  - Custom material entry with optional brand
+  
+- **Phase 2: Material Receiving & Stock Management**
+  - Enhanced receive dialog with date, time, lorry image upload, material image upload
+  - GPS location capture with coordinates display
+  - Receipt creation stores: receive_date, receive_time, lorry_image_id, material_image_id, brand, material_name
+  - `GET /api/projects/{project_id}/received-stock` - aggregated received materials endpoint
+  - "Receive Now" button enabled for `in_transit` status orders
+  - Stock Register tab shows "Materials Received from Deliveries" table
+  
+- **Phase 3: Daily Progress Reports**
+  - New "Daily Progress" tab (4th tab in SE project view)
+  - "Today's Update" button opens report form
+  - Form includes: Project Name, Date, Day (auto-filled), Work Summary, Current Project Stage selector
+  - `POST /api/projects/{project_id}/daily-progress` - create progress entry
+  - `GET /api/projects/{project_id}/daily-progress` - list entries (sorted by date desc)
+  - Progress entries displayed as cards with date, day, stage badge, summary
+  - PM/GM notified on new progress entry
 
-### Demo Data Seeded (Mar 20, 2026)
-- Vinoth Kumar project: 15 material requests across all workflow states
-- 8 vendors with complete profiles
-- 5 purchase orders (3 auto, 2 manual)
-- 3 credit ledger entries (₹91.1K outstanding, 1 overdue)
-- 3 transit orders with vehicle/OTP tracking
-- 2 procurement pricing records
+## Architecture
+```
+/app/
+├── backend/
+│   ├── server.py          # FastAPI app, CORS, startup
+│   ├── core/
+│   │   ├── models.py      # Pydantic models, enums
+│   │   ├── storage.py     # Emergent Object Storage
+│   │   └── notifications.py
+│   ├── routes/
+│   │   ├── auth.py        # Authentication, demo login
+│   │   ├── projects.py    # Project CRUD, materials summary
+│   │   ├── site_ops.py    # SE material requests, receipts, approved materials, daily progress
+│   │   ├── procurement.py # Procurement board, approvals
+│   │   ├── contractors.py # Work orders, stages, attendance
+│   │   ├── operations.py  # Planning operations, materials CRUD
+│   │   └── files.py       # File upload/download
+│   └── seed_*.py          # Data seeding scripts
+└── frontend/
+    └── src/
+        ├── pages/
+        │   ├── SiteEngineerProject.jsx  # SE project view (Materials, Work Orders, Stock, Progress)
+        │   ├── ProjectDetail.jsx        # Admin project view (4000+ lines, needs refactoring)
+        │   └── ...
+        └── components/
+            ├── OrderDetailDialog.jsx    # Material order detail popup
+            ├── WorkOrderTab.jsx         # Contractor work order flow
+            └── ui/                      # Shadcn components
+```
 
-## Backlog
+## Key API Endpoints
+- `GET /api/projects/{project_id}/approved-materials` - Branded materials list
+- `POST /api/site-engineer/material-requests` - Create request (with brand, is_approved_material)
+- `PATCH /api/site-engineer/material-requests/{request_id}` - Edit request
+- `POST /api/site-engineer/material-receipts/initiate` - Initiate receipt (with images, date/time)
+- `GET /api/projects/{project_id}/received-stock` - Aggregated received materials
+- `POST /api/projects/{project_id}/daily-progress` - Log daily progress
+- `GET /api/projects/{project_id}/daily-progress` - Get progress entries
 
-### P0
-- [ ] Two-Factor Authentication (2FA) with mobile OTP
+## Prioritized Backlog
+
+### P0 (None currently)
 
 ### P1
-- [ ] Advanced Cybersecurity Practices (break into actionable items)
-- [ ] Aadhar Document Upload with encrypted storage (object storage integration)
-- [ ] Refactor ProjectDetail.jsx (4000+ lines → smaller components)
+- Two-Factor Authentication (2FA) with mobile OTP
+- Advanced Cybersecurity Practices
+- Aadhar Document Upload with encrypted storage
+- Refactor ProjectDetail.jsx (4000+ lines → smaller components)
 
 ### P2
-- [ ] Cash Denomination feature (paused by user)
-- [ ] Comprehensive UI/UX review
-- [ ] Convert to SaaS model
-- [ ] Production deployment guidance
+- Cash Denomination feature (paused by user)
+- Comprehensive UI/UX review
+- Convert to SaaS model
+- Production deployment guidance
 
-## Credentials
-- All demo users: password `Demo@1234`
-- Email format: `{role}@constructionos.com` (e.g., procurement@constructionos.com)
-- Demo Access buttons available on login page
+## Tech Stack
+- Frontend: React, Shadcn/UI, Tailwind CSS, Lucide React
+- Backend: FastAPI, Motor (async MongoDB driver)
+- Database: MongoDB Atlas
+- File Storage: Emergent Object Storage
+- Maps: Leaflet/OpenStreetMap
+- Email: Resend
+- Data Sync: Google Sheets API
+- PDF: jsPDF / jspdf-autotable
+
+## Test Credentials
+- Demo Access buttons on login page for all roles
+- Site Engineer: engineer@constructionos.com (demo-login)
+- Test Project: proj_12f23331b542 (Mr. Vinoth Kumar Babu)
