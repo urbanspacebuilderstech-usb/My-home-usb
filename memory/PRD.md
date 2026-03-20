@@ -61,6 +61,13 @@ Build a comprehensive labour and materials management system for a Construction 
   1. **Unit dropdown stuck**: Moved `overflow-y-auto` from `DialogContent` to inner wrapper div so UnitSelect dropdown renders above dialog
   2. **Decimal input blocked**: Removed premature `parseFloat` from Qty/Rate onChange handlers; parseFloat now only applied during total calculation and save
   3. **Dropdown clipped by dialog**: Same root cause as #1 — inner scroll wrapper pattern applied
+- **Feature - GM Can Edit RE Projects**:
+  - Added `general_manager` to edit permissions (backend + frontend)
+  - Full RE edit dialog in GMDashboard with scope items, unit select, decimal inputs
+  - Change log system: tracks field-level changes (old → new) with user name, role, timestamp
+  - Edit History UI shown to both GM and Planning in their respective edit dialogs
+  - New API: `GET /api/crm/re-projects/{id}/change-logs`
+  - New MongoDB collection: `re_change_logs`
 
 ## Architecture
 ```
