@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -136,6 +136,7 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 <DialogTitle className="text-base sm:text-lg font-bold truncate" data-testid="order-detail-title">
                   {order.material_name}
                 </DialogTitle>
+                <DialogDescription className="sr-only">Order details and approval timeline</DialogDescription>
                 <div className="flex items-center gap-2 mt-1 flex-wrap">
                   <span className="text-xs text-gray-500 font-mono">{order.order_id}</span>
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${statusConfig.color}`}>
