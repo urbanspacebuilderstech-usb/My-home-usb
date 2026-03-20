@@ -21,6 +21,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
+import OrderDetailDialog from '../components/OrderDetailDialog';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -78,6 +79,7 @@ export default function SiteEngineerProject() {
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '' });
+  const [selectedOrder, setSelectedOrder] = useState(null);
   const [otpCode, setOtpCode] = useState('');
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
@@ -650,7 +652,12 @@ export default function SiteEngineerProject() {
                     ) : (
                       <div className="space-y-2 sm:space-y-3">
                         {myMaterialOrders.map(req => (
-                          <Card key={req.request_id} className="border-l-4 border-l-orange-500">
+                          <Card 
+                            key={req.request_id} 
+                            className="border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md hover:border-l-orange-600 transition-all"
+                            onClick={() => setSelectedOrder(req)}
+                            data-testid={`order-card-${req.request_id}`}
+                          >
                             <CardContent className="p-3">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1 min-w-0">
@@ -661,23 +668,26 @@ export default function SiteEngineerProject() {
                                   <div className="text-xs text-gray-600 space-y-0.5">
                                     <p><strong>ID:</strong> {req.order_id}</p>
                                     <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
-                                    {req.assigned_vendor_name && (
+                                    {(req.assigned_vendor_name || req.vendor_name) && (
                                       <p className="flex items-center gap-1">
-                                        <span className="font-medium text-blue-700">Vendor:</span> {req.assigned_vendor_name}
+                                        <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
                                         {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
                                       </p>
                                     )}
                                   </div>
                                 </div>
-                                {canReceive(req.status) && (
-                                  <Button 
-                                    size="sm"
-                                    onClick={() => openReceiveDialog(req)}
-                                    className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
-                                  >
-                                    <Package className="h-3 w-3" />Receive
-                                  </Button>
-                                )}
+                                <div className="flex items-center gap-1">
+                                  {canReceive(req.status) && (
+                                    <Button 
+                                      size="sm"
+                                      onClick={(e) => { e.stopPropagation(); openReceiveDialog(req); }}
+                                      className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
+                                    >
+                                      <Package className="h-3 w-3" />Receive
+                                    </Button>
+                                  )}
+                                  <Eye className="h-4 w-4 text-gray-400" />
+                                </div>
                               </div>
                             </CardContent>
                           </Card>
@@ -695,14 +705,24 @@ export default function SiteEngineerProject() {
                     ) : (
                       <div className="space-y-2 sm:space-y-3">
                         {receivedMaterials.map(req => (
-                          <Card key={req.request_id} className="border-l-4 border-l-green-500">
+                          <Card 
+                            key={req.request_id} 
+                            className="border-l-4 border-l-green-500 cursor-pointer hover:shadow-md transition-all"
+                            onClick={() => setSelectedOrder(req)}
+                            data-testid={`received-card-${req.request_id}`}
+                          >
                             <CardContent className="p-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
-                                <StatusBadge status={req.status} />
-                              </div>
-                              <div className="text-xs text-gray-600">
-                                <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
+                                    <StatusBadge status={req.status} />
+                                  </div>
+                                  <div className="text-xs text-gray-600">
+                                    <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                                  </div>
+                                </div>
+                                <Eye className="h-4 w-4 text-gray-400" />
                               </div>
                             </CardContent>
                           </Card>
@@ -1442,6 +1462,12 @@ export default function SiteEngineerProject() {
         </DialogContent>
       </Dialog>
       <MobileBottomNav user={user} />
+      <OrderDetailDialog
+        open={!!selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        order={selectedOrder}
+        onUpdate={() => fetchProjectData()}
+      />
     </div>
   );
 }

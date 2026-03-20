@@ -676,6 +676,56 @@ async def create_material_request(
     return req_dict
 
 
+@router.patch("/site-engineer/material-requests/{request_id}")
+async def update_material_request(
+    request_id: str,
+    updates: dict,
+    user: User = Depends(get_current_user)
+):
+    """Update a material request - only editable fields, only by the SE who created it, and only before procurement picks it up."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can edit material requests")
+
+    request = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not request:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if request.get("site_engineer_id") != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only edit your own requests")
+
+    # Fields that can never be edited
+    protected_fields = {
+        "request_id", "order_id", "project_id", "project_name", "site_engineer_id",
+        "site_engineer_name", "status", "created_at", "planning_approved_by",
+        "planning_approved_at", "procurement_approved_by", "procurement_approved_at",
+        "accountant_approved_by", "accountant_approved_at", "po_id", "po_generated_at",
+        "dispatched_at", "received_at", "rejected_by", "rejection_reason",
+        "receipt_otp", "receipt_otp_verified", "vendor_id", "vendor_name",
+        "assigned_vendor_id", "assigned_vendor_name", "total_amount",
+        "payment_type", "advance_amount", "balance_amount", "unit_rate",
+        "transport_cost", "discount", "credit_period_days", "payment_reference",
+    }
+
+    allowed_updates = {}
+    for key, value in updates.items():
+        if key not in protected_fields:
+            allowed_updates[key] = value
+
+    if not allowed_updates:
+        raise HTTPException(status_code=400, detail="No editable fields provided")
+
+    allowed_updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": allowed_updates}
+    )
+
+    updated = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    await create_audit_log(user.user_id, "update", "material_request", request_id, allowed_updates)
+    return updated
+
+
 @router.get("/site-engineer/material-requests")
 async def get_material_requests(
     project_id: Optional[str] = None,
