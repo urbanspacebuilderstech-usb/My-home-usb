@@ -18,7 +18,7 @@ import os
 
 BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', '').rstrip('/')
 if not BASE_URL:
-    BASE_URL = "https://estimate-dialog-bugs.preview.emergentagent.com"
+    BASE_URL = "https://stage-popup.preview.emergentagent.com"
 
 
 class TestSession:

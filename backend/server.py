@@ -102,7 +102,7 @@ app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'https://estimate-dialog-bugs.preview.emergentagent.com').split(',') + [
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://stage-popup.preview.emergentagent.com').split(',') + [
         f"https://construction-crm-6.cluster-{i}.preview.emergentcf.cloud" for i in range(10)
     ],
     allow_methods=["*"],
