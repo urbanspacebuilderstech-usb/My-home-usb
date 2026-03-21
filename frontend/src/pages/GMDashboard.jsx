@@ -167,8 +167,11 @@ const GMDashboard = () => {
       're_in_progress': { label: 'In Progress', color: 'bg-yellow-100 text-yellow-800' },
       're_submitted': { label: 'Pending GM Approval', color: 'bg-orange-100 text-orange-800' },
       're_awaiting_approval': { label: 'Awaiting GM Approval', color: 'bg-orange-100 text-orange-800' },
-      're_approved': { label: 'Approved', color: 'bg-green-100 text-green-800' },
+      're_approved': { label: 'GM Approved', color: 'bg-green-100 text-green-800' },
       're_rejected': { label: 'Rejected', color: 'bg-red-100 text-red-800' },
+      'sent_to_client': { label: 'Sent to Client', color: 'bg-blue-100 text-blue-800' },
+      'client_feedback': { label: 'Client Feedback', color: 'bg-orange-100 text-orange-800' },
+      'client_approved': { label: 'Client Approved', color: 'bg-emerald-100 text-emerald-800' },
       // Project statuses
       'new': { label: 'New', color: 'bg-amber-50 text-amber-800' },
       'planning_review': { label: 'Planning Review', color: 'bg-purple-100 text-purple-800' },
@@ -572,6 +575,14 @@ const GMDashboard = () => {
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
+                            {re.re_number && (
+                              <span className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                {re.re_number}
+                              </span>
+                            )}
+                            <Badge className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                              RE{re.revision || 0}
+                            </Badge>
                             <p className="font-semibold text-gray-900">{re.project_name || `RE - ${re.client_name}`}</p>
                             {getStatusBadge(re.status)}
                           </div>
@@ -1340,7 +1351,8 @@ const GMDashboard = () => {
               </Button>
             </DialogTitle>
             <DialogDescription>
-              URBAN SPACE BUILDERS - Ref: {reEditProject?.re_project_id}
+              URBAN SPACE BUILDERS - Ref: {reEditProject?.re_number || reEditProject?.re_project_id}
+              {reEditProject?.revision > 0 && <span className="ml-2 font-semibold">(Revision RE{reEditProject.revision})</span>}
             </DialogDescription>
           </DialogHeader>
 

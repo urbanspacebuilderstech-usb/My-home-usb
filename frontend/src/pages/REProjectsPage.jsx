@@ -14,7 +14,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
-  ArrowLeft, Target, Download, AlertCircle
+  ArrowLeft, Target, Download, AlertCircle, Search, GitBranch, MessageSquare
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -29,8 +29,11 @@ const RE_STATUS_CONFIG = {
   re_requested: { label: 'New Request', color: 'bg-amber-50 text-amber-700 border-blue-300', icon: Clock },
   re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700 border-yellow-300', icon: RefreshCw },
   re_submitted: { label: 'Submitted for Approval', color: 'bg-purple-100 text-purple-700 border-purple-300', icon: FileText },
-  re_approved: { label: 'Approved', color: 'bg-green-100 text-green-700 border-green-300', icon: CheckCircle },
+  re_approved: { label: 'GM Approved', color: 'bg-green-100 text-green-700 border-green-300', icon: CheckCircle },
   re_rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700 border-red-300', icon: XCircle },
+  sent_to_client: { label: 'Sent to Client', color: 'bg-blue-100 text-blue-700 border-blue-300', icon: Send },
+  client_feedback: { label: 'Client Feedback', color: 'bg-orange-100 text-orange-700 border-orange-300', icon: MessageSquare },
+  client_approved: { label: 'Client Approved', color: 'bg-emerald-100 text-emerald-700 border-emerald-300', icon: CheckCircle },
   deal_closed: { label: 'Deal Closed', color: 'bg-emerald-100 text-emerald-700 border-emerald-300', icon: Target },
   converted: { label: 'Converted to Project', color: 'bg-teal-100 text-teal-700 border-teal-300', icon: Building2 }
 };
@@ -59,6 +62,11 @@ export default function REProjectsPage({ embedded = false }) {
   });
   
   const [rejectionReason, setRejectionReason] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [revisionDialog, setRevisionDialog] = useState(false);
+  const [revisionProject, setRevisionProject] = useState(null);
+  const [revisionGroup, setRevisionGroup] = useState([]);
 
   useEffect(() => {
     fetchData();
@@ -185,6 +193,38 @@ export default function REProjectsPage({ embedded = false }) {
     }
   };
 
+  // Search RE projects
+  const handleSearch = async (q) => {
+    setSearchQuery(q);
+    if (!q || q.length < 2) { setSearchResults(null); return; }
+    try {
+      const res = await axios.get(`${API}/crm/re-projects/search?q=${encodeURIComponent(q)}`);
+      setSearchResults(res.data);
+    } catch { setSearchResults(null); }
+  };
+
+  // View all revisions of an RE number
+  const viewRevisions = async (reNumber) => {
+    try {
+      const res = await axios.get(`${API}/crm/re-projects/by-number/${encodeURIComponent(reNumber)}`);
+      setRevisionGroup(res.data);
+      setRevisionProject(res.data[0]);
+      setRevisionDialog(true);
+    } catch { toast.error('Failed to load revisions'); }
+  };
+
+  // Create a new revision from client feedback
+  const handleCreateRevision = async (project) => {
+    try {
+      const res = await axios.post(`${API}/crm/re-projects/${project.re_project_id}/create-revision`);
+      toast.success(res.data.message);
+      fetchData(false);
+      setRevisionDialog(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create revision');
+    }
+  };
+
   const addScopeItem = () => {
     setEditForm({
       ...editForm,
@@ -215,11 +255,11 @@ export default function REProjectsPage({ embedded = false }) {
       case 'new':
         return projects.filter(p => p.status === 're_requested');
       case 'in_progress':
-        return projects.filter(p => p.status === 're_in_progress');
+        return projects.filter(p => ['re_in_progress', 'client_feedback'].includes(p.status));
       case 'submitted':
         return projects.filter(p => p.status === 're_submitted');
       case 'approved':
-        return projects.filter(p => ['re_approved', 'deal_closed', 'converted'].includes(p.status));
+        return projects.filter(p => ['re_approved', 'sent_to_client', 'client_approved', 'deal_closed', 'converted'].includes(p.status));
       case 'rejected':
         return projects.filter(p => p.status === 're_rejected');
       default:
@@ -304,6 +344,38 @@ export default function REProjectsPage({ embedded = false }) {
           </Card>
         </div>
 
+        {/* Search Bar */}
+        <div className="relative" data-testid="re-search-bar">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Search by RE number (USB-RE0001), project name, or client..."
+            value={searchQuery}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="pl-10"
+            data-testid="re-search-input"
+          />
+          {searchResults && searchResults.length > 0 && (
+            <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+              {searchResults.map(p => (
+                <div key={p.re_project_id} className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center justify-between text-sm"
+                  onClick={() => { openEditDialog(p); setSearchQuery(''); setSearchResults(null); }}
+                >
+                  <div>
+                    <span className="font-mono font-bold text-purple-700">{p.re_number}</span>
+                    <span className="text-gray-400 ml-1">RE{p.revision || 0}</span>
+                    <span className="mx-2 text-gray-300">|</span>
+                    <span>{p.project_name || p.client_name}</span>
+                  </div>
+                  <Badge className={RE_STATUS_CONFIG[p.status]?.color || 'bg-gray-100'}>{RE_STATUS_CONFIG[p.status]?.label || p.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+          {searchResults && searchResults.length === 0 && searchQuery.length >= 2 && (
+            <div className="absolute z-50 mt-1 w-full bg-white border rounded-lg shadow-lg p-3 text-sm text-gray-500 text-center">No results found</div>
+          )}
+        </div>
+
         {/* Projects List */}
         <Card>
           <CardHeader className="border-b">
@@ -319,11 +391,32 @@ export default function REProjectsPage({ embedded = false }) {
                   No projects in this category
                 </div>
               ) : (
-                getFilteredProjects().map(project => (
-                  <div key={project.re_project_id} className="p-4 hover:bg-gray-50">
+                getFilteredProjects().map(project => {
+                  const isClientApproved = project.status === 'client_approved';
+                  const hasOtherApproved = !isClientApproved && projects.some(
+                    p => p.parent_re_number === project.parent_re_number && p.status === 'client_approved'
+                  );
+                  return (
+                  <div 
+                    key={project.re_project_id} 
+                    className={`p-4 hover:bg-gray-50 transition-all ${isClientApproved ? 'border-l-4 border-l-green-500 bg-green-50/30' : ''} ${hasOtherApproved ? 'opacity-50' : ''}`}
+                    data-testid={`re-project-${project.re_project_id}`}
+                  >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          {project.re_number && (
+                            <span 
+                              className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded cursor-pointer hover:bg-purple-200"
+                              onClick={() => viewRevisions(project.parent_re_number || project.re_number)}
+                              data-testid={`re-number-${project.re_project_id}`}
+                            >
+                              {project.re_number}
+                            </span>
+                          )}
+                          <Badge className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                            <GitBranch className="h-3 w-3 mr-0.5" /> RE{project.revision || 0}
+                          </Badge>
                           <h4 className="font-semibold text-gray-900">
                             {project.project_name || project.client_name}
                           </h4>
@@ -406,6 +499,17 @@ export default function REProjectsPage({ embedded = false }) {
                           </>
                         )}
                         
+                        {canEdit && project.status === 'client_feedback' && (
+                          <Button 
+                            size="sm"
+                            className="bg-orange-600 hover:bg-orange-700 text-white"
+                            onClick={() => handleCreateRevision(project)}
+                            data-testid={`create-revision-${project.re_project_id}`}
+                          >
+                            <GitBranch className="h-4 w-4 mr-1" /> Create Revision
+                          </Button>
+                        )}
+                        
                         {canApprove && project.status === 're_submitted' && (
                           <Button 
                             size="sm"
@@ -434,7 +538,8 @@ export default function REProjectsPage({ embedded = false }) {
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </CardContent>
@@ -459,7 +564,8 @@ export default function REProjectsPage({ embedded = false }) {
               </Button>
             </DialogTitle>
             <DialogDescription>
-              URBAN SPACE BUILDERS - Ref: {selectedProject?.re_project_id}
+              URBAN SPACE BUILDERS - Ref: {selectedProject?.re_number || selectedProject?.re_project_id}
+              {selectedProject?.revision > 0 && <span className="ml-2 font-semibold">(Revision RE{selectedProject.revision})</span>}
             </DialogDescription>
           </DialogHeader>
           
@@ -503,6 +609,27 @@ export default function REProjectsPage({ embedded = false }) {
                       <p className="text-xs text-amber-600 mt-2">
                         Submitted by: {selectedProject.rough_requirement_by}
                         {selectedProject.rough_requirement_at && ` on ${new Date(selectedProject.rough_requirement_at).toLocaleDateString('en-IN')}`}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Client Feedback (from previous revision) */}
+              {(selectedProject.previous_client_feedback || selectedProject.client_feedback_notes) && (
+                <Card className="bg-orange-50 border-orange-200">
+                  <CardContent className="p-4">
+                    <h4 className="font-semibold mb-2 text-sm text-orange-800 flex items-center gap-1.5">
+                      <MessageSquare className="h-4 w-4" />
+                      Client Feedback
+                    </h4>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                      {selectedProject.previous_client_feedback || selectedProject.client_feedback_notes}
+                    </p>
+                    {selectedProject.client_feedback_by && (
+                      <p className="text-xs text-orange-600 mt-2">
+                        Entered by: {selectedProject.client_feedback_by}
+                        {selectedProject.client_feedback_at && ` on ${new Date(selectedProject.client_feedback_at).toLocaleDateString('en-IN')}`}
                       </p>
                     )}
                   </CardContent>
@@ -808,6 +935,68 @@ export default function REProjectsPage({ embedded = false }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Revisions Dialog */}
+      <Dialog open={revisionDialog} onOpenChange={setRevisionDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-purple-600" />
+              Revision History - {revisionProject?.re_number}
+            </DialogTitle>
+            <DialogDescription>{revisionProject?.project_name || revisionProject?.client_name}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto space-y-3">
+            {revisionGroup.map((rev) => {
+              const isApproved = rev.status === 'client_approved';
+              return (
+                <Card key={rev.re_project_id} className={`transition-all ${isApproved ? 'ring-2 ring-green-500 bg-green-50/50' : ''} ${!isApproved && revisionGroup.some(r => r.status === 'client_approved') ? 'opacity-50' : ''}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-purple-100 text-purple-700 font-mono">RE{rev.revision}</Badge>
+                        <Badge className={RE_STATUS_CONFIG[rev.status]?.color || 'bg-gray-100'}>
+                          {RE_STATUS_CONFIG[rev.status]?.label || rev.status}
+                        </Badge>
+                        {isApproved && <Badge className="bg-green-600 text-white">Client Approved</Badge>}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="outline" size="sm" onClick={() => { setRevisionDialog(false); openEditDialog(rev); }}>
+                          <Eye className="h-3 w-3 mr-1" /> View
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleGenerateREPDF(rev)}>
+                          <Download className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <span className="text-gray-500">Items:</span>
+                        <span className="ml-1 font-medium">{rev.rough_scope_items?.length || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Total:</span>
+                        <span className="ml-1 font-bold text-purple-700">{formatCurrency(rev.estimated_total)}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Date:</span>
+                        <span className="ml-1">{new Date(rev.created_at).toLocaleDateString('en-IN')}</span>
+                      </div>
+                    </div>
+                    {rev.client_feedback_notes && (
+                      <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                        <span className="font-medium text-orange-700">Client Feedback:</span>
+                        <span className="ml-1 text-gray-700">{rev.client_feedback_notes}</span>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {!embedded && <MobileBottomNav user={user} />}
     </div>
   );

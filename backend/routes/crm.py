@@ -23,6 +23,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+async def get_next_re_number():
+    """Generate next sequential RE number like USB-RE0001"""
+    result = await db.counters.find_one_and_update(
+        {"_id": "re_number"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True
+    )
+    seq = result["seq"]
+    return f"USB-RE{seq:04d}"
+
+
+
 # ==================== CRM MODULE ENUMS & MODELS ====================
 
 class LeadSource(str, Enum):
@@ -65,6 +78,9 @@ class REProjectStatus(str, Enum):
     RE_SUBMITTED = "re_submitted"
     RE_APPROVED = "re_approved"
     RE_REJECTED = "re_rejected"
+    SENT_TO_CLIENT = "sent_to_client"
+    CLIENT_FEEDBACK = "client_feedback"
+    CLIENT_APPROVED = "client_approved"
     DEAL_CLOSED = "deal_closed"
     CONVERTED = "converted"
 
@@ -156,6 +172,11 @@ class REProject(BaseModel):
     re_project_id: str = Field(default_factory=lambda: f"re_{uuid.uuid4().hex[:12]}")
     lead_id: str  # Link to Sales lead
     
+    # RE Number & Revision
+    re_number: Optional[str] = None  # USB-RE0001, USB-RE0002, ...
+    revision: int = 0  # 0 = original, 1, 2, ... = revisions
+    parent_re_number: Optional[str] = None  # Groups all revisions together
+    
     # Client Info (copied from lead)
     client_name: str
     client_email: Optional[str] = None
@@ -188,6 +209,15 @@ class REProject(BaseModel):
     gm_approved_by: Optional[str] = None
     gm_approved_at: Optional[datetime] = None
     gm_rejection_reason: Optional[str] = None
+    
+    # Client Interaction (Sales)
+    sent_to_client_by: Optional[str] = None
+    sent_to_client_at: Optional[datetime] = None
+    client_feedback_notes: Optional[str] = None
+    client_feedback_by: Optional[str] = None
+    client_feedback_at: Optional[datetime] = None
+    client_approved_by: Optional[str] = None
+    client_approved_at: Optional[datetime] = None
     
     # Conversion to Main Project
     converted_project_id: Optional[str] = None
@@ -674,6 +704,8 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     
     # TRIGGER: Sales "Rough Estimate Requested" -> Create RE Project
     if lead["stage_type"] == "sales" and stage["name"] == "Rough Estimate Requested":
+        # Generate RE number
+        re_number = await get_next_re_number()
         # Create RE Project
         re_project = REProject(
             lead_id=lead_id,
@@ -685,7 +717,10 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             sqft=lead.get("custom_fields", {}).get("sqft"),
             building_type=lead.get("custom_fields", {}).get("project_type"),
             status=REProjectStatus.RE_REQUESTED,
-            created_by=user.user_id
+            created_by=user.user_id,
+            re_number=re_number,
+            revision=0,
+            parent_re_number=re_number
         )
         
         re_dict = re_project.model_dump()
@@ -697,7 +732,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         await db.re_projects.insert_one(re_dict)
         
         # Link RE project to lead
-        await db.leads.update_one({"lead_id": lead_id}, {"$set": {"re_project_id": re_project.re_project_id}})
+        await db.leads.update_one({"lead_id": lead_id}, {"$set": {"re_project_id": re_project.re_project_id, "re_number": re_number}})
         
         result["re_project_created"] = True
         result["re_project_id"] = re_project.re_project_id
@@ -715,12 +750,22 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         }
         await db.notifications.insert_one(notification)
     
-    # TRIGGER: Sales "Deal Closed" -> Convert RE Project to Main Project
+    # TRIGGER: Sales "Deal Closed" -> Convert Client-Approved RE to Main Project
     if lead["stage_type"] == "sales" and stage["name"] == "Deal Closed":
-        re_project_id = lead.get("re_project_id")
-        if re_project_id:
-            re_project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
-            if re_project and re_project.get("status") == "re_approved":
+        # Find the client-approved revision for this lead
+        re_number = lead.get("re_number") or lead.get("re_project_id")
+        # First try finding client_approved revision by parent_re_number
+        re_project = None
+        if lead.get("re_number"):
+            re_project = await db.re_projects.find_one(
+                {"parent_re_number": lead["re_number"], "status": "client_approved"}, {"_id": 0}
+            )
+        if not re_project and lead.get("re_project_id"):
+            # Fallback: find by re_project_id with client_approved or re_approved
+            re_project = await db.re_projects.find_one(
+                {"re_project_id": lead["re_project_id"], "status": {"$in": ["client_approved", "re_approved"]}}, {"_id": 0}
+            )
+        if re_project:
                 # Create main project from RE
                 project_count = await db.projects.count_documents({}) + 1
                 project_code = f"USB{str(project_count).zfill(2)}{datetime.now().strftime('%m%y')}"
@@ -758,7 +803,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                     # Status - Set to 'planning' so Planning can add BOQ
                     "status": "planning",
                     # Links
-                    "re_project_id": re_project_id,
+                    "re_project_id": re_project["re_project_id"],
                     "lead_id": lead_id,
                     # Workflow
                     "created_by": user.user_id,
@@ -769,7 +814,7 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
                 
                 # Update RE Project
                 await db.re_projects.update_one(
-                    {"re_project_id": re_project_id},
+                    {"re_project_id": re_project["re_project_id"]},
                     {"$set": {
                         "status": "converted",
                         "converted_project_id": main_project["project_id"],
@@ -1425,6 +1470,33 @@ async def get_re_projects(
     return projects
 
 
+@router.get("/crm/re-projects/search")
+async def search_re_projects(q: str, user: User = Depends(get_current_user)):
+    """Search RE projects by RE number (USB-RE0001) or project name"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    query = {"$or": [
+        {"re_number": {"$regex": q, "$options": "i"}},
+        {"project_name": {"$regex": q, "$options": "i"}},
+        {"client_name": {"$regex": q, "$options": "i"}}
+    ]}
+    projects = await db.re_projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return projects
+
+
+@router.get("/crm/re-projects/by-number/{re_number}")
+async def get_re_revisions(re_number: str, user: User = Depends(get_current_user)):
+    """Get all revisions for an RE number"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    projects = await db.re_projects.find(
+        {"parent_re_number": re_number}, {"_id": 0}
+    ).sort("revision", 1).to_list(50)
+    return projects
+
+
 @router.get("/crm/re-projects/{re_project_id}")
 async def get_re_project(re_project_id: str, user: User = Depends(get_current_user)):
     """Get RE project details"""
@@ -1659,6 +1731,160 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
     await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
     
     return {"message": "RE Project " + ("approved" if data.approved else "rejected")}
+
+
+
+# ==================== RE REVISION & CLIENT WORKFLOW ====================
+
+class SendToClientRequest(BaseModel):
+    notes: Optional[str] = None
+
+@router.post("/crm/re-projects/{re_project_id}/send-to-client")
+async def send_re_to_client(re_project_id: str, data: SendToClientRequest = SendToClientRequest(), user: User = Depends(get_current_user)):
+    """Sales sends RE to client after GM approval"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    if project["status"] != "re_approved":
+        raise HTTPException(status_code=400, detail="RE must be GM-approved before sending to client")
+    
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "status": "sent_to_client",
+            "sent_to_client_by": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "sent_to_client_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    return {"message": "RE sent to client"}
+
+
+class ClientFeedbackRequest(BaseModel):
+    feedback_notes: str
+
+@router.post("/crm/re-projects/{re_project_id}/client-feedback")
+async def add_client_feedback(re_project_id: str, data: ClientFeedbackRequest, user: User = Depends(get_current_user)):
+    """Sales adds client feedback/suggestions for this RE revision"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    if project["status"] != "sent_to_client":
+        raise HTTPException(status_code=400, detail="RE must be in 'Sent to Client' status")
+    
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "status": "client_feedback",
+            "client_feedback_notes": data.feedback_notes,
+            "client_feedback_by": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "client_feedback_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Notify Planning to create a revision
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_planning",
+        "title": "Client Feedback on RE",
+        "message": f"Client feedback received for '{project.get('project_name', project['client_name'])}' ({project.get('re_number', '')} RE{project.get('revision', 0)}). Revision needed.",
+        "type": "re_client_feedback",
+        "reference_id": re_project_id,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notification)
+    
+    return {"message": "Client feedback added. Planning will be notified."}
+
+
+@router.post("/crm/re-projects/{re_project_id}/client-approve")
+async def client_approve_re(re_project_id: str, user: User = Depends(get_current_user)):
+    """Sales marks RE as client-approved"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    if project["status"] != "sent_to_client":
+        raise HTTPException(status_code=400, detail="RE must be in 'Sent to Client' status")
+    
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "status": "client_approved",
+            "client_approved_by": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "client_approved_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    return {"message": "RE marked as client-approved. Ready for deal closure."}
+
+
+@router.post("/crm/re-projects/{re_project_id}/create-revision")
+async def create_re_revision(re_project_id: str, user: User = Depends(get_current_user)):
+    """Planning creates a new revision (RE1, RE2...) from an existing RE with client feedback"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Planning access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    if project["status"] != "client_feedback":
+        raise HTTPException(status_code=400, detail="Can only create revision from RE with client feedback")
+    
+    parent_re_number = project.get("parent_re_number") or project.get("re_number")
+    
+    # Find highest revision number for this RE number group
+    highest = await db.re_projects.find(
+        {"parent_re_number": parent_re_number}
+    ).sort("revision", -1).limit(1).to_list(1)
+    next_revision = (highest[0]["revision"] + 1) if highest else 1
+    
+    # Create new revision - copy from previous
+    new_re = REProject(
+        lead_id=project["lead_id"],
+        client_name=project["client_name"],
+        client_email=project.get("client_email"),
+        client_phone=project.get("client_phone"),
+        project_name=project.get("project_name"),
+        location=project.get("location"),
+        sqft=project.get("sqft"),
+        building_type=project.get("building_type"),
+        handover_months=project.get("handover_months"),
+        rough_scope_items=project.get("rough_scope_items", []),
+        estimated_total=project.get("estimated_total", 0),
+        planning_notes=project.get("planning_notes", ""),
+        status=REProjectStatus.RE_IN_PROGRESS,
+        created_by=user.user_id,
+        re_number=project.get("re_number"),
+        revision=next_revision,
+        parent_re_number=parent_re_number
+    )
+    
+    new_dict = new_re.model_dump()
+    # Carry over the client feedback as context for Planning
+    new_dict["previous_client_feedback"] = project.get("client_feedback_notes", "")
+    await db.re_projects.insert_one(new_dict)
+    
+    return {
+        "message": f"Revision RE{next_revision} created",
+        "re_project_id": new_re.re_project_id,
+        "revision": next_revision
+    }
+
+
 
 
 # ==================== PLANNING RE DASHBOARD ====================

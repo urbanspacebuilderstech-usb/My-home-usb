@@ -13,7 +13,8 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
-  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send
+  Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
+  MessageSquare, GitBranch
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -27,8 +28,11 @@ const RE_STATUS_CONFIG = {
   re_requested: { label: 'RE Requested', color: 'bg-amber-50 text-amber-700', icon: Clock },
   re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700', icon: RefreshCw },
   re_submitted: { label: 'Submitted', color: 'bg-purple-100 text-purple-700', icon: FileText },
-  re_approved: { label: 'Approved', color: 'bg-green-100 text-green-700', icon: CheckCircle },
+  re_approved: { label: 'GM Approved', color: 'bg-green-100 text-green-700', icon: CheckCircle },
   re_rejected: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: XCircle },
+  sent_to_client: { label: 'Sent to Client', color: 'bg-blue-100 text-blue-700', icon: Send },
+  client_feedback: { label: 'Client Feedback', color: 'bg-orange-100 text-orange-700', icon: MessageSquare },
+  client_approved: { label: 'Client Approved', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
   deal_closed: { label: 'Deal Closed', color: 'bg-emerald-100 text-emerald-700', icon: Target },
   converted: { label: 'Converted', color: 'bg-teal-100 text-teal-700', icon: Building2 }
 };
@@ -63,6 +67,11 @@ export default function CRMSales() {
   const [roughEstForm, setRoughEstForm] = useState('');
   const [roughEstLeadId, setRoughEstLeadId] = useState(null);
   const [roughEstStageId, setRoughEstStageId] = useState(null);
+  
+  // Client feedback dialog
+  const [clientFeedbackDialog, setClientFeedbackDialog] = useState(false);
+  const [clientFeedbackNotes, setClientFeedbackNotes] = useState('');
+  const [clientFeedbackReId, setClientFeedbackReId] = useState(null);
   
   const [draggedLead, setDraggedLead] = useState(null);
 
@@ -152,6 +161,54 @@ export default function CRMSales() {
       setReProjectDialog(true);
     } catch (error) {
       toast.error('Failed to load RE project');
+    }
+  };
+
+  // Send RE to client
+  const handleSendToClient = async () => {
+    if (!selectedREProject) return;
+    try {
+      await axios.post(`${API}/crm/re-projects/${selectedREProject.re_project_id}/send-to-client`);
+      toast.success('RE sent to client');
+      setSelectedREProject({ ...selectedREProject, status: 'sent_to_client' });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to send');
+    }
+  };
+
+  // Open client feedback dialog
+  const openClientFeedbackDialog = () => {
+    setClientFeedbackReId(selectedREProject.re_project_id);
+    setClientFeedbackNotes('');
+    setClientFeedbackDialog(true);
+  };
+
+  // Submit client feedback
+  const handleSubmitClientFeedback = async () => {
+    try {
+      await axios.post(`${API}/crm/re-projects/${clientFeedbackReId}/client-feedback`, {
+        feedback_notes: clientFeedbackNotes
+      });
+      toast.success('Client feedback submitted. Planning will be notified.');
+      setClientFeedbackDialog(false);
+      setSelectedREProject({ ...selectedREProject, status: 'client_feedback', client_feedback_notes: clientFeedbackNotes });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit feedback');
+    }
+  };
+
+  // Client approved
+  const handleClientApprove = async () => {
+    if (!selectedREProject) return;
+    try {
+      await axios.post(`${API}/crm/re-projects/${selectedREProject.re_project_id}/client-approve`);
+      toast.success('RE marked as client-approved!');
+      setSelectedREProject({ ...selectedREProject, status: 'client_approved' });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     }
   };
 
@@ -923,15 +980,22 @@ export default function CRMSales() {
           
           {selectedREProject && (
             <div className="space-y-4">
-              {/* Status Badge */}
-              <div className="flex items-center gap-2">
+              {/* Status Badge + RE Number */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedREProject.re_number && (
+                  <span className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                    {selectedREProject.re_number}
+                  </span>
+                )}
+                <Badge className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                  <GitBranch className="h-3 w-3 mr-0.5" /> RE{selectedREProject.revision || 0}
+                </Badge>
                 {RE_STATUS_CONFIG[selectedREProject.status] && (
                   <Badge className={RE_STATUS_CONFIG[selectedREProject.status].color}>
                     {React.createElement(RE_STATUS_CONFIG[selectedREProject.status].icon, { className: "h-3 w-3 mr-1" })}
                     {RE_STATUS_CONFIG[selectedREProject.status].label}
                   </Badge>
                 )}
-                <span className="text-xs text-gray-400">Ref: {selectedREProject.re_project_id}</span>
               </div>
               
               {/* Client Info */}
@@ -1078,7 +1142,22 @@ export default function CRMSales() {
             </div>
           )}
           
-          <DialogFooter>
+          <DialogFooter className="flex gap-2">
+            {selectedREProject?.status === 're_approved' && (
+              <Button onClick={handleSendToClient} className="bg-blue-600 hover:bg-blue-700" data-testid="send-to-client-btn">
+                <Send className="h-4 w-4 mr-1" /> Send to Client
+              </Button>
+            )}
+            {selectedREProject?.status === 'sent_to_client' && (
+              <>
+                <Button onClick={openClientFeedbackDialog} variant="outline" className="border-orange-300 text-orange-700 hover:bg-orange-50" data-testid="client-feedback-btn">
+                  <MessageSquare className="h-4 w-4 mr-1" /> Client Feedback
+                </Button>
+                <Button onClick={handleClientApprove} className="bg-green-600 hover:bg-green-700" data-testid="client-approve-btn">
+                  <CheckCircle className="h-4 w-4 mr-1" /> Client Approved
+                </Button>
+              </>
+            )}
             <Button variant="outline" onClick={() => setReProjectDialog(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -1120,6 +1199,45 @@ export default function CRMSales() {
             >
               <Send className="h-4 w-4 mr-1.5" />
               Submit & Request Estimate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Client Feedback Dialog */}
+      <Dialog open={clientFeedbackDialog} onOpenChange={setClientFeedbackDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-orange-600" />
+              Client Feedback / Suggestions
+            </DialogTitle>
+            <DialogDescription>
+              Enter the client's feedback on the current RE revision. This will notify the Planning team to create a new revision.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Client Notes *</Label>
+              <Textarea
+                value={clientFeedbackNotes}
+                onChange={(e) => setClientFeedbackNotes(e.target.value)}
+                placeholder="Enter client's feedback, changes, or suggestions...&#10;&#10;Example:&#10;- Reduce budget for flooring&#10;- Add extra room in first floor&#10;- Change material for roofing&#10;- Increase car parking area"
+                className="min-h-[180px] mt-1.5 text-sm"
+                data-testid="client-feedback-textarea"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClientFeedbackDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSubmitClientFeedback}
+              disabled={!clientFeedbackNotes.trim()}
+              className="bg-orange-600 hover:bg-orange-700"
+              data-testid="submit-client-feedback-btn"
+            >
+              <Send className="h-4 w-4 mr-1.5" />
+              Submit Feedback
             </Button>
           </DialogFooter>
         </DialogContent>
