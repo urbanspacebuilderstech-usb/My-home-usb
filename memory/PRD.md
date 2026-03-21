@@ -92,8 +92,15 @@ Build a comprehensive labour and materials management system for a Construction 
   - Manual moves blocked from "Payment Collect" and "Accountant Approval" stages (leads show locked message with payment summary)
   - Leads in locked stages are non-draggable in Kanban
   - APIs: `collect-advance`, `send-to-accountant`, `accountant-verify`, `move-to-planning`, `sales-overview`
-  - Sales overview cards: Deal Closed count + Total Advance Collected amount
-  - Backend `convert-deal` and `convert-re-project` endpoints updated to allow Sales role
+- **Feature - Sales Follow-up System**:
+  - New "Follow-up" stage (order 2) in sales pipeline
+  - Auto-move: leads with follow-up dates due today (or earlier) automatically move to Follow-up stage on board load
+  - Stores `previous_stage_id` for context when lead is moved back manually
+  - Date filter with "Today" default on the board
+  - Follow-up stage sorted ascending by follow-up date
+  - Schedule Follow-up dialog (date + note) accessible from calendar icon on any lead card
+  - Follow-up date badges (red for overdue, amber for upcoming) on lead cards
+  - Handles both date-only and datetime format follow-up dates
 
 ## Architecture
 ```
