@@ -1,0 +1,90 @@
+{
+  "summary": "Follow-up System Testing - Iteration 96. All features verified: 13 sales stages including Follow-up at order 2, auto-move logic working, date filter UI present, follow-up badges on cards, calendar icon buttons for scheduling, Schedule Follow-up dialog functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Schedule Follow-up Dialog",
+        "issues": ["Minor: Missing aria-describedby for DialogContent (accessibility warning in console)"]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_followup_system.py",
+    "/app/test_reports/pytest/pytest_followup_system.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_followup_system.py"
+  ],
+  "success_rate": {
+    "backend": "100% (8 passed)",
+    "frontend": "100% (All UI features verified)"
+  },
+  "test_credentials": {
+    "CRE": "Demo Access > CRE (cre@constructionos.com)",
+    "Sales": "Demo Access > Sales (sales@constructionos.com)"
+  },
+  "seed_data_creation": "Created test follow-up with note 'TEST_followup_iteration96' for tomorrow's date",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Follow-up system fully functional. 13 sales stages with Follow-up at order 2. Auto-move logic moves leads with due follow-ups to stg_sales_followup. Date filter filters leads by follow-up date. Currently 3 leads in Follow-up stage: Vinoth Kumar (follow-up 2026-03-22), Harini (follow-up 2026-03-21), TEST_RoughReq (follow-up 2026-03-21). The date filter correctly shows only 2 leads when set to today (2026-03-21).",
+  "verified_features": {
+    "feature_1_sales_login": {
+      "description": "Login as Sales user via POST /api/auth/demo-login",
+      "result": "PASS",
+      "evidence": "Successfully logged in as sales@constructionos.com"
+    },
+    "feature_2_13_stages_with_followup": {
+      "description": "Verify 13 stages returned including Follow-up (stg_sales_followup) at order 2",
+      "result": "PASS",
+      "evidence": "13 stages found: New Appointment(1), Follow-up(2), Discussion(3), Site Visit(4), RE Requested(5), RE-From Planning(6), RE-To Client(7), Negotiation(8), Deal Closed(9), Payment Collect(10), Accountant Approval(11), Project Onboarded(12), Lost(13)"
+    },
+    "feature_3_auto_move_logic": {
+      "description": "Verify leads with due follow-ups auto-move to stg_sales_followup",
+      "result": "PASS",
+      "evidence": "3 leads in Follow-up stage: Vinoth Kumar, Harini, TEST_RoughReq_ef8f94"
+    },
+    "feature_4_schedule_followup_api": {
+      "description": "POST /api/crm/leads/{lead_id}/follow-ups with scheduled_date and note",
+      "result": "PASS",
+      "evidence": "Successfully scheduled follow-up with note 'TEST_followup_iteration96'"
+    },
+    "feature_5_next_followup_date_field": {
+      "description": "Verify leads in Follow-up stage have next_followup_date field",
+      "result": "PASS",
+      "evidence": "Backend adds next_followup_date for sorting Follow-up stage leads"
+    },
+    "feature_6_frontend_followup_column": {
+      "description": "Kanban shows Follow-up column with leads",
+      "result": "PASS",
+      "evidence": "Follow-up column visible with 2 leads (filtered by today's date)"
+    },
+    "feature_7_date_filter_ui": {
+      "description": "Date filter UI with Follow-up label, date input, and Today button",
+      "result": "PASS",
+      "evidence": "All UI elements present: Follow-up: label, date input (03/21/2026), Today button"
+    },
+    "feature_8_followup_date_badges": {
+      "description": "Lead cards show follow-up date badges with date and note",
+      "result": "PASS",
+      "evidence": "Badges visible: '21 Mar - Call about site visit', '21 Mar - Discuss pricing'"
+    },
+    "feature_9_calendar_icon_buttons": {
+      "description": "Calendar icon button on lead cards for scheduling follow-ups",
+      "result": "PASS",
+      "evidence": "5 calendar icon buttons found with data-testid='schedule-followup-{lead_id}'"
+    },
+    "feature_10_schedule_followup_dialog": {
+      "description": "Click calendar icon opens Schedule Follow-up dialog with date and note inputs",
+      "result": "PASS",
+      "evidence": "Dialog opens with title 'Schedule Follow-up', date input, note input, Cancel and Schedule buttons"
+    }
+  }
+}

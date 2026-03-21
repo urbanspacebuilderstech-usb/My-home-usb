@@ -95,6 +95,13 @@ export default function CRMSales() {
   
   const [draggedLead, setDraggedLead] = useState(null);
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
+  
+  // Follow-up date filter
+  const [followupDateFilter, setFollowupDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [followupDialog, setFollowupDialog] = useState(false);
+  const [followupLeadId, setFollowupLeadId] = useState(null);
+  const [followupDate, setFollowupDate] = useState('');
+  const [followupNote, setFollowupNote] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -285,6 +292,24 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to send');
+    }
+  };
+
+  const handleScheduleFollowup = async () => {
+    if (!followupLeadId || !followupDate) return;
+    try {
+      await axios.post(`${API}/crm/leads/${followupLeadId}/follow-ups`, {
+        scheduled_date: followupDate,
+        note: followupNote || 'Follow-up scheduled'
+      });
+      toast.success('Follow-up scheduled');
+      setFollowupDialog(false);
+      setFollowupLeadId(null);
+      setFollowupDate('');
+      setFollowupNote('');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
     }
   };
 
@@ -541,7 +566,24 @@ export default function CRMSales() {
   });
 
   const getLeadsByStage = (stageId) => {
-    return filteredLeads.filter(lead => lead.current_stage_id === stageId);
+    let stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
+    
+    // For Follow-up stage: filter by selected date and sort ascending by follow-up date
+    if (stageId === 'stg_sales_followup') {
+      if (followupDateFilter) {
+        stageLeads = stageLeads.filter(lead => {
+          const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
+          return pendingFollowups.some(f => f.scheduled_date === followupDateFilter);
+        });
+      }
+      stageLeads.sort((a, b) => {
+        const aDate = a.next_followup_date || a.follow_ups?.filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '9999';
+        const bDate = b.next_followup_date || b.follow_ups?.filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '9999';
+        return aDate.localeCompare(bDate);
+      });
+    }
+    
+    return stageLeads;
   };
 
   const getStageName = (stageId) => {
@@ -614,8 +656,8 @@ export default function CRMSales() {
           </Card>
         </div>
 
-        {/* Search + View Toggle */}
-        <div className="flex gap-3 mb-6 items-center">
+        {/* Search + Date Filter + View Toggle */}
+        <div className="flex gap-3 mb-6 items-center flex-wrap">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -625,6 +667,28 @@ export default function CRMSales() {
               className="pl-10"
               data-testid="search-input"
             />
+          </div>
+          
+          {/* Follow-up Date Filter */}
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+            <Calendar className="h-4 w-4 text-amber-600" />
+            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Follow-up:</span>
+            <Input
+              type="date"
+              value={followupDateFilter}
+              onChange={(e) => setFollowupDateFilter(e.target.value)}
+              className="h-7 text-xs w-36 border-amber-300"
+              data-testid="followup-date-filter"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100"
+              onClick={() => setFollowupDateFilter(new Date().toISOString().split('T')[0])}
+              data-testid="followup-today-btn"
+            >
+              Today
+            </Button>
           </div>
 
           {/* View Toggle */}
@@ -890,17 +954,44 @@ export default function CRMSales() {
                           </div>
                         )}
                         
+                        {/* Follow-up info */}
+                        {lead.follow_ups?.filter(f => !f.completed).length > 0 && (
+                          <div className="mt-1">
+                            {lead.follow_ups.filter(f => !f.completed).sort((a,b) => a.scheduled_date.localeCompare(b.scheduled_date)).slice(0, 1).map(f => (
+                              <div key={f.follow_up_id} className={`flex items-center gap-1 text-xs rounded px-2 py-1 mt-1 ${
+                                f.scheduled_date <= new Date().toISOString().split('T')[0] ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              }`}>
+                                <Calendar className="h-3 w-3" />
+                                <span className="font-medium">{new Date(f.scheduled_date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                                {f.note && <span className="truncate ml-1">- {f.note}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
                             {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                           </span>
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => openLeadDetail(lead)}
-                          >
-                            <Eye className="h-3 w-3" />
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              className="h-6 w-6 p-0 text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                              onClick={(e) => { e.stopPropagation(); setFollowupLeadId(lead.lead_id); setFollowupDate(''); setFollowupNote(''); setFollowupDialog(true); }}
+                              title="Schedule Follow-up"
+                              data-testid={`schedule-followup-${lead.lead_id}`}
+                            >
+                              <Calendar className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              onClick={() => openLeadDetail(lead)}
+                            >
+                              <Eye className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -1560,6 +1651,31 @@ export default function CRMSales() {
             >
               <ArrowRight className="h-4 w-4 mr-1" />
               Create Project & Move to Planning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Schedule Follow-up Dialog */}
+      <Dialog open={followupDialog} onOpenChange={setFollowupDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600"><Calendar className="h-5 w-5" />Schedule Follow-up</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Follow-up Date *</Label>
+              <Input type="date" value={followupDate} onChange={(e) => setFollowupDate(e.target.value)} className="mt-1" min={new Date().toISOString().split('T')[0]} data-testid="followup-date-input" />
+            </div>
+            <div>
+              <Label>Note</Label>
+              <Input placeholder="Reason for follow-up..." value={followupNote} onChange={(e) => setFollowupNote(e.target.value)} className="mt-1" data-testid="followup-note-input" />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" onClick={() => setFollowupDialog(false)}>Cancel</Button>
+            <Button onClick={handleScheduleFollowup} disabled={!followupDate} className="bg-amber-600 hover:bg-amber-700" data-testid="confirm-followup-btn">
+              <Calendar className="h-4 w-4 mr-2" />Schedule
             </Button>
           </DialogFooter>
         </DialogContent>

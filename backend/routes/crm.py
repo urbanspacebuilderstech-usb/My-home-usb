@@ -287,16 +287,17 @@ async def get_default_sales_stages():
         # Create default stages
         default_stages = [
             {"stage_id": "stg_new_appt", "name": "New Appointment", "stage_type": "sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_site_visit", "name": "Site Visit", "stage_type": "sales", "order": 3, "color": "#8b5cf6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 6, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 7, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 8, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 9, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 10, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 11, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 2, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 3, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_site_visit", "name": "Site Visit", "stage_type": "sales", "order": 4, "color": "#8b5cf6", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 5, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 6, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 7, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 8, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 9, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 10, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 11, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 12, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -1320,11 +1321,50 @@ async def get_sales_leads(
     stage_id: Optional[str] = None,
     search: Optional[str] = None,
     has_re_project: Optional[bool] = None,
+    followup_date: Optional[str] = None,
     user: User = Depends(get_current_user)
 ):
     """Get Sales leads with filters - filtered by assigned user for non-admins"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
+    
+    # Auto-move leads with due follow-ups to the Follow-up stage
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    followup_query = {
+        "stage_type": "sales",
+        "current_stage_id": {"$ne": "stg_sales_followup"},
+        "follow_ups": {
+            "$elemMatch": {
+                "scheduled_date": {"$lt": tomorrow_str},
+                "completed": False
+            }
+        }
+    }
+    if user.role == "sales":
+        followup_query["assigned_to"] = user.user_id
+    
+    due_leads = await db.leads.find(followup_query, {"_id": 0, "lead_id": 1, "current_stage_id": 1}).to_list(500)
+    if due_leads:
+        now = datetime.now(timezone.utc)
+        for lead in due_leads:
+            await db.leads.update_one(
+                {"lead_id": lead["lead_id"]},
+                {"$set": {
+                    "previous_stage_id": lead["current_stage_id"],
+                    "current_stage_id": "stg_sales_followup",
+                    "updated_at": now
+                },
+                "$push": {
+                    "stage_history": {
+                        "stage_id": "stg_sales_followup",
+                        "from_stage_id": lead["current_stage_id"],
+                        "moved_at": now.isoformat(),
+                        "moved_by": "system",
+                        "action": "auto_followup_due"
+                    }
+                }}
+            )
     
     query = {"stage_type": "sales"}
     
@@ -1346,8 +1386,25 @@ async def get_sales_leads(
         else:
             query["re_project_id"] = None
     
+    # Filter by follow-up date if provided
+    if followup_date:
+        query["follow_ups"] = {
+            "$elemMatch": {
+                "scheduled_date": followup_date,
+                "completed": False
+            }
+        }
+    
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     leads = await filter_contacts_leads(db, leads, user.role)
+    
+    # Sort follow-up stage leads by earliest follow-up date (ascending)
+    for lead in leads:
+        if lead.get("current_stage_id") == "stg_sales_followup" and lead.get("follow_ups"):
+            pending = [f for f in lead["follow_ups"] if not f.get("completed")]
+            if pending:
+                lead["next_followup_date"] = min(f["scheduled_date"] for f in pending)
+    
     return leads
 
 
