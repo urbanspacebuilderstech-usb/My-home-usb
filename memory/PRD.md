@@ -83,6 +83,15 @@ Build a comprehensive labour and materials management system for a Construction 
   - Only client-approved RE can convert to project via Deal Closed
   - Client Feedback popup in Sales with notes textarea
   - "Create Revision" button in Planning for RE with client feedback
+- **Feature - Project Onboarding Flow (After Deal Closed)**:
+  - New "Project Onboarded" stage in sales pipeline (after Deal Closed)
+  - CRE/Sales collects advance payment (amount, payment mode, reference, remarks)
+  - Send to Accountant for verification
+  - Accountant verifies payment
+  - CRE moves to Planning with project description textarea → creates main project
+  - New APIs: `collect-advance`, `send-to-accountant`, `accountant-verify`, `move-to-planning`, `sales-overview`
+  - Sales overview cards: Deal Closed count + Total Advance Collected amount
+  - Onboarding workflow buttons in list view based on status
 
 ## Architecture
 ```
