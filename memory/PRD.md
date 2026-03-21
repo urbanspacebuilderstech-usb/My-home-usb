@@ -68,6 +68,21 @@ Build a comprehensive labour and materials management system for a Construction 
   - Edit History UI shown to both GM and Planning in their respective edit dialogs
   - New API: `GET /api/crm/re-projects/{id}/change-logs`
   - New MongoDB collection: `re_change_logs`
+- **Feature - RE Estimate Number (USB-RE0001)**:
+  - Auto-incrementing sequential RE numbers (USB-RE0001, USB-RE0002, ...)
+  - Searchable across Planning, Sales, and GM dashboards
+  - Search endpoint: `GET /api/crm/re-projects/search?q=...`
+  - Revisions endpoint: `GET /api/crm/re-projects/by-number/{re_number}`
+  - New MongoDB collection: `counters` (for auto-increment)
+- **Feature - RE Revision System (RE0, RE1, RE2...)**:
+  - Full client workflow: Planning → GM → Sales sends to client → Client feedback/approve
+  - New statuses: `sent_to_client`, `client_feedback`, `client_approved`
+  - New APIs: `send-to-client`, `client-feedback`, `client-approve`, `create-revision`
+  - Revision copies all data from previous version, carries client feedback context
+  - Visual: client-approved = green border, others with approved sibling = low opacity
+  - Only client-approved RE can convert to project via Deal Closed
+  - Client Feedback popup in Sales with notes textarea
+  - "Create Revision" button in Planning for RE with client feedback
 
 ## Architecture
 ```
