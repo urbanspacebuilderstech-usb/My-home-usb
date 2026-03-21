@@ -100,7 +100,15 @@ Build a comprehensive labour and materials management system for a Construction 
   - Follow-up stage sorted ascending by follow-up date
   - Schedule Follow-up dialog (date + note) accessible from calendar icon on any lead card
   - Follow-up date badges (red for overdue, amber for upcoming) on lead cards
-  - Handles both date-only and datetime format follow-up dates
+- **Feature - Site Visit Management**:
+  - 2 new Site Visit types: "Site Visit (Client Land)" and "Site Visit (Our Projects)"
+  - Client Land: popup shows list of Sr. Site Engineers → assign one → engineer gets notification with client details + location
+  - Our Projects: searchable dropdown of ongoing projects (name + location) → shows assigned site engineer (name, phone, email) → assign visit
+  - "Site Visit Done" stage for completed visits
+  - Sr. Engineer can assign Jr. Engineer for client land visits
+  - Site Engineer dashboard: /api/crm/my-site-visits returns today's, upcoming, and past visits
+  - Site visit info (engineer name, project, date) shown on Kanban lead cards
+  - APIs: sr-site-engineers, site-engineers, ongoing-projects, assign-site-visit, assign-jr-engineer, complete-site-visit, my-site-visits
 
 ## Architecture
 ```
