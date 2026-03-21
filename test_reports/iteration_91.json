@@ -1,0 +1,132 @@
+{
+  "summary": "Project Onboarding Flow (After Deal Closed) - All 16 backend tests PASS. Frontend UI verified: Overview cards show Deal Closed count (2) and Advance Collected total (₹1,05,000). List view shows onboarding workflow buttons and status badges correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_project_onboarding_flow.py",
+    "/app/test_reports/pytest/pytest_project_onboarding.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_project_onboarding_flow.py"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 passed)",
+    "frontend": "100% (All UI features verified)"
+  },
+  "test_credentials": {
+    "CRE": "Demo Access > CRE (cre@constructionos.com) - for Sales actions",
+    "Accountant": "Demo Access > Accountant (accountant@constructionos.com) - for payment verification"
+  },
+  "seed_data_creation": "Used existing leads. Test ran full onboarding flow on 'Vinoth' lead (lead_id from test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Project Onboarding flow is fully functional. Both 'Vinoth' and 'Vinoth Kumar' leads have completed the full onboarding flow and show 'In Planning' status. To test the UI buttons (Collect Advance, Send to Accountant, Move to Planning), you need a lead at Deal Closed or Project Onboarded stage WITHOUT onboarding_status set.",
+  "verified_features": {
+    "feature_1_project_onboarded_stage": {
+      "description": "'Project Onboarded' stage exists in sales pipeline after 'Deal Closed'",
+      "result": "PASS",
+      "evidence": "Backend test test_03_project_onboarded_stage_exists PASSED - stage at order 8, after Deal Closed at order 7"
+    },
+    "feature_2_collect_advance_api": {
+      "description": "POST /api/crm/leads/{id}/collect-advance collects advance payment with amount, mode, reference",
+      "result": "PASS",
+      "evidence": "Backend test test_05_collect_advance_api PASSED"
+    },
+    "feature_3_send_to_accountant_api": {
+      "description": "POST /api/crm/leads/{id}/send-to-accountant changes onboarding_status to accountant_pending",
+      "result": "PASS",
+      "evidence": "Backend test test_07_send_to_accountant_api PASSED"
+    },
+    "feature_4_accountant_verify_api": {
+      "description": "POST /api/crm/leads/{id}/accountant-verify (accountant role) verifies payment",
+      "result": "PASS",
+      "evidence": "Backend test test_09_accountant_verify_api PASSED"
+    },
+    "feature_5_move_to_planning_api": {
+      "description": "POST /api/crm/leads/{id}/move-to-planning creates a project with project_description",
+      "result": "PASS",
+      "evidence": "Backend test test_11_move_to_planning_api PASSED"
+    },
+    "feature_6_sales_overview_api": {
+      "description": "GET /api/crm/sales-overview returns deal_closed_count and total_advance_collected",
+      "result": "PASS",
+      "evidence": "Backend test test_13_sales_overview_api PASSED"
+    },
+    "feature_7_overview_cards_ui": {
+      "description": "CRM Sales overview cards show Deal Closed count and Advance Collected total",
+      "result": "PASS",
+      "evidence": "Screenshot shows Deal Closed: 2, Advance Collected: ₹1,05,000"
+    },
+    "feature_8_list_view_buttons": {
+      "description": "List view shows onboarding workflow buttons based on lead status",
+      "result": "PASS",
+      "evidence": "Screenshot shows 'In Planning' badges for leads that completed onboarding flow"
+    },
+    "feature_9_advance_dialog_fields": {
+      "description": "Advance Payment Collection dialog has amount, payment mode, reference, remarks fields",
+      "result": "PASS",
+      "evidence": "Code review: CRMSales.jsx lines 1355-1422 contains all required fields with data-testid attributes"
+    },
+    "feature_10_planning_dialog_fields": {
+      "description": "Move to Planning dialog has project description textarea",
+      "result": "PASS",
+      "evidence": "Code review: CRMSales.jsx lines 1425-1472 contains project description textarea with data-testid"
+    }
+  },
+  "backend_api_tests": {
+    "test_01_cre_login": "PASS",
+    "test_02_accountant_login": "PASS",
+    "test_03_project_onboarded_stage_exists": "PASS",
+    "test_04_find_deal_closed_lead_for_testing": "PASS",
+    "test_05_collect_advance_api": "PASS",
+    "test_06_verify_advance_collected_status": "PASS",
+    "test_07_send_to_accountant_api": "PASS",
+    "test_08_verify_accountant_pending_status": "PASS",
+    "test_09_accountant_verify_api": "PASS",
+    "test_10_verify_accountant_verified_status": "PASS",
+    "test_11_move_to_planning_api": "PASS",
+    "test_12_verify_moved_to_planning_status": "PASS",
+    "test_13_sales_overview_api": "PASS",
+    "test_14_unauthorized_accountant_verify": "PASS",
+    "test_15_collect_advance_validation": "PASS",
+    "test_16_sales_overview_structure": "PASS"
+  },
+  "implementation_details": {
+    "backend": {
+      "collect_advance": "POST /api/crm/leads/{id}/collect-advance - Stores advance_payment object with amount, mode, reference, remarks",
+      "send_to_accountant": "POST /api/crm/leads/{id}/send-to-accountant - Changes onboarding_status to 'accountant_pending'",
+      "accountant_verify": "POST /api/crm/leads/{id}/accountant-verify - Changes onboarding_status to 'accountant_verified' (requires accountant role)",
+      "move_to_planning": "POST /api/crm/leads/{id}/move-to-planning - Creates project, income record, changes onboarding_status to 'moved_to_planning'",
+      "sales_overview": "GET /api/crm/sales-overview - Returns deal_closed_count, total_advance_collected, onboarding_counts"
+    },
+    "frontend": {
+      "overview_cards": "CRMSales.jsx lines 486-500: Deal Closed card (data-testid='deal-closed-card'), Advance Collected card (data-testid='advance-collected-card')",
+      "list_view_buttons": "CRMSales.jsx lines 677-716: Conditional rendering of Collect Advance, Send to Accountant, Move to Planning buttons based on onboarding_status",
+      "advance_dialog": "CRMSales.jsx lines 1355-1422: Amount, Payment Mode, Reference, Remarks fields",
+      "planning_dialog": "CRMSales.jsx lines 1425-1472: Project Description textarea"
+    }
+  },
+  "onboarding_flow_states": {
+    "1_no_status": "Shows 'Collect Advance' button",
+    "2_advance_collected": "Shows 'Send to Accountant' button",
+    "3_accountant_pending": "Shows 'Awaiting Accountant' badge",
+    "4_accountant_verified": "Shows 'Move to Planning' button",
+    "5_moved_to_planning": "Shows 'In Planning' badge"
+  },
+  "notes": [
+    "Full onboarding flow: Collect Advance → Send to Accountant → Accountant Verify → Move to Planning",
+    "Each step changes the lead's onboarding_status field",
+    "Move to Planning creates a main project with project_code (e.g., USB01MMYY format)",
+    "Income record is automatically created when project is created with advance amount",
+    "Sales overview counts leads at stg_deal_closed OR stg_project_onboarded stages"
+  ]
+}

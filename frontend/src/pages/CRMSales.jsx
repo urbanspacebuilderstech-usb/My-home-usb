@@ -14,7 +14,7 @@ import {
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch
+  MessageSquare, GitBranch, DollarSign
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -73,6 +73,15 @@ export default function CRMSales() {
   const [clientFeedbackNotes, setClientFeedbackNotes] = useState('');
   const [clientFeedbackReId, setClientFeedbackReId] = useState(null);
   
+  // Project Onboarding
+  const [advanceDialog, setAdvanceDialog] = useState(false);
+  const [advanceLead, setAdvanceLead] = useState(null);
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
+  const [planningDialog, setPlanningDialog] = useState(false);
+  const [planningLead, setPlanningLead] = useState(null);
+  const [projectDescription, setProjectDescription] = useState('');
+  const [salesOverview, setSalesOverview] = useState(null);
+  
   const [draggedLead, setDraggedLead] = useState(null);
 
   useEffect(() => {
@@ -93,6 +102,12 @@ export default function CRMSales() {
       setDashboard(dashboardRes.data);
       setStages(stagesRes.data);
       setLeads(leadsRes.data);
+      
+      // Fetch sales overview
+      try {
+        const overviewRes = await axios.get(`${API}/crm/sales-overview`);
+        setSalesOverview(overviewRes.data);
+      } catch { /* ignore */ }
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 401) {
@@ -209,6 +224,60 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
+    }
+  };
+
+  // Advance Payment Collection
+  const openAdvanceDialog = (lead) => {
+    setAdvanceLead(lead);
+    setAdvanceForm({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
+    setAdvanceDialog(true);
+  };
+
+  const handleCollectAdvance = async () => {
+    if (!advanceLead || !advanceForm.amount) return;
+    try {
+      await axios.post(`${API}/crm/leads/${advanceLead.lead_id}/collect-advance`, {
+        advance_amount: parseFloat(advanceForm.amount),
+        payment_mode: advanceForm.payment_mode,
+        payment_reference: advanceForm.payment_reference,
+        remarks: advanceForm.remarks
+      });
+      toast.success('Advance payment collected!');
+      setAdvanceDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect advance');
+    }
+  };
+
+  const handleSendToAccountant = async (lead) => {
+    try {
+      await axios.post(`${API}/crm/leads/${lead.lead_id}/send-to-accountant`);
+      toast.success('Sent to accountant for verification');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to send');
+    }
+  };
+
+  const openPlanningDialog = (lead) => {
+    setPlanningLead(lead);
+    setProjectDescription('');
+    setPlanningDialog(true);
+  };
+
+  const handleMoveToPlanningSubmit = async () => {
+    if (!planningLead || !projectDescription.trim()) return;
+    try {
+      const res = await axios.post(`${API}/crm/leads/${planningLead.lead_id}/move-to-planning`, {
+        project_description: projectDescription
+      });
+      toast.success(`Project created: ${res.data.project_code}. Moved to Planning!`);
+      setPlanningDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to move to planning');
     }
   };
 
@@ -414,6 +483,23 @@ export default function CRMSales() {
             </CardContent>
           </Card>
           
+          <Card className="bg-green-50 border-green-200" data-testid="deal-closed-card">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Target className="h-4 w-4 text-green-600" />
+                <span className="text-xs text-green-600">Deal Closed</span>
+              </div>
+              <p className="text-2xl font-bold text-green-700">{salesOverview?.deal_closed_count || 0}</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white border-0" data-testid="advance-collected-card">
+            <CardContent className="p-4">
+              <p className="text-purple-100 text-sm">Advance Collected</p>
+              <p className="text-2xl font-bold">{formatCurrency(salesOverview?.total_advance_collected || 0)}</p>
+            </CardContent>
+          </Card>
+
           <Card className="bg-amber-50 border-blue-200">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -421,26 +507,6 @@ export default function CRMSales() {
                 <span className="text-xs text-amber-600">RE Requested</span>
               </div>
               <p className="text-2xl font-bold text-amber-700">{dashboard?.re_stats?.requested || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-yellow-50 border-yellow-200">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <RefreshCw className="h-4 w-4 text-yellow-600" />
-                <span className="text-xs text-yellow-600">RE In Progress</span>
-              </div>
-              <p className="text-2xl font-bold text-yellow-700">{dashboard?.re_stats?.in_progress || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-xs text-green-600">RE Approved</span>
-              </div>
-              <p className="text-2xl font-bold text-green-700">{dashboard?.re_stats?.approved || 0}</p>
             </CardContent>
           </Card>
           
@@ -607,13 +673,55 @@ export default function CRMSales() {
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1 justify-center">
+                          {/* Onboarding workflow buttons */}
+                          {(lead.current_stage_id === 'stg_deal_closed' || lead.current_stage_id === 'stg_project_onboarded') && !lead.onboarding_status && (
+                            <Button 
+                              variant="outline"
+                              size="sm"
+                              className="text-[10px] h-6 px-2 text-purple-700 border-purple-300 hover:bg-purple-50"
+                              onClick={(e) => { e.stopPropagation(); openAdvanceDialog(lead); }}
+                              data-testid={`collect-advance-${lead.lead_id}`}
+                            >
+                              Collect Advance
+                            </Button>
+                          )}
+                          {lead.onboarding_status === 'advance_collected' && (
+                            <Button 
+                              variant="outline"
+                              size="sm"
+                              className="text-[10px] h-6 px-2 text-blue-700 border-blue-300 hover:bg-blue-50"
+                              onClick={(e) => { e.stopPropagation(); handleSendToAccountant(lead); }}
+                              data-testid={`send-accountant-${lead.lead_id}`}
+                            >
+                              Send to Accountant
+                            </Button>
+                          )}
+                          {lead.onboarding_status === 'accountant_pending' && (
+                            <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
+                          )}
+                          {lead.onboarding_status === 'accountant_verified' && (
+                            <Button 
+                              variant="outline"
+                              size="sm"
+                              className="text-[10px] h-6 px-2 text-green-700 border-green-300 hover:bg-green-50"
+                              onClick={(e) => { e.stopPropagation(); openPlanningDialog(lead); }}
+                              data-testid={`move-planning-${lead.lead_id}`}
+                            >
+                              Move to Planning
+                            </Button>
+                          )}
+                          {lead.onboarding_status === 'moved_to_planning' && (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
+                          )}
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1222,7 +1330,7 @@ export default function CRMSales() {
               <Textarea
                 value={clientFeedbackNotes}
                 onChange={(e) => setClientFeedbackNotes(e.target.value)}
-                placeholder="Enter client's feedback, changes, or suggestions...&#10;&#10;Example:&#10;- Reduce budget for flooring&#10;- Add extra room in first floor&#10;- Change material for roofing&#10;- Increase car parking area"
+                placeholder="Enter client's feedback, changes, or suggestions..."
                 className="min-h-[180px] mt-1.5 text-sm"
                 data-testid="client-feedback-textarea"
               />
@@ -1238,6 +1346,126 @@ export default function CRMSales() {
             >
               <Send className="h-4 w-4 mr-1.5" />
               Submit Feedback
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Advance Payment Collection Dialog */}
+      <Dialog open={advanceDialog} onOpenChange={setAdvanceDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-purple-600" />
+              Advance Payment Collection
+            </DialogTitle>
+            <DialogDescription>
+              Collect advance payment from client: {advanceLead?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Amount (₹) *</Label>
+              <Input
+                type="number"
+                value={advanceForm.amount}
+                onChange={(e) => setAdvanceForm({...advanceForm, amount: e.target.value})}
+                placeholder="Enter advance amount"
+                data-testid="advance-amount-input"
+              />
+            </div>
+            <div>
+              <Label>Payment Mode *</Label>
+              <Select value={advanceForm.payment_mode} onValueChange={(v) => setAdvanceForm({...advanceForm, payment_mode: v})}>
+                <SelectTrigger data-testid="payment-mode-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Payment Reference / Transaction ID</Label>
+              <Input
+                value={advanceForm.payment_reference}
+                onChange={(e) => setAdvanceForm({...advanceForm, payment_reference: e.target.value})}
+                placeholder="UPI ID, Cheque No., NEFT Ref..."
+              />
+            </div>
+            <div>
+              <Label>Remarks</Label>
+              <Textarea
+                value={advanceForm.remarks}
+                onChange={(e) => setAdvanceForm({...advanceForm, remarks: e.target.value})}
+                placeholder="Any additional notes..."
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdvanceDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleCollectAdvance}
+              disabled={!advanceForm.amount}
+              className="bg-purple-600 hover:bg-purple-700"
+              data-testid="submit-advance-btn"
+            >
+              <DollarSign className="h-4 w-4 mr-1" />
+              Collect Advance
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move to Planning Dialog */}
+      <Dialog open={planningDialog} onOpenChange={setPlanningDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRight className="h-5 w-5 text-green-600" />
+              Move to Planning
+            </DialogTitle>
+            <DialogDescription>
+              Project for: {planningLead?.name}. Accountant has verified the advance payment. Add a project description for the Planning team.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Project Description *</Label>
+              <Textarea
+                value={projectDescription}
+                onChange={(e) => setProjectDescription(e.target.value)}
+                placeholder="Describe the project scope, requirements, special instructions for planning team...&#10;&#10;Example:&#10;- 2 floor villa with car parking&#10;- Client wants modern design&#10;- Budget: 55 lakhs&#10;- Timeline: 12 months"
+                className="min-h-[200px]"
+                data-testid="project-description-textarea"
+              />
+            </div>
+            {planningLead?.advance_payment && (
+              <Card className="bg-green-50 border-green-200">
+                <CardContent className="p-3 text-sm">
+                  <p className="font-medium text-green-800">Advance Collected</p>
+                  <p className="text-green-700">₹{planningLead.advance_payment.advance_amount?.toLocaleString('en-IN')} via {planningLead.advance_payment.payment_mode}</p>
+                  {planningLead.advance_payment.verified_by_name && (
+                    <p className="text-xs text-green-600 mt-1">Verified by: {planningLead.advance_payment.verified_by_name}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPlanningDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleMoveToPlanningSubmit}
+              disabled={!projectDescription.trim()}
+              className="bg-green-600 hover:bg-green-700"
+              data-testid="submit-planning-btn"
+            >
+              <ArrowRight className="h-4 w-4 mr-1" />
+              Create Project & Move to Planning
             </Button>
           </DialogFooter>
         </DialogContent>

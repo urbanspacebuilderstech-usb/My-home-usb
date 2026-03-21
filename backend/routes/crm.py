@@ -292,8 +292,9 @@ async def get_default_sales_stages():
             {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 6, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 7, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 8, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 7, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 8, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 9, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -750,121 +751,14 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         }
         await db.notifications.insert_one(notification)
     
-    # TRIGGER: Sales "Deal Closed" -> Convert Client-Approved RE to Main Project
+    # TRIGGER: Sales "Deal Closed" -> Mark deal as closed (no project creation yet)
     if lead["stage_type"] == "sales" and stage["name"] == "Deal Closed":
-        # Find the client-approved revision for this lead
-        re_number = lead.get("re_number") or lead.get("re_project_id")
-        # First try finding client_approved revision by parent_re_number
-        re_project = None
-        if lead.get("re_number"):
-            re_project = await db.re_projects.find_one(
-                {"parent_re_number": lead["re_number"], "status": "client_approved"}, {"_id": 0}
-            )
-        if not re_project and lead.get("re_project_id"):
-            # Fallback: find by re_project_id with client_approved or re_approved
-            re_project = await db.re_projects.find_one(
-                {"re_project_id": lead["re_project_id"], "status": {"$in": ["client_approved", "re_approved"]}}, {"_id": 0}
-            )
-        if re_project:
-                # Create main project from RE
-                project_count = await db.projects.count_documents({}) + 1
-                project_code = f"USB{str(project_count).zfill(2)}{datetime.now().strftime('%m%y')}"
-                
-                now = datetime.now(timezone.utc)
-                expected_completion = now + timedelta(days=365)  # Default 1 year
-                
-                main_project = {
-                    "project_id": f"proj_{uuid.uuid4().hex[:12]}",
-                    "project_code": project_code,
-                    "name": re_project.get("project_name", f"Project - {lead['name']}"),
-                    "client_name": lead["name"],
-                    "client_email": lead.get("email"),
-                    "client_phone": lead.get("phone"),
-                    "location": re_project.get("location") or "",
-                    "sqft": re_project.get("sqft") or 0,
-                    "building_type": re_project.get("building_type") or "residential",
-                    # Financial
-                    "total_value": re_project.get("estimated_total", 0),
-                    "advance_amount": data.advance_amount or 0,
-                    "advance_payment_mode": data.payment_mode,
-                    "advance_payment_reference": data.payment_reference,
-                    "advance_received_at": now if data.advance_amount else None,
-                    "additional_cost": 0,
-                    "income_project": data.advance_amount or 0,  # Advance counts as income
-                    "income_additional": 0,
-                    "total_expense": 0,
-                    # Stage
-                    "current_stage": "yet_to_start",
-                    "stage_history": [],
-                    "materials_locked": False,
-                    # Dates
-                    "start_date": now,
-                    "expected_completion": expected_completion,
-                    # Status - Set to 'planning' so Planning can add BOQ
-                    "status": "planning",
-                    # Links
-                    "re_project_id": re_project["re_project_id"],
-                    "lead_id": lead_id,
-                    # Workflow
-                    "created_by": user.user_id,
-                    "created_at": now
-                }
-                
-                await db.projects.insert_one(main_project)
-                
-                # Update RE Project
-                await db.re_projects.update_one(
-                    {"re_project_id": re_project["re_project_id"]},
-                    {"$set": {
-                        "status": "converted",
-                        "converted_project_id": main_project["project_id"],
-                        "converted_at": now,
-                        "converted_by": user.user_id,
-                        "advance_collected": data.advance_amount or 0
-                    }}
-                )
-                
-                result["project_created"] = True
-                result["advance_collected"] = data.advance_amount or 0
-                result["project_id"] = main_project["project_id"]
-                result["project_code"] = project_code
-                
-                # Create income record for advance payment - pending accountant approval
-                if data.advance_amount and data.advance_amount > 0:
-                    income_record = {
-                        "income_id": f"inc_{uuid.uuid4().hex[:12]}",
-                        "project_id": main_project["project_id"],
-                        "project_name": main_project["name"],
-                        "category": "advance_payment",
-                        "sub_category": "Deal Conversion Advance",
-                        "amount": data.advance_amount,
-                        "payment_mode": data.payment_mode or "cash",
-                        "payment_reference": data.payment_reference or "",
-                        "payment_date": now.isoformat(),
-                        "stage": "Advance Payment",
-                        "description": f"Advance payment from deal conversion - {lead['name']}",
-                        "remarks": f"Deal closed by CRE. Client: {lead['name']}",
-                        "collected_by": user.user_id,
-                        "collected_by_name": user.name,
-                        "status": "pending_approval",
-                        "source": "approval",
-                        "created_at": now.isoformat()
-                    }
-                    await db.income.insert_one(income_record)
-                
-                # Notify CRE and Planning
-                for target in ["all_cro", "all_planning"]:
-                    notification = {
-                        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-                        "user_id": target,
-                        "title": "New Project Created from CRM",
-                        "message": f"Deal closed! Project '{main_project['name']}' (₹{re_project.get('estimated_total', 0):,.0f}) ready for setup",
-                        "type": "project_created",
-                        "reference_id": main_project["project_id"],
-                        "is_read": False,
-                        "created_at": now
-                    }
-                    await db.notifications.insert_one(notification)
+        result["deal_closed"] = True
+        result["message"] = "Deal closed. Collect advance payment in 'Project Onboarded' stage."
+    
+    # TRIGGER: Sales "Project Onboarded" -> Advance already collected, project creation happens via /onboard-project endpoint
+    if lead["stage_type"] == "sales" and stage["name"] == "Project Onboarded":
+        result["project_onboarded"] = True
     
     return result
 
@@ -890,6 +784,286 @@ class LeadUpdateInput(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     notes: Optional[str] = None
+
+
+# ==================== PROJECT ONBOARDING FLOW ====================
+
+class AdvanceCollectionRequest(BaseModel):
+    advance_amount: float
+    payment_mode: str  # cash, upi, cheque, bank_transfer
+    payment_reference: Optional[str] = None
+    cheque_details: Optional[List[Dict[str, Any]]] = None
+    remarks: Optional[str] = None
+
+@router.post("/crm/leads/{lead_id}/collect-advance")
+async def collect_advance_payment(lead_id: str, data: AdvanceCollectionRequest, user: User = Depends(get_current_user)):
+    """CRE/Sales collects advance payment from client at Project Onboarded stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales/CRE access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    user_name = user_doc.get("name", "Unknown") if user_doc else "Unknown"
+    
+    # Store advance payment on the lead
+    advance_record = {
+        "advance_amount": data.advance_amount,
+        "payment_mode": data.payment_mode,
+        "payment_reference": data.payment_reference or "",
+        "cheque_details": data.cheque_details or [],
+        "remarks": data.remarks or "",
+        "collected_by": user.user_id,
+        "collected_by_name": user_name,
+        "collected_at": now.isoformat(),
+        "onboarding_status": "advance_collected",  # advance_collected -> accountant_pending -> accountant_verified -> moved_to_planning
+    }
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "advance_payment": advance_record,
+            "onboarding_status": "advance_collected",
+            "updated_at": now
+        }}
+    )
+    
+    return {"message": f"Advance of ₹{data.advance_amount:,.0f} collected. Send to accountant for verification."}
+
+
+@router.post("/crm/leads/{lead_id}/send-to-accountant")
+async def send_to_accountant(lead_id: str, user: User = Depends(get_current_user)):
+    """CRE/Sales sends advance payment for accountant verification"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales/CRE access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("onboarding_status") != "advance_collected":
+        raise HTTPException(status_code=400, detail="Advance must be collected first")
+    
+    now = datetime.now(timezone.utc)
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "onboarding_status": "accountant_pending",
+            "updated_at": now
+        }}
+    )
+    
+    # Notify accountants
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_accountant",
+        "title": "Advance Payment Verification",
+        "message": f"Advance payment for '{lead['name']}' needs verification. Amount: ₹{lead.get('advance_payment', {}).get('advance_amount', 0):,.0f}",
+        "type": "advance_verification",
+        "reference_id": lead_id,
+        "is_read": False,
+        "created_at": now
+    }
+    await db.notifications.insert_one(notification)
+    
+    return {"message": "Sent to accountant for verification"}
+
+
+@router.post("/crm/leads/{lead_id}/accountant-verify")
+async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)):
+    """Accountant verifies the advance payment"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Accountant access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("onboarding_status") != "accountant_pending":
+        raise HTTPException(status_code=400, detail="Not pending accountant verification")
+    
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "onboarding_status": "accountant_verified",
+            "advance_payment.verified_by": user.user_id,
+            "advance_payment.verified_by_name": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "advance_payment.verified_at": now.isoformat(),
+            "updated_at": now
+        }}
+    )
+    
+    return {"message": "Advance payment verified by accountant"}
+
+
+class MoveToPlanning(BaseModel):
+    project_description: str
+
+@router.post("/crm/leads/{lead_id}/move-to-planning")
+async def move_to_planning(lead_id: str, data: MoveToPlanning, user: User = Depends(get_current_user)):
+    """CRE moves the onboarded project to Planning with project description"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales/CRE access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("onboarding_status") != "accountant_verified":
+        raise HTTPException(status_code=400, detail="Accountant must verify first")
+    
+    now = datetime.now(timezone.utc)
+    advance = lead.get("advance_payment", {})
+    
+    # Find the approved RE project
+    re_project = None
+    if lead.get("re_number"):
+        re_project = await db.re_projects.find_one(
+            {"parent_re_number": lead["re_number"], "status": "client_approved"}, {"_id": 0}
+        )
+    if not re_project and lead.get("re_project_id"):
+        re_project = await db.re_projects.find_one(
+            {"re_project_id": lead["re_project_id"], "status": {"$in": ["client_approved", "re_approved"]}}, {"_id": 0}
+        )
+    
+    # Create the main project
+    project_count = await db.projects.count_documents({}) + 1
+    project_code = f"USB{str(project_count).zfill(2)}{datetime.now().strftime('%m%y')}"
+    expected_completion = now + timedelta(days=365)
+    
+    main_project = {
+        "project_id": f"proj_{uuid.uuid4().hex[:12]}",
+        "project_code": project_code,
+        "name": re_project.get("project_name", f"Project - {lead['name']}") if re_project else f"Project - {lead['name']}",
+        "client_name": lead["name"],
+        "client_email": lead.get("email"),
+        "client_phone": lead.get("phone"),
+        "location": (re_project.get("location") or "") if re_project else "",
+        "sqft": (re_project.get("sqft") or 0) if re_project else 0,
+        "building_type": (re_project.get("building_type") or "residential") if re_project else "residential",
+        "total_value": re_project.get("estimated_total", 0) if re_project else 0,
+        "advance_amount": advance.get("advance_amount", 0),
+        "advance_payment_mode": advance.get("payment_mode"),
+        "advance_payment_reference": advance.get("payment_reference"),
+        "advance_received_at": now,
+        "additional_cost": 0,
+        "income_project": advance.get("advance_amount", 0),
+        "income_additional": 0,
+        "total_expense": 0,
+        "current_stage": "yet_to_start",
+        "stage_history": [],
+        "materials_locked": False,
+        "start_date": now,
+        "expected_completion": expected_completion,
+        "status": "planning",
+        "project_description": data.project_description,
+        "re_project_id": re_project["re_project_id"] if re_project else None,
+        "lead_id": lead_id,
+        "created_by": user.user_id,
+        "created_at": now
+    }
+    
+    await db.projects.insert_one(main_project)
+    
+    # Update RE Project status
+    if re_project:
+        await db.re_projects.update_one(
+            {"re_project_id": re_project["re_project_id"]},
+            {"$set": {
+                "status": "converted",
+                "converted_project_id": main_project["project_id"],
+                "converted_at": now,
+                "converted_by": user.user_id,
+                "advance_collected": advance.get("advance_amount", 0)
+            }}
+        )
+    
+    # Update lead onboarding status
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "onboarding_status": "moved_to_planning",
+            "project_id": main_project["project_id"],
+            "project_description": data.project_description,
+            "updated_at": now
+        }}
+    )
+    
+    # Create income record
+    if advance.get("advance_amount", 0) > 0:
+        income_record = {
+            "income_id": f"inc_{uuid.uuid4().hex[:12]}",
+            "project_id": main_project["project_id"],
+            "project_name": main_project["name"],
+            "category": "advance_payment",
+            "sub_category": "Deal Conversion Advance",
+            "amount": advance["advance_amount"],
+            "payment_mode": advance.get("payment_mode", "cash"),
+            "payment_reference": advance.get("payment_reference", ""),
+            "payment_date": now.isoformat(),
+            "stage": "Advance Payment",
+            "description": f"Advance payment - {lead['name']}",
+            "collected_by": user.user_id,
+            "status": "approved",
+            "source": "onboarding",
+            "created_at": now.isoformat()
+        }
+        await db.income.insert_one(income_record)
+    
+    # Notify Planning
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_planning",
+        "title": "New Project for Planning",
+        "message": f"Project '{main_project['name']}' moved to planning. Description: {data.project_description[:100]}",
+        "type": "project_created",
+        "reference_id": main_project["project_id"],
+        "is_read": False,
+        "created_at": now
+    }
+    await db.notifications.insert_one(notification)
+    
+    return {
+        "message": "Project created and moved to Planning",
+        "project_id": main_project["project_id"],
+        "project_code": project_code
+    }
+
+
+@router.get("/crm/sales-overview")
+async def get_sales_overview(user: User = Depends(get_current_user)):
+    """Get sales overview stats including deal closed count and advance collected"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Count deals at deal_closed or project_onboarded stage
+    deal_closed_count = await db.leads.count_documents({
+        "current_stage_id": {"$in": ["stg_deal_closed", "stg_project_onboarded"]}
+    })
+    
+    # Total advance collected
+    pipeline = [
+        {"$match": {"advance_payment.advance_amount": {"$exists": True, "$gt": 0}}},
+        {"$group": {"_id": None, "total": {"$sum": "$advance_payment.advance_amount"}}}
+    ]
+    result = await db.leads.aggregate(pipeline).to_list(1)
+    total_advance = result[0]["total"] if result else 0
+    
+    # Count by onboarding status
+    onboarding_counts = {}
+    for status in ["advance_collected", "accountant_pending", "accountant_verified", "moved_to_planning"]:
+        count = await db.leads.count_documents({"onboarding_status": status})
+        onboarding_counts[status] = count
+    
+    return {
+        "deal_closed_count": deal_closed_count,
+        "total_advance_collected": total_advance,
+        "onboarding_counts": onboarding_counts
+    }
+
 
 
 @router.get("/crm/leads/{lead_id}")
