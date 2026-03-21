@@ -397,15 +397,51 @@ async def convert_deal_to_project(
                 await db.cheques.insert_one(cheque_record)
     
     # Update lead - use 'leads' collection
+    # Move lead to "Accountant Approval" stage automatically
+    accountant_stage = await db.lead_stages.find_one({"stage_id": "stg_accountant_approval"}, {"_id": 0})
+    target_stage_id = accountant_stage["stage_id"] if accountant_stage else "stg_accountant_approval"
+    
+    lead_stage_history = lead.get("stage_history", [])
+    lead_stage_history.append({
+        "stage_id": target_stage_id,
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "auto_after_advance_collected"
+    })
+    
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "project_created": True,
             "project_id": project_id,
             "converted_at": now,
-            "converted_by": user.user_id
+            "converted_by": user.user_id,
+            "current_stage_id": target_stage_id,
+            "stage_history": lead_stage_history,
+            "onboarding_status": "accountant_pending",
+            "advance_payment": {
+                "advance_amount": data.advance_amount,
+                "payment_entries": data.payment_entries or [{"amount": data.advance_amount, "payment_mode": data.payment_mode or "cash", "reference": data.payment_reference or ""}],
+                "collected_by": user.user_id,
+                "collected_at": now.isoformat(),
+            },
+            "updated_at": now
         }}
     )
+    
+    # Notify accountants about pending verification
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_accountant",
+        "title": "Advance Payment Verification",
+        "message": f"Advance payment for '{project_name}' needs verification. Amount: ₹{data.advance_amount:,.0f}",
+        "type": "advance_verification",
+        "reference_id": lead_id,
+        "is_read": False,
+        "created_at": now
+    }
+    await db.notifications.insert_one(notification)
     
     # Update RE Project if exists
     if lead.get("re_project_id"):
@@ -537,17 +573,49 @@ async def convert_re_project_to_project(
         }}
     )
     
-    # Update linked lead if exists
+    # Update linked lead if exists - auto-move to Accountant Approval
     if re_project.get("lead_id"):
+        lead = await db.leads.find_one({"lead_id": re_project["lead_id"]})
+        lead_stage_history = (lead.get("stage_history", []) if lead else [])
+        lead_stage_history.append({
+            "stage_id": "stg_accountant_approval",
+            "from_stage_id": lead.get("current_stage_id") if lead else None,
+            "moved_at": now.isoformat(),
+            "moved_by": user.user_id,
+            "action": "auto_after_advance_collected"
+        })
         await db.leads.update_one(
             {"lead_id": re_project["lead_id"]},
             {"$set": {
                 "project_created": True,
                 "project_id": project_id,
                 "converted_at": now,
-                "converted_by": user.user_id
+                "converted_by": user.user_id,
+                "current_stage_id": "stg_accountant_approval",
+                "stage_history": lead_stage_history,
+                "onboarding_status": "accountant_pending",
+                "advance_payment": {
+                    "advance_amount": data.advance_amount,
+                    "payment_entries": data.payment_entries or [{"amount": data.advance_amount, "payment_mode": data.payment_mode or "cash", "reference": data.payment_reference or ""}],
+                    "collected_by": user.user_id,
+                    "collected_at": now.isoformat(),
+                },
+                "updated_at": now
             }}
         )
+    
+    # Notify accountants
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_accountant",
+        "title": "Advance Payment Verification",
+        "message": f"Advance payment for '{project_name}' needs verification. Amount: ₹{data.advance_amount:,.0f}",
+        "type": "advance_verification",
+        "reference_id": re_project.get("lead_id") or re_project_id,
+        "is_read": False,
+        "created_at": now
+    }
+    await db.notifications.insert_one(notification)
     
     # Process payment entries (multi-mode) or legacy single mode
     payment_entries = data.payment_entries or []

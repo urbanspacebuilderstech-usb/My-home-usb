@@ -293,8 +293,10 @@ async def get_default_sales_stages():
             {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 6, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 7, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 8, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 9, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 8, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 9, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 10, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 11, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -593,6 +595,10 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     
     old_stage_id = lead["current_stage_id"]
     
+    # Block manual moves FROM "Payment Collect" and "Accountant Approval" stages
+    if old_stage_id in ["stg_payment_collect", "stg_accountant_approval"]:
+        raise HTTPException(status_code=400, detail="This lead cannot be moved manually. It will move automatically after accountant verification.")
+    
     # Update lead
     stage_history = lead.get("stage_history", [])
     stage_history.append({
@@ -754,9 +760,13 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     # TRIGGER: Sales "Deal Closed" -> Mark deal as closed (no project creation yet)
     if lead["stage_type"] == "sales" and stage["name"] == "Deal Closed":
         result["deal_closed"] = True
-        result["message"] = "Deal closed. Collect advance payment in 'Project Onboarded' stage."
+        result["message"] = "Deal closed. Move to 'Payment Collect' to collect advance payment."
     
-    # TRIGGER: Sales "Project Onboarded" -> Advance already collected, project creation happens via /onboard-project endpoint
+    # TRIGGER: Sales "Payment Collect" -> Advance collection popup handled by frontend
+    if lead["stage_type"] == "sales" and stage["name"] == "Payment Collect":
+        result["payment_collect"] = True
+    
+    # TRIGGER: Sales "Project Onboarded" -> Final stage
     if lead["stage_type"] == "sales" and stage["name"] == "Project Onboarded":
         result["project_onboarded"] = True
     
@@ -886,16 +896,43 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
     now = datetime.now(timezone.utc)
     user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
     
+    # Auto-move lead to "Project Onboarded" stage
+    project_onboarded_stage = await db.lead_stages.find_one({"stage_id": "stg_project_onboarded"}, {"_id": 0})
+    target_stage_id = project_onboarded_stage["stage_id"] if project_onboarded_stage else "stg_project_onboarded"
+    
+    lead_stage_history = lead.get("stage_history", [])
+    lead_stage_history.append({
+        "stage_id": target_stage_id,
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "auto_after_accountant_verified"
+    })
+    
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
             "onboarding_status": "accountant_verified",
+            "current_stage_id": target_stage_id,
+            "stage_history": lead_stage_history,
             "advance_payment.verified_by": user.user_id,
             "advance_payment.verified_by_name": user_doc.get("name", "Unknown") if user_doc else "Unknown",
             "advance_payment.verified_at": now.isoformat(),
             "updated_at": now
         }}
     )
+    
+    # Also update the project status
+    if lead.get("project_id"):
+        await db.projects.update_one(
+            {"project_id": lead["project_id"]},
+            {"$set": {
+                "status": "payment_received",
+                "accountant_verified": True,
+                "accountant_verified_by": user.user_id,
+                "accountant_verified_at": now
+            }}
+        )
     
     return {"message": "Advance payment verified by accountant"}
 
@@ -1039,9 +1076,9 @@ async def get_sales_overview(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Count deals at deal_closed or project_onboarded stage
+    # Count deals at deal_closed or later stages
     deal_closed_count = await db.leads.count_documents({
-        "current_stage_id": {"$in": ["stg_deal_closed", "stg_project_onboarded"]}
+        "current_stage_id": {"$in": ["stg_deal_closed", "stg_payment_collect", "stg_accountant_approval", "stg_project_onboarded"]}
     })
     
     # Total advance collected

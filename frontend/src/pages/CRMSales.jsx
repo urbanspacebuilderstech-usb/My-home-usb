@@ -152,8 +152,8 @@ export default function CRMSales() {
         return;
       }
       
-      // Intercept: Show CRE-style Convert Deal popup for "Project Onboarded"
-      if (stage?.name === 'Project Onboarded') {
+      // Intercept: Show CRE-style Convert Deal popup for "Payment Collect"
+      if (stage?.name === 'Payment Collect') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
           openConvertDealFromSales(lead);
@@ -767,42 +767,12 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
-                          {/* Onboarding workflow buttons */}
-                          {(lead.current_stage_id === 'stg_deal_closed' || lead.current_stage_id === 'stg_project_onboarded') && !lead.onboarding_status && (
-                            <Button 
-                              variant="outline"
-                              size="sm"
-                              className="text-[10px] h-6 px-2 text-purple-700 border-purple-300 hover:bg-purple-50"
-                              onClick={(e) => { e.stopPropagation(); openAdvanceDialog(lead); }}
-                              data-testid={`collect-advance-${lead.lead_id}`}
-                            >
-                              Collect Advance
-                            </Button>
-                          )}
-                          {lead.onboarding_status === 'advance_collected' && (
-                            <Button 
-                              variant="outline"
-                              size="sm"
-                              className="text-[10px] h-6 px-2 text-blue-700 border-blue-300 hover:bg-blue-50"
-                              onClick={(e) => { e.stopPropagation(); handleSendToAccountant(lead); }}
-                              data-testid={`send-accountant-${lead.lead_id}`}
-                            >
-                              Send to Accountant
-                            </Button>
-                          )}
-                          {lead.onboarding_status === 'accountant_pending' && (
+                          {/* Onboarding status indicators */}
+                          {lead.current_stage_id === 'stg_accountant_approval' && (
                             <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
                           )}
-                          {lead.onboarding_status === 'accountant_verified' && (
-                            <Button 
-                              variant="outline"
-                              size="sm"
-                              className="text-[10px] h-6 px-2 text-green-700 border-green-300 hover:bg-green-50"
-                              onClick={(e) => { e.stopPropagation(); openPlanningDialog(lead); }}
-                              data-testid={`move-planning-${lead.lead_id}`}
-                            >
-                              Move to Planning
-                            </Button>
+                          {lead.current_stage_id === 'stg_project_onboarded' && (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">Project Onboarded</Badge>
                           )}
                           {lead.onboarding_status === 'moved_to_planning' && (
                             <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
@@ -860,12 +830,14 @@ export default function CRMSales() {
                 </div>
                 
                 <div className="bg-gray-100 rounded-b-lg p-2 min-h-[400px] space-y-2">
-                  {getLeadsByStage(stage.stage_id).map(lead => (
+                  {getLeadsByStage(stage.stage_id).map(lead => {
+                    const isLocked = ['stg_payment_collect', 'stg_accountant_approval'].includes(lead.current_stage_id);
+                    return (
                     <Card
                       key={lead.lead_id}
-                      className="cursor-grab active:cursor-grabbing hover:shadow-md transition-all"
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, lead)}
+                      className={isLocked ? "hover:shadow-md transition-all opacity-90" : "cursor-grab active:cursor-grabbing hover:shadow-md transition-all"}
+                      draggable={!isLocked}
+                      onDragStart={(e) => !isLocked && handleDragStart(e, lead)}
                       data-testid={`lead-card-${lead.lead_id}`}
                     >
                       <CardContent className="p-3">
@@ -906,6 +878,18 @@ export default function CRMSales() {
                           </Badge>
                         )}
                         
+                        {/* Payment summary for Payment Collect / Accountant Approval stages */}
+                        {isLocked && lead.advance_payment && (
+                          <div className="mt-2 p-2 rounded bg-amber-50 border border-amber-200 text-xs">
+                            <div className="flex justify-between items-center">
+                              <span className="text-amber-700 font-medium">Advance: {formatCurrency(lead.advance_payment.advance_amount)}</span>
+                              {lead.current_stage_id === 'stg_accountant_approval' && (
+                                <Badge className="bg-orange-100 text-orange-700 text-xs">Pending Verification</Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
                             {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -920,7 +904,8 @@ export default function CRMSales() {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                    );
+                  })}
                   
                   {getLeadsByStage(stage.stage_id).length === 0 && (
                     <div className="text-center py-8 text-gray-400 text-sm">
@@ -1018,8 +1003,20 @@ export default function CRMSales() {
                   
                   <div className="border-t pt-3">
                     <Label className="text-xs text-gray-500 mb-2 block">Move to Stage</Label>
+                    {['stg_payment_collect', 'stg_accountant_approval'].includes(selectedLead.current_stage_id) ? (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
+                        {selectedLead.current_stage_id === 'stg_payment_collect' && 'This lead is in Payment Collect stage. It will move automatically after advance is collected.'}
+                        {selectedLead.current_stage_id === 'stg_accountant_approval' && 'Waiting for Accountant verification. Lead will move to Project Onboarded automatically after approval.'}
+                        {selectedLead.advance_payment && (
+                          <div className="mt-2 pt-2 border-t border-amber-200">
+                            <p className="font-medium">Advance: {formatCurrency(selectedLead.advance_payment.advance_amount)}</p>
+                            {selectedLead.advance_payment.collected_at && <p className="text-xs">Collected: {new Date(selectedLead.advance_payment.collected_at).toLocaleDateString('en-IN')}</p>}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                     <div className="flex flex-wrap gap-2">
-                      {stages.map(stage => (
+                      {stages.filter(s => !['stg_accountant_approval'].includes(s.stage_id)).map(stage => (
                         <Button key={stage.stage_id} variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'} size="sm" className="text-xs"
                           onClick={() => { handleStageChange(selectedLead.lead_id, stage.stage_id); setViewLeadDialog(false); }}
                           style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}>
@@ -1027,6 +1024,7 @@ export default function CRMSales() {
                         </Button>
                       ))}
                     </div>
+                    )}
                   </div>
                 </TabsContent>
                 
