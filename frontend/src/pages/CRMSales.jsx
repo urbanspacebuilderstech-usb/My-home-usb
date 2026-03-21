@@ -155,7 +155,7 @@ export default function CRMSales() {
       // Intercept: Show CRE-style Convert Deal popup for "Project Onboarded"
       if (stage?.name === 'Project Onboarded') {
         const lead = leads.find(l => l.lead_id === leadId);
-        if (lead && !lead.project_created) {
+        if (lead) {
           openConvertDealFromSales(lead);
           return;
         }
