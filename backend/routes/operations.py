@@ -237,8 +237,8 @@ async def convert_deal_to_project(
     user: User = Depends(get_current_user)
 ):
     """Convert a closed deal to a project with advance collection"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRE can convert deals")
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE or Sales can convert deals")
     
     if not data.accountant_confirmed:
         raise HTTPException(status_code=400, detail="Accountant confirmation required")
@@ -436,8 +436,8 @@ async def convert_re_project_to_project(
     user: User = Depends(get_current_user)
 ):
     """Convert a GM-approved RE project directly to a project (without sales lead)"""
-    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only CRE can convert RE projects")
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE or Sales can convert RE projects")
     
     if not data.accountant_confirmed:
         raise HTTPException(status_code=400, detail="Accountant confirmation required")

@@ -10,6 +10,8 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { MultiPaymentInput } from '../components/MultiPaymentInput';
+import { NumericInput } from '../components/NumericInput';
 import { 
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
@@ -82,6 +84,15 @@ export default function CRMSales() {
   const [projectDescription, setProjectDescription] = useState('');
   const [salesOverview, setSalesOverview] = useState(null);
   
+  // CRE-style Convert Deal Dialog (triggered on drag to "Project Onboarded")
+  const [convertDealDialog, setConvertDealDialog] = useState(false);
+  const [convertDeal, setConvertDeal] = useState(null);
+  const [convertDealRE, setConvertDealRE] = useState(null);
+  const [convertForm, setConvertForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', sqft: '', building_type: 'residential', expected_start_date: '' });
+  const [convertAdvanceAmount, setConvertAdvanceAmount] = useState('');
+  const [convertPaymentEntries, setConvertPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+  const [convertAccountantConfirmed, setConvertAccountantConfirmed] = useState(false);
+  
   const [draggedLead, setDraggedLead] = useState(null);
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
 
@@ -141,14 +152,11 @@ export default function CRMSales() {
         return;
       }
       
-      // Intercept: Show advance collection popup for "Project Onboarded"
+      // Intercept: Show CRE-style Convert Deal popup for "Project Onboarded"
       if (stage?.name === 'Project Onboarded') {
         const lead = leads.find(l => l.lead_id === leadId);
-        if (lead && (!lead.onboarding_status || lead.onboarding_status === 'none')) {
-          setAdvanceLead(lead);
-          setAdvanceForm({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
-          setOnboardingPendingStageId(newStageId);
-          setAdvanceDialog(true);
+        if (lead && !lead.project_created) {
+          openConvertDealFromSales(lead);
           return;
         }
       }
@@ -277,6 +285,72 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to send');
+    }
+  };
+
+  // CRE-style Convert Deal from Sales (triggered on drag to "Project Onboarded")
+  const openConvertDealFromSales = async (lead) => {
+    setConvertDeal(lead);
+    setConvertAdvanceAmount('');
+    setConvertAccountantConfirmed(false);
+    setConvertPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+    let reData = null;
+    if (lead.re_project_id) {
+      try { const reRes = await axios.get(`${API}/crm/re-projects/${lead.re_project_id}`); reData = reRes.data; } catch { reData = null; }
+    }
+    setConvertDealRE(reData);
+    setConvertForm({
+      name: reData?.project_name || lead.name || '',
+      client_name: lead.name || '',
+      client_phone: lead.phone || '',
+      client_email: lead.email || '',
+      location: reData?.location || lead.city || '',
+      sqft: reData?.sqft || lead.custom_fields?.sqft || '',
+      building_type: reData?.building_type || 'residential',
+      expected_start_date: new Date().toISOString().split('T')[0],
+    });
+    setConvertDealDialog(true);
+  };
+
+  const handleConvertDealFromSales = async () => {
+    if (!convertDeal) return;
+    const projectName = convertForm.name || convertDeal.name;
+    const clientName = convertForm.client_name || convertDeal.name;
+    const location = convertForm.location || convertDeal.city;
+    if (!projectName?.trim()) { toast.error('Project name is required'); return; }
+    if (!clientName?.trim()) { toast.error('Client name is required'); return; }
+    if (!location?.trim()) { toast.error('Location is required'); return; }
+    if (!convertAdvanceAmount || parseFloat(convertAdvanceAmount) <= 0) { toast.error('Please enter advance amount'); return; }
+    const totalPayEntries = convertPaymentEntries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+    if (convertPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
+    if (Math.abs(totalPayEntries - parseFloat(convertAdvanceAmount)) > 1) { toast.error(`Payment entries (₹${totalPayEntries.toLocaleString('en-IN')}) must equal advance amount (₹${parseFloat(convertAdvanceAmount).toLocaleString('en-IN')})`); return; }
+    if (!convertAccountantConfirmed) { toast.error('Please confirm accountant verification'); return; }
+    try {
+      const endpoint = convertDeal.re_project_id
+        ? `${API}/cre/convert-re-project/${convertDeal.re_project_id}`
+        : `${API}/cre/convert-deal/${convertDeal.lead_id}`;
+      await axios.post(endpoint, {
+        project_name: projectName, client_name: clientName,
+        client_phone: convertForm.client_phone || convertDeal.phone,
+        client_email: convertForm.client_email || convertDeal.email,
+        location, sqft: convertForm.sqft ? parseFloat(convertForm.sqft) : null,
+        building_type: convertForm.building_type, expected_start_date: convertForm.expected_start_date,
+        advance_amount: parseFloat(convertAdvanceAmount),
+        payment_entries: convertPaymentEntries.map(e => ({
+          amount: parseFloat(e.amount) || 0,
+          payment_mode: e.payment_mode,
+          reference: e.reference || '',
+          cheque_details: e.payment_mode === 'cheque' ? e.cheque_details : null
+        })),
+        payment_mode: convertPaymentEntries[0]?.payment_mode || 'cash',
+        payment_reference: convertPaymentEntries[0]?.reference || '',
+        accountant_confirmed: convertAccountantConfirmed,
+      });
+      toast.success('Project created! Goes to Accountant for verification.');
+      setConvertDealDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to create project');
     }
   };
 
@@ -1494,6 +1568,93 @@ export default function CRMSales() {
       </Dialog>
 
       <MobileBottomNav user={user} />
+
+      {/* CRE-style Convert Deal Dialog (triggered on drag to Project Onboarded) */}
+      <Dialog open={convertDealDialog} onOpenChange={setConvertDealDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600"><Target className="h-5 w-5" />Create Project from Deal</DialogTitle>
+            <DialogDescription>Review and edit project details, then collect advance payment</DialogDescription>
+          </DialogHeader>
+          {convertDeal && (
+            <div className="space-y-6">
+              {convertDealRE && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <h4 className="font-semibold text-purple-800 flex items-center gap-2 mb-2"><FileText className="h-4 w-4" />Rough Estimate Reference</h4>
+                  <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div><p className="text-xs text-purple-600">Project</p><p className="font-medium">{convertDealRE.project_name}</p></div>
+                    <div><p className="text-xs text-purple-600">Area</p><p className="font-medium">{convertDealRE.sqft?.toLocaleString()} sqft</p></div>
+                    <div><p className="text-xs text-purple-600">Timeline</p><p className="font-medium">{convertDealRE.handover_months || 12} months</p></div>
+                    <div><p className="text-xs text-purple-600">Value</p><p className="font-bold text-purple-700">{formatCurrency(convertDealRE.estimated_total)}</p></div>
+                  </div>
+                </div>
+              )}
+              <div className="border rounded-lg p-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2"><Building2 className="h-4 w-4 text-amber-600" />Project Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2"><Label>Project Name *</Label><Input value={convertForm.name} onChange={(e) => setConvertForm({ ...convertForm, name: e.target.value })} className="mt-1" data-testid="convert-project-name" /></div>
+                  <div><Label>Location *</Label><Input value={convertForm.location} onChange={(e) => setConvertForm({ ...convertForm, location: e.target.value })} className="mt-1" data-testid="convert-location" /></div>
+                  <div><Label>Area (sqft)</Label><NumericInput value={convertForm.sqft} onChange={(e) => setConvertForm({ ...convertForm, sqft: e.target.value })} className="mt-1" /></div>
+                  <div>
+                    <Label>Building Type</Label>
+                    <Select value={convertForm.building_type || 'residential'} onValueChange={(v) => setConvertForm({ ...convertForm, building_type: v })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="residential">Residential</SelectItem><SelectItem value="commercial">Commercial</SelectItem><SelectItem value="industrial">Industrial</SelectItem><SelectItem value="mixed">Mixed Use</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>Start Date</Label><Input type="date" value={convertForm.expected_start_date} onChange={(e) => setConvertForm({ ...convertForm, expected_start_date: e.target.value })} className="mt-1" /></div>
+                </div>
+              </div>
+              <div className="border rounded-lg p-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2"><Target className="h-4 w-4 text-green-600" />Client Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Client Name *</Label><Input value={convertForm.client_name} onChange={(e) => setConvertForm({ ...convertForm, client_name: e.target.value })} className="mt-1" data-testid="convert-client-name" /></div>
+                  <div><Label>Phone</Label><Input value={convertForm.client_phone} onChange={(e) => setConvertForm({ ...convertForm, client_phone: e.target.value })} className="mt-1" /></div>
+                  <div className="col-span-2"><Label>Email</Label><Input value={convertForm.client_email} onChange={(e) => setConvertForm({ ...convertForm, client_email: e.target.value })} className="mt-1" /></div>
+                </div>
+              </div>
+              <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                <h4 className="font-semibold text-green-800 mb-3 flex items-center gap-2"><DollarSign className="h-4 w-4" />Advance Payment</h4>
+                <div className="mb-3">
+                  <Label className="text-green-700">Total Advance Amount *</Label>
+                  <div className="relative mt-1"><span className="absolute left-3 top-2.5 text-gray-500">₹</span><NumericInput placeholder="Amount" value={convertAdvanceAmount} onChange={(e) => {
+                    setConvertAdvanceAmount(e.target.value);
+                    if (convertPaymentEntries.length === 1) {
+                      setConvertPaymentEntries([{ ...convertPaymentEntries[0], amount: e.target.value }]);
+                    }
+                  }} className="pl-8" data-testid="convert-advance-amount" /></div>
+                </div>
+                {convertAdvanceAmount && parseFloat(convertAdvanceAmount) > 0 && (
+                  <MultiPaymentInput
+                    totalAmount={parseFloat(convertAdvanceAmount) || 0}
+                    entries={convertPaymentEntries}
+                    onChange={setConvertPaymentEntries}
+                  />
+                )}
+                {convertAdvanceAmount && parseFloat(convertAdvanceAmount) > 0 && convertDealRE?.estimated_total && (
+                  <div className="mt-3 p-3 bg-white rounded border border-green-300">
+                    <div className="flex justify-between text-sm"><span>Estimated Total</span><span>{formatCurrency(convertDealRE.estimated_total)}</span></div>
+                    <div className="flex justify-between text-sm text-green-600 mt-1"><span>Advance</span><span>- {formatCurrency(parseFloat(convertAdvanceAmount))}</span></div>
+                    <div className="flex justify-between font-semibold mt-2 pt-2 border-t"><span>Balance</span><span className="text-amber-700">{formatCurrency(convertDealRE.estimated_total - parseFloat(convertAdvanceAmount))}</span></div>
+                  </div>
+                )}
+              </div>
+              <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input type="checkbox" checked={convertAccountantConfirmed} onChange={(e) => setConvertAccountantConfirmed(e.target.checked)} className="w-5 h-5 rounded border-orange-300 mt-0.5" data-testid="convert-accountant-checkbox" />
+                  <div><span className="font-medium text-orange-800">Accountant Verification Required</span><p className="text-sm text-orange-600 mt-1">Payment will be verified by accounts department.</p></div>
+                </label>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" onClick={() => setConvertDealDialog(false)}>Cancel</Button>
+            <Button onClick={handleConvertDealFromSales} className="bg-green-600 hover:bg-green-700" disabled={!convertAdvanceAmount || parseFloat(convertAdvanceAmount) <= 0 || convertPaymentEntries.length === 0 || !convertAccountantConfirmed} data-testid="confirm-convert-deal-sales">
+              <CheckCircle className="h-4 w-4 mr-2" />Create Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
