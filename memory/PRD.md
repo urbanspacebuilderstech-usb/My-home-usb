@@ -92,6 +92,7 @@ Build a comprehensive labour and materials management system for a Construction 
   - New APIs: `collect-advance`, `send-to-accountant`, `accountant-verify`, `move-to-planning`, `sales-overview`
   - Sales overview cards: Deal Closed count + Total Advance Collected amount
   - Onboarding workflow buttons in list view based on status
+  - **Auto-trigger on Kanban drag-and-drop**: When a lead is dragged to "Project Onboarded" in Kanban view, the "Collect Advance" dialog pops up automatically. Cancel reverts the lead; submit moves the lead and collects advance in one action.
 
 ## Architecture
 ```
