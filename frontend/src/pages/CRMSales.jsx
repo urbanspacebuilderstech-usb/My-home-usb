@@ -83,6 +83,7 @@ export default function CRMSales() {
   const [salesOverview, setSalesOverview] = useState(null);
   
   const [draggedLead, setDraggedLead] = useState(null);
+  const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -138,6 +139,18 @@ export default function CRMSales() {
         setRoughEstForm('');
         setRoughEstDialog(true);
         return;
+      }
+      
+      // Intercept: Show advance collection popup for "Project Onboarded"
+      if (stage?.name === 'Project Onboarded') {
+        const lead = leads.find(l => l.lead_id === leadId);
+        if (lead && (!lead.onboarding_status || lead.onboarding_status === 'none')) {
+          setAdvanceLead(lead);
+          setAdvanceForm({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
+          setOnboardingPendingStageId(newStageId);
+          setAdvanceDialog(true);
+          return;
+        }
       }
       
       const payload = { stage_id: newStageId };
@@ -237,14 +250,20 @@ export default function CRMSales() {
   const handleCollectAdvance = async () => {
     if (!advanceLead || !advanceForm.amount) return;
     try {
+      // If triggered from drag-and-drop stage change, first move the lead to "Project Onboarded"
+      if (onboardingPendingStageId) {
+        await axios.patch(`${API}/crm/leads/${advanceLead.lead_id}/stage`, { stage_id: onboardingPendingStageId });
+      }
+      
       await axios.post(`${API}/crm/leads/${advanceLead.lead_id}/collect-advance`, {
         advance_amount: parseFloat(advanceForm.amount),
         payment_mode: advanceForm.payment_mode,
         payment_reference: advanceForm.payment_reference,
         remarks: advanceForm.remarks
       });
-      toast.success('Advance payment collected!');
+      toast.success(onboardingPendingStageId ? 'Lead moved to Project Onboarded & advance collected!' : 'Advance payment collected!');
       setAdvanceDialog(false);
+      setOnboardingPendingStageId(null);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to collect advance');
@@ -1352,7 +1371,10 @@ export default function CRMSales() {
       </Dialog>
 
       {/* Advance Payment Collection Dialog */}
-      <Dialog open={advanceDialog} onOpenChange={setAdvanceDialog}>
+      <Dialog open={advanceDialog} onOpenChange={(open) => {
+        setAdvanceDialog(open);
+        if (!open) setOnboardingPendingStageId(null);
+      }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1407,7 +1429,7 @@ export default function CRMSales() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAdvanceDialog(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setAdvanceDialog(false); setOnboardingPendingStageId(null); }}>Cancel</Button>
             <Button 
               onClick={handleCollectAdvance}
               disabled={!advanceForm.amount}
