@@ -84,15 +84,16 @@ Build a comprehensive labour and materials management system for a Construction 
   - Client Feedback popup in Sales with notes textarea
   - "Create Revision" button in Planning for RE with client feedback
 - **Feature - Project Onboarding Flow (After Deal Closed)**:
-  - New "Project Onboarded" stage in sales pipeline (after Deal Closed)
-  - CRE/Sales collects advance payment (amount, payment mode, reference, remarks)
-  - Send to Accountant for verification
-  - Accountant verifies payment
-  - CRE moves to Planning with project description textarea → creates main project
-  - New APIs: `collect-advance`, `send-to-accountant`, `accountant-verify`, `move-to-planning`, `sales-overview`
+  - Sales pipeline stages: Deal Closed → Payment Collect → Accountant Approval → Project Onboarded
+  - When a lead is moved to "Payment Collect" (drag-and-drop or stage button), the CRE-style "Create Project from Deal" popup opens automatically
+  - Popup includes: RE Reference, Project Details, Client Details, Multi-Payment Advance (MultiPaymentInput), Accountant Verification checkbox
+  - After popup submit: backend auto-creates project + moves lead to "Accountant Approval" stage + notifies accountants
+  - After accountant verifies: lead auto-moves to "Project Onboarded" (final stage)
+  - Manual moves blocked from "Payment Collect" and "Accountant Approval" stages (leads show locked message with payment summary)
+  - Leads in locked stages are non-draggable in Kanban
+  - APIs: `collect-advance`, `send-to-accountant`, `accountant-verify`, `move-to-planning`, `sales-overview`
   - Sales overview cards: Deal Closed count + Total Advance Collected amount
-  - Onboarding workflow buttons in list view based on status
-  - **Auto-trigger on Kanban drag-and-drop**: When a lead is dragged to "Project Onboarded" in Kanban view, the full CRE-style "Create Project from Deal" dialog pops up automatically (with RE reference, project/client details, multi-payment advance, accountant verification). Cancel reverts the lead; submit creates the project via CRE convert-deal endpoint. Sales role now has access to convert-deal and convert-re-project endpoints.
+  - Backend `convert-deal` and `convert-re-project` endpoints updated to allow Sales role
 
 ## Architecture
 ```
