@@ -16,7 +16,7 @@ import {
   Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch, DollarSign
+  MessageSquare, GitBranch, DollarSign, UserCheck
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -93,6 +93,20 @@ export default function CRMSales() {
   const [convertPaymentEntries, setConvertPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
   const [convertAccountantConfirmed, setConvertAccountantConfirmed] = useState(false);
   
+  // Site Visit Dialogs
+  const [clientLandDialog, setClientLandDialog] = useState(false);
+  const [clientLandLead, setClientLandLead] = useState(null);
+  const [srEngineers, setSrEngineers] = useState([]);
+  const [selectedSrEngineer, setSelectedSrEngineer] = useState('');
+  const [svVisitDate, setSvVisitDate] = useState(new Date().toISOString().split('T')[0]);
+  const [svNotes, setSvNotes] = useState('');
+  
+  const [ongoingProjectDialog, setOngoingProjectDialog] = useState(false);
+  const [ongoingProjectLead, setOngoingProjectLead] = useState(null);
+  const [ongoingProjects, setOngoingProjects] = useState([]);
+  const [projectSearch, setProjectSearch] = useState('');
+  const [selectedProject, setSelectedProject] = useState(null);
+  
   const [draggedLead, setDraggedLead] = useState(null);
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
   
@@ -164,6 +178,24 @@ export default function CRMSales() {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
           openConvertDealFromSales(lead);
+          return;
+        }
+      }
+      
+      // Intercept: Show Sr. Engineer assignment popup for "Site Visit (Client Land)"
+      if (stage?.stage_id === 'stg_sv_client_land') {
+        const lead = leads.find(l => l.lead_id === leadId);
+        if (lead) {
+          openClientLandVisit(lead);
+          return;
+        }
+      }
+      
+      // Intercept: Show ongoing projects popup for "Site Visit (Our Projects)"
+      if (stage?.stage_id === 'stg_sv_ongoing_project') {
+        const lead = leads.find(l => l.lead_id === leadId);
+        if (lead) {
+          openOngoingProjectVisit(lead);
           return;
         }
       }
@@ -310,6 +342,67 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
+    }
+  };
+
+  // Site Visit: Client Land - open popup with Sr. Engineers
+  const openClientLandVisit = async (lead) => {
+    setClientLandLead(lead);
+    setSelectedSrEngineer('');
+    setSvVisitDate(new Date().toISOString().split('T')[0]);
+    setSvNotes('');
+    try {
+      const res = await axios.get(`${API}/crm/sr-site-engineers`);
+      setSrEngineers(res.data);
+    } catch { setSrEngineers([]); }
+    setClientLandDialog(true);
+  };
+
+  const handleAssignClientLandVisit = async () => {
+    if (!clientLandLead || !selectedSrEngineer) return;
+    try {
+      await axios.post(`${API}/crm/leads/${clientLandLead.lead_id}/assign-site-visit`, {
+        visit_type: 'client_land',
+        sr_engineer_id: selectedSrEngineer,
+        visit_date: svVisitDate,
+        notes: svNotes
+      });
+      toast.success('Site visit assigned to Sr. Engineer');
+      setClientLandDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to assign');
+    }
+  };
+
+  // Site Visit: Ongoing Project - open popup with project list
+  const openOngoingProjectVisit = async (lead) => {
+    setOngoingProjectLead(lead);
+    setSelectedProject(null);
+    setProjectSearch('');
+    setSvVisitDate(new Date().toISOString().split('T')[0]);
+    setSvNotes('');
+    try {
+      const res = await axios.get(`${API}/crm/ongoing-projects`);
+      setOngoingProjects(res.data);
+    } catch { setOngoingProjects([]); }
+    setOngoingProjectDialog(true);
+  };
+
+  const handleAssignOngoingProjectVisit = async () => {
+    if (!ongoingProjectLead || !selectedProject) return;
+    try {
+      await axios.post(`${API}/crm/leads/${ongoingProjectLead.lead_id}/assign-site-visit`, {
+        visit_type: 'ongoing_project',
+        project_id: selectedProject.project_id,
+        visit_date: svVisitDate,
+        notes: svNotes
+      });
+      toast.success('Site visit assigned');
+      setOngoingProjectDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to assign');
     }
   };
 
@@ -966,6 +1059,22 @@ export default function CRMSales() {
                                 {f.note && <span className="truncate ml-1">- {f.note}</span>}
                               </div>
                             ))}
+                          </div>
+                        )}
+                        
+                        {/* Site Visit info */}
+                        {lead.site_visit_data && ['stg_sv_client_land', 'stg_sv_ongoing_project', 'stg_sv_done'].includes(lead.current_stage_id) && (
+                          <div className="mt-1 p-2 rounded bg-purple-50 border border-purple-200 text-xs">
+                            {lead.site_visit_data.sr_engineer_name && (
+                              <p className="text-purple-700"><span className="font-medium">Engineer:</span> {lead.site_visit_data.sr_engineer_name}</p>
+                            )}
+                            {lead.site_visit_data.site_engineer_name && (
+                              <p className="text-blue-700"><span className="font-medium">Engineer:</span> {lead.site_visit_data.site_engineer_name}</p>
+                            )}
+                            {lead.site_visit_data.project_name && (
+                              <p className="text-gray-600"><span className="font-medium">Project:</span> {lead.site_visit_data.project_name}</p>
+                            )}
+                            <p className="text-gray-500 mt-0.5">{lead.site_visit_data.visit_date}</p>
                           </div>
                         )}
                         
@@ -1651,6 +1760,130 @@ export default function CRMSales() {
             >
               <ArrowRight className="h-4 w-4 mr-1" />
               Create Project & Move to Planning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Site Visit (Client Land) - Assign Sr. Engineer Dialog */}
+      <Dialog open={clientLandDialog} onOpenChange={setClientLandDialog}>
+        <DialogContent className="max-w-lg" style={{ overflowY: 'auto' }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-purple-600"><MapPin className="h-5 w-5" />Site Visit - Client Land</DialogTitle>
+            <DialogDescription>Assign a Sr. Site Engineer for client land visit</DialogDescription>
+          </DialogHeader>
+          {clientLandLead && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <p className="font-medium">{clientLandLead.name}</p>
+                <p className="text-gray-500">{clientLandLead.phone} | {clientLandLead.city || 'No location'}</p>
+              </div>
+              <div>
+                <Label>Sr. Site Engineer *</Label>
+                <Select value={selectedSrEngineer} onValueChange={setSelectedSrEngineer}>
+                  <SelectTrigger className="mt-1" data-testid="select-sr-engineer"><SelectValue placeholder="Select Sr. Engineer" /></SelectTrigger>
+                  <SelectContent>
+                    {srEngineers.map(eng => (
+                      <SelectItem key={eng.user_id} value={eng.user_id}>
+                        {eng.name} {eng.region ? `(${eng.region})` : ''} {eng.phone ? `- ${eng.phone}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Visit Date</Label>
+                <Input type="date" value={svVisitDate} onChange={(e) => setSvVisitDate(e.target.value)} className="mt-1" data-testid="sv-visit-date" />
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Input placeholder="Any notes for the engineer..." value={svNotes} onChange={(e) => setSvNotes(e.target.value)} className="mt-1" />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" onClick={() => setClientLandDialog(false)}>Cancel</Button>
+            <Button onClick={handleAssignClientLandVisit} disabled={!selectedSrEngineer} className="bg-purple-600 hover:bg-purple-700" data-testid="confirm-client-land-visit">
+              <UserCheck className="h-4 w-4 mr-2" />Assign Engineer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Site Visit (Our Ongoing Projects) - Select Project Dialog */}
+      <Dialog open={ongoingProjectDialog} onOpenChange={setOngoingProjectDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh]" style={{ overflowY: 'auto' }}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-blue-600"><Building2 className="h-5 w-5" />Site Visit - Our Ongoing Projects</DialogTitle>
+            <DialogDescription>Select an ongoing project for the client to visit</DialogDescription>
+          </DialogHeader>
+          {ongoingProjectLead && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <p className="font-medium">{ongoingProjectLead.name}</p>
+                <p className="text-gray-500">{ongoingProjectLead.phone} | {ongoingProjectLead.city || 'No location'}</p>
+              </div>
+              <div>
+                <Label>Search Projects</Label>
+                <Input placeholder="Search by name or location..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="mt-1" data-testid="project-search" />
+              </div>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {ongoingProjects
+                  .filter(p => {
+                    if (!projectSearch) return true;
+                    const q = projectSearch.toLowerCase();
+                    return (p.project_name || '').toLowerCase().includes(q) || (p.location || '').toLowerCase().includes(q);
+                  })
+                  .map(project => (
+                    <div
+                      key={project.project_id}
+                      className={`border rounded-lg p-3 cursor-pointer transition-all ${selectedProject?.project_id === project.project_id ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200' : 'hover:border-gray-400'}`}
+                      onClick={() => setSelectedProject(project)}
+                      data-testid={`project-option-${project.project_id}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium text-sm">{project.project_name || 'Unnamed Project'}</p>
+                          <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="h-3 w-3" />{project.location || 'No location'}</p>
+                        </div>
+                        {selectedProject?.project_id === project.project_id && <CheckCircle className="h-5 w-5 text-blue-600" />}
+                      </div>
+                      {project.site_engineer && (
+                        <div className="mt-2 pt-2 border-t text-xs text-gray-600">
+                          <p className="font-medium">{project.site_engineer.name}</p>
+                          {project.site_engineer.phone && <p>{project.site_engineer.phone}</p>}
+                          {project.site_engineer.email && <p>{project.site_engineer.email}</p>}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                }
+                {ongoingProjects.filter(p => {
+                  if (!projectSearch) return true;
+                  const q = projectSearch.toLowerCase();
+                  return (p.project_name || '').toLowerCase().includes(q) || (p.location || '').toLowerCase().includes(q);
+                }).length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">No ongoing projects found</p>
+                )}
+              </div>
+              {selectedProject && selectedProject.site_engineer && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-600 font-medium mb-1">Site Engineer for this project:</p>
+                  <p className="font-semibold">{selectedProject.site_engineer.name}</p>
+                  {selectedProject.site_engineer.phone && <p className="text-sm">{selectedProject.site_engineer.phone}</p>}
+                  {selectedProject.site_engineer.email && <p className="text-sm text-gray-600">{selectedProject.site_engineer.email}</p>}
+                </div>
+              )}
+              <div>
+                <Label>Visit Date</Label>
+                <Input type="date" value={svVisitDate} onChange={(e) => setSvVisitDate(e.target.value)} className="mt-1" />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 mt-4">
+            <Button variant="outline" onClick={() => setOngoingProjectDialog(false)}>Cancel</Button>
+            <Button onClick={handleAssignOngoingProjectVisit} disabled={!selectedProject} className="bg-blue-600 hover:bg-blue-700" data-testid="confirm-ongoing-project-visit">
+              <CheckCircle className="h-4 w-4 mr-2" />Assign Visit
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,0 +1,90 @@
+{
+  "summary": "Site Visit Management Testing - Iteration 97. All backend APIs and frontend dialogs working correctly. 16 sales stages verified including 3 new site visit stages. Sr. Site Engineers and Ongoing Projects endpoints return correct data. Site visit assignment and completion APIs functional.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_site_visit_management.py",
+    "/app/test_reports/pytest/pytest_site_visit_management.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_site_visit_management.py"
+  ],
+  "success_rate": {
+    "backend": "100% (10 passed, 1 skipped)",
+    "frontend": "100% (All UI features verified)"
+  },
+  "test_credentials": {
+    "CRE": "Demo Access > CRE (cre@constructionos.com)",
+    "Sales": "Demo Access > Sales (sales@constructionos.com)"
+  },
+  "seed_data_creation": "Created test site visits via API: TEST_site_visit_iteration97, TEST_ongoing_project_visit_iteration97",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Site Visit Management fully functional. 16 sales stages with Site Visit (Client Land) at order 5, Site Visit (Our Projects) at order 6, Site Visit Done at order 7. 3 Sr. Site Engineers available. 4 ongoing projects with site engineer details. Vinoth lead is in Site Visit (Our Projects) stage assigned to Lakshmi Villa project.",
+  "verified_features": {
+    "feature_1_16_sales_stages": {
+      "description": "GET /api/crm/stages?stage_type=sales returns 16 stages including site visit stages",
+      "result": "PASS",
+      "evidence": "16 stages found: New Appointment, Follow-up, Discussion, Site Visit, Site Visit (Client Land), Site Visit (Our Projects), Site Visit Done, Rough Estimate Requested, RE-From Planning, RE-To Client, Negotiation, Deal Closed, Payment Collect, Accountant Approval, Project Onboarded, Lost"
+    },
+    "feature_2_sr_site_engineers": {
+      "description": "GET /api/crm/sr-site-engineers returns list of Sr. Site Engineers",
+      "result": "PASS",
+      "evidence": "3+ Sr. Site Engineers returned with user_id, name, phone, email, region"
+    },
+    "feature_3_ongoing_projects": {
+      "description": "GET /api/crm/ongoing-projects returns 4 active projects with site engineer details",
+      "result": "PASS",
+      "evidence": "4 projects: Lakshmi Villa (Ramesh Kumar), Krishna Residency (TEST_SE_ftb6ae), Ganesh Towers, Murugan Heights"
+    },
+    "feature_4_assign_client_land_visit": {
+      "description": "POST /api/crm/leads/{lead_id}/assign-site-visit with visit_type=client_land",
+      "result": "PASS",
+      "evidence": "Lead moved to stg_sv_client_land, site_visit_data populated with sr_engineer_id, sr_engineer_name"
+    },
+    "feature_5_assign_ongoing_project_visit": {
+      "description": "POST /api/crm/leads/{lead_id}/assign-site-visit with visit_type=ongoing_project",
+      "result": "PASS",
+      "evidence": "Lead moved to stg_sv_ongoing_project, site_visit_data populated with project_id, project_name, site_engineer details"
+    },
+    "feature_6_complete_site_visit": {
+      "description": "POST /api/crm/leads/{lead_id}/complete-site-visit moves lead to stg_sv_done",
+      "result": "PASS",
+      "evidence": "Lead moved to stg_sv_done, site_visit_data.visit_status set to completed"
+    },
+    "feature_7_validation_errors": {
+      "description": "API returns 400 for missing required fields",
+      "result": "PASS",
+      "evidence": "client_land without sr_engineer_id returns 400, ongoing_project without project_id returns 400"
+    },
+    "feature_8_frontend_kanban_stages": {
+      "description": "Kanban shows all 16 stages including site visit stages",
+      "result": "PASS",
+      "evidence": "Site Visit (Client Land), Site Visit (Our Projects), Site Visit Done columns visible in Kanban"
+    },
+    "feature_9_client_land_dialog": {
+      "description": "Site Visit (Client Land) dialog with Sr. Engineer dropdown",
+      "result": "PASS",
+      "evidence": "Dialog shows Sr. Site Engineer dropdown (data-testid='select-sr-engineer'), Visit Date (data-testid='sv-visit-date'), Notes input, Assign Engineer button (data-testid='confirm-client-land-visit')"
+    },
+    "feature_10_ongoing_project_dialog": {
+      "description": "Site Visit (Our Projects) dialog with project search and cards",
+      "result": "PASS",
+      "evidence": "Dialog shows Search Projects input (data-testid='project-search'), 4 project cards with engineer details, Visit Date, Assign Visit button (data-testid='confirm-ongoing-project-visit')"
+    },
+    "feature_11_site_visit_info_on_cards": {
+      "description": "Lead cards in site visit stages show engineer name, project, date",
+      "result": "PASS",
+      "evidence": "Vinoth card in Site Visit (Our Projects) shows: Engineer: Ramesh Kumar, Project: Lakshmi Villa, 2026-03-21"
+    }
+  }
+}

@@ -1104,6 +1104,250 @@ async def get_sales_overview(user: User = Depends(get_current_user)):
 
 
 
+## ===== SITE VISIT MANAGEMENT =====
+
+class AssignSiteVisitInput(BaseModel):
+    visit_type: str  # "client_land" or "ongoing_project"
+    sr_engineer_id: Optional[str] = None
+    project_id: Optional[str] = None
+    visit_date: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.get("/crm/sr-site-engineers")
+async def get_sr_site_engineers(user: User = Depends(get_current_user)):
+    """Get list of Senior Site Engineers for assignment"""
+    engineers = await db.users.find(
+        {"role": "sr_site_engineer", "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1, "region": 1}
+    ).to_list(100)
+    return engineers
+
+@router.get("/crm/site-engineers")
+async def get_all_site_engineers(user: User = Depends(get_current_user)):
+    """Get list of all Site Engineers (Sr + Jr)"""
+    engineers = await db.users.find(
+        {"role": {"$in": ["sr_site_engineer", "site_engineer"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "phone": 1, "role": 1, "region": 1}
+    ).to_list(100)
+    return engineers
+
+@router.get("/crm/ongoing-projects")
+async def get_ongoing_projects(search: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get ongoing projects with site engineer info for site visit assignment"""
+    query = {"status": {"$in": ["active", "in_progress", "ongoing"]}}
+    if search:
+        query["$or"] = [
+            {"project_name": {"$regex": search, "$options": "i"}},
+            {"location": {"$regex": search, "$options": "i"}}
+        ]
+    projects = await db.projects.find(query, {"_id": 0, "project_id": 1, "project_name": 1, "location": 1, "site_engineer_user_id": 1}).to_list(100)
+    
+    # Enrich with site engineer details
+    for p in projects:
+        if p.get("site_engineer_user_id"):
+            eng = await db.users.find_one({"user_id": p["site_engineer_user_id"]}, {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1})
+            p["site_engineer"] = eng
+        else:
+            p["site_engineer"] = None
+    return projects
+
+@router.post("/crm/leads/{lead_id}/assign-site-visit")
+async def assign_site_visit(lead_id: str, data: AssignSiteVisitInput, user: User = Depends(get_current_user)):
+    """Assign a site visit to a lead - either client land or ongoing project"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    now = datetime.now(timezone.utc)
+    visit_date = data.visit_date or now.strftime("%Y-%m-%d")
+    
+    site_visit_data = {
+        "visit_type": data.visit_type,
+        "visit_date": visit_date,
+        "visit_status": "scheduled",
+        "assigned_at": now.isoformat(),
+        "assigned_by": user.user_id,
+        "notes": data.notes or ""
+    }
+    
+    # Determine target stage and engineer
+    target_stage = None
+    if data.visit_type == "client_land":
+        if not data.sr_engineer_id:
+            raise HTTPException(status_code=400, detail="Sr. Site Engineer is required for client land visit")
+        site_visit_data["sr_engineer_id"] = data.sr_engineer_id
+        eng = await db.users.find_one({"user_id": data.sr_engineer_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+        site_visit_data["sr_engineer_name"] = eng["name"] if eng else "Unknown"
+        site_visit_data["sr_engineer_phone"] = eng.get("phone") if eng else None
+        target_stage = "stg_sv_client_land"
+    elif data.visit_type == "ongoing_project":
+        if not data.project_id:
+            raise HTTPException(status_code=400, detail="Project is required for ongoing project visit")
+        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "project_name": 1, "location": 1, "site_engineer_user_id": 1})
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        site_visit_data["project_id"] = data.project_id
+        site_visit_data["project_name"] = project.get("project_name")
+        site_visit_data["project_location"] = project.get("location")
+        if project.get("site_engineer_user_id"):
+            eng = await db.users.find_one({"user_id": project["site_engineer_user_id"]}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+            site_visit_data["site_engineer_id"] = project["site_engineer_user_id"]
+            site_visit_data["site_engineer_name"] = eng["name"] if eng else "Unknown"
+            site_visit_data["site_engineer_phone"] = eng.get("phone") if eng else None
+            site_visit_data["site_engineer_email"] = eng.get("email") if eng else None
+        target_stage = "stg_sv_ongoing_project"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid visit type")
+    
+    # Update lead with site visit data and move to target stage
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": target_stage,
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": f"site_visit_{data.visit_type}"
+    })
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "current_stage_id": target_stage,
+            "site_visit_data": site_visit_data,
+            "stage_history": stage_history,
+            "updated_at": now
+        }}
+    )
+    
+    # Notify the assigned engineer
+    engineer_id = site_visit_data.get("sr_engineer_id") or site_visit_data.get("site_engineer_id")
+    if engineer_id:
+        notification = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": engineer_id,
+            "title": "New Site Visit Assigned",
+            "message": f"Site visit for '{lead.get('name')}' on {visit_date}. Location: {lead.get('city', site_visit_data.get('project_location', 'N/A'))}",
+            "type": "site_visit_assigned",
+            "reference_id": lead_id,
+            "is_read": False,
+            "created_at": now
+        }
+        await db.notifications.insert_one(notification)
+    
+    return {"message": f"Site visit assigned", "stage": target_stage, "site_visit_data": site_visit_data}
+
+@router.post("/crm/leads/{lead_id}/assign-jr-engineer")
+async def assign_jr_engineer(lead_id: str, jr_engineer_id: str = None, user: User = Depends(get_current_user)):
+    """Sr. Site Engineer assigns Jr. Engineer to a client land visit"""
+    if user.role not in [UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Sr. Site Engineers can assign Jr. Engineers")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead or not lead.get("site_visit_data"):
+        raise HTTPException(status_code=404, detail="Lead or site visit not found")
+    
+    if not jr_engineer_id:
+        raise HTTPException(status_code=400, detail="Jr. Engineer ID required")
+    
+    eng = await db.users.find_one({"user_id": jr_engineer_id}, {"_id": 0, "name": 1, "phone": 1})
+    now = datetime.now(timezone.utc)
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "site_visit_data.jr_engineer_id": jr_engineer_id,
+            "site_visit_data.jr_engineer_name": eng["name"] if eng else "Unknown",
+            "site_visit_data.jr_engineer_phone": eng.get("phone") if eng else None,
+            "updated_at": now
+        }}
+    )
+    return {"message": f"Jr. Engineer {eng['name'] if eng else jr_engineer_id} assigned"}
+
+@router.post("/crm/leads/{lead_id}/complete-site-visit")
+async def complete_site_visit(lead_id: str, user: User = Depends(get_current_user)):
+    """Mark site visit as done and move to Site Visit Done stage"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    now = datetime.now(timezone.utc)
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": "stg_sv_done",
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "action": "site_visit_completed"
+    })
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "current_stage_id": "stg_sv_done",
+            "site_visit_data.visit_status": "completed",
+            "site_visit_data.completed_at": now.isoformat(),
+            "site_visit_data.completed_by": user.user_id,
+            "stage_history": stage_history,
+            "updated_at": now
+        }}
+    )
+    return {"message": "Site visit completed"}
+
+@router.get("/crm/my-site-visits")
+async def get_my_site_visits(user: User = Depends(get_current_user)):
+    """Get site visits assigned to the current engineer - today's, upcoming, and past"""
+    if user.role not in [UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Site Engineer access required")
+    
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Find leads where this engineer is assigned
+    query = {
+        "$or": [
+            {"site_visit_data.sr_engineer_id": user.user_id},
+            {"site_visit_data.jr_engineer_id": user.user_id},
+            {"site_visit_data.site_engineer_id": user.user_id}
+        ]
+    }
+    leads = await db.leads.find(query, {"_id": 0, "lead_id": 1, "name": 1, "phone": 1, "email": 1, "city": 1, "site_visit_data": 1, "current_stage_id": 1}).to_list(200)
+    
+    today_visits = []
+    upcoming_visits = []
+    past_visits = []
+    
+    for lead in leads:
+        sv = lead.get("site_visit_data", {})
+        visit_date = sv.get("visit_date", "")
+        visit = {
+            "lead_id": lead["lead_id"],
+            "client_name": lead.get("name"),
+            "client_phone": lead.get("phone"),
+            "client_email": lead.get("email"),
+            "location": lead.get("city") or sv.get("project_location", ""),
+            "visit_type": sv.get("visit_type"),
+            "visit_date": visit_date,
+            "visit_status": sv.get("visit_status", "scheduled"),
+            "project_name": sv.get("project_name"),
+            "notes": sv.get("notes")
+        }
+        
+        if visit_date == today_str:
+            today_visits.append(visit)
+        elif visit_date > today_str:
+            upcoming_visits.append(visit)
+        else:
+            past_visits.append(visit)
+    
+    today_visits.sort(key=lambda x: x["visit_date"])
+    upcoming_visits.sort(key=lambda x: x["visit_date"])
+    
+    return {
+        "today": today_visits,
+        "upcoming": upcoming_visits,
+        "past": past_visits
+    }
+
+
 @router.get("/crm/leads/{lead_id}")
 async def get_lead_detail(lead_id: str, user: User = Depends(get_current_user)):
     """Get detailed lead info including remarks and follow-ups"""
@@ -1329,7 +1573,6 @@ async def get_sales_leads(
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Auto-move leads with due follow-ups to the Follow-up stage
-    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     followup_query = {
         "stage_type": "sales",
