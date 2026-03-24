@@ -4,6 +4,7 @@ All routes are in modular files under /routes/
 Shared infrastructure is in /core/
 """
 from fastapi import FastAPI, APIRouter, Request, Response
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -94,6 +95,13 @@ app.include_router(crm_router, prefix="/api")
 app.include_router(files_router, prefix="/api")
 app.include_router(architect_router, prefix="/api")
 app.include_router(contractors_router, prefix="/api")
+
+@app.get("/api/reports/api-endpoints-pdf")
+async def download_api_report_pdf():
+    pdf_path = Path(__file__).parent / "static" / "api_report.pdf"
+    if not pdf_path.exists():
+        return Response(content='{"detail":"PDF not found"}', status_code=404, media_type="application/json")
+    return FileResponse(str(pdf_path), media_type="application/pdf", filename="API_Endpoints_Report.pdf")
 
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
