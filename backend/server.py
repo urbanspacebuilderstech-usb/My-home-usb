@@ -3,8 +3,9 @@ ConstructionOS - Main Application Entry Point
 All routes are in modular files under /routes/
 Shared infrastructure is in /core/
 """
-from fastapi import FastAPI, APIRouter, Request, Response
+from fastapi import FastAPI, APIRouter, Request, Response, Depends
 from fastapi.responses import FileResponse
+from core.deps import get_current_user
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -97,7 +98,7 @@ app.include_router(architect_router, prefix="/api")
 app.include_router(contractors_router, prefix="/api")
 
 @app.get("/api/reports/api-endpoints-pdf")
-async def download_api_report_pdf():
+async def download_api_report_pdf(user=Depends(get_current_user)):
     pdf_path = Path(__file__).parent / "static" / "api_report.pdf"
     if not pdf_path.exists():
         return Response(content='{"detail":"PDF not found"}', status_code=404, media_type="application/json")
