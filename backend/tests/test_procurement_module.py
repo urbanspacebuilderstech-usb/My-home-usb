@@ -17,7 +17,7 @@ import os
 import time
 from datetime import datetime
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://stage-popup.preview.emergentagent.com')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://crm-onboard-flow.preview.emergentagent.com')
 
 # Test credentials
 PROCUREMENT_EMAIL = "procurement@constructionos.com"

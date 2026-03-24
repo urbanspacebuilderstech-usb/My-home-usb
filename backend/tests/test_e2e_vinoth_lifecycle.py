@@ -15,7 +15,7 @@ import requests
 import os
 from typing import Optional
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://stage-popup.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://crm-onboard-flow.preview.emergentagent.com').rstrip('/')
 
 # Test Credentials
 TEST_CREDENTIALS = {

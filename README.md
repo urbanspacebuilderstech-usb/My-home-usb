@@ -80,8 +80,8 @@ Use Google OAuth with these demo emails:
 
 ## 🚀 Live URLs
 
-- Frontend: https://stage-popup.preview.emergentagent.com
-- Backend API: https://stage-popup.preview.emergentagent.com/api
+- Frontend: https://crm-onboard-flow.preview.emergentagent.com
+- Backend API: https://crm-onboard-flow.preview.emergentagent.com/api
 
 ## 📝 Key Files
 
