@@ -338,6 +338,9 @@ export default function PlanningBoard() {
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">
               All Projects<CountBadge count={newProjectCount} />
             </TabsTrigger>
+            <TabsTrigger value="packages_link" className="text-xs sm:text-sm bg-amber-50 text-amber-700 hover:bg-amber-100" data-testid="tab-packages" onClick={(e) => { e.preventDefault(); navigate('/packages'); }}>
+              <Package className="h-3 w-3 mr-1" />Packages
+            </TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">
               Requests<CountBadge count={requestCount} />
             </TabsTrigger>
