@@ -1,7 +1,7 @@
 # My Home USB - Product Requirements Document
 
 ## Original Problem Statement
-Construction CRM application with automated sales pipeline, project onboarding, and HR management.
+Construction CRM application with automated sales pipeline, project onboarding, HR management, and package-based estimation.
 
 ## Core Modules
 
@@ -10,42 +10,43 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - Follow-up system with date filtering
 - Site visit management (Client Land & Our Projects)
 - CRE-style "Convert to Project" popup
-- Lead management with Kanban board
 
-### 2. HR Admin Module (March 2026)
-**7 Tabs - Complete HR Management System:**
-- **Dashboard**: Active Employees, Total Users, Present/Late Today, Pending Leaves, Monthly Budget, Department Strength
-- **Employees**: Full CRUD with multi-section form (Personal, Employment, Documents, Address, Salary & Bank), View/Edit/Terminate, Document Upload
-- **Roles & Credentials**: Create User (link to employee), Edit Role, Reset Password, Delete User, Search/Filter by role
-- **Attendance Calendar**: Monthly grid with click-to-mark (P/PL/SL/CL/WFH/Halfday/A), Late Report view
-- **Leave Management**: Employee apply + HR approve/reject flow with PL(12)/SL(12)/CL(6)/WFH(24)
-- **Payroll**: Auto salary calculation from attendance (Basic+HRA+PA+FA - LOP/Loan/Late = Net Pay)
-- **Settings**: Company info, configurable department timings, annual leave limits
+### 2. HR Admin Module (7 Tabs)
+- Dashboard, Employees (full CRUD), Roles & Credentials
+- Attendance Calendar (click-to-mark), Leave Management
+- Payroll (auto salary calc), Settings (dept timings, leave limits)
 
-### 3. Financial Management
+### 3. Package Management (NEW - March 2026)
+- **Packages**: Create/Edit/Lock/Duplicate packages (2x2 card grid, max 4)
+  - Fields: Code, Name, Tag, Per Sq.ft Rate, Description
+  - Sub-items: Materials (with Brand dropdown), Scope, Labour
+- **Brands**: Inline creation, no approval needed (e.g., Zuari, Dalmia)
+- **Rough Estimates**: Per package, per floor config (G+1/G+2/G+3)
+  - Line items: S.No, Name, Unit, Amount, Qty, Total, Remarks
+  - Multiple estimates per package per floor config
+- **Lock & Duplicate**: Locked packages can only be duplicated (editable copy)
+- **Drag & Reorder**: Material lists support drag-and-drop reordering
+
+### 4. Financial Management
 - Income/Expense tracking, Cashbook, Vendor management
 
-### 4. Project Management
+### 5. Project Management
 - BOQ, Payments, Scope management
+- Package selection copies materials/estimates to project
 
-### 5. Operations
-- CRE Board, Planning, Work Orders, HR, Accounts
-
-## Tech Stack
-- Frontend: React + Shadcn/UI + Tailwind
-- Backend: FastAPI + MongoDB Atlas
-- Auth: Cookie-based sessions with bcrypt
-- Storage: Emergent Object Storage
-- Integrations: Google Sheets, Resend, Leaflet/OpenStreetMap, jsPDF
+### 6. Operations
+- CRE Board, Planning, Work Orders
 
 ## Key API Routes
-- `/api/hr/` - HR Admin module (hr.py) - Dashboard, Attendance, Leave, Payroll, Payslips, Settings
-- `/api/hr/staff` - Staff CRUD (operations.py)
-- `/api/hr/users` - User management (operations.py)
-- `/api/crm/` - CRM & Sales
-- `/api/operations/` - Operations
-- `/api/financial/` - Financial
-- `/api/projects/` - Projects
+- `/api/packages/` - Package CRUD (procurement.py)
+- `/api/packages/{id}/lock` - Lock package (packages.py)
+- `/api/packages/{id}/duplicate` - Duplicate package (packages.py)
+- `/api/brands` - Brand CRUD (packages.py)
+- `/api/rough-estimates` - Rough estimate CRUD (packages.py)
+- `/api/reorder/{type}/{id}` - Reorder items (packages.py)
+- `/api/projects/{id}/apply-package` - Apply package to project (packages.py)
+- `/api/hr/` - HR module (hr.py)
+- `/api/crm/` - CRM & Sales (crm.py)
 
 ## Completed Features
 - [x] Automated Project Onboarding Pipeline
@@ -54,18 +55,20 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] Site Visit Management
 - [x] API Report (PDF, secured)
 - [x] Security Audit
-- [x] HR Admin - Complete 7-tab module with all old + new features merged
+- [x] HR Admin Module (7 tabs, all old+new features)
+- [x] Package Management with Materials, Brands, Rough Estimates
+- [x] Drag & Reorder for material lists
 
 ## Upcoming Tasks (P1)
-- Sr. Engineer to Jr. Engineer Assignment
-- Two-Factor Authentication (2FA)
+- Project page: Select package -> populate materials & estimates
+- Sr. Engineer → Jr. Engineer Assignment
 - Refactor CRMSales.jsx (2000+ lines)
 - Refactor ProjectDetail.jsx (4000+ lines)
-- Aadhar Document Upload with encrypted storage
+- Drag & reorder for Scopes, Payment Stages, Labours (app-wide)
 
 ## Backlog (P2)
+- 2FA (Google Authenticator) - implement at deployment
+- Aadhar Document Upload
 - Cash Denomination feature
-- Comprehensive UI/UX review
-- SaaS model conversion
-- Production deployment guidance
+- UI/UX review, SaaS conversion
 - PRODUCTION: Disable demo-login, move rate limiting to MongoDB
