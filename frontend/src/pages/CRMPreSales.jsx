@@ -61,6 +61,10 @@ export default function CRMPreSales() {
   
   // Dialogs
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
+  
+  // Date filter
+  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);
   const [editLeadDialog, setEditLeadDialog] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
@@ -501,10 +505,34 @@ export default function CRMPreSales() {
       lead.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.phone?.includes(searchQuery);
     const matchesSource = !selectedSource || selectedSource === 'all' || lead.source === selectedSource;
-    return matchesStage && matchesSearch && matchesSource;
+    
+    // Date filter
+    let matchesDate = true;
+    if (dateFilter) {
+      const leadDate = lead.created_at ? lead.created_at.split('T')[0] : '';
+      const followupDates = (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date);
+      const nextFollowup = lead.next_followup_date || '';
+      
+      if (dateFilterEnd) {
+        const inRange = (d) => d >= dateFilter && d <= dateFilterEnd;
+        matchesDate = inRange(leadDate) || followupDates.some(d => inRange(d)) || inRange(nextFollowup);
+      } else {
+        matchesDate = leadDate === dateFilter || followupDates.includes(dateFilter) || nextFollowup === dateFilter;
+      }
+    }
+    
+    return matchesStage && matchesSearch && matchesSource && matchesDate;
+  }).sort((a, b) => {
+    const getDate = (lead) => {
+      const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
+      return fup || lead.created_at?.split('T')[0] || '9999';
+    };
+    return getDate(a).localeCompare(getDate(b));
   });
 
-  const getLeadsByStage = (stageId) => filteredLeads.filter(lead => lead.current_stage_id === stageId);
+  const getLeadsByStage = (stageId) => {
+    return filteredLeads.filter(lead => lead.current_stage_id === stageId);
+  };
   
   const getStageName = (stageId) => {
     const stage = stages.find(s => s.stage_id === stageId);
@@ -579,6 +607,45 @@ export default function CRMPreSales() {
               className="pl-10"
               data-testid="search-input"
             />
+          </div>
+          
+          {/* Date Filter */}
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+            <Calendar className="h-4 w-4 text-amber-600" />
+            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Date:</span>
+            <Input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="h-7 text-xs w-36 border-amber-300"
+              data-testid="presales-date-filter"
+            />
+            <span className="text-xs text-amber-500">to</span>
+            <Input
+              type="date"
+              value={dateFilterEnd}
+              onChange={(e) => setDateFilterEnd(e.target.value)}
+              className="h-7 text-xs w-36 border-amber-300"
+              data-testid="presales-date-end-filter"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100"
+              onClick={() => { setDateFilter(new Date().toISOString().split('T')[0]); setDateFilterEnd(''); }}
+              data-testid="presales-today-btn"
+            >
+              Today
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
+              onClick={() => { setDateFilter(''); setDateFilterEnd(''); }}
+              data-testid="presales-clear-date-btn"
+            >
+              <X className="h-3 w-3" />
+            </Button>
           </div>
           
           <Select value={selectedSource} onValueChange={setSelectedSource}>

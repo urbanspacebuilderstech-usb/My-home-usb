@@ -707,48 +707,33 @@ export default function CRMSales() {
   const getLeadsByStage = (stageId) => {
     let stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     
-    const dateFilterStages = ['stg_sales_followup', 'stg_site_visit', 'stg_sv_client_land', 'stg_sv_ongoing_project'];
-    
-    if (dateFilterStages.includes(stageId)) {
-      // Get the lead's relevant date based on stage type
-      const getLeadDate = (lead) => {
-        if (stageId === 'stg_sales_followup') {
-          return lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '';
+    // Date filter applies to ALL stages
+    if (followupDateFilter) {
+      stageLeads = stageLeads.filter(lead => {
+        const leadCreatedDate = lead.created_at ? lead.created_at.split('T')[0] : '';
+        // Follow-up dates
+        const followupDates = (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date);
+        const nextFollowup = lead.next_followup_date || '';
+        // Site visit date
+        const visitDate = lead.site_visit_data?.visit_date || '';
+        
+        if (followupDateEnd) {
+          const inRange = (d) => d && d >= followupDateFilter && d <= followupDateEnd;
+          return inRange(leadCreatedDate) || followupDates.some(d => inRange(d)) || inRange(nextFollowup) || inRange(visitDate);
         }
-        // Site visit stages
-        return lead.site_visit_data?.visit_date || '';
-      };
-      
-      // Filter by date (single date or range)
-      if (followupDateFilter) {
-        stageLeads = stageLeads.filter(lead => {
-          const leadDate = getLeadDate(lead);
-          if (!leadDate) return true; // show leads without dates
-          
-          if (stageId === 'stg_sales_followup') {
-            // For follow-ups, check all pending follow-up dates
-            const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
-            if (followupDateEnd) {
-              return pendingFollowups.some(f => f.scheduled_date >= followupDateFilter && f.scheduled_date <= followupDateEnd);
-            }
-            return pendingFollowups.some(f => f.scheduled_date === followupDateFilter);
-          }
-          
-          // For site visits
-          if (followupDateEnd) {
-            return leadDate >= followupDateFilter && leadDate <= followupDateEnd;
-          }
-          return leadDate === followupDateFilter;
-        });
-      }
-      
-      // Sort ascending by date
-      stageLeads.sort((a, b) => {
-        const aDate = getLeadDate(a) || '9999';
-        const bDate = getLeadDate(b) || '9999';
-        return aDate.localeCompare(bDate);
+        return leadCreatedDate === followupDateFilter || followupDates.includes(followupDateFilter) || nextFollowup === followupDateFilter || visitDate === followupDateFilter;
       });
     }
+    
+    // Sort ascending by relevant date (follow-up > site visit > created_at)
+    stageLeads.sort((a, b) => {
+      const getDate = (lead) => {
+        const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
+        const visit = lead.site_visit_data?.visit_date;
+        return fup || visit || lead.created_at?.split('T')[0] || '9999';
+      };
+      return getDate(a).localeCompare(getDate(b));
+    });
     
     return stageLeads;
   };
@@ -836,7 +821,7 @@ export default function CRMSales() {
             />
           </div>
           
-          {/* Date Filter (Follow-up & Site Visit) */}
+          {/* Date Filter (All Stages) */}
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
             <Calendar className="h-4 w-4 text-amber-600" />
             <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Date:</span>
@@ -865,17 +850,15 @@ export default function CRMSales() {
             >
               Today
             </Button>
-            {followupDateEnd && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
-                onClick={() => setFollowupDateEnd('')}
-                data-testid="clear-date-range-btn"
-              >
-                <XCircle className="h-3 w-3" />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
+              onClick={() => { setFollowupDateFilter(''); setFollowupDateEnd(''); }}
+              data-testid="clear-date-filter-btn"
+            >
+              <XCircle className="h-3 w-3" />
+            </Button>
           </div>
 
           {/* View Toggle */}
