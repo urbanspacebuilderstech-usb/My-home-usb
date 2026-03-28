@@ -1263,9 +1263,23 @@ async def assign_jr_engineer(lead_id: str, jr_engineer_id: str = None, user: Use
     )
     return {"message": f"Jr. Engineer {eng['name'] if eng else jr_engineer_id} assigned"}
 
+
+@router.get("/crm/jr-engineers")
+async def get_jr_engineers(user: User = Depends(get_current_user)):
+    """Get list of Jr. Engineers (site_engineer, planning roles) for assignment"""
+    if user.role not in [UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    engineers = await db.users.find(
+        {"role": {"$in": ["site_engineer", "planning"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1, "name": 1, "phone": 1, "email": 1, "role": 1}
+    ).to_list(100)
+    return engineers
+
 @router.post("/crm/leads/{lead_id}/complete-site-visit")
 async def complete_site_visit(lead_id: str, user: User = Depends(get_current_user)):
-    """Mark site visit as done and move to Site Visit Done stage"""
+    """Mark site visit as done - Jr. Engineer or Sr. Engineer can complete"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Engineers can mark visit done")
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -1328,7 +1342,14 @@ async def get_my_site_visits(user: User = Depends(get_current_user)):
             "visit_date": visit_date,
             "visit_status": sv.get("visit_status", "scheduled"),
             "project_name": sv.get("project_name"),
-            "notes": sv.get("notes")
+            "notes": sv.get("notes"),
+            "sr_engineer_id": sv.get("sr_engineer_id"),
+            "sr_engineer_name": sv.get("sr_engineer_name"),
+            "jr_engineer_id": sv.get("jr_engineer_id"),
+            "jr_engineer_name": sv.get("jr_engineer_name"),
+            "jr_engineer_phone": sv.get("jr_engineer_phone"),
+            "current_stage_id": lead.get("current_stage_id"),
+            "assigned_to_me_as": "sr" if sv.get("sr_engineer_id") == user.user_id else ("jr" if sv.get("jr_engineer_id") == user.user_id else "other")
         }
         
         if visit_date == today_str:

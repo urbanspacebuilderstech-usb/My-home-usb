@@ -561,9 +561,12 @@ export default function SiteEngineerDashboard() {
 
         {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="projects" className="gap-2">
               <Building2 className="h-4 w-4" /> Projects
+            </TabsTrigger>
+            <TabsTrigger value="sitevisits" className="gap-2" data-testid="tab-site-visits">
+              <MapPin className="h-4 w-4" /> Site Visits
             </TabsTrigger>
             <TabsTrigger value="workorders" className="gap-2">
               <ClipboardList className="h-4 w-4" /> Work Orders
@@ -585,6 +588,11 @@ export default function SiteEngineerDashboard() {
               <Receipt className="h-4 w-4" /> Mini Cashbook
             </TabsTrigger>
           </TabsList>
+
+          {/* Site Visits Tab */}
+          <TabsContent value="sitevisits" className="mt-4">
+            <SiteVisitsSection user={user} />
+          </TabsContent>
 
           {/* Projects Tab */}
           <TabsContent value="projects" className="mt-4">
@@ -1068,6 +1076,178 @@ export default function SiteEngineerDashboard() {
         </DialogContent>
       </Dialog>
       <MobileBottomNav user={user} />
+    </div>
+  );
+}
+
+
+// ============ SITE VISITS SECTION ============
+function SiteVisitsSection({ user }) {
+  const [visits, setVisits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [jrEngineers, setJrEngineers] = useState([]);
+  const [assignDialog, setAssignDialog] = useState(false);
+  const [selectedVisit, setSelectedVisit] = useState(null);
+  const [selectedJrId, setSelectedJrId] = useState('');
+
+  useEffect(() => { fetchVisits(); fetchJrEngineers(); }, []);
+
+  const fetchVisits = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${API}/crm/my-site-visits`);
+      setVisits(res.data || []);
+    } catch (e) { console.error(e); } finally { setLoading(false); }
+  };
+
+  const fetchJrEngineers = async () => {
+    try {
+      const res = await axios.get(`${API}/crm/jr-engineers`);
+      setJrEngineers(res.data || []);
+    } catch { /* silent - may not have permission */ }
+  };
+
+  const handleAssignJr = async () => {
+    if (!selectedJrId) { toast.error('Select a Jr. Engineer'); return; }
+    try {
+      await axios.post(`${API}/crm/leads/${selectedVisit.lead_id}/assign-jr-engineer?jr_engineer_id=${selectedJrId}`);
+      toast.success('Jr. Engineer assigned');
+      setAssignDialog(false);
+      fetchVisits();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleMarkDone = async (leadId) => {
+    if (!confirm('Mark this site visit as done?')) return;
+    try {
+      await axios.post(`${API}/crm/leads/${leadId}/complete-site-visit`);
+      toast.success('Visit marked as done');
+      fetchVisits();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const isSr = user?.role === 'sr_site_engineer' || user?.role === 'super_admin';
+  const pendingVisits = visits.filter(v => v.visit_status !== 'completed');
+  const completedVisits = visits.filter(v => v.visit_status === 'completed');
+
+  if (loading) return <div className="flex justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-amber-600" /></div>;
+
+  return (
+    <div className="space-y-4">
+      {visits.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Site Visits Assigned</h3>
+            <p className="text-sm text-gray-600">You don't have any site visits assigned yet.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {pendingVisits.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2"><Clock className="h-4 w-4" /> Pending Visits ({pendingVisits.length})</h3>
+              <div className="space-y-3">
+                {pendingVisits.map(v => (
+                  <Card key={v.lead_id} className="border-l-4 border-l-amber-500" data-testid={`visit-card-${v.lead_id}`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="space-y-1">
+                          <h4 className="font-bold text-gray-900">{v.client_name}</h4>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge className={v.visit_type === 'client_land' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>{v.visit_type === 'client_land' ? 'Client Land' : 'Our Project'}</Badge>
+                            {v.visit_date && <Badge variant="outline"><Clock className="h-3 w-3 mr-1" />{new Date(v.visit_date).toLocaleDateString('en-IN')}</Badge>}
+                          </div>
+                          {v.client_phone && <p className="text-sm text-gray-600">Phone: {v.client_phone}</p>}
+                          {v.location && <p className="text-sm text-gray-500 flex items-center gap-1"><MapPin className="h-3 w-3" />{v.location}</p>}
+                          {v.project_name && <p className="text-sm text-gray-500">Project: {v.project_name}</p>}
+                          {v.notes && <p className="text-sm text-gray-400 mt-1">{v.notes}</p>}
+
+                          {/* Jr Engineer info */}
+                          {v.jr_engineer_name && (
+                            <div className="mt-2 p-2 bg-blue-50 rounded-lg text-sm">
+                              <span className="font-medium text-blue-700">Assigned to Jr: {v.jr_engineer_name}</span>
+                              {v.jr_engineer_phone && <span className="text-blue-600 ml-2">({v.jr_engineer_phone})</span>}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {/* Sr. Engineer: Assign Jr. Engineer button */}
+                          {isSr && !v.jr_engineer_id && (
+                            <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => { setSelectedVisit(v); setSelectedJrId(''); setAssignDialog(true); }} data-testid={`assign-jr-${v.lead_id}`}>
+                              <Users className="h-4 w-4 mr-1" /> Assign Jr.
+                            </Button>
+                          )}
+                          {/* Jr. Engineer: Mark Done button */}
+                          {(v.assigned_to_me_as === 'jr' || (!v.jr_engineer_id && v.assigned_to_me_as === 'sr')) && (
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleMarkDone(v.lead_id)} data-testid={`mark-done-${v.lead_id}`}>
+                              <CheckCircle className="h-4 w-4 mr-1" /> Mark Done
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {completedVisits.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2"><CheckCircle className="h-4 w-4 text-green-500" /> Completed ({completedVisits.length})</h3>
+              <div className="space-y-2">
+                {completedVisits.map(v => (
+                  <Card key={v.lead_id} className="border-l-4 border-l-green-500 opacity-70" data-testid={`done-card-${v.lead_id}`}>
+                    <CardContent className="p-3 flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-700">{v.client_name}</p>
+                        <div className="flex gap-2 text-xs text-gray-500">
+                          <span>{v.visit_type === 'client_land' ? 'Client Land' : 'Our Project'}</span>
+                          {v.jr_engineer_name && <span>| Jr: {v.jr_engineer_name}</span>}
+                        </div>
+                      </div>
+                      <Badge className="bg-green-100 text-green-700">Done</Badge>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Assign Jr. Engineer Dialog */}
+      <Dialog open={assignDialog} onOpenChange={setAssignDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign Jr. Engineer</DialogTitle>
+            <DialogDescription>Assign a Jr. Engineer for visit to {selectedVisit?.client_name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-gray-50 rounded-lg text-sm">
+              <p className="font-medium">{selectedVisit?.client_name}</p>
+              <p className="text-gray-500">{selectedVisit?.visit_type === 'client_land' ? 'Client Land Visit' : 'Our Project Visit'}</p>
+              {selectedVisit?.location && <p className="text-gray-500">{selectedVisit.location}</p>}
+            </div>
+            <div>
+              <Label>Select Jr. Engineer *</Label>
+              <Select value={selectedJrId} onValueChange={setSelectedJrId}>
+                <SelectTrigger data-testid="select-jr-engineer"><SelectValue placeholder="Choose Jr. Engineer..." /></SelectTrigger>
+                <SelectContent>
+                  {jrEngineers.map(e => (
+                    <SelectItem key={e.user_id} value={e.user_id}>{e.name} ({e.role?.replace(/_/g, ' ')}){e.phone ? ` - ${e.phone}` : ''}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignDialog(false)}>Cancel</Button>
+            <Button onClick={handleAssignJr} className="bg-blue-600 hover:bg-blue-700" data-testid="confirm-assign-jr">Assign</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
