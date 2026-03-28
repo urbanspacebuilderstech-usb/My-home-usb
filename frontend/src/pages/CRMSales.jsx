@@ -113,10 +113,12 @@ export default function CRMSales() {
   
   // Follow-up date filter
   const [followupDateFilter, setFollowupDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [followupDateEnd, setFollowupDateEnd] = useState('');
   const [followupDialog, setFollowupDialog] = useState(false);
   const [followupLeadId, setFollowupLeadId] = useState(null);
   const [followupDate, setFollowupDate] = useState('');
   const [followupNote, setFollowupNote] = useState('');
+  const [followupPendingStageId, setFollowupPendingStageId] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -181,6 +183,16 @@ export default function CRMSales() {
           openConvertDealFromSales(lead);
           return;
         }
+      }
+      
+      // Intercept: Show follow-up date dialog for "Follow-up"
+      if (stage?.stage_id === 'stg_sales_followup') {
+        setFollowupLeadId(leadId);
+        setFollowupPendingStageId(newStageId);
+        setFollowupDate(new Date().toISOString().split('T')[0]);
+        setFollowupNote('');
+        setFollowupDialog(true);
+        return;
       }
       
       // Intercept: Show Sr. Engineer assignment popup for "Site Visit (Client Land)"
@@ -359,11 +371,20 @@ export default function CRMSales() {
         scheduled_date: followupDate,
         note: followupNote || 'Follow-up scheduled'
       });
-      toast.success('Follow-up scheduled');
+      
+      // If triggered by stage move, also move the lead
+      if (followupPendingStageId) {
+        await axios.patch(`${API}/crm/leads/${followupLeadId}/stage`, { stage_id: followupPendingStageId });
+        toast.success('Follow-up scheduled & lead moved');
+      } else {
+        toast.success('Follow-up scheduled');
+      }
+      
       setFollowupDialog(false);
       setFollowupLeadId(null);
       setFollowupDate('');
       setFollowupNote('');
+      setFollowupPendingStageId(null);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
@@ -686,17 +707,45 @@ export default function CRMSales() {
   const getLeadsByStage = (stageId) => {
     let stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     
-    // For Follow-up stage: filter by selected date and sort ascending by follow-up date
-    if (stageId === 'stg_sales_followup') {
+    const dateFilterStages = ['stg_sales_followup', 'stg_site_visit', 'stg_sv_client_land', 'stg_sv_ongoing_project'];
+    
+    if (dateFilterStages.includes(stageId)) {
+      // Get the lead's relevant date based on stage type
+      const getLeadDate = (lead) => {
+        if (stageId === 'stg_sales_followup') {
+          return lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '';
+        }
+        // Site visit stages
+        return lead.site_visit_data?.visit_date || '';
+      };
+      
+      // Filter by date (single date or range)
       if (followupDateFilter) {
         stageLeads = stageLeads.filter(lead => {
-          const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
-          return pendingFollowups.some(f => f.scheduled_date === followupDateFilter);
+          const leadDate = getLeadDate(lead);
+          if (!leadDate) return true; // show leads without dates
+          
+          if (stageId === 'stg_sales_followup') {
+            // For follow-ups, check all pending follow-up dates
+            const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
+            if (followupDateEnd) {
+              return pendingFollowups.some(f => f.scheduled_date >= followupDateFilter && f.scheduled_date <= followupDateEnd);
+            }
+            return pendingFollowups.some(f => f.scheduled_date === followupDateFilter);
+          }
+          
+          // For site visits
+          if (followupDateEnd) {
+            return leadDate >= followupDateFilter && leadDate <= followupDateEnd;
+          }
+          return leadDate === followupDateFilter;
         });
       }
+      
+      // Sort ascending by date
       stageLeads.sort((a, b) => {
-        const aDate = a.next_followup_date || a.follow_ups?.filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '9999';
-        const bDate = b.next_followup_date || b.follow_ups?.filter(f => !f.completed).map(f => f.scheduled_date).sort()[0] || '9999';
+        const aDate = getLeadDate(a) || '9999';
+        const bDate = getLeadDate(b) || '9999';
         return aDate.localeCompare(bDate);
       });
     }
@@ -787,10 +836,10 @@ export default function CRMSales() {
             />
           </div>
           
-          {/* Follow-up Date Filter */}
+          {/* Date Filter (Follow-up & Site Visit) */}
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
             <Calendar className="h-4 w-4 text-amber-600" />
-            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Follow-up:</span>
+            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Date:</span>
             <Input
               type="date"
               value={followupDateFilter}
@@ -798,15 +847,35 @@ export default function CRMSales() {
               className="h-7 text-xs w-36 border-amber-300"
               data-testid="followup-date-filter"
             />
+            <span className="text-xs text-amber-500">to</span>
+            <Input
+              type="date"
+              value={followupDateEnd}
+              onChange={(e) => setFollowupDateEnd(e.target.value)}
+              className="h-7 text-xs w-36 border-amber-300"
+              placeholder="End date"
+              data-testid="followup-date-end-filter"
+            />
             <Button
               variant="ghost"
               size="sm"
               className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100"
-              onClick={() => setFollowupDateFilter(new Date().toISOString().split('T')[0])}
+              onClick={() => { setFollowupDateFilter(new Date().toISOString().split('T')[0]); setFollowupDateEnd(''); }}
               data-testid="followup-today-btn"
             >
               Today
             </Button>
+            {followupDateEnd && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
+                onClick={() => setFollowupDateEnd('')}
+                data-testid="clear-date-range-btn"
+              >
+                <XCircle className="h-3 w-3" />
+              </Button>
+            )}
           </div>
 
           {/* View Toggle */}
@@ -1088,7 +1157,7 @@ export default function CRMSales() {
                         )}
                         
                         {/* Site Visit info */}
-                        {lead.site_visit_data && ['stg_sv_client_land', 'stg_sv_ongoing_project', 'stg_sv_done'].includes(lead.current_stage_id) && (
+                        {lead.site_visit_data && ['stg_site_visit', 'stg_sv_client_land', 'stg_sv_ongoing_project', 'stg_sv_done'].includes(lead.current_stage_id) && (
                           <div className="mt-1 p-2 rounded bg-purple-50 border border-purple-200 text-xs">
                             {lead.site_visit_data.sr_engineer_name && (
                               <p className="text-purple-700"><span className="font-medium">Engineer:</span> {lead.site_visit_data.sr_engineer_name}</p>
@@ -1099,7 +1168,14 @@ export default function CRMSales() {
                             {lead.site_visit_data.project_name && (
                               <p className="text-gray-600"><span className="font-medium">Project:</span> {lead.site_visit_data.project_name}</p>
                             )}
-                            <p className="text-gray-500 mt-0.5">{lead.site_visit_data.visit_date}</p>
+                            {lead.site_visit_data.visit_date && (
+                              <div className={`flex items-center gap-1 mt-0.5 ${
+                                lead.site_visit_data.visit_date <= new Date().toISOString().split('T')[0] ? 'text-red-600 font-medium' : 'text-gray-500'
+                              }`}>
+                                <Calendar className="h-3 w-3" />
+                                {new Date(lead.site_visit_data.visit_date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </div>
+                            )}
                           </div>
                         )}
                         
@@ -1980,10 +2056,13 @@ export default function CRMSales() {
       </Dialog>
 
       {/* Schedule Follow-up Dialog */}
-      <Dialog open={followupDialog} onOpenChange={setFollowupDialog}>
+      <Dialog open={followupDialog} onOpenChange={(open) => { setFollowupDialog(open); if (!open) setFollowupPendingStageId(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-600"><Calendar className="h-5 w-5" />Schedule Follow-up</DialogTitle>
+            {followupPendingStageId && (
+              <DialogDescription>Set a follow-up date before moving the lead</DialogDescription>
+            )}
           </DialogHeader>
           <div className="space-y-4">
             <div>

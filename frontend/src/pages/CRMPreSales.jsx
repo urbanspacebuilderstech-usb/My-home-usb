@@ -526,7 +526,7 @@ export default function CRMPreSales() {
 
       <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
           <Card className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-0">
             <CardContent className="p-4">
               <p className="text-indigo-100 text-sm">Total Leads</p>
@@ -549,6 +549,23 @@ export default function CRMPreSales() {
               </CardContent>
             </Card>
           ))}
+          
+          {/* Appointment Booked Card */}
+          <Card 
+            className="cursor-pointer hover:shadow-md transition-shadow bg-green-50 border-green-300"
+            onClick={() => setActiveStage(stages.find(s => s.name === 'Appointment Booked')?.stage_id || 'stg_appointment')}
+            data-testid="appointment-booked-card"
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Calendar className="h-4 w-4 text-green-600" />
+                <p className="text-xs text-green-600 font-medium">Appointment Booked</p>
+              </div>
+              <p className="text-2xl font-bold text-green-700">
+                {dashboard?.stages?.find(s => s.name === 'Appointment Booked')?.lead_count || 0}
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Search & Filters + View Toggle */}
