@@ -5,51 +5,42 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 
 ## Core Modules
 
-### 1. CRM & Sales Pipeline
-- Automated multi-stage onboarding pipeline
-- Follow-up system with date filtering (ascending sort, date range)
-- Follow-up stage intercept: Date picker shown when moving leads
-- Date filter applies to ALL stages. Defaults to today, supports date range
-- Site visit management with ascending date sort
-- Sr. to Jr. Engineer Assignment
-- RE Revision Flow: Duplicate-based (RE0→RE1→RE2), GM lock
-- Auto-notifications on project onboarding
+### 1. CRM & Sales Pipeline (16 Stages)
+1. New Appointment → 2. Follow-up (date+reason, ascending) → 3. Discussion (remarks popup) → 4. Site Visit → 5. Site Visit (Client Land) (Sr. Engineer popup) → 6. Site Visit (Our Projects) (project popup) → 7. Site Visit Done → 8. Rough Estimate Requested → 9. RE - From Planning (auto on GM approval) → 10. RE - To Client (remarks) → 11. Negotiation → 12. Deal Closed (remarks) → 13. Payment Collect (advance popup) → 14. Accountant Approval (locked) → 15. Project Onboarded (auto-move only) → 16. Lost (reason required)
 
-### 2. Pre-Sales Board
-- **RNR Auto-Redistribution**: Leads in RNR stage for 14+ days (from creation) auto-move to "New RNR Leads" stage
-- **Round-Robin Distribution**: Stale RNR leads split among all pre-sales team members
-- Appointment Booked card in top stats
-- Date filter for ALL stages (from-to range, Today, Clear)
-- Ascending sort by date across all stages
+- **Phone Masking**: Sales/Pre-Sales/CRE see full numbers; other roles see masked
+- **RE Revision Flow**: Duplicate-based (RE0→RE1→RE2), GM lock, revision request
+- **Auto-blocks**: Project Onboarded & RE-From Planning cannot be moved manually
+- Date filter (from-to range) with ascending sort across ALL stages
+
+### 2. Pre-Sales Board (7 Stages)
+- New Lead → Contacted → RNR → **New RNR Leads** (auto 14-day redistribution) → Portfolio sent → Follow-up → Appointment Booked
+- **RNR Auto-Redistribution**: Round-robin among all pre-sales team
+- Date filter for ALL stages, Appointment Booked card
 
 ### 3. HR Admin Module (7 Tabs)
-- Dashboard, Employees (CRUD), Roles & Credentials
-- Attendance Calendar, Leave Management, Payroll, Settings
+- Dashboard, Employees, Roles, Attendance, Leave, Payroll, Settings
 
 ### 4. Package Management
 - Packages, Materials, Brands, Rough Estimates, Drag-and-Drop
 
 ## Completed Features
-- [x] Automated Project Onboarding Pipeline
-- [x] Sales Follow-up with date intercept, ascending sort, date range
-- [x] Site Visit Management with date sort & filtering
-- [x] Pre-Sales Appointment Booked card
-- [x] Pre-Sales date filter for all stages
-- [x] **RNR Auto-Redistribution (14 days, round-robin)**
-- [x] **New RNR Leads stage with redistribution badge**
-- [x] HR Admin Module (7 tabs)
-- [x] Package Management
-- [x] Sr. to Jr. Engineer Assignment
-- [x] RE Revision Duplication Flow
-- [x] RE Lock after GM Approval
-- [x] Auto-Notification on Project Onboarding
+- [x] Complete 16-stage Sales pipeline with intercepts
+- [x] Phone number masking for non-sales roles
+- [x] Stage remarks (Discussion, Deal Closed, RE-To Client)
+- [x] Lost stage with required reason
+- [x] Auto-blocks (Project Onboarded, RE-From Planning)
+- [x] RE revision duplication, GM lock, auto-notifications
+- [x] Pre-Sales RNR auto-redistribution (14-day, round-robin)
+- [x] Date filter (range) + ascending sort for all stages
+- [x] HR Admin, Package Management, Site Visit workflow
 
 ## Upcoming Tasks (P1)
-- Project page: Select package → populate materials & estimates, drag-and-drop
-- Refactor CRMSales.jsx (2000+ lines) and ProjectDetail.jsx (4000+ lines)
+- CRE Board: New projects on onboard → move to Planning
+- Project page: Select package → populate materials
+- Refactor CRMSales.jsx & ProjectDetail.jsx
 
 ## Backlog (P2)
-- 2FA (Google Authenticator) - at deployment
+- 2FA (Google Auth) at deployment
 - Aadhar Document Upload
-- Cash Denomination, UI/UX review, SaaS conversion
-- PRODUCTION: Disable demo-login, MongoDB rate limiting
+- Disable demo-login, MongoDB rate limiting
