@@ -5,7 +5,8 @@ import {
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
-  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard
+  ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
+  GitBranch
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -434,6 +435,7 @@ export default function ProjectDetail() {
   
   // Rough Estimate state
   const [reProject, setReProject] = useState(null);
+  const [reRevisions, setReRevisions] = useState([]);
   const [projectFiles, setProjectFiles] = useState([]);
   const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
   const [teamData, setTeamData] = useState({ project_manager: null, sr_site_engineers: [], site_engineers: [] });
@@ -530,6 +532,15 @@ export default function ProjectDetail() {
         try {
           const reRes = await axios.get(`${API}/crm/re-projects/${projectRes.data.project.re_project_id}`);
           setReProject(reRes.data);
+          // Load all revisions
+          if (reRes.data.parent_re_number) {
+            try {
+              const revRes = await axios.get(`${API}/crm/re-projects/by-number/${reRes.data.parent_re_number}`);
+              setReRevisions(revRes.data || []);
+            } catch { setReRevisions([reRes.data]); }
+          } else {
+            setReRevisions([reRes.data]);
+          }
         } catch (e) { /* RE project not available */ }
       }
     } catch (error) {
@@ -1616,8 +1627,55 @@ export default function ProjectDetail() {
                 )}
               </div>
               
+              {/* Revision Tabs */}
+              {reRevisions.length > 1 && (
+                <div className="flex items-center gap-1.5 flex-wrap mb-4 border-b pb-3" data-testid="project-re-revision-tabs">
+                  {reRevisions.map((rev) => {
+                    const isActive = rev.re_project_id === reProject?.re_project_id;
+                    const isApproved = ['client_approved', 're_approved'].includes(rev.status);
+                    const isDimmed = !isActive && !isApproved;
+                    return (
+                      <button
+                        key={rev.re_project_id}
+                        data-testid={`project-re-tab-${rev.revision}`}
+                        onClick={() => setReProject(rev)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
+                          isActive
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                            : isApproved
+                              ? 'bg-green-100 text-green-800 border-green-300 ring-1 ring-green-400'
+                              : isDimmed
+                                ? 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
+                                : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                        }`}
+                      >
+                        <GitBranch className="inline h-3 w-3 mr-1" />
+                        RE{rev.revision}
+                        {isApproved && <CheckCircle2 className="inline h-3 w-3 ml-1 text-green-600" />}
+                      </button>
+                    );
+                  })}
+                  <span className="text-xs text-gray-400 ml-2">
+                    {reRevisions.length} revision{reRevisions.length > 1 ? 's' : ''} — Approved version highlighted in green
+                  </span>
+                </div>
+              )}
+              
               {reProject ? (
                 <div className="space-y-4">
+                  {/* Revision Badge */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {reProject.re_number && (
+                      <span className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">{reProject.re_number}</span>
+                    )}
+                    <Badge className="text-[10px] bg-gray-100 text-gray-600 border-gray-200">
+                      <GitBranch className="h-3 w-3 mr-0.5" /> RE{reProject.revision || 0}
+                    </Badge>
+                    <Badge className={reProject.status === 'converted' ? 'bg-green-100 text-green-700' : reProject.status === 'client_approved' ? 'bg-emerald-100 text-emerald-700' : reProject.status === 're_approved' ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-700'}>
+                      {reProject.status?.replace(/_/g, ' ')}
+                    </Badge>
+                  </div>
+                  
                   {/* RE Project Overview */}
                   <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1650,12 +1708,6 @@ export default function ProjectDetail() {
                       <div>
                         <p className="text-xs text-gray-500">Handover Timeline</p>
                         <p className="font-medium">{reProject.handover_months || '-'} months</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-500">Status</p>
-                        <Badge className={reProject.status === 'converted' ? 'bg-green-100 text-green-700' : 'bg-amber-50 text-amber-700'}>
-                          {reProject.status}
-                        </Badge>
                       </div>
                     </div>
                   </div>

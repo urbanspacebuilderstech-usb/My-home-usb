@@ -54,6 +54,7 @@ export default function CRMSales() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [reProjectDialog, setReProjectDialog] = useState(false);
   const [selectedREProject, setSelectedREProject] = useState(null);
+  const [reRevisions, setReRevisions] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', address: '', city: '', state: '', notes: '' });
   const [summary, setSummary] = useState('');
@@ -234,6 +235,15 @@ export default function CRMSales() {
       const res = await axios.get(`${API}/crm/re-projects/${reProjectId}`);
       setSelectedREProject(res.data);
       setReProjectDialog(true);
+      // Load all revisions for this RE number
+      if (res.data.parent_re_number) {
+        try {
+          const revRes = await axios.get(`${API}/crm/re-projects/by-number/${res.data.parent_re_number}`);
+          setReRevisions(revRes.data || []);
+        } catch { setReRevisions([res.data]); }
+      } else {
+        setReRevisions([res.data]);
+      }
     } catch (error) {
       toast.error('Failed to load RE project');
     }
@@ -284,6 +294,21 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
+    }
+  };
+
+  // Request Revision
+  const handleRequestRevision = async () => {
+    if (!selectedREProject) return;
+    const reason = window.prompt('Reason for requesting revision (optional):');
+    if (reason === null) return; // user cancelled
+    try {
+      await axios.post(`${API}/crm/re-projects/${selectedREProject.re_project_id}/request-revision`, { reason });
+      toast.success('Revision requested. Planning team notified.');
+      setSelectedREProject({ ...selectedREProject, revision_requested: true });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request revision');
     }
   };
 
@@ -1379,6 +1404,36 @@ export default function CRMSales() {
           
           {selectedREProject && (
             <div className="space-y-4">
+              {/* Revision Tabs */}
+              {reRevisions.length > 1 && (
+                <div className="flex items-center gap-1.5 flex-wrap border-b pb-3" data-testid="re-revision-tabs">
+                  {reRevisions.map((rev) => {
+                    const isActive = rev.re_project_id === selectedREProject.re_project_id;
+                    const isApproved = ['client_approved', 're_approved'].includes(rev.status);
+                    const isDimmed = !isActive && !isApproved;
+                    return (
+                      <button
+                        key={rev.re_project_id}
+                        data-testid={`re-revision-tab-${rev.revision}`}
+                        onClick={() => setSelectedREProject(rev)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
+                          isActive
+                            ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                            : isApproved
+                              ? 'bg-green-100 text-green-800 border-green-300 ring-1 ring-green-400'
+                              : isDimmed
+                                ? 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
+                                : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                        }`}
+                      >
+                        RE{rev.revision}
+                        {isApproved && <CheckCircle className="inline h-3 w-3 ml-1" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              
               {/* Status Badge + RE Number */}
               <div className="flex items-center gap-2 flex-wrap">
                 {selectedREProject.re_number && (
@@ -1394,6 +1449,9 @@ export default function CRMSales() {
                     {React.createElement(RE_STATUS_CONFIG[selectedREProject.status].icon, { className: "h-3 w-3 mr-1" })}
                     {RE_STATUS_CONFIG[selectedREProject.status].label}
                   </Badge>
+                )}
+                {selectedREProject.revision_requested && (
+                  <Badge className="bg-amber-100 text-amber-700 text-[10px]">Revision Requested</Badge>
                 )}
               </div>
               
@@ -1528,6 +1586,30 @@ export default function CRMSales() {
                 </div>
               )}
               
+              {/* Client Feedback Notes */}
+              {selectedREProject.client_feedback_notes && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                  <Label className="text-xs text-orange-600">Client Feedback</Label>
+                  <p className="text-sm text-orange-700">{selectedREProject.client_feedback_notes}</p>
+                </div>
+              )}
+              
+              {/* Previous Client Feedback (on revisions) */}
+              {selectedREProject.previous_client_feedback && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <Label className="text-xs text-blue-600">Feedback from Previous Revision</Label>
+                  <p className="text-sm text-blue-700">{selectedREProject.previous_client_feedback}</p>
+                </div>
+              )}
+              
+              {/* Revision Reason */}
+              {selectedREProject.revision_reason && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <Label className="text-xs text-amber-600">Revision Reason</Label>
+                  <p className="text-sm text-amber-700">{selectedREProject.revision_reason}</p>
+                </div>
+              )}
+              
               {/* Timestamps */}
               <div className="text-xs text-gray-400 flex flex-wrap gap-4">
                 <span>Created: {new Date(selectedREProject.created_at).toLocaleString()}</span>
@@ -1541,11 +1623,16 @@ export default function CRMSales() {
             </div>
           )}
           
-          <DialogFooter className="flex gap-2">
+          <DialogFooter className="flex gap-2 flex-wrap">
             {selectedREProject?.status === 're_approved' && (
-              <Button onClick={handleSendToClient} className="bg-blue-600 hover:bg-blue-700" data-testid="send-to-client-btn">
-                <Send className="h-4 w-4 mr-1" /> Send to Client
-              </Button>
+              <>
+                <Button onClick={handleSendToClient} className="bg-blue-600 hover:bg-blue-700" data-testid="send-to-client-btn">
+                  <Send className="h-4 w-4 mr-1" /> Send to Client
+                </Button>
+                <Button onClick={handleRequestRevision} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" data-testid="request-revision-btn">
+                  <GitBranch className="h-4 w-4 mr-1" /> Request Revision
+                </Button>
+              </>
             )}
             {selectedREProject?.status === 'sent_to_client' && (
               <>
@@ -1554,6 +1641,9 @@ export default function CRMSales() {
                 </Button>
                 <Button onClick={handleClientApprove} className="bg-green-600 hover:bg-green-700" data-testid="client-approve-btn">
                   <CheckCircle className="h-4 w-4 mr-1" /> Client Approved
+                </Button>
+                <Button onClick={handleRequestRevision} variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50" data-testid="request-revision-sent-btn">
+                  <GitBranch className="h-4 w-4 mr-1" /> Request Revision
                 </Button>
               </>
             )}

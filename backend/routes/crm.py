@@ -935,6 +935,20 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
             }}
         )
     
+    # Auto-notify Planning and CRE about new onboarded project
+    for target in ["all_planning", "all_cre", "all_sales"]:
+        notif = {
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": target,
+            "title": "New Project Onboarded",
+            "message": f"'{lead['name']}' is now onboarded. Advance verified by accountant. Ready for Planning handoff.",
+            "type": "project_onboarded",
+            "reference_id": lead_id,
+            "is_read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notif)
+    
     return {"message": "Advance payment verified by accountant"}
 
 
@@ -1234,7 +1248,7 @@ async def assign_site_visit(lead_id: str, data: AssignSiteVisitInput, user: User
         }
         await db.notifications.insert_one(notification)
     
-    return {"message": f"Site visit assigned", "stage": target_stage, "site_visit_data": site_visit_data}
+    return {"message": "Site visit assigned", "stage": target_stage, "site_visit_data": site_visit_data}
 
 @router.post("/crm/leads/{lead_id}/assign-jr-engineer")
 async def assign_jr_engineer(lead_id: str, jr_engineer_id: str = None, user: User = Depends(get_current_user)):
@@ -2069,6 +2083,11 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
     
+    # Lock RE after GM approval - only super_admin can override
+    locked_statuses = ["re_approved", "sent_to_client", "client_feedback", "client_approved", "deal_closed", "converted"]
+    if project["status"] in locked_statuses and user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=400, detail="RE is locked after GM approval. Request a revision instead.")
+    
     update = {"updated_at": datetime.now(timezone.utc)}
     changes = []
     
@@ -2364,17 +2383,64 @@ async def client_approve_re(re_project_id: str, user: User = Depends(get_current
     return {"message": "RE marked as client-approved. Ready for deal closure."}
 
 
+class RevisionRequest(BaseModel):
+    reason: Optional[str] = None
+
+@router.post("/crm/re-projects/{re_project_id}/request-revision")
+async def request_re_revision(re_project_id: str, data: RevisionRequest = RevisionRequest(), user: User = Depends(get_current_user)):
+    """Sales/CRE requests a revision on an RE - notifies Planning to create the duplicate"""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales/CRE access required")
+    
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    
+    allowed = ["re_approved", "sent_to_client", "client_feedback"]
+    if project["status"] not in allowed:
+        raise HTTPException(status_code=400, detail="RE must be approved or sent to client to request revision")
+    
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "revision_requested": True,
+            "revision_requested_by": user_doc.get("name", "Unknown") if user_doc else "Unknown",
+            "revision_requested_at": datetime.now(timezone.utc),
+            "revision_reason": data.reason or "",
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+    
+    # Notify Planning
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_planning",
+        "title": "Revision Requested",
+        "message": f"Sales requested revision for '{project.get('project_name', project['client_name'])}' (RE{project.get('revision', 0)}). Reason: {data.reason or 'No reason specified'}",
+        "type": "re_revision_requested",
+        "reference_id": re_project_id,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notification)
+    
+    return {"message": "Revision requested. Planning team has been notified."}
+
+
 @router.post("/crm/re-projects/{re_project_id}/create-revision")
 async def create_re_revision(re_project_id: str, user: User = Depends(get_current_user)):
-    """Planning creates a new revision (RE1, RE2...) from an existing RE with client feedback"""
+    """Planning creates a new revision (RE1, RE2...) by duplicating the current RE"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
-    if project["status"] != "client_feedback":
-        raise HTTPException(status_code=400, detail="Can only create revision from RE with client feedback")
+    
+    allowed_for_revision = ["client_feedback", "re_approved", "sent_to_client"]
+    if project["status"] not in allowed_for_revision and not project.get("revision_requested"):
+        raise HTTPException(status_code=400, detail="RE must have client feedback or a revision request to create a new revision")
     
     parent_re_number = project.get("parent_re_number") or project.get("re_number")
     
@@ -2384,7 +2450,7 @@ async def create_re_revision(re_project_id: str, user: User = Depends(get_curren
     ).sort("revision", -1).limit(1).to_list(1)
     next_revision = (highest[0]["revision"] + 1) if highest else 1
     
-    # Create new revision - copy from previous
+    # Create new revision - duplicate from previous
     new_re = REProject(
         lead_id=project["lead_id"],
         client_name=project["client_name"],
@@ -2406,9 +2472,30 @@ async def create_re_revision(re_project_id: str, user: User = Depends(get_curren
     )
     
     new_dict = new_re.model_dump()
-    # Carry over the client feedback as context for Planning
+    # Carry over context for Planning
     new_dict["previous_client_feedback"] = project.get("client_feedback_notes", "")
+    new_dict["revision_reason"] = project.get("revision_reason", "")
+    new_dict["duplicated_from_re_project_id"] = re_project_id
     await db.re_projects.insert_one(new_dict)
+    
+    # Update the lead to point to the latest revision
+    await db.leads.update_one(
+        {"lead_id": project["lead_id"]},
+        {"$set": {"re_project_id": new_re.re_project_id, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    # Notify Sales about the new revision
+    notification = {
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_sales",
+        "title": f"RE Revision {next_revision} Created",
+        "message": f"Planning created RE{next_revision} for '{project.get('project_name', project['client_name'])}'. The new revision is ready for review.",
+        "type": "re_revision_created",
+        "reference_id": new_re.re_project_id,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.notifications.insert_one(notification)
     
     return {
         "message": f"Revision RE{next_revision} created",
@@ -2823,7 +2910,6 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
 from fastapi.responses import RedirectResponse
 import warnings
-import re
 
 # Google Sheets OAuth Config - loaded from environment
 GOOGLE_SHEETS_CLIENT_ID = os.environ.get('GOOGLE_SHEETS_CLIENT_ID', '')
@@ -3643,7 +3729,7 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
         )
         
         return {
-            "message": f"Import complete",
+            "message": "Import complete",
             "imported": imported_count,
             "skipped": skipped_count,
             "total_rows": len(data_rows)

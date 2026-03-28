@@ -510,6 +510,17 @@ export default function REProjectsPage({ embedded = false }) {
                           </Button>
                         )}
                         
+                        {canEdit && project.revision_requested && ['re_approved', 'sent_to_client'].includes(project.status) && (
+                          <Button 
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700 text-white"
+                            onClick={() => handleCreateRevision(project)}
+                            data-testid={`create-revision-requested-${project.re_project_id}`}
+                          >
+                            <GitBranch className="h-4 w-4 mr-1" /> Create Revision (Requested)
+                          </Button>
+                        )}
+                        
                         {canApprove && project.status === 're_submitted' && (
                           <Button 
                             size="sm"
