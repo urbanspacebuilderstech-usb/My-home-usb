@@ -119,6 +119,14 @@ export default function CRMSales() {
   const [followupDate, setFollowupDate] = useState('');
   const [followupNote, setFollowupNote] = useState('');
   const [followupPendingStageId, setFollowupPendingStageId] = useState(null);
+  
+  // Remarks dialog (Discussion, Deal Closed, RE-To Client, Lost)
+  const [remarksDialog, setRemarksDialog] = useState(false);
+  const [remarksLeadId, setRemarksLeadId] = useState(null);
+  const [remarksStageId, setRemarksStageId] = useState(null);
+  const [remarksStageName, setRemarksStageName] = useState('');
+  const [remarksText, setRemarksText] = useState('');
+  const [lostReasonText, setLostReasonText] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -205,12 +213,44 @@ export default function CRMSales() {
       }
       
       // Intercept: Show ongoing projects popup for "Site Visit (Our Projects)"
-      if (stage?.stage_id === 'stg_sv_ongoing_project') {
+      if (stage?.stage_id === 'stg_sv_our_projects') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
           openOngoingProjectVisit(lead);
           return;
         }
+      }
+      
+      // Intercept: Show remarks dialog for Discussion, Deal Closed, RE-To Client
+      if (['stg_discussion', 'stg_deal_closed', 'stg_re_to_client'].includes(stage?.stage_id)) {
+        setRemarksLeadId(leadId);
+        setRemarksStageId(newStageId);
+        setRemarksStageName(stage.name);
+        setRemarksText('');
+        setRemarksDialog(true);
+        return;
+      }
+      
+      // Intercept: Show lost reason dialog
+      if (stage?.stage_id === 'stg_lost') {
+        setRemarksLeadId(leadId);
+        setRemarksStageId(newStageId);
+        setRemarksStageName('Lost');
+        setLostReasonText('');
+        setRemarksDialog(true);
+        return;
+      }
+      
+      // Block manual move to Project Onboarded
+      if (stage?.stage_id === 'stg_project_onboarded') {
+        toast.error('Project Onboarded is auto-moved after accountant approval');
+        return;
+      }
+      
+      // Block manual move to RE - From Planning
+      if (stage?.stage_id === 'stg_re_from_planning') {
+        toast.error('RE - From Planning is auto-populated when GM approves the RE');
+        return;
       }
       
       const payload = { stage_id: newStageId };
@@ -321,6 +361,33 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request revision');
+    }
+  };
+  
+  // Remarks stage move (Discussion, Deal Closed, RE-To Client, Lost)
+  const handleRemarksStageMove = async () => {
+    if (!remarksLeadId || !remarksStageId) return;
+    try {
+      const payload = { stage_id: remarksStageId };
+      if (remarksStageId === 'stg_lost') {
+        if (!lostReasonText.trim()) {
+          toast.error('Please enter a reason for marking as Lost');
+          return;
+        }
+        payload.lost_reason = lostReasonText;
+      } else {
+        payload.remark = remarksText;
+      }
+      await axios.patch(`${API}/crm/leads/${remarksLeadId}/stage`, payload);
+      toast.success(`Lead moved to ${remarksStageName}`);
+      setRemarksDialog(false);
+      setRemarksLeadId(null);
+      setRemarksStageId(null);
+      setRemarksText('');
+      setLostReasonText('');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to move lead');
     }
   };
 
@@ -1139,8 +1206,25 @@ export default function CRMSales() {
                           </div>
                         )}
                         
+                        {/* Latest remark (Discussion, Deal Closed, RE-To Client) */}
+                        {lead.remarks?.length > 0 && ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client'].includes(lead.current_stage_id) && (
+                          <div className="mt-1 px-2 py-1 rounded bg-blue-50 border border-blue-200 text-xs text-blue-700">
+                            <MessageSquare className="inline h-3 w-3 mr-1" />
+                            <span className="font-medium">{lead.remarks[lead.remarks.length - 1].by_name}:</span>{' '}
+                            <span className="truncate">{lead.remarks[lead.remarks.length - 1].text}</span>
+                          </div>
+                        )}
+                        
+                        {/* Lost reason */}
+                        {lead.current_stage_id === 'stg_lost' && lead.lost_reason && (
+                          <div className="mt-1 px-2 py-1 rounded bg-red-50 border border-red-200 text-xs text-red-700" data-testid={`lost-reason-${lead.lead_id}`}>
+                            <XCircle className="inline h-3 w-3 mr-1" />
+                            {lead.lost_reason}
+                          </div>
+                        )}
+                        
                         {/* Site Visit info */}
-                        {lead.site_visit_data && ['stg_site_visit', 'stg_sv_client_land', 'stg_sv_ongoing_project', 'stg_sv_done'].includes(lead.current_stage_id) && (
+                        {lead.site_visit_data && ['stg_site_visit', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_sv_done'].includes(lead.current_stage_id) && (
                           <div className="mt-1 p-2 rounded bg-purple-50 border border-purple-200 text-xs">
                             {lead.site_visit_data.sr_engineer_name && (
                               <p className="text-purple-700"><span className="font-medium">Engineer:</span> {lead.site_visit_data.sr_engineer_name}</p>
@@ -2065,6 +2149,61 @@ export default function CRMSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+
+      {/* Remarks / Lost Reason Dialog */}
+      <Dialog open={remarksDialog} onOpenChange={(open) => { setRemarksDialog(open); if (!open) { setRemarksLeadId(null); setRemarksStageId(null); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2" data-testid="remarks-dialog-title">
+              {remarksStageId === 'stg_lost' ? (
+                <><XCircle className="h-5 w-5 text-red-500" /> Mark as Lost</>
+              ) : (
+                <><MessageSquare className="h-5 w-5 text-blue-500" /> {remarksStageName}</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {remarksStageId === 'stg_lost' ? 'Please provide a reason for marking this lead as lost' : `Add remarks before moving to ${remarksStageName}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {remarksStageId === 'stg_lost' ? (
+              <div>
+                <Label className="text-sm font-medium text-red-600">Reason *</Label>
+                <textarea
+                  value={lostReasonText}
+                  onChange={(e) => setLostReasonText(e.target.value)}
+                  placeholder="Why was this lead lost?"
+                  className="w-full p-2 border rounded-md text-sm mt-1 min-h-[80px] border-red-200 focus:border-red-400 focus:ring-red-200"
+                  data-testid="lost-reason-input"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label className="text-sm font-medium">Remarks</Label>
+                <textarea
+                  value={remarksText}
+                  onChange={(e) => setRemarksText(e.target.value)}
+                  placeholder={`Add remarks for ${remarksStageName}...`}
+                  className="w-full p-2 border rounded-md text-sm mt-1 min-h-[80px]"
+                  data-testid="remarks-input"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemarksDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={handleRemarksStageMove}
+              className={remarksStageId === 'stg_lost' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}
+              data-testid="confirm-remarks-btn"
+            >
+              {remarksStageId === 'stg_lost' ? 'Mark as Lost' : `Move to ${remarksStageName}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       <MobileBottomNav user={user} />
 

@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def mask_phone(phone: str) -> str:
+    """Mask phone number: show first 2 and last 2 digits"""
+    if not phone or len(phone) < 5:
+        return phone or ""
+    return phone[:2] + "*" * (len(phone) - 4) + phone[-2:]
+
+
+def mask_leads_phone(leads: list, user_role: str) -> list:
+    """Mask phone numbers for non-sales/pre-sales users"""
+    if user_role in [UserRole.SUPER_ADMIN, "sales", "pre_sales", "cre"]:
+        return leads
+    for lead in leads:
+        if lead.get("phone"):
+            lead["phone"] = mask_phone(lead["phone"])
+    return leads
+
+
 async def get_next_re_number():
     """Generate next sequential RE number like USB-RE0001"""
     result = await db.counters.find_one_and_update(
@@ -291,14 +309,18 @@ async def get_default_sales_stages():
             {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 2, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 3, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_site_visit", "name": "Site Visit", "stage_type": "sales", "order": 4, "color": "#8b5cf6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 5, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_shared", "name": "Rough Estimate Shared", "stage_type": "sales", "order": 6, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 7, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 8, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 9, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 10, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 11, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 12, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "stage_type": "sales", "order": 5, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "stage_type": "sales", "order": 6, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_done", "name": "Site Visit Done", "stage_type": "sales", "order": 7, "color": "#059669", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 8, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_from_planning", "name": "RE - From Planning", "stage_type": "sales", "order": 9, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_to_client", "name": "RE - To Client", "stage_type": "sales", "order": 10, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 11, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 12, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 13, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 14, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 15, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 16, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -479,7 +501,7 @@ async def get_pre_sales_leads(
     
     leads = await db.leads.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     leads = await filter_contacts_leads(db, leads, user.role)
-    return leads
+    return mask_leads_phone(leads, user.role)
 
 
 class LeadCreate(BaseModel):
@@ -638,6 +660,9 @@ class LeadStageUpdate(BaseModel):
     appointment_type: Optional[str] = None  # office_visit, online, home_visit
     # Rough Estimate fields
     rough_requirement: Optional[str] = None
+    # Stage move remarks (Discussion, Deal Closed, Lost, RE-To Client)
+    remark: Optional[str] = None
+    lost_reason: Optional[str] = None
 
 
 @router.patch("/crm/leads/{lead_id}/stage")
@@ -664,20 +689,51 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     if old_stage_id in ["stg_payment_collect", "stg_accountant_approval"]:
         raise HTTPException(status_code=400, detail="This lead cannot be moved manually. It will move automatically after accountant verification.")
     
+    # Block manual moves TO "Project Onboarded" 
+    if data.stage_id == "stg_project_onboarded":
+        raise HTTPException(status_code=400, detail="Project Onboarded stage is auto-moved only after accountant approval.")
+    
+    # Block manual moves TO "RE - From Planning" (auto-moved on GM approval)
+    if data.stage_id == "stg_re_from_planning":
+        raise HTTPException(status_code=400, detail="This stage is auto-populated when GM approves the RE.")
+    
     # Update lead
     stage_history = lead.get("stage_history", [])
-    stage_history.append({
+    history_entry = {
         "stage_id": data.stage_id,
         "from_stage_id": old_stage_id,
         "moved_at": datetime.now(timezone.utc).isoformat(),
         "moved_by": user.user_id
-    })
+    }
+    if data.remark:
+        history_entry["remark"] = data.remark
+    if data.lost_reason:
+        history_entry["lost_reason"] = data.lost_reason
+    stage_history.append(history_entry)
     
     update = {
         "current_stage_id": data.stage_id,
         "stage_history": stage_history,
         "updated_at": datetime.now(timezone.utc)
     }
+    
+    # Store remarks on lead for Discussion, Deal Closed, RE-To Client
+    if data.remark and data.stage_id in ["stg_discussion", "stg_deal_closed", "stg_re_to_client"]:
+        remarks = lead.get("remarks", [])
+        remarks.append({
+            "text": data.remark,
+            "stage": data.stage_id,
+            "by": user.user_id,
+            "by_name": user.name,
+            "date": datetime.now(timezone.utc).isoformat()
+        })
+        update["remarks"] = remarks
+    
+    # Lost stage: store reason
+    if data.stage_id == "stg_lost" and data.lost_reason:
+        update["lost_reason"] = data.lost_reason
+        update["lost_at"] = datetime.now(timezone.utc)
+        update["lost_by"] = user.user_id
     
     await db.leads.update_one({"lead_id": lead_id}, {"$set": update})
     
@@ -1273,7 +1329,7 @@ async def assign_site_visit(lead_id: str, data: AssignSiteVisitInput, user: User
             site_visit_data["site_engineer_name"] = eng["name"] if eng else "Unknown"
             site_visit_data["site_engineer_phone"] = eng.get("phone") if eng else None
             site_visit_data["site_engineer_email"] = eng.get("email") if eng else None
-        target_stage = "stg_sv_ongoing_project"
+        target_stage = "stg_sv_our_projects"
     else:
         raise HTTPException(status_code=400, detail="Invalid visit type")
     
@@ -1747,7 +1803,7 @@ async def get_sales_leads(
             if pending:
                 lead["next_followup_date"] = min(f["scheduled_date"] for f in pending)
     
-    return leads
+    return mask_leads_phone(leads, user.role)
 
 
 # ==================== LEAD STAGES MANAGEMENT ====================
@@ -2302,14 +2358,12 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
             "updated_at": datetime.now(timezone.utc)
         }
         
-        # Update linked lead stage to "Rough Estimate Shared"
+        # Update linked lead stage to "RE - From Planning"
         if project.get("lead_id"):
-            re_shared_stage = await db.lead_stages.find_one({"name": "Rough Estimate Shared", "stage_type": "sales"})
-            if re_shared_stage:
-                await db.leads.update_one(
-                    {"lead_id": project["lead_id"]},
-                    {"$set": {"current_stage_id": re_shared_stage["stage_id"], "updated_at": datetime.now(timezone.utc)}}
-                )
+            await db.leads.update_one(
+                {"lead_id": project["lead_id"]},
+                {"$set": {"current_stage_id": "stg_re_from_planning", "updated_at": datetime.now(timezone.utc)}}
+            )
         
         # Notify Sales
         notification = {
