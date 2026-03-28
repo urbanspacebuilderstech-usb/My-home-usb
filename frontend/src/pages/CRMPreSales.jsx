@@ -554,7 +554,7 @@ export default function CRMPreSales() {
 
       <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 mb-6">
           <Card className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-0">
             <CardContent className="p-4">
               <p className="text-indigo-100 text-sm">Total Leads</p>
@@ -562,10 +562,10 @@ export default function CRMPreSales() {
             </CardContent>
           </Card>
           
-          {stages.slice(0, 5).map(stage => (
+          {stages.slice(0, 6).map(stage => (
             <Card 
               key={stage.stage_id} 
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              className={`cursor-pointer hover:shadow-md transition-shadow ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border-red-300' : ''}`}
               onClick={() => setActiveStage(stage.stage_id)}
               style={{ borderLeftColor: stage.color, borderLeftWidth: '4px' }}
             >
@@ -922,6 +922,14 @@ export default function CRMPreSales() {
                                 <Calendar className="h-3 w-3 mr-1" /> Follow-up
                               </Badge>
                             )}
+                          </div>
+                        )}
+                        
+                        {/* RNR Redistributed info */}
+                        {lead.rnr_redistributed && lead.current_stage_id === 'stg_new_rnr' && (
+                          <div className="mt-1.5 px-2 py-1 rounded bg-red-50 border border-red-200 text-xs text-red-600" data-testid={`rnr-redistributed-${lead.lead_id}`}>
+                            <RefreshCw className="inline h-3 w-3 mr-1" />
+                            Redistributed {lead.assigned_to_name ? `to ${lead.assigned_to_name}` : ''}
                           </div>
                         )}
                         

@@ -269,9 +269,10 @@ async def get_default_pre_sales_stages():
             {"stage_id": "stg_new_lead", "name": "New Lead", "stage_type": "pre_sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_contacted", "name": "Contacted", "stage_type": "pre_sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales", "order": 3, "color": "#ef4444", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_proposal", "name": "Proposal", "stage_type": "pre_sales", "order": 4, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 5, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 6, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "stage_type": "pre_sales", "order": 4, "color": "#dc2626", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_proposal", "name": "Portfolio sent", "stage_type": "pre_sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 6, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 7, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -388,6 +389,69 @@ async def get_pre_sales_leads(
     """Get Pre-Sales leads with filters - filtered by assigned user for non-admins"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    # Auto-redistribute stale RNR leads (14+ days from creation)
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+        stale_rnr = await db.leads.find(
+            {
+                "stage_type": "pre_sales",
+                "current_stage_id": "stg_rnr",
+                "created_at": {"$lte": cutoff},
+                "rnr_redistributed": {"$ne": True}
+            },
+            {"_id": 0}
+        ).to_list(500)
+        
+        logger.info(f"RNR check: found {len(stale_rnr)} stale leads to redistribute")
+        
+        if stale_rnr:
+            # Get all pre-sales team members for round-robin
+            settings = await get_distribution_settings()
+            pre_sales_team = settings.get("pre_sales_team", [])
+            
+            if not pre_sales_team:
+                # Fallback: get all pre_sales users
+                ps_users = await db.users.find(
+                    {"role": "pre_sales", "is_active": True},
+                    {"_id": 0, "user_id": 1}
+                ).to_list(50)
+                pre_sales_team = [u["user_id"] for u in ps_users]
+            
+            if pre_sales_team:
+                rr_idx = settings.get("rnr_rr_index", 0)
+                
+                for lead in stale_rnr:
+                    new_owner = pre_sales_team[rr_idx % len(pre_sales_team)]
+                    rr_idx = (rr_idx + 1) % len(pre_sales_team)
+                    
+                    # Get new owner name
+                    owner_doc = await db.users.find_one({"user_id": new_owner}, {"_id": 0, "name": 1})
+                    owner_name = owner_doc["name"] if owner_doc else "Unknown"
+                    
+                    await db.leads.update_one(
+                        {"lead_id": lead["lead_id"]},
+                        {"$set": {
+                            "current_stage_id": "stg_new_rnr",
+                            "assigned_to": new_owner,
+                            "assigned_to_name": owner_name,
+                            "rnr_redistributed": True,
+                            "rnr_redistributed_at": datetime.now(timezone.utc),
+                            "rnr_previous_owner": lead.get("assigned_to"),
+                            "updated_at": datetime.now(timezone.utc)
+                        }}
+                    )
+                
+                # Save round-robin index
+                await db.lead_distribution_settings.update_one(
+                    {},
+                    {"$set": {"rnr_rr_index": rr_idx, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                    upsert=True
+                )
+                
+                logger.info(f"RNR auto-redistribution: {len(stale_rnr)} leads redistributed among {len(pre_sales_team)} team members")
+    except Exception as e:
+        logger.error(f"RNR auto-redistribution error: {e}")
     
     query = {"stage_type": "pre_sales"}
     
