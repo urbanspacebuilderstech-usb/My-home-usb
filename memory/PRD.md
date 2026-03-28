@@ -9,7 +9,10 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - Automated multi-stage onboarding pipeline
 - Follow-up system with date filtering
 - Site visit management (Client Land & Our Projects)
-- **Sr. → Jr. Engineer Assignment** (NEW): Sr. Engineers assign Jr. Engineers from Site Visits tab, Jr. Engineers mark visits done
+- Sr. → Jr. Engineer Assignment
+- **RE Revision Flow** (NEW): Duplicate-based revisions (RE0→RE1→RE2), GM lock after approval, Sales can request revision, Planning creates duplicate
+- **RE Revision Display** (NEW): All revisions visible in CRMSales dialog and ProjectDetail tab, approved highlighted, others dimmed
+- **Auto-notifications** (NEW): Planning/CRE/Sales auto-notified on project onboarding
 
 ### 2. HR Admin Module (7 Tabs)
 - Dashboard, Employees (full CRUD), Roles & Credentials
@@ -24,10 +27,12 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - Existing modules with full functionality
 
 ## Key API Routes
-- `/api/crm/jr-engineers` - Get Jr. Engineers (site_engineer + planning roles)
-- `/api/crm/leads/{id}/assign-jr-engineer` - Sr. assigns Jr. Engineer
-- `/api/crm/leads/{id}/complete-site-visit` - Jr/Sr marks visit done
-- `/api/crm/my-site-visits` - Engineer's assigned visits with jr info
+- `POST /api/crm/re-projects/{id}/request-revision` - Sales requests revision (NEW)
+- `POST /api/crm/re-projects/{id}/create-revision` - Planning creates duplicate revision (UPDATED)
+- `PATCH /api/crm/re-projects/{id}` - Locked after GM approval (UPDATED)
+- `GET /api/crm/re-projects/by-number/{re_number}` - Get all revisions
+- `POST /api/crm/leads/{id}/accountant-verify` - Auto-notifies Planning/CRE/Sales (UPDATED)
+- `/api/crm/jr-engineers`, `/api/crm/leads/{id}/assign-jr-engineer`
 - `/api/packages/`, `/api/brands`, `/api/rough-estimates`
 - `/api/hr/` - HR module
 
@@ -38,9 +43,13 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] Package Management with Materials, Brands, Rough Estimates
 - [x] Sr. → Jr. Engineer Assignment workflow
 - [x] Security Audit, API Report PDF
+- [x] RE Revision Duplication Flow (RE0→RE1→RE2)
+- [x] RE Lock after GM Approval
+- [x] RE Revision Tabs in CRMSales & ProjectDetail
+- [x] Auto-Notification on Project Onboarding
 
 ## Upcoming Tasks (P1)
-- Project page: Select package -> populate materials & estimates
+- Project page: Select package → populate materials & estimates
 - Drag & reorder for Scopes, Payment Stages, Labours (app-wide)
 - Refactor CRMSales.jsx (2000+ lines)
 - Refactor ProjectDetail.jsx (4000+ lines)
