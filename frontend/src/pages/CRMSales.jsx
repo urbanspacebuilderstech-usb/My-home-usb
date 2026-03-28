@@ -1295,6 +1295,7 @@ export default function CRMSales() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
+
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white font-bold">
                 {selectedLead?.name?.charAt(0)?.toUpperCase()}
               </div>
@@ -1313,6 +1314,7 @@ export default function CRMSales() {
                 <Edit className="h-4 w-4" />
               </Button>
             </DialogTitle>
+            <DialogDescription className="sr-only">Lead details and actions</DialogDescription>
           </DialogHeader>
           
           {selectedLead && (

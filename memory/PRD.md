@@ -34,6 +34,8 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] Pre-Sales RNR auto-redistribution (14-day, round-robin)
 - [x] Date filter (range) + ascending sort for all stages
 - [x] HR Admin, Package Management, Site Visit workflow
+- [x] Bug fix: Remarks dialog opens on top of Lead Detail (race condition fix) - 2026-03-28
+- [x] Accessibility: Added DialogDescription to Lead Detail dialog - 2026-03-28
 
 ## Upcoming Tasks (P1)
 - CRE Board: New projects on onboard → move to Planning
