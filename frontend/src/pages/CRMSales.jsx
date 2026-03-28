@@ -381,6 +381,7 @@ export default function CRMSales() {
       await axios.patch(`${API}/crm/leads/${remarksLeadId}/stage`, payload);
       toast.success(`Lead moved to ${remarksStageName}`);
       setRemarksDialog(false);
+      setViewLeadDialog(false);
       setRemarksLeadId(null);
       setRemarksStageId(null);
       setRemarksText('');
@@ -1386,7 +1387,13 @@ export default function CRMSales() {
                     <div className="flex flex-wrap gap-2">
                       {stages.filter(s => !['stg_accountant_approval'].includes(s.stage_id)).map(stage => (
                         <Button key={stage.stage_id} variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'} size="sm" className="text-xs"
-                          onClick={() => { handleStageChange(selectedLead.lead_id, stage.stage_id); setViewLeadDialog(false); }}
+                          onClick={() => {
+                            const interceptStages = ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning'];
+                            if (!interceptStages.includes(stage.stage_id) && stage.name !== 'Rough Estimate Requested') {
+                              setViewLeadDialog(false);
+                            }
+                            handleStageChange(selectedLead.lead_id, stage.stage_id);
+                          }}
                           style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}>
                           {stage.name}
                         </Button>
