@@ -7,46 +7,46 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 
 ### 1. CRM & Sales Pipeline
 - Automated multi-stage onboarding pipeline
-- Follow-up system with date filtering (ascending sort, date range support)
-- **Follow-up stage intercept**: Date picker shown when moving leads to Follow-up
-- **Date filter**: Applies to Follow-up AND Site Visit stages. Defaults to today, supports date range
-- Site visit management (Client Land & Our Projects) with ascending date sort
+- Follow-up system with date filtering (ascending sort, date range)
+- Follow-up stage intercept: Date picker shown when moving leads
+- Date filter applies to ALL stages. Defaults to today, supports date range
+- Site visit management with ascending date sort
 - Sr. to Jr. Engineer Assignment
-- RE Revision Flow: Duplicate-based (RE0→RE1→RE2), GM lock, Sales revision request
+- RE Revision Flow: Duplicate-based (RE0→RE1→RE2), GM lock
 - Auto-notifications on project onboarding
 
 ### 2. Pre-Sales Board
-- **Appointment Booked card**: Added to top stats with green styling and count
-- Lead management with Kanban and List views
+- **RNR Auto-Redistribution**: Leads in RNR stage for 14+ days (from creation) auto-move to "New RNR Leads" stage
+- **Round-Robin Distribution**: Stale RNR leads split among all pre-sales team members
+- Appointment Booked card in top stats
+- Date filter for ALL stages (from-to range, Today, Clear)
+- Ascending sort by date across all stages
 
 ### 3. HR Admin Module (7 Tabs)
-- Dashboard, Employees (full CRUD), Roles & Credentials
+- Dashboard, Employees (CRUD), Roles & Credentials
 - Attendance Calendar, Leave Management, Payroll, Settings
 
 ### 4. Package Management
-- Packages (2x2 grid, max 4): Code, Name, Tag, Rate, Description
-- Materials with Brand dropdown, Scope, Labour
-- Lock/Duplicate packages, Rough Estimates (G+1/G+2/G+3)
-
-### 5. Financial, Project, Operations Modules
-- Existing modules with full functionality
+- Packages, Materials, Brands, Rough Estimates, Drag-and-Drop
 
 ## Completed Features
 - [x] Automated Project Onboarding Pipeline
-- [x] Sales Follow-up System with date intercept, ascending sort, date range filter
-- [x] Site Visit Management with ascending date sort & date filtering
+- [x] Sales Follow-up with date intercept, ascending sort, date range
+- [x] Site Visit Management with date sort & filtering
 - [x] Pre-Sales Appointment Booked card
+- [x] Pre-Sales date filter for all stages
+- [x] **RNR Auto-Redistribution (14 days, round-robin)**
+- [x] **New RNR Leads stage with redistribution badge**
 - [x] HR Admin Module (7 tabs)
-- [x] Package Management with Materials, Brands, Rough Estimates
-- [x] Sr. to Jr. Engineer Assignment workflow
-- [x] RE Revision Duplication Flow (RE0→RE1→RE2)
+- [x] Package Management
+- [x] Sr. to Jr. Engineer Assignment
+- [x] RE Revision Duplication Flow
 - [x] RE Lock after GM Approval
 - [x] Auto-Notification on Project Onboarding
 
 ## Upcoming Tasks (P1)
-- Project page: Select package → populate materials & estimates, drag-and-drop reorder
-- Refactor CRMSales.jsx (2000+ lines)
-- Refactor ProjectDetail.jsx (4000+ lines)
+- Project page: Select package → populate materials & estimates, drag-and-drop
+- Refactor CRMSales.jsx (2000+ lines) and ProjectDetail.jsx (4000+ lines)
 
 ## Backlog (P2)
 - 2FA (Google Authenticator) - at deployment
