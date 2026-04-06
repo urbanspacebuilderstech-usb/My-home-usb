@@ -566,7 +566,7 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     scope_items = await db.scope_items.find(
         {"project_id": project_id, "workflow_status": {"$in": ["verified", "approved"]}}, 
         {"_id": 0, "internal_notes": 0}
-    ).to_list(500)
+    ).sort("sort_order", 1).to_list(500)
     
     stages = await db.site_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     
@@ -2247,7 +2247,7 @@ class ScopeItemUpdate(BaseModel):
 
 @router.get("/projects/{project_id}/scope-items")
 async def get_scope_items(project_id: str, user: User = Depends(get_current_user)):
-    items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).sort("sort_order", 1).to_list(1000)
     for item in items:
         if isinstance(item.get("created_at"), str):
             item["created_at"] = datetime.fromisoformat(item["created_at"])
@@ -2309,6 +2309,50 @@ async def delete_scope_item(scope_id: str, user: User = Depends(get_current_user
     await db.scope_items.delete_one({"scope_id": scope_id})
     await create_audit_log(user.user_id, "delete", "scope_item", scope_id, {})
     return {"message": "Scope item deleted"}
+
+
+
+@router.post("/scope-items/reorder")
+async def reorder_scope_items(request: Request, user: User = Depends(get_current_user)):
+    """Reorder scope items by updating their sort_order field"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    body = await request.json()
+    ordered_ids = body.get("scope_ids", [])
+    if not ordered_ids:
+        raise HTTPException(status_code=400, detail="scope_ids required")
+    updates = [db.scope_items.update_one({"scope_id": sid}, {"$set": {"sort_order": i}}) for i, sid in enumerate(ordered_ids)]
+    await asyncio.gather(*updates)
+    return {"message": "Scope items reordered"}
+
+
+@router.post("/additional-costs/reorder")
+async def reorder_additional_costs(request: Request, user: User = Depends(get_current_user)):
+    """Reorder additional cost items"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    body = await request.json()
+    ordered_ids = body.get("cost_ids", [])
+    if not ordered_ids:
+        raise HTTPException(status_code=400, detail="cost_ids required")
+    updates = [db.additional_costs.update_one({"cost_id": cid}, {"$set": {"sort_order": i}}) for i, cid in enumerate(ordered_ids)]
+    await asyncio.gather(*updates)
+    return {"message": "Additional costs reordered"}
+
+
+@router.post("/deductions/reorder")
+async def reorder_deductions(request: Request, user: User = Depends(get_current_user)):
+    """Reorder deduction items"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    body = await request.json()
+    ordered_ids = body.get("deduction_ids", [])
+    if not ordered_ids:
+        raise HTTPException(status_code=400, detail="deduction_ids required")
+    updates = [db.deductions.update_one({"deduction_id": did}, {"$set": {"sort_order": i}}) for i, did in enumerate(ordered_ids)]
+    await asyncio.gather(*updates)
+    return {"message": "Deductions reordered"}
+
 
 
 # ==================== DEDUCTION ITEMS CRUD ====================

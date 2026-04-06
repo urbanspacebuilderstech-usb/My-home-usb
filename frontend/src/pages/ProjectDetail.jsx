@@ -26,6 +26,7 @@ import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
+import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -980,6 +981,27 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleScopeReorder = async (newIds) => {
+    try {
+      await axios.post(`${API}/scope-items/reorder`, { scope_ids: newIds });
+      fetchData(false);
+    } catch { toast.error('Failed to reorder'); }
+  };
+
+  const handleAdditionalCostReorder = async (newIds) => {
+    try {
+      await axios.post(`${API}/additional-costs/reorder`, { cost_ids: newIds });
+      fetchData(false);
+    } catch { toast.error('Failed to reorder'); }
+  };
+
+  const handleDeductionReorder = async (newIds) => {
+    try {
+      await axios.post(`${API}/deductions/reorder`, { deduction_ids: newIds });
+      fetchData(false);
+    } catch { toast.error('Failed to reorder'); }
+  };
+
   const handleDeletePayment = async (stageId) => {
     if (!confirm('Delete this payment stage?')) return;
     try {
@@ -1822,7 +1844,7 @@ export default function ProjectDetail() {
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
-                                <th className="px-2 py-2 text-left w-8">#</th>
+                                <th className="px-1 py-2 w-8"></th>
                                 <th className="px-2 py-2 text-left min-w-[180px]">Item Name *</th>
                                 <th className="px-2 py-2 text-left w-20">Qty</th>
                                 <th className="px-2 py-2 text-left w-32">Unit</th>
@@ -1833,9 +1855,18 @@ export default function ProjectDetail() {
                               </tr>
                             </thead>
                             <tbody>
+                              <SortableList
+                                items={bulkScopeRows.map((_, i) => `bulk-scope-${i}`)}
+                                onReorder={(newIds) => {
+                                  const newRows = newIds.map(id => bulkScopeRows[parseInt(id.split('-')[2])]);
+                                  setBulkScopeRows(newRows);
+                                }}
+                              >
                               {bulkScopeRows.map((row, idx) => (
-                                <tr key={idx} className="border-b hover:bg-gray-50">
-                                  <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                                <SortableTableRow key={`bulk-scope-${idx}`} id={`bulk-scope-${idx}`} className="border-b hover:bg-gray-50">
+                                  {({ listeners, attributes }) => (
+                                    <>
+                                  <td className="px-1 py-1"><DragHandle listeners={listeners} attributes={attributes} /></td>
                                   <td className="px-2 py-1">
                                     <Input 
                                       value={row.item_name}
@@ -1914,8 +1945,11 @@ export default function ProjectDetail() {
                                       </Button>
                                     )}
                                   </td>
-                                </tr>
+                                    </>
+                                  )}
+                                </SortableTableRow>
                               ))}
+                              </SortableList>
                             </tbody>
                           </table>
                         </div>
@@ -1954,6 +1988,9 @@ export default function ProjectDetail() {
                   <thead className="bg-gray-50 border-b">
                     <tr>
                       {canManage && (
+                        <th className="px-1 py-3 w-8"></th>
+                      )}
+                      {canManage && (
                         <th className="px-3 py-3 text-center w-10">
                           <input 
                             type="checkbox" 
@@ -1983,11 +2020,22 @@ export default function ProjectDetail() {
                         </td>
                       </tr>
                     ) : (
-                      scope_items.map((item, index) => {
+                      <SortableList
+                        items={scope_items.map(s => s.scope_id)}
+                        onReorder={handleScopeReorder}
+                      >
+                      {scope_items.map((item, index) => {
                         const isEditing = editingScopeItem === item.scope_id;
                         
                         return (
-                          <tr key={item.scope_id} data-testid={`scope-row-${item.scope_id}`} className={`hover:bg-gray-50 ${selectedScopeIds.includes(item.scope_id) ? 'bg-blue-50' : ''}`}>
+                          <SortableTableRow key={item.scope_id} id={item.scope_id} className={`hover:bg-gray-50 ${selectedScopeIds.includes(item.scope_id) ? 'bg-blue-50' : ''}`}>
+                            {({ listeners, attributes }) => (
+                              <>
+                            {canManage && (
+                              <td className="px-1 py-3 text-center">
+                                <DragHandle listeners={listeners} attributes={attributes} />
+                              </td>
+                            )}
                             {canManage && (
                               <td className="px-3 py-3 text-center">
                                 <input 
@@ -2122,15 +2170,18 @@ export default function ProjectDetail() {
                                 </div>
                               </td>
                             )}
-                          </tr>
+                              </>
+                            )}
+                          </SortableTableRow>
                         );
-                      })
+                      })}
+                      </SortableList>
                     )}
                   </tbody>
                   {scope_items.length > 0 && (
                     <tfoot className="bg-amber-50 border-t-2">
                       <tr>
-                        <td colSpan={canManage ? 7 : 5} className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
+                        <td colSpan={canManage ? 8 : 5} className="px-4 py-3 text-right font-bold">Project Value (Scope Total):</td>
                         <td className="px-4 py-3 text-right font-bold text-amber-700">₹{summary.scope_total?.toLocaleString()}</td>
                         <td colSpan={canManage ? 3 : 2}></td>
                       </tr>
@@ -2941,6 +2992,7 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="px-1 py-3 w-8"></th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
@@ -2953,17 +3005,24 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {additional_costs.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 8 : 7} className="px-4 py-8 text-center text-gray-500">
                           No additions recorded yet. Click "Add Additions" for extra work.
                         </td>
                       </tr>
                     ) : (
-                      additional_costs.map((cost, index) => {
+                      <SortableList
+                        items={additional_costs.map(c => c.cost_id)}
+                        onReorder={handleAdditionalCostReorder}
+                      >
+                      {additional_costs.map((cost, index) => {
                         const balance = cost.estimated_amount - (cost.income_received || 0);
                         const isEditing = editingAddition === cost.cost_id;
                         
                         return (
-                          <tr key={cost.cost_id} data-testid={`addition-row-${cost.cost_id}`} className="hover:bg-gray-50">
+                          <SortableTableRow key={cost.cost_id} id={cost.cost_id} className="hover:bg-gray-50">
+                            {({ listeners, attributes }) => (
+                              <>
+                            <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
                             <td className="px-4 py-3 text-sm">{index + 1}</td>
                             <td className="px-4 py-3 font-medium">{cost.description}</td>
                             <td className="px-4 py-3 text-right font-semibold">₹{cost.estimated_amount?.toLocaleString()}</td>
@@ -3018,15 +3077,18 @@ export default function ProjectDetail() {
                                 </div>
                               </td>
                             )}
-                          </tr>
+                              </>
+                            )}
+                          </SortableTableRow>
                         );
-                      })
+                      })}
+                      </SortableList>
                     )}
                   </tbody>
                   {additional_costs.length > 0 && (
                     <tfoot className="bg-cyan-50 border-t-2">
                       <tr>
-                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Totals:</td>
+                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
                         <td className="px-4 py-3 text-right font-bold">₹{summary.additions_total?.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-green-600">₹{summary.additions_received?.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-red-600">₹{(summary.additions_total - summary.additions_received)?.toLocaleString()}</td>
@@ -3139,6 +3201,7 @@ export default function ProjectDetail() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      <th className="px-1 py-3 w-8"></th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
@@ -3150,13 +3213,20 @@ export default function ProjectDetail() {
                   <tbody className="divide-y divide-gray-200">
                     {deductions.length === 0 ? (
                       <tr>
-                        <td colSpan={canManage ? 6 : 5} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={canManage ? 7 : 6} className="px-4 py-8 text-center text-gray-500">
                           No deductions recorded yet. Click "Add Deductions" for penalties or adjustments.
                         </td>
                       </tr>
                     ) : (
-                      deductions.map((d, index) => (
-                        <tr key={d.deduction_id} data-testid={`deduction-row-${d.deduction_id}`} className="hover:bg-gray-50">
+                      <SortableList
+                        items={deductions.map(d => d.deduction_id)}
+                        onReorder={handleDeductionReorder}
+                      >
+                      {deductions.map((d, index) => (
+                        <SortableTableRow key={d.deduction_id} id={d.deduction_id} className="hover:bg-gray-50">
+                          {({ listeners, attributes }) => (
+                            <>
+                          <td className="px-1 py-3 text-center"><DragHandle listeners={listeners} attributes={attributes} /></td>
                           <td className="px-4 py-3 text-sm">{index + 1}</td>
                           <td className="px-4 py-3 font-medium">{d.description}</td>
                           <td className="px-4 py-3 text-right font-semibold text-orange-600">-₹{d.amount?.toLocaleString()}</td>
@@ -3171,8 +3241,11 @@ export default function ProjectDetail() {
                               </Button>
                             </td>
                           )}
-                        </tr>
-                      ))
+                            </>
+                          )}
+                        </SortableTableRow>
+                      ))}
+                      </SortableList>
                     )}
                   </tbody>
                   {deductions.length > 0 && (
