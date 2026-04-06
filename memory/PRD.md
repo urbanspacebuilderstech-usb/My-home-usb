@@ -37,6 +37,7 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] Bug fix: Remarks dialog opens on top of Lead Detail (race condition fix) - 2026-03-28
 - [x] Accessibility: Added DialogDescription to Lead Detail dialog - 2026-03-28
 - [x] Edit Lead dialog now shows ALL fields (Source, Pincode, Custom Fields) matching Add New Lead - both Pre-Sales & Sales - 2026-04-06
+- [x] RE Templates CRUD in Planning Board (Create, Edit, Delete, List with scope items) - 2026-04-06
 
 ## Upcoming Tasks (P1)
 - CRE Board: New projects on onboard → move to Planning
