@@ -42,6 +42,12 @@ export default function PlanningBoard() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [newStage, setNewStage] = useState('');
 
+  // Project sub-tabs
+  const [projectSubTab, setProjectSubTab] = useState('new');
+  const [subTabProjects, setSubTabProjects] = useState([]);
+  const [subTabLoading, setSubTabLoading] = useState(false);
+  const [projectDateFilter, setProjectDateFilter] = useState({ type: 'all', date: '', dateFrom: '', dateTo: '', month: '', year: '' });
+
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
   const [paymentRequests, setPaymentRequests] = useState([]);
@@ -92,6 +98,7 @@ export default function PlanningBoard() {
   const [templateSearch, setTemplateSearch] = useState('');
 
   useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchSubTabProjects('new', projectDateFilter); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchData = async (showLoader = true) => {
     try {
@@ -136,6 +143,55 @@ export default function PlanningBoard() {
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
     if (tab === 'payment_schedule') fetchMonthlySchedule();
     if (tab === 're_templates') fetchTemplates();
+    if (tab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter);
+  };
+
+  // Fetch projects by planning lifecycle sub-tab with date filters
+  const fetchSubTabProjects = async (status, filter) => {
+    setSubTabLoading(true);
+    try {
+      const params = new URLSearchParams({ planning_status: status });
+      if (filter.type === 'date' && filter.date) {
+        params.append('date_from', filter.date);
+        params.append('date_to', filter.date);
+      } else if (filter.type === 'range' && filter.dateFrom) {
+        params.append('date_from', filter.dateFrom);
+        if (filter.dateTo) params.append('date_to', filter.dateTo);
+      } else if (filter.type === 'month' && filter.month && filter.year) {
+        params.append('month', filter.month);
+        params.append('year', filter.year);
+      } else if (filter.type === 'year' && filter.year) {
+        params.append('year', filter.year);
+      }
+      const res = await axios.get(`${API}/planning/projects-filtered?${params.toString()}`);
+      setSubTabProjects(res.data || []);
+    } catch { toast.error('Failed to load projects'); }
+    finally { setSubTabLoading(false); }
+  };
+
+  useEffect(() => { if (activeTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleProjectSubTabChange = (tab) => {
+    setProjectSubTab(tab);
+    setProjectDateFilter({ type: 'all', date: '', dateFrom: '', dateTo: '', month: '', year: '' });
+  };
+
+  const applyProjectDateFilter = () => {
+    fetchSubTabProjects(projectSubTab, projectDateFilter);
+  };
+
+  const clearProjectDateFilter = () => {
+    const cleared = { type: 'all', date: '', dateFrom: '', dateTo: '', month: '', year: '' };
+    setProjectDateFilter(cleared);
+    fetchSubTabProjects(projectSubTab, cleared);
+  };
+
+  const handlePlanningStatusChange = async (projectId, newStatus) => {
+    try {
+      await axios.patch(`${API}/planning/projects/${projectId}/planning-status`, { planning_status: newStatus });
+      toast.success(newStatus === 'active' ? 'Moved to Current Projects' : newStatus === 'delivered' ? 'Marked as Delivered' : 'Status updated');
+      fetchSubTabProjects(projectSubTab, projectDateFilter);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
   };
 
   const fetchMonthlySchedule = async () => {
@@ -447,48 +503,173 @@ export default function PlanningBoard() {
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="h-4 w-4 text-indigo-600" />All Projects ({filteredProjects.length})</CardTitle>
-                  <div className="relative">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-indigo-600" />All Projects
+                  </CardTitle>
+                </div>
+                {/* Sub-tabs */}
+                <div className="flex gap-1 mt-3 border-b">
+                  {[
+                    { key: 'new', label: 'New Projects', color: 'blue' },
+                    { key: 'active', label: 'Current Projects', color: 'green' },
+                    { key: 'delivered', label: 'Delivered Projects', color: 'purple' }
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => handleProjectSubTabChange(tab.key)}
+                      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                        projectSubTab === tab.key
+                          ? 'border-indigo-600 text-indigo-700 bg-indigo-50'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                      }`}
+                      data-testid={`subtab-${tab.key}`}
+                    >
+                      {tab.label}
+                      {projectSubTab === tab.key && (
+                        <Badge variant="outline" className="ml-2 text-xs">{subTabProjects.length}</Badge>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Date Filters */}
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <Select value={projectDateFilter.type} onValueChange={(v) => setProjectDateFilter({ ...projectDateFilter, type: v })}>
+                    <SelectTrigger className="h-8 w-32 text-xs" data-testid="date-filter-type">
+                      <SelectValue placeholder="Filter by" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Time</SelectItem>
+                      <SelectItem value="date">By Date</SelectItem>
+                      <SelectItem value="range">Date Range</SelectItem>
+                      <SelectItem value="month">By Month</SelectItem>
+                      <SelectItem value="year">By Year</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {projectDateFilter.type === 'date' && (
+                    <Input type="date" value={projectDateFilter.date} onChange={(e) => setProjectDateFilter({ ...projectDateFilter, date: e.target.value })} className="h-8 w-40 text-xs" data-testid="date-filter-date" />
+                  )}
+                  {projectDateFilter.type === 'range' && (
+                    <>
+                      <Input type="date" value={projectDateFilter.dateFrom} onChange={(e) => setProjectDateFilter({ ...projectDateFilter, dateFrom: e.target.value })} className="h-8 w-36 text-xs" data-testid="date-filter-from" />
+                      <span className="text-xs text-gray-400">to</span>
+                      <Input type="date" value={projectDateFilter.dateTo} onChange={(e) => setProjectDateFilter({ ...projectDateFilter, dateTo: e.target.value })} className="h-8 w-36 text-xs" data-testid="date-filter-to" />
+                    </>
+                  )}
+                  {projectDateFilter.type === 'month' && (
+                    <div className="flex gap-1">
+                      <Select value={projectDateFilter.month} onValueChange={(v) => setProjectDateFilter({ ...projectDateFilter, month: v })}>
+                        <SelectTrigger className="h-8 w-28 text-xs"><SelectValue placeholder="Month" /></SelectTrigger>
+                        <SelectContent>
+                          {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => (
+                            <SelectItem key={i+1} value={String(i+1)}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input type="number" placeholder="Year" value={projectDateFilter.year} onChange={(e) => setProjectDateFilter({ ...projectDateFilter, year: e.target.value })} className="h-8 w-20 text-xs" data-testid="date-filter-year" />
+                    </div>
+                  )}
+                  {projectDateFilter.type === 'year' && (
+                    <Input type="number" placeholder="Year" value={projectDateFilter.year} onChange={(e) => setProjectDateFilter({ ...projectDateFilter, year: e.target.value })} className="h-8 w-24 text-xs" data-testid="date-filter-year-only" />
+                  )}
+
+                  {projectDateFilter.type !== 'all' && (
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="default" className="h-8 text-xs" onClick={applyProjectDateFilter} data-testid="apply-date-filter">
+                        <Filter className="h-3 w-3 mr-1" />Apply
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-8 text-xs" onClick={clearProjectDateFilter} data-testid="clear-date-filter">
+                        <X className="h-3 w-3 mr-1" />Clear
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="ml-auto relative">
                     <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
                     <Input placeholder="Search..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="projects-table">
-                    <thead className="bg-gray-50 border-y">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {filteredProjects.length === 0 ? (
-                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No projects found</td></tr>
-                      ) : filteredProjects.map((p) => (
-                        <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
-                          <td className="px-4 py-2.5"><p className="font-medium">{p.name}</p><p className="text-xs text-gray-400">{p.location || '-'}</p></td>
-                          <td className="px-4 py-2.5 text-gray-600">{p.client_name}</td>
-                          <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
-                          <td className="px-4 py-2.5 text-right font-medium text-green-600">{formatCurrency(p.total_value)}</td>
-                          <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex justify-center gap-1">
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}><Eye className="h-3 w-3 mr-1" />View</Button>
-                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => openStageDialog(p)}><ArrowRight className="h-3 w-3" /></Button>
-                              {p.status === 'planning_review' && <Button size="sm" className="h-7 text-xs" onClick={() => handleSubmitForApproval(p.project_id)}><Send className="h-3 w-3 mr-1" />Submit</Button>}
-                            </div>
-                          </td>
+                {subTabLoading ? (
+                  <div className="p-8 text-center text-gray-500">Loading projects...</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="projects-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y">
+                        {(() => {
+                          const filtered = subTabProjects.filter(p =>
+                            !projectSearch ||
+                            (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
+                            (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase())
+                          );
+                          if (filtered.length === 0) return (
+                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">
+                              {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : 'No delivered projects'}
+                            </td></tr>
+                          );
+                          return filtered.map((p) => (
+                            <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`project-row-${p.project_id}`}>
+                              <td className="px-4 py-2.5">
+                                <p className="font-medium">{p.name}</p>
+                                <p className="text-xs text-gray-400">{p.location || p.project_code || '-'}</p>
+                              </td>
+                              <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
+                              <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
+                              <td className="px-4 py-2.5 text-right font-medium text-green-600">{formatCurrency(p.total_value)}</td>
+                              <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-500">
+                                {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
+                                 projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
+                                 projectSubTab === 'delivered' && p.planning_delivered_date ? new Date(p.planning_delivered_date).toLocaleDateString('en-IN') :
+                                 p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '-'}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex justify-center gap-1">
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => window.location.href = `/projects/${p.project_id}`}>
+                                    <Eye className="h-3 w-3 mr-1" />View
+                                  </Button>
+                                  {projectSubTab === 'new' && (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                                      onClick={() => handlePlanningStatusChange(p.project_id, 'active')}
+                                      data-testid={`ready-to-construction-${p.project_id}`}
+                                    >
+                                      <ArrowRight className="h-3 w-3 mr-1" />Ready to Construction
+                                    </Button>
+                                  )}
+                                  {projectSubTab === 'active' && (
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs bg-purple-600 hover:bg-purple-700"
+                                      onClick={() => handlePlanningStatusChange(p.project_id, 'delivered')}
+                                      data-testid={`mark-delivered-${p.project_id}`}
+                                    >
+                                      <Check className="h-3 w-3 mr-1" />Mark Delivered
+                                    </Button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -1378,6 +1378,86 @@ async def planning_submit_for_approval(project_id: str, user: User = Depends(get
     return {"message": "Project submitted for approval"}
 
 
+@router.patch("/planning/projects/{project_id}/planning-status")
+async def update_planning_status(project_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Move project between planning lifecycle: new -> active -> delivered"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can update planning status")
+
+    body = await request.json()
+    new_status = body.get("planning_status")
+    if new_status not in ["new", "active", "delivered"]:
+        raise HTTPException(status_code=400, detail="Invalid planning status. Must be: new, active, delivered")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    update = {"planning_status": new_status, "updated_at": now}
+
+    if new_status == "active":
+        update["planning_active_date"] = now
+    elif new_status == "delivered":
+        update["planning_delivered_date"] = now
+    elif new_status == "new":
+        update["planning_new_date"] = now
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": update})
+    return {"message": f"Project moved to {new_status}"}
+
+
+@router.get("/planning/projects-filtered")
+async def get_planning_projects_filtered(
+    planning_status: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    user: User = Depends(get_current_user)
+):
+    """Get projects filtered by planning lifecycle status and date"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+
+    query = {}
+    date_field = "created_at"
+
+    if planning_status:
+        query["planning_status"] = planning_status
+        if planning_status == "active":
+            date_field = "planning_active_date"
+        elif planning_status == "delivered":
+            date_field = "planning_delivered_date"
+        elif planning_status == "new":
+            date_field = "planning_new_date"
+
+    logger.info(f"Planning projects filter: query={query}, date_field={date_field}")
+
+    # Date filters
+    if date_from and date_to:
+        query[date_field] = {"$gte": date_from, "$lte": date_to + "T23:59:59"}
+    elif date_from:
+        query[date_field] = {"$gte": date_from}
+    elif date_to:
+        query[date_field] = {"$lte": date_to + "T23:59:59"}
+
+    if month and year:
+        start = f"{year}-{month:02d}-01T00:00:00"
+        if month == 12:
+            end = f"{year + 1}-01-01T00:00:00"
+        else:
+            end = f"{year}-{month + 1:02d}-01T00:00:00"
+        query[date_field] = {"$gte": start, "$lt": end}
+    elif year and not month:
+        query[date_field] = {"$gte": f"{year}-01-01T00:00:00", "$lt": f"{year + 1}-01-01T00:00:00"}
+
+    logger.info(f"Final query: {query}")
+    projects = await db.projects.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    logger.info(f"Found {len(projects)} projects")
+    return projects
+
+
 # ==================== PROJECT CONSTRUCTION STAGES ENDPOINTS ====================
 
 @router.get("/planning/stage-dashboard")
