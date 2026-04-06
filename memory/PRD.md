@@ -41,6 +41,7 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] All Projects 3 sub-tabs: New Projects, Current Projects, Delivered Projects with status transitions and date filters - 2026-04-06
 - [x] Drag-and-drop reordering across all lists: Stage Management, RE Templates, RE Projects, Package Management estimates - 2026-04-06
 - [x] Drag-and-drop added to Project Detail: Scope items, Additional Costs, Deductions, Bulk entry forms with backend auto-save - 2026-04-06
+- [x] Drag-and-drop added to Project Detail: Construction Stages with backend auto-save. Fixed optimistic update to prevent 'Failed to load project data' error - 2026-04-06
 
 ## Upcoming Tasks (P1)
 - CRE Board: New projects on onboard → move to Planning
