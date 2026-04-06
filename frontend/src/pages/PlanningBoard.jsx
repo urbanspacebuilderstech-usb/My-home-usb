@@ -15,6 +15,7 @@ import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
   Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy
 } from 'lucide-react';
+import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -1309,6 +1310,7 @@ export default function PlanningBoard() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
+                      <th className="px-1 py-2 w-8"></th>
                       <th className="px-3 py-2 text-left">Description</th>
                       <th className="px-3 py-2 text-center w-20">Qty</th>
                       <th className="px-3 py-2 text-center w-20">Unit</th>
@@ -1320,13 +1322,25 @@ export default function PlanningBoard() {
                   <tbody className="divide-y">
                     {templateForm.scope_items.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-6 text-center text-gray-500">
+                        <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
                           No scope items added. Click "Add Item" to start.
                         </td>
                       </tr>
                     ) : (
-                      templateForm.scope_items.map((item, idx) => (
-                        <tr key={idx} data-testid={`scope-item-row-${idx}`}>
+                      <SortableList
+                        items={templateForm.scope_items.map((_, i) => `scope-${i}`)}
+                        onReorder={(newIds) => {
+                          const newItems = newIds.map(id => templateForm.scope_items[parseInt(id.split('-')[1])]);
+                          setTemplateForm({ ...templateForm, scope_items: newItems });
+                        }}
+                      >
+                      {templateForm.scope_items.map((item, idx) => (
+                        <SortableTableRow key={`scope-${idx}`} id={`scope-${idx}`}>
+                          {({ listeners, attributes }) => (
+                            <>
+                          <td className="px-1 py-2 text-center">
+                            <DragHandle listeners={listeners} attributes={attributes} />
+                          </td>
                           <td className="px-3 py-2">
                             <Input
                               value={item.name}
@@ -1367,8 +1381,11 @@ export default function PlanningBoard() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </td>
-                        </tr>
-                      ))
+                            </>
+                          )}
+                        </SortableTableRow>
+                      ))}
+                      </SortableList>
                     )}
                   </tbody>
                 </table>

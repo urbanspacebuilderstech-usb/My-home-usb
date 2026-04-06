@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
+import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
@@ -708,6 +709,7 @@ export default function REProjectsPage({ embedded = false }) {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-100">
                       <tr>
+                        <th className="px-1 py-2 w-8"></th>
                         <th className="px-3 py-2 text-left">Description</th>
                         <th className="px-3 py-2 text-center w-20">Qty</th>
                         <th className="px-3 py-2 text-center w-20">Unit</th>
@@ -719,13 +721,25 @@ export default function REProjectsPage({ embedded = false }) {
                     <tbody className="divide-y">
                       {editForm.rough_scope_items.length === 0 ? (
                         <tr>
-                          <td colSpan={canEdit ? 6 : 5} className="px-3 py-4 text-center text-gray-500">
+                          <td colSpan={canEdit ? 7 : 6} className="px-3 py-4 text-center text-gray-500">
                             No scope items added
                           </td>
                         </tr>
                       ) : (
-                        editForm.rough_scope_items.map((item, idx) => (
-                          <tr key={idx}>
+                        <SortableList
+                          items={editForm.rough_scope_items.map((_, i) => `re-scope-${i}`)}
+                          onReorder={(newIds) => {
+                            const newItems = newIds.map(id => editForm.rough_scope_items[parseInt(id.split('-')[2])]);
+                            setEditForm({ ...editForm, rough_scope_items: newItems });
+                          }}
+                        >
+                        {editForm.rough_scope_items.map((item, idx) => (
+                          <SortableTableRow key={`re-scope-${idx}`} id={`re-scope-${idx}`}>
+                            {({ listeners, attributes }) => (
+                              <>
+                            <td className="px-1 py-2 text-center">
+                              {canEdit && <DragHandle listeners={listeners} attributes={attributes} />}
+                            </td>
                             <td className="px-3 py-2">
                               <Input
                                 value={item.name}
@@ -775,8 +789,11 @@ export default function REProjectsPage({ embedded = false }) {
                                 </Button>
                               </td>
                             )}
-                          </tr>
-                        ))
+                              </>
+                            )}
+                          </SortableTableRow>
+                        ))}
+                        </SortableList>
                       )}
                     </tbody>
                   </table>

@@ -28,6 +28,7 @@ import {
   useSortable, verticalListSortingStrategy
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -322,6 +323,7 @@ export default function PackageManagement() {
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="px-2 py-2 text-left text-xs font-semibold w-8">S.No</th>
+                    <th className="px-2 py-2 w-8"></th>
                     <th className="px-2 py-2 text-left text-xs font-semibold">Name</th>
                     <th className="px-2 py-2 text-left text-xs font-semibold w-20">Unit</th>
                     <th className="px-2 py-2 text-right text-xs font-semibold w-24">Amount</th>
@@ -332,9 +334,18 @@ export default function PackageManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
+                  <SortableList
+                    items={estForm.items.map((_, i) => `est-${i}`)}
+                    onReorder={(newIds) => {
+                      const newItems = newIds.map(id => estForm.items[parseInt(id.split('-')[1])]);
+                      setEstForm({ ...estForm, items: newItems });
+                    }}
+                  >
                   {estForm.items.map((item, i) => (
-                    <tr key={i} className="hover:bg-gray-50/50">
-                      <td className="px-2 py-1.5 text-gray-500">{i + 1}</td>
+                    <SortableTableRow key={`est-${i}`} id={`est-${i}`} className="hover:bg-gray-50/50">
+                      {({ listeners, attributes }) => (
+                        <>
+                      <td className="px-1 py-1.5"><DragHandle listeners={listeners} attributes={attributes} /></td>
                       <td className="px-1 py-1"><Input value={item.name} onChange={e => updateEstItem(i, 'name', e.target.value)} className="h-8" placeholder="Item name" /></td>
                       <td className="px-1 py-1"><Input value={item.unit} onChange={e => updateEstItem(i, 'unit', e.target.value)} className="h-8" /></td>
                       <td className="px-1 py-1"><NumericInput value={item.amount} onChange={e => updateEstItem(i, 'amount', e.target.value)} className="h-8 text-right" /></td>
@@ -342,8 +353,11 @@ export default function PackageManagement() {
                       <td className="px-2 py-1.5 text-right font-semibold text-green-700">{fmt((parseFloat(item.amount) || 0) * (parseFloat(item.qty) || 0))}</td>
                       <td className="px-1 py-1"><Input value={item.remarks} onChange={e => updateEstItem(i, 'remarks', e.target.value)} className="h-8" placeholder="Remarks" /></td>
                       <td className="px-1 py-1"><Button size="sm" variant="ghost" onClick={() => removeEstItem(i)}><X className="h-4 w-4 text-red-500" /></Button></td>
-                    </tr>
+                        </>
+                      )}
+                    </SortableTableRow>
                   ))}
+                  </SortableList>
                 </tbody>
               </table>
             </div>

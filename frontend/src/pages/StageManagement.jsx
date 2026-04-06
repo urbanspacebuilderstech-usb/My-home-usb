@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import {
   Settings, Plus, Edit, Trash2, Save, X, GripVertical, ArrowLeft,
-  ChevronUp, ChevronDown, Flag, RefreshCw, Users, ArrowDownRight
+  Flag, RefreshCw, Users, ArrowDownRight
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -16,6 +16,7 @@ import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
+import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -125,17 +126,17 @@ export default function StageManagement() {
     }
   };
 
-  const handleMoveStage = async (stage, direction) => {
-    const currentIdx = filteredStages.findIndex(s => s.stage_id === stage.stage_id);
-    const swapIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
-    if (swapIdx < 0 || swapIdx >= filteredStages.length) return;
-
-    const swapStage = filteredStages[swapIdx];
+  const handleDragReorder = async (newIds, oldIndex, newIndex) => {
+    // Update the order of all affected stages
     try {
-      await Promise.all([
-        axios.patch(`${API}/crm/stages/${stage.stage_id}`, { order: swapStage.order }),
-        axios.patch(`${API}/crm/stages/${swapStage.stage_id}`, { order: stage.order }),
-      ]);
+      const updates = newIds.map((id, i) => {
+        const stage = filteredStages.find(s => s.stage_id === id);
+        if (stage && stage.order !== i + 1) {
+          return axios.patch(`${API}/crm/stages/${id}`, { order: i + 1 });
+        }
+        return null;
+      }).filter(Boolean);
+      if (updates.length > 0) await Promise.all(updates);
       fetchData(false);
     } catch {
       toast.error('Failed to reorder');
@@ -215,22 +216,32 @@ export default function StageManagement() {
                     <table className="w-full text-xs sm:text-sm" data-testid={`stages-table-${tabType}`}>
                       <thead>
                         <tr className="border-b bg-gray-50">
+                          <th className="text-center px-2 py-2 font-medium text-gray-500 w-10"></th>
                           <th className="text-center px-2 py-2 font-medium text-gray-500 w-16">Order</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-500">Color</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-500">Stage Name</th>
                           <th className="text-center px-3 py-2 font-medium text-gray-500">Leads</th>
                           <th className="text-center px-3 py-2 font-medium text-gray-500">Final</th>
-                          <th className="text-center px-3 py-2 font-medium text-gray-500">Move</th>
                           <th className="text-center px-3 py-2 font-medium text-gray-500">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredStages.length === 0 ? (
                           <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No stages configured</td></tr>
-                        ) : filteredStages.map((stage, idx) => {
+                        ) : (
+                        <SortableList
+                          items={filteredStages.map(s => s.stage_id)}
+                          onReorder={handleDragReorder}
+                        >
+                        {filteredStages.map((stage, idx) => {
                           const isEditing = editingStage?.stage_id === stage.stage_id;
                           return (
-                            <tr key={stage.stage_id} className="border-b hover:bg-gray-50" data-testid={`stage-row-${stage.stage_id}`}>
+                            <SortableTableRow key={stage.stage_id} id={stage.stage_id} className="border-b hover:bg-gray-50" data-testid={`stage-row-${stage.stage_id}`}>
+                              {({ listeners, attributes }) => (
+                                <>
+                              <td className="px-2 py-2 text-center">
+                                <DragHandle listeners={listeners} attributes={attributes} />
+                              </td>
                               <td className="px-2 py-2 text-center">
                                 <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-600 text-xs font-bold">
                                   {stage.order || idx + 1}
@@ -268,18 +279,6 @@ export default function StageManagement() {
                                 ) : null}
                               </td>
                               <td className="px-3 py-2 text-center">
-                                <div className="flex items-center justify-center gap-0.5">
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" disabled={idx === 0}
-                                    onClick={() => handleMoveStage(stage, 'up')} data-testid={`move-up-${stage.stage_id}`}>
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" disabled={idx === filteredStages.length - 1}
-                                    onClick={() => handleMoveStage(stage, 'down')} data-testid={`move-down-${stage.stage_id}`}>
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-center">
                                 {isEditing ? (
                                   <div className="flex items-center justify-center gap-1">
                                     <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 px-2" disabled={saving}
@@ -303,9 +302,13 @@ export default function StageManagement() {
                                   </div>
                                 )}
                               </td>
-                            </tr>
+                                </>
+                              )}
+                            </SortableTableRow>
                           );
                         })}
+                        </SortableList>
+                        )}
                       </tbody>
                     </table>
                   </div>
