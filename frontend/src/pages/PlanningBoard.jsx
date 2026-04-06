@@ -7,12 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
@@ -83,6 +84,13 @@ export default function PlanningBoard() {
 
   const [vendorLoading, setVendorLoading] = useState(false);
 
+  // RE Templates
+  const [reTemplates, setReTemplates] = useState([]);
+  const [templateDialog, setTemplateDialog] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState(null);
+  const [templateForm, setTemplateForm] = useState({ name: '', sqft: '', scope_items: [] });
+  const [templateSearch, setTemplateSearch] = useState('');
+
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
@@ -127,6 +135,7 @@ export default function PlanningBoard() {
     if (tab === 'labours' && contractors.length === 0) fetchContractors();
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
     if (tab === 'payment_schedule') fetchMonthlySchedule();
+    if (tab === 're_templates') fetchTemplates();
   };
 
   const fetchMonthlySchedule = async () => {
@@ -243,6 +252,81 @@ export default function PlanningBoard() {
     try { await axios.patch(`${API}/vendor-master/${v.vendor_id}`, { is_active: !v.is_active }); toast.success(v.is_active ? 'Hidden' : 'Activated'); fetchVendors(); } catch { toast.error('Failed'); }
   };
 
+  // === RE TEMPLATE HANDLERS ===
+  const fetchTemplates = async () => {
+    try {
+      const res = await axios.get(`${API}/crm/re-templates`);
+      setReTemplates(res.data || []);
+    } catch { toast.error('Failed to load templates'); }
+  };
+
+  const openTemplateDialog = (template = null) => {
+    setEditingTemplate(template);
+    setTemplateForm(template ? {
+      name: template.name || '',
+      sqft: template.sqft || '',
+      scope_items: (template.scope_items || []).map(i => ({ ...i }))
+    } : { name: '', sqft: '', scope_items: [] });
+    setTemplateDialog(true);
+  };
+
+  const addTemplateScopeItem = () => {
+    setTemplateForm({
+      ...templateForm,
+      scope_items: [...templateForm.scope_items, { name: '', quantity: 1, unit: 'nos', rate: 0, total: 0 }]
+    });
+  };
+
+  const updateTemplateScopeItem = (index, field, value) => {
+    const items = [...templateForm.scope_items];
+    items[index][field] = value;
+    if (field === 'quantity' || field === 'rate') {
+      items[index].total = (parseFloat(items[index].quantity) || 0) * (parseFloat(items[index].rate) || 0);
+    }
+    setTemplateForm({ ...templateForm, scope_items: items });
+  };
+
+  const removeTemplateScopeItem = (index) => {
+    setTemplateForm({ ...templateForm, scope_items: templateForm.scope_items.filter((_, i) => i !== index) });
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!templateForm.name.trim()) { toast.error('Template name is required'); return; }
+    const payload = {
+      name: templateForm.name,
+      sqft: parseFloat(templateForm.sqft) || 0,
+      scope_items: templateForm.scope_items.map(i => ({
+        name: i.name || '',
+        quantity: parseFloat(i.quantity) || 0,
+        unit: i.unit || 'nos',
+        rate: parseFloat(i.rate) || 0,
+        total: (parseFloat(i.quantity) || 0) * (parseFloat(i.rate) || 0)
+      }))
+    };
+    try {
+      if (editingTemplate) {
+        await axios.patch(`${API}/crm/re-templates/${editingTemplate.template_id}`, payload);
+        toast.success('Template updated');
+      } else {
+        await axios.post(`${API}/crm/re-templates`, payload);
+        toast.success('Template created');
+      }
+      setTemplateDialog(false);
+      fetchTemplates();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save template'); }
+  };
+
+  const handleDeleteTemplate = async (template) => {
+    if (!window.confirm(`Delete template "${template.name}"?`)) return;
+    try {
+      await axios.delete(`${API}/crm/re-templates/${template.template_id}`);
+      toast.success('Template deleted');
+      fetchTemplates();
+    } catch { toast.error('Failed to delete'); }
+  };
+
+  const filteredTemplates = reTemplates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()));
+
   // === HELPERS ===
   const formatCurrency = (a) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(a || 0);
 
@@ -349,6 +433,9 @@ export default function PlanningBoard() {
             <TabsTrigger value="suppliers" className="text-xs sm:text-sm" data-testid="tab-suppliers">Suppliers</TabsTrigger>
             <TabsTrigger value="rough_estimates" className="text-xs sm:text-sm" data-testid="tab-rough-estimates">
               Rough Estimates<CountBadge count={reNewCount} />
+            </TabsTrigger>
+            <TabsTrigger value="re_templates" className="text-xs sm:text-sm" data-testid="tab-re-templates">
+              <FileText className="h-3 w-3 mr-1" />RE Templates
             </TabsTrigger>
             <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm" data-testid="tab-payment-schedule">
               <Calendar className="h-3 w-3 mr-1" />Payment Schedule
@@ -618,6 +705,89 @@ export default function PlanningBoard() {
           {/* ==================== ROUGH ESTIMATES ==================== */}
           <TabsContent value="rough_estimates">
             <REProjectsPage embedded />
+          </TabsContent>
+
+          {/* ==================== RE TEMPLATES ==================== */}
+          <TabsContent value="re_templates">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-purple-600" />
+                    RE Templates ({filteredTemplates.length})
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
+                      <Input placeholder="Search templates..." value={templateSearch} onChange={(e) => setTemplateSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="template-search" />
+                    </div>
+                    <Button size="sm" onClick={() => openTemplateDialog()} data-testid="create-template-btn">
+                      <Plus className="h-4 w-4 mr-1" /> Create Template
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-0">
+                {filteredTemplates.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p className="font-medium">No templates yet</p>
+                    <p className="text-sm mt-1">Create your first RE template to reuse across projects</p>
+                    <Button size="sm" className="mt-4" onClick={() => openTemplateDialog()} data-testid="create-first-template-btn">
+                      <Plus className="h-4 w-4 mr-1" /> Create Template
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="templates-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Template Name</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Sq.ft</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Scope Items</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Estimated Total</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Created By</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredTemplates.map(t => (
+                          <tr key={t.template_id} className="hover:bg-gray-50" data-testid={`template-row-${t.template_id}`}>
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-gray-900">{t.name}</p>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge variant="outline" className="text-xs">{t.sqft || '-'} sqft</Badge>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <Badge className="bg-purple-100 text-purple-700 text-xs">{t.scope_items?.length || 0} items</Badge>
+                            </td>
+                            <td className="px-4 py-3 text-right font-medium text-gray-900">
+                              {formatCurrency(t.estimated_total)}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 text-xs">{t.created_by_name || '-'}</td>
+                            <td className="px-4 py-3 text-gray-500 text-xs">
+                              {t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN') : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => openTemplateDialog(t)} data-testid={`edit-template-${t.template_id}`}>
+                                  <Edit className="h-4 w-4 text-blue-600" />
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={() => handleDeleteTemplate(t)} data-testid={`delete-template-${t.template_id}`}>
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ==================== PAYMENT SCHEDULE ==================== */}
@@ -906,6 +1076,141 @@ export default function PlanningBoard() {
             <Button variant="outline" onClick={() => setAddStagesDialog(false)}>Cancel</Button>
             <Button onClick={handleAddStagesToSchedule} disabled={selectedStageIds.length === 0} className="bg-amber-600 hover:bg-amber-700" data-testid="confirm-add-stages">
               Add {selectedStageIds.length} Stage{selectedStageIds.length !== 1 ? 's' : ''}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ==================== RE TEMPLATE DIALOG ==================== */}
+      <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2" data-testid="template-dialog-title">
+              <FileText className="h-5 w-5 text-purple-600" />
+              {editingTemplate ? 'Edit Template' : 'Create RE Template'}
+            </DialogTitle>
+            <DialogDescription>
+              {editingTemplate ? 'Update template details and scope items' : 'Define a reusable rough estimate template with scope items'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 sm:col-span-1">
+                <Label>Template Name *</Label>
+                <Input
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                  placeholder="e.g., Standard 2BHK, Premium Villa"
+                  data-testid="template-name-input"
+                />
+              </div>
+              <div className="col-span-2 sm:col-span-1">
+                <Label>Sq.ft</Label>
+                <NumericInput
+                  value={templateForm.sqft}
+                  onChange={(e) => setTemplateForm({ ...templateForm, sqft: e.target.value })}
+                  placeholder="e.g., 1200"
+                  data-testid="template-sqft-input"
+                />
+              </div>
+            </div>
+
+            {/* Scope Items Table */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Scope of Work Items</Label>
+                <Button variant="outline" size="sm" onClick={addTemplateScopeItem} data-testid="add-scope-item-btn">
+                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                </Button>
+              </div>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Description</th>
+                      <th className="px-3 py-2 text-center w-20">Qty</th>
+                      <th className="px-3 py-2 text-center w-20">Unit</th>
+                      <th className="px-3 py-2 text-right w-24">Rate</th>
+                      <th className="px-3 py-2 text-right w-24">Total</th>
+                      <th className="px-3 py-2 w-12"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {templateForm.scope_items.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-6 text-center text-gray-500">
+                          No scope items added. Click "Add Item" to start.
+                        </td>
+                      </tr>
+                    ) : (
+                      templateForm.scope_items.map((item, idx) => (
+                        <tr key={idx} data-testid={`scope-item-row-${idx}`}>
+                          <td className="px-3 py-2">
+                            <Input
+                              value={item.name}
+                              onChange={(e) => updateTemplateScopeItem(idx, 'name', e.target.value)}
+                              placeholder="Item description"
+                              className="h-8"
+                              data-testid={`scope-item-name-${idx}`}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <NumericInput
+                              value={item.quantity}
+                              onChange={(e) => updateTemplateScopeItem(idx, 'quantity', e.target.value)}
+                              className="h-8 text-center"
+                              data-testid={`scope-item-qty-${idx}`}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <UnitSelect
+                              value={item.unit}
+                              onChange={(v) => updateTemplateScopeItem(idx, 'unit', v)}
+                              className="h-8"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <NumericInput
+                              value={item.rate}
+                              onChange={(e) => updateTemplateScopeItem(idx, 'rate', e.target.value)}
+                              className="h-8 text-right"
+                              data-testid={`scope-item-rate-${idx}`}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium">
+                            {formatCurrency(item.total)}
+                          </td>
+                          <td className="px-3 py-2">
+                            <Button variant="ghost" size="sm" onClick={() => removeTemplateScopeItem(idx)} data-testid={`remove-scope-item-${idx}`}>
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Total */}
+            {templateForm.scope_items.length > 0 && (
+              <Card className="bg-purple-50 border-purple-200">
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-purple-600">Estimated Total</p>
+                  <p className="text-2xl font-bold text-purple-800" data-testid="template-estimated-total">
+                    {formatCurrency(templateForm.scope_items.reduce((sum, item) => sum + ((parseFloat(item.quantity) || 0) * (parseFloat(item.rate) || 0)), 0))}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplateDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveTemplate} className="bg-purple-600 hover:bg-purple-700" data-testid="save-template-btn">
+              {editingTemplate ? 'Update Template' : 'Save Template'}
             </Button>
           </DialogFooter>
         </DialogContent>

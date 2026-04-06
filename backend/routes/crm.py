@@ -4447,3 +4447,106 @@ async def get_lead_sources(user: User = Depends(get_current_user)):
     }
 
 
+
+
+# ==================== RE TEMPLATES ====================
+
+class REScopeItem(BaseModel):
+    name: str = ""
+    quantity: float = 1
+    unit: str = "nos"
+    rate: float = 0
+    total: float = 0
+
+class RETemplateCreate(BaseModel):
+    name: str
+    sqft: Optional[float] = 0
+    scope_items: List[REScopeItem] = []
+
+class RETemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    sqft: Optional[float] = None
+    scope_items: Optional[List[REScopeItem]] = None
+
+
+@router.post("/crm/re-templates")
+async def create_re_template(data: RETemplateCreate, user: User = Depends(get_current_user)):
+    if user.role not in ["planning", "super_admin", "general_manager"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not data.name.strip():
+        raise HTTPException(status_code=400, detail="Template name is required")
+
+    scope_items = [item.dict() for item in data.scope_items]
+    for item in scope_items:
+        item["total"] = round((float(item.get("quantity", 0)) or 0) * (float(item.get("rate", 0)) or 0), 2)
+
+    estimated_total = sum(item["total"] for item in scope_items)
+
+    template = {
+        "template_id": str(uuid.uuid4()),
+        "name": data.name.strip(),
+        "sqft": data.sqft or 0,
+        "scope_items": scope_items,
+        "estimated_total": estimated_total,
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.re_templates.insert_one(template)
+    template.pop("_id", None)
+    return template
+
+
+@router.get("/crm/re-templates")
+async def get_re_templates(user: User = Depends(get_current_user)):
+    if user.role not in ["planning", "super_admin", "general_manager", "cre", "sales"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    templates = await db.re_templates.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return templates
+
+
+@router.get("/crm/re-templates/{template_id}")
+async def get_re_template(template_id: str, user: User = Depends(get_current_user)):
+    template = await db.re_templates.find_one({"template_id": template_id}, {"_id": 0})
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return template
+
+
+@router.patch("/crm/re-templates/{template_id}")
+async def update_re_template(template_id: str, data: RETemplateUpdate, user: User = Depends(get_current_user)):
+    if user.role not in ["planning", "super_admin", "general_manager"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    template = await db.re_templates.find_one({"template_id": template_id})
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    update = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if data.name is not None:
+        if not data.name.strip():
+            raise HTTPException(status_code=400, detail="Template name is required")
+        update["name"] = data.name.strip()
+    if data.sqft is not None:
+        update["sqft"] = data.sqft
+    if data.scope_items is not None:
+        scope_items = [item.dict() for item in data.scope_items]
+        for item in scope_items:
+            item["total"] = round((float(item.get("quantity", 0)) or 0) * (float(item.get("rate", 0)) or 0), 2)
+        update["scope_items"] = scope_items
+        update["estimated_total"] = sum(item["total"] for item in scope_items)
+
+    await db.re_templates.update_one({"template_id": template_id}, {"$set": update})
+    updated = await db.re_templates.find_one({"template_id": template_id}, {"_id": 0})
+    return updated
+
+
+@router.delete("/crm/re-templates/{template_id}")
+async def delete_re_template(template_id: str, user: User = Depends(get_current_user)):
+    if user.role not in ["planning", "super_admin", "general_manager"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    result = await db.re_templates.delete_one({"template_id": template_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"message": "Template deleted"}
