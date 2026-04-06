@@ -39,6 +39,7 @@ Construction CRM application with automated sales pipeline, project onboarding, 
 - [x] Edit Lead dialog now shows ALL fields (Source, Pincode, Custom Fields) matching Add New Lead - both Pre-Sales & Sales - 2026-04-06
 - [x] RE Templates CRUD in Planning Board (Create, Edit, Delete, List with scope items) - 2026-04-06
 - [x] All Projects 3 sub-tabs: New Projects, Current Projects, Delivered Projects with status transitions and date filters - 2026-04-06
+- [x] Drag-and-drop reordering across all lists: Stage Management, RE Templates, RE Projects, Package Management estimates - 2026-04-06
 
 ## Upcoming Tasks (P1)
 - CRE Board: New projects on onboard → move to Planning
