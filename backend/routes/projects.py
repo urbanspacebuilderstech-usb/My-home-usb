@@ -2842,6 +2842,21 @@ async def get_project_stages(project_id: str, user: User = Depends(get_current_u
     ).sort("order", 1).to_list(500)
     return stages
 
+@router.post("/projects/{project_id}/project-stages/reorder")
+async def reorder_project_stages(project_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Reorder project construction stages"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    body = await request.json()
+    stage_ids = body.get("stage_ids", [])
+    if not stage_ids:
+        raise HTTPException(status_code=400, detail="stage_ids required")
+    updates = [db.project_stages.update_one({"stage_id": sid}, {"$set": {"order": i}}) for i, sid in enumerate(stage_ids)]
+    await asyncio.gather(*updates)
+    return {"message": "Stages reordered"}
+
+
+
 @router.post("/projects/{project_id}/project-stages")
 async def add_project_stage(project_id: str, data: ProjectStageCreate, user: User = Depends(get_current_user)):
     project = await db.projects.find_one({"project_id": project_id})

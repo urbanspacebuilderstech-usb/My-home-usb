@@ -982,24 +982,45 @@ export default function ProjectDetail() {
   };
 
   const handleScopeReorder = async (newIds) => {
+    // Optimistic local reorder
+    const newItems = newIds.map(id => scope_items.find(s => s.scope_id === id)).filter(Boolean);
+    setProjectData(prev => ({
+      ...prev,
+      scope_items: newItems
+    }));
     try {
       await axios.post(`${API}/scope-items/reorder`, { scope_ids: newIds });
-      fetchData(false);
-    } catch { toast.error('Failed to reorder'); }
+    } catch { toast.error('Failed to save order'); }
   };
 
   const handleAdditionalCostReorder = async (newIds) => {
+    const newItems = newIds.map(id => additional_costs.find(c => c.cost_id === id)).filter(Boolean);
+    setProjectData(prev => ({
+      ...prev,
+      additional_costs: newItems
+    }));
     try {
       await axios.post(`${API}/additional-costs/reorder`, { cost_ids: newIds });
-      fetchData(false);
-    } catch { toast.error('Failed to reorder'); }
+    } catch { toast.error('Failed to save order'); }
   };
 
   const handleDeductionReorder = async (newIds) => {
+    const newItems = newIds.map(id => deductions.find(d => d.deduction_id === id)).filter(Boolean);
+    setProjectData(prev => ({
+      ...prev,
+      deductions: newItems
+    }));
     try {
       await axios.post(`${API}/deductions/reorder`, { deduction_ids: newIds });
-      fetchData(false);
-    } catch { toast.error('Failed to reorder'); }
+    } catch { toast.error('Failed to save order'); }
+  };
+
+  const handleStageReorder = async (newIds) => {
+    const newStages = newIds.map(id => projectStages.find(s => s.stage_id === id)).filter(Boolean);
+    setProjectStages(newStages);
+    try {
+      await axios.post(`${API}/projects/${projectId}/project-stages/reorder`, { stage_ids: newIds });
+    } catch { toast.error('Failed to save stage order'); }
   };
 
   const handleDeletePayment = async (stageId) => {
@@ -2341,6 +2362,7 @@ export default function ProjectDetail() {
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b">
                         <tr>
+                          <th className="px-1 py-3 w-8"></th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
                           <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage Name</th>
                           <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Start Date</th>
@@ -2351,8 +2373,17 @@ export default function ProjectDetail() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
+                        <SortableList
+                          items={projectStages.map(s => s.stage_id)}
+                          onReorder={handleStageReorder}
+                        >
                         {projectStages.map((stage, idx) => (
-                          <tr key={stage.stage_id} className="hover:bg-gray-50" data-testid={`project-stage-row-${stage.stage_id}`}>
+                          <SortableTableRow key={stage.stage_id} id={stage.stage_id} className="hover:bg-gray-50">
+                            {({ listeners, attributes }) => (
+                              <>
+                            <td className="px-1 py-3 text-center">
+                              {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
+                            </td>
                             <td className="px-4 py-3 text-sm font-medium">{idx + 1}</td>
                             <td className="px-4 py-3">
                               {editingStageId === stage.stage_id ? (
@@ -2415,8 +2446,11 @@ export default function ProjectDetail() {
                                 )}
                               </td>
                             )}
-                          </tr>
+                              </>
+                            )}
+                          </SortableTableRow>
                         ))}
+                        </SortableList>
                       </tbody>
                     </table>
                   </div>
