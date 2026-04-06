@@ -56,7 +56,8 @@ export default function CRMSales() {
   const [selectedREProject, setSelectedREProject] = useState(null);
   const [reRevisions, setReRevisions] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', address: '', city: '', state: '', notes: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {} });
+  const [customFields, setCustomFields] = useState([]);
   const [summary, setSummary] = useState('');
   const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
   const [remarkForm, setRemarkForm] = useState('');
@@ -135,17 +136,19 @@ export default function CRMSales() {
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const [userRes, dashboardRes, stagesRes, leadsRes] = await Promise.all([
+      const [userRes, dashboardRes, stagesRes, leadsRes, customFieldsRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/crm/sales/dashboard`),
         axios.get(`${API}/crm/stages?stage_type=sales`),
-        axios.get(`${API}/crm/sales/leads`)
+        axios.get(`${API}/crm/sales/leads`),
+        axios.get(`${API}/crm/custom-fields`)
       ]);
       
       setUser(userRes.data);
       setDashboard(dashboardRes.data);
       setStages(stagesRes.data);
       setLeads(leadsRes.data);
+      if (customFieldsRes?.data) setCustomFields(customFieldsRes.data);
       
       // Fetch sales overview
       try {
@@ -626,10 +629,13 @@ export default function CRMSales() {
       name: lead.name || '',
       email: lead.email || '',
       phone: lead.phone || '',
+      source: lead.source || 'other',
       address: lead.address || '',
       city: lead.city || '',
       state: lead.state || '',
-      notes: lead.notes || ''
+      pincode: lead.pincode || '',
+      notes: lead.notes || '',
+      custom_fields: lead.custom_fields || {}
     });
     setEditDialog(true);
   };
@@ -1463,22 +1469,137 @@ export default function CRMSales() {
 
       {/* Edit Lead Dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Lead</DialogTitle>
+            <DialogDescription>Update lead details. Custom fields appear below.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-3">
-            <div><Label className="text-xs">Name *</Label><Input value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="text-sm" data-testid="edit-name" /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs">Email</Label><Input value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})} className="text-sm" data-testid="edit-email" /></div>
-              <div><Label className="text-xs">Phone</Label><Input value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})} className="text-sm" data-testid="edit-phone" /></div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 sm:col-span-1">
+              <Label className="text-xs">Name *</Label>
+              <Input value={editForm.name} onChange={(e) => setEditForm({...editForm, name: e.target.value})} className="text-sm" data-testid="edit-name" />
             </div>
-            <div><Label className="text-xs">Address</Label><Input value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="text-sm" data-testid="edit-address" /></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div><Label className="text-xs">City</Label><Input value={editForm.city} onChange={(e) => setEditForm({...editForm, city: e.target.value})} className="text-sm" /></div>
-              <div><Label className="text-xs">State</Label><Input value={editForm.state} onChange={(e) => setEditForm({...editForm, state: e.target.value})} className="text-sm" /></div>
+            <div className="col-span-2 sm:col-span-1">
+              <Label className="text-xs">Source</Label>
+              <Select value={editForm.source} onValueChange={(v) => setEditForm({...editForm, source: v})}>
+                <SelectTrigger className="text-sm" data-testid="edit-source"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="meta">Meta</SelectItem>
+                  <SelectItem value="seo">SEO</SelectItem>
+                  <SelectItem value="referral">Referral</SelectItem>
+                  <SelectItem value="walk_in">Walk-in</SelectItem>
+                  <SelectItem value="website">Website</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div><Label className="text-xs">Notes</Label><textarea value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} className="w-full rounded-md border p-2 text-sm min-h-[60px]" data-testid="edit-notes" /></div>
+            <div>
+              <Label className="text-xs">Email</Label>
+              <Input value={editForm.email} onChange={(e) => setEditForm({...editForm, email: e.target.value})} className="text-sm" data-testid="edit-email" />
+            </div>
+            <div>
+              <Label className="text-xs">Phone</Label>
+              <Input value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})} className="text-sm" data-testid="edit-phone" />
+            </div>
+            <div className="col-span-2">
+              <Label className="text-xs">Address</Label>
+              <Input value={editForm.address} onChange={(e) => setEditForm({...editForm, address: e.target.value})} className="text-sm" data-testid="edit-address" />
+            </div>
+            <div>
+              <Label className="text-xs">City</Label>
+              <Input value={editForm.city} onChange={(e) => setEditForm({...editForm, city: e.target.value})} className="text-sm" />
+            </div>
+            <div>
+              <Label className="text-xs">State</Label>
+              <Input value={editForm.state} onChange={(e) => setEditForm({...editForm, state: e.target.value})} className="text-sm" />
+            </div>
+            <div>
+              <Label className="text-xs">Pincode</Label>
+              <Input value={editForm.pincode} onChange={(e) => setEditForm({...editForm, pincode: e.target.value})} className="text-sm" data-testid="edit-pincode" />
+            </div>
+            <div className="col-span-2">
+              <Label className="text-xs">Notes</Label>
+              <textarea value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} className="w-full rounded-md border p-2 text-sm min-h-[60px]" data-testid="edit-notes" />
+            </div>
+
+            {/* Custom Fields */}
+            {customFields.length > 0 && (
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <div className="flex items-center gap-2 mb-3">
+                  <Settings className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                </div>
+              </div>
+            )}
+            {customFields.map(field => (
+              <div key={field.field_id} className={field.field_type === 'textarea' ? 'col-span-2' : ''}>
+                <Label className="text-xs">{field.label} {field.required && '*'}</Label>
+                {field.field_type === 'text' && (
+                  <Input
+                    value={editForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      custom_fields: {...editForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    className="text-sm"
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'number' && (
+                  <NumericInput
+                    value={editForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      custom_fields: {...editForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    className="text-sm"
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'dropdown' && (
+                  <Select 
+                    value={editForm.custom_fields[field.field_id] || ''} 
+                    onValueChange={(v) => setEditForm({
+                      ...editForm,
+                      custom_fields: {...editForm.custom_fields, [field.field_id]: v}
+                    })}
+                  >
+                    <SelectTrigger className="text-sm" data-testid={`edit-cf-${field.field_id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+                    <SelectContent>
+                      {field.options?.map(opt => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {field.field_type === 'textarea' && (
+                  <textarea
+                    value={editForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      custom_fields: {...editForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    className="w-full rounded-md border p-2 text-sm min-h-[60px]"
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'date' && (
+                  <Input
+                    type="date"
+                    value={editForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditForm({
+                      ...editForm,
+                      custom_fields: {...editForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    className="text-sm"
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+              </div>
+            ))}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialog(false)}>Cancel</Button>

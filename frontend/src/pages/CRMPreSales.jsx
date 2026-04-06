@@ -107,10 +107,13 @@ export default function CRMPreSales() {
     name: '',
     email: '',
     phone: '',
+    source: 'other',
     address: '',
     city: '',
     state: '',
-    notes: ''
+    pincode: '',
+    notes: '',
+    custom_fields: {}
   });
   
   // New Field Form (Notion-style inline)
@@ -396,10 +399,13 @@ export default function CRMPreSales() {
       name: lead.name || '',
       email: lead.email || '',
       phone: lead.phone || '',
+      source: lead.source || 'other',
       address: lead.address || '',
       city: lead.city || '',
       state: lead.state || '',
-      notes: lead.notes || ''
+      pincode: lead.pincode || '',
+      notes: lead.notes || '',
+      custom_fields: lead.custom_fields || {}
     });
     setEditLeadDialog(true);
   };
@@ -1608,89 +1614,191 @@ export default function CRMPreSales() {
 
       {/* ============ EDIT LEAD DIALOG ============ */}
       <Dialog open={editLeadDialog} onOpenChange={setEditLeadDialog}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Edit2 className="h-5 w-5 text-amber-600" />
               Edit Lead
             </DialogTitle>
-            <DialogDescription>Update lead contact information and details</DialogDescription>
+            <DialogDescription>Update lead details. Custom fields appear below.</DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <Label>Name *</Label>
-                <Input
-                  value={editLeadForm.name}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, name: e.target.value})}
-                  placeholder="Client name"
-                  data-testid="edit-lead-name"
-                />
-              </div>
-              
-              <div>
-                <Label>Email</Label>
-                <Input
-                  type="email"
-                  value={editLeadForm.email}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, email: e.target.value})}
-                  placeholder="email@example.com"
-                  data-testid="edit-lead-email"
-                />
-              </div>
-              
-              <div>
-                <Label>Phone</Label>
-                <Input
-                  value={editLeadForm.phone}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, phone: e.target.value})}
-                  placeholder="+91 9876543210"
-                  data-testid="edit-lead-phone"
-                />
-              </div>
-              
-              <div className="col-span-2">
-                <Label>Address</Label>
-                <Input
-                  value={editLeadForm.address}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, address: e.target.value})}
-                  placeholder="Street address"
-                  data-testid="edit-lead-address"
-                />
-              </div>
-              
-              <div>
-                <Label>City</Label>
-                <Input
-                  value={editLeadForm.city}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, city: e.target.value})}
-                  placeholder="City"
-                  data-testid="edit-lead-city"
-                />
-              </div>
-              
-              <div>
-                <Label>State</Label>
-                <Input
-                  value={editLeadForm.state}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, state: e.target.value})}
-                  placeholder="State"
-                  data-testid="edit-lead-state"
-                />
-              </div>
-              
-              <div className="col-span-2">
-                <Label>Notes</Label>
-                <Textarea
-                  value={editLeadForm.notes}
-                  onChange={(e) => setEditLeadForm({...editLeadForm, notes: e.target.value})}
-                  placeholder="Additional notes about the lead..."
-                  rows={3}
-                  data-testid="edit-lead-notes"
-                />
-              </div>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Standard Fields */}
+            <div className="col-span-2 sm:col-span-1">
+              <Label>Name *</Label>
+              <Input
+                value={editLeadForm.name}
+                onChange={(e) => setEditLeadForm({...editLeadForm, name: e.target.value})}
+                placeholder="Full name"
+                data-testid="edit-lead-name"
+              />
             </div>
+            
+            <div className="col-span-2 sm:col-span-1">
+              <Label>Source</Label>
+              <Select value={editLeadForm.source} onValueChange={(v) => setEditLeadForm({...editLeadForm, source: v})}>
+                <SelectTrigger data-testid="edit-lead-source"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="meta">Meta</SelectItem>
+                  <SelectItem value="seo">SEO</SelectItem>
+                  <SelectItem value="referral">Referral</SelectItem>
+                  <SelectItem value="walk_in">Walk-in</SelectItem>
+                  <SelectItem value="website">Website</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={editLeadForm.email}
+                onChange={(e) => setEditLeadForm({...editLeadForm, email: e.target.value})}
+                placeholder="email@example.com"
+                data-testid="edit-lead-email"
+              />
+            </div>
+            
+            <div>
+              <Label>Phone</Label>
+              <Input
+                value={editLeadForm.phone}
+                onChange={(e) => setEditLeadForm({...editLeadForm, phone: e.target.value})}
+                placeholder="+91 9876543210"
+                data-testid="edit-lead-phone"
+              />
+            </div>
+            
+            <div className="col-span-2">
+              <Label>Address</Label>
+              <Input
+                value={editLeadForm.address}
+                onChange={(e) => setEditLeadForm({...editLeadForm, address: e.target.value})}
+                placeholder="Street address"
+                data-testid="edit-lead-address"
+              />
+            </div>
+            
+            <div>
+              <Label>City</Label>
+              <Input
+                value={editLeadForm.city}
+                onChange={(e) => setEditLeadForm({...editLeadForm, city: e.target.value})}
+                placeholder="City"
+                data-testid="edit-lead-city"
+              />
+            </div>
+            
+            <div>
+              <Label>State</Label>
+              <Input
+                value={editLeadForm.state}
+                onChange={(e) => setEditLeadForm({...editLeadForm, state: e.target.value})}
+                placeholder="State"
+                data-testid="edit-lead-state"
+              />
+            </div>
+
+            <div>
+              <Label>Pincode</Label>
+              <Input
+                value={editLeadForm.pincode}
+                onChange={(e) => setEditLeadForm({...editLeadForm, pincode: e.target.value})}
+                placeholder="Pincode"
+                data-testid="edit-lead-pincode"
+              />
+            </div>
+            
+            <div className="col-span-2">
+              <Label>Notes</Label>
+              <Textarea
+                value={editLeadForm.notes}
+                onChange={(e) => setEditLeadForm({...editLeadForm, notes: e.target.value})}
+                placeholder="Additional notes about the lead..."
+                rows={3}
+                data-testid="edit-lead-notes"
+              />
+            </div>
+
+            {/* Divider for Custom Fields */}
+            {customFields.length > 0 && (
+              <div className="col-span-2 border-t pt-4 mt-2">
+                <div className="flex items-center gap-2 mb-3">
+                  <Settings className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-medium text-gray-700">Custom Fields</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Custom Fields */}
+            {customFields.map(field => (
+              <div key={field.field_id} className={field.field_type === 'textarea' ? 'col-span-2' : ''}>
+                <Label>{field.label} {field.required && '*'}</Label>
+                {field.field_type === 'text' && (
+                  <Input
+                    value={editLeadForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditLeadForm({
+                      ...editLeadForm,
+                      custom_fields: {...editLeadForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'number' && (
+                  <NumericInput
+                    value={editLeadForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditLeadForm({
+                      ...editLeadForm,
+                      custom_fields: {...editLeadForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'dropdown' && (
+                  <Select 
+                    value={editLeadForm.custom_fields[field.field_id] || ''} 
+                    onValueChange={(v) => setEditLeadForm({
+                      ...editLeadForm,
+                      custom_fields: {...editLeadForm.custom_fields, [field.field_id]: v}
+                    })}
+                  >
+                    <SelectTrigger data-testid={`edit-cf-${field.field_id}`}><SelectValue placeholder={`Select ${field.label}`} /></SelectTrigger>
+                    <SelectContent>
+                      {field.options?.map(opt => (
+                        <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {field.field_type === 'textarea' && (
+                  <Textarea
+                    value={editLeadForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditLeadForm({
+                      ...editLeadForm,
+                      custom_fields: {...editLeadForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    placeholder={field.placeholder}
+                    rows={3}
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+                {field.field_type === 'date' && (
+                  <Input
+                    type="date"
+                    value={editLeadForm.custom_fields[field.field_id] || ''}
+                    onChange={(e) => setEditLeadForm({
+                      ...editLeadForm,
+                      custom_fields: {...editLeadForm.custom_fields, [field.field_id]: e.target.value}
+                    })}
+                    data-testid={`edit-cf-${field.field_id}`}
+                  />
+                )}
+              </div>
+            ))}
           </div>
           
           <DialogFooter>
