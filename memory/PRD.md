@@ -29,7 +29,9 @@ Automate the "Project Onboarding" workflow for a construction CRM application. T
 ### Project Detail (ProjectDetail.jsx)
 - Drag-and-Drop reordering for scope items, stages, estimates
 - "Final Estimate" tab (renamed from "Scope")
-- **Team Assignment**: 7 role-based dropdowns (Architect, PM, Sr. SE, SE, CRE, QC, Procurement)
+- **Team Assignment**: 7 role-based dropdowns (Architect, PM, Sr. SE, SE, CRE, QC, Procurement) — DONE Feb 2026
+- **Inline Header Edit**: CRE/Planning can edit Project Name, Client Name, Location, Package (dropdown) — DONE Feb 2026
+- **Project ID Format**: Auto-generated USB-H0001 sequential format, all existing projects migrated — DONE Feb 2026
 - Materials, Labour, Vendor, Payment Schedule, Files, Design tabs
 
 ### Global Features
