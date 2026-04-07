@@ -2993,8 +2993,8 @@ def haversine_km(lat1, lon1, lat2, lon2):
 
 class AttendanceLogin(BaseModel):
     project_id: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: float
+    longitude: float
 
 
 class AttendanceLogout(BaseModel):
@@ -3013,10 +3013,14 @@ async def attendance_login(data: AttendanceLogin, user: User = Depends(get_curre
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # GPS is mandatory - verify coordinates are valid
+    if data.latitude == 0 and data.longitude == 0:
+        raise HTTPException(status_code=400, detail="Valid GPS location is required. Please enable GPS/Location services and try again.")
+
     # GPS verification if project has coordinates
     proj_lat = project.get("latitude")
     proj_lng = project.get("longitude")
-    if proj_lat and proj_lng and data.latitude and data.longitude:
+    if proj_lat and proj_lng:
         dist = haversine_km(data.latitude, data.longitude, float(proj_lat), float(proj_lng))
         if dist > 5:
             raise HTTPException(status_code=400, detail=f"You are {dist:.1f}km away from the project site. Must be within 5km to log in.")
@@ -3319,6 +3323,52 @@ async def track_se_location(request: Request, user: User = Depends(get_current_u
             return {"status": "ok", "message": "Location tracked", "distance_km": round(dist, 1)}
     else:
         return {"status": "ok", "message": "Location tracked (project has no GPS set)"}
+
+
+@router.post("/attendance/gps-lost-logout")
+async def gps_lost_auto_logout(user: User = Depends(get_current_user)):
+    """Auto-logout SE when GPS becomes unavailable"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only site engineers")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_time = datetime.now(timezone.utc).strftime("%H:%M")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    record = await db.se_attendance.find_one({"user_id": user.user_id, "date": today})
+    if not record:
+        return {"status": "no_record"}
+
+    entries = record.get("entries", [])
+    updated = False
+    for i, entry in enumerate(entries):
+        if not entry.get("logout_time"):
+            entries[i]["logout_time"] = now_time
+            entries[i]["auto_logout"] = True
+            entries[i]["auto_logout_reason"] = "GPS/Location turned off"
+            updated = True
+            break
+
+    if not updated:
+        return {"status": "not_active"}
+
+    total_minutes = 0
+    for entry in entries:
+        if entry.get("login_time") and entry.get("logout_time"):
+            try:
+                lp = entry["login_time"].split(":")
+                op = entry["logout_time"].split(":")
+                total_minutes += max(0, (int(op[0])*60+int(op[1])) - (int(lp[0])*60+int(lp[1])))
+            except (ValueError, IndexError):
+                pass
+    total_hours = round(total_minutes / 60, 2)
+    status = "full_day" if total_hours >= 8 else "half_day" if total_hours >= 4 else "short_day"
+
+    await db.se_attendance.update_one(
+        {"_id": record["_id"]},
+        {"$set": {"entries": entries, "total_hours": total_hours, "status": status, "updated_at": now_iso}}
+    )
+    return {"status": "auto_logout", "message": "Auto-logged out due to GPS being turned off"}
 
 
 @router.get("/attendance/live-locations")

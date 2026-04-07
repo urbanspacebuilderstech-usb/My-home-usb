@@ -18,7 +18,7 @@ import {
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
   AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff,
-  Lock, PieChart
+  Lock, PieChart, Truck
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';

@@ -602,9 +602,10 @@ export default function SiteEngineerDashboard() {
 
   const currentlyLoggedProject = todayAttendance?.entries?.find(e => !e.logout_time);
 
-  // Background GPS tracking every 5 minutes when logged in
+  // Background GPS tracking every 5 minutes when logged in — auto-logout if GPS off
   useEffect(() => {
     if (!currentlyLoggedProject) return;
+    let gpsFailCount = 0;
     const trackLocation = async () => {
       try {
         const pos = await new Promise((resolve, reject) => {
@@ -613,12 +614,25 @@ export default function SiteEngineerDashboard() {
             () => reject(), { enableHighAccuracy: true, timeout: 10000 }
           );
         });
+        gpsFailCount = 0; // Reset on success
         const res = await axios.post(`${API}/attendance/track-location`, pos);
         if (res.data.status === 'auto_logout') {
           toast.error(res.data.message);
           fetchData(false);
         }
-      } catch { /* GPS unavailable, skip silently */ }
+      } catch {
+        gpsFailCount++;
+        if (gpsFailCount >= 2) {
+          // GPS failed twice in a row — auto-logout
+          try {
+            await axios.post(`${API}/attendance/gps-lost-logout`);
+            toast.error('GPS turned off — you have been automatically logged out from site attendance.');
+            fetchData(false);
+          } catch { /* ignore */ }
+        } else {
+          toast.warning('GPS signal lost. If GPS stays off, you will be auto-logged out.');
+        }
+      }
     };
     trackLocation(); // Track immediately
     const interval = setInterval(trackLocation, 5 * 60 * 1000); // Every 5 min
@@ -629,8 +643,7 @@ export default function SiteEngineerDashboard() {
     if (!attSelectedProject) { toast.error('Select a project site'); return; }
     setAttLoading(true);
     try {
-      let gps = { latitude: null, longitude: null };
-      try { gps = await getGPS(); } catch { toast.info('GPS unavailable — logging without location'); }
+      const gps = await getGPS();
       await axios.post(`${API}/attendance/login`, {
         project_id: attSelectedProject,
         latitude: gps.latitude,
@@ -641,7 +654,11 @@ export default function SiteEngineerDashboard() {
       setAttSelectedProject('');
       fetchData(false);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Login failed');
+      if (e?.response?.data?.detail) {
+        toast.error(e.response.data.detail);
+      } else {
+        toast.error('GPS is required to login. Please enable Location/GPS on your device and try again.');
+      }
     }
     setAttLoading(false);
   };
@@ -1685,9 +1702,13 @@ export default function SiteEngineerDashboard() {
             <DialogTitle className="flex items-center gap-2 text-base">
               <MapPin className="h-4 w-4 text-green-600" /> Site Login
             </DialogTitle>
-            <DialogDescription>Select a project site to login. GPS will be captured automatically.</DialogDescription>
+            <DialogDescription>Select a project site to login. GPS must be ON.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
+              <MapPin className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <p className="text-[11px] text-amber-700 font-medium">GPS/Location must be enabled on your device. Login will fail if GPS is off.</p>
+            </div>
             <div>
               <Label className="text-xs">Select Project Site</Label>
               <Select value={attSelectedProject} onValueChange={setAttSelectedProject}>
