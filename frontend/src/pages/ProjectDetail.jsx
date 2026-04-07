@@ -457,6 +457,12 @@ export default function ProjectDetail() {
   // Package Materials (editable list within project)
   const [projectMaterials, setProjectMaterials] = useState([]);
   const [projectMaterialsLoaded, setProjectMaterialsLoaded] = useState(false);
+  const [projMaterialNames, setProjMaterialNames] = useState([]);
+  const [projBrandsByMat, setProjBrandsByMat] = useState({});
+  const [projAddingMatFor, setProjAddingMatFor] = useState(null);
+  const [projAddingBrandFor, setProjAddingBrandFor] = useState(null);
+  const [projNewMatName, setProjNewMatName] = useState('');
+  const [projNewBrandName, setProjNewBrandName] = useState('');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
   const [workOrders, setWorkOrders] = useState([]);
@@ -649,23 +655,36 @@ export default function ProjectDetail() {
     const pkg_id = projectData?.project?.package_id;
     if (!pkg_id) { setProjectMaterials([]); setProjectMaterialsLoaded(true); return; }
     try {
-      // Load project's saved materials first
-      const res = await axios.get(`${API}/projects/${projectId}/package-materials`);
-      if (res.data?.length > 0) {
-        setProjectMaterials(res.data);
+      // Fetch material names + saved materials in parallel
+      const [matNamesRes, savedRes, pkgListRes] = await Promise.all([
+        axios.get(`${API}/material-names`).catch(() => ({ data: [] })),
+        axios.get(`${API}/projects/${projectId}/package-materials`).catch(() => ({ data: [] })),
+        axios.get(`${API}/packages`).catch(() => ({ data: [] })),
+      ]);
+      setProjMaterialNames(matNamesRes.data || []);
+      if (savedRes.data?.length > 0) {
+        setProjectMaterials(savedRes.data);
+        // Prefetch brands for each material
+        savedRes.data.forEach(m => { if (m.name) fetchProjBrands(m.name); });
       } else {
-        // If no saved materials yet, load from package
-        const pkgRes = await axios.get(`${API}/packages`);
-        const pkg = (pkgRes.data || []).find(p => p.package_id === pkg_id);
+        const pkg = (pkgListRes.data || []).find(p => p.package_id === pkg_id);
         if (pkg?.material_items?.length > 0) {
-          const items = pkg.material_items.map((m, i) => ({ ...m, _idx: i }));
+          const items = pkg.material_items.map(m => ({ name: m.name, brand: m.brand || '' }));
           setProjectMaterials(items);
-          // Auto-save the initial list
-          await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: items.map(m => ({ name: m.name, brand: m.brand || '' })) });
+          items.forEach(m => { if (m.name) fetchProjBrands(m.name); });
+          await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: items });
         } else { setProjectMaterials([]); }
       }
     } catch { setProjectMaterials([]); }
     setProjectMaterialsLoaded(true);
+  };
+
+  const fetchProjBrands = async (materialName) => {
+    if (!materialName) return;
+    try {
+      const res = await axios.get(`${API}/brands?category=${encodeURIComponent(materialName)}`);
+      setProjBrandsByMat(prev => ({ ...prev, [materialName]: res.data || [] }));
+    } catch { /* ignore */ }
   };
 
   const saveProjectMaterials = async (mats) => {
@@ -684,9 +703,37 @@ export default function ProjectDetail() {
     setProjectMaterials(prev => {
       const updated = [...prev];
       updated[idx] = { ...updated[idx], [field]: val };
+      if (field === 'name') { updated[idx].brand = ''; fetchProjBrands(val); }
       debouncedSaveProjectMaterials(updated);
       return updated;
     });
+  };
+
+  const handleProjCreateMaterial = async (idx) => {
+    const name = projNewMatName.trim();
+    if (!name) return;
+    try {
+      const res = await axios.post(`${API}/material-names`, { name });
+      if (!res.data.exists) setProjMaterialNames(prev => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name)));
+      updateProjectMaterial(idx, 'name', res.data.name);
+      setProjNewMatName('');
+      setProjAddingMatFor(null);
+      toast.success(`Material "${res.data.name}" added`);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleProjCreateBrand = async (idx) => {
+    const name = projNewBrandName.trim();
+    const materialName = projectMaterials[idx]?.name;
+    if (!name || !materialName) return;
+    try {
+      const res = await axios.post(`${API}/brands`, { name, category: materialName });
+      setProjBrandsByMat(prev => ({ ...prev, [materialName]: [...(prev[materialName] || []), res.data].sort((a, b) => a.name.localeCompare(b.name)) }));
+      updateProjectMaterial(idx, 'brand', res.data.name);
+      setProjNewBrandName('');
+      setProjAddingBrandFor(null);
+      toast.success(`Brand "${res.data.name}" added`);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
   const addProjectMaterial = () => {
@@ -3618,33 +3665,53 @@ export default function ProjectDetail() {
                         ) : projectMaterials.length === 0 ? (
                           <p className="text-sm text-gray-400 text-center py-4">No materials. Click "Add Material" to start.</p>
                         ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-white/60 border-b">
-                                <tr>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
-                                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
-                                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-16">Actions</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y">
-                                {projectMaterials.map((m, idx) => (
-                                  <tr key={idx} className="hover:bg-white/50" data-testid={`proj-mat-row-${idx}`}>
-                                    <td className="px-3 py-2 text-xs text-gray-400">{idx + 1}</td>
-                                    <td className="px-3 py-2">
-                                      <Input value={m.name} onChange={e => updateProjectMaterial(idx, 'name', e.target.value)} className="h-8 text-xs bg-white" placeholder="Material name" data-testid={`proj-mat-name-${idx}`} />
-                                    </td>
-                                    <td className="px-3 py-2">
-                                      <Input value={m.brand || ''} onChange={e => updateProjectMaterial(idx, 'brand', e.target.value)} className="h-8 text-xs bg-white" placeholder="Brand" data-testid={`proj-mat-brand-${idx}`} />
-                                    </td>
-                                    <td className="px-3 py-2 text-center">
-                                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => removeProjectMaterial(idx)} data-testid={`proj-mat-delete-${idx}`}><Trash2 className="h-3.5 w-3.5" /></Button>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                          <div className="space-y-3 mt-2">
+                            {projectMaterials.map((m, idx) => (
+                              <div key={idx} className="border border-dashed rounded-lg p-3 space-y-2" data-testid={`proj-mat-row-${idx}`}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-bold text-gray-400 w-6 shrink-0">#{idx + 1}</span>
+                                  {/* Material Name Dropdown */}
+                                  <div className="flex-1">
+                                    {projAddingMatFor === idx ? (
+                                      <div className="flex items-center gap-1">
+                                        <Input placeholder="New material name..." value={projNewMatName} onChange={e => setProjNewMatName(e.target.value)} className="h-9 text-sm flex-1" data-testid={`proj-new-mat-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleProjCreateMaterial(idx); }} autoFocus />
+                                        <Button size="sm" className="h-9 px-2 bg-green-600 hover:bg-green-700" onClick={() => handleProjCreateMaterial(idx)}><Check className="h-3.5 w-3.5" /></Button>
+                                        <Button size="sm" variant="ghost" className="h-9 px-2" onClick={() => setProjAddingMatFor(null)}><X className="h-3.5 w-3.5" /></Button>
+                                      </div>
+                                    ) : (
+                                      <Select value={m.name || '__pick__'} onValueChange={v => { if (v === '__create__') { setProjAddingMatFor(idx); setProjNewMatName(''); } else if (v !== '__pick__') { updateProjectMaterial(idx, 'name', v); } }}>
+                                        <SelectTrigger className="h-9" data-testid={`proj-mat-name-${idx}`}><SelectValue placeholder="Select Material" /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__pick__" disabled>Select Material</SelectItem>
+                                          {projMaterialNames.map(mn => <SelectItem key={mn.material_name_id} value={mn.name}>{mn.name}</SelectItem>)}
+                                          <SelectItem value="__create__" className="text-blue-600 font-medium">+ Create New Material</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    )}
+                                  </div>
+                                  {/* Brand Dropdown */}
+                                  <div className="flex-1">
+                                    {projAddingBrandFor === idx ? (
+                                      <div className="flex items-center gap-1">
+                                        <Input placeholder="New brand name..." value={projNewBrandName} onChange={e => setProjNewBrandName(e.target.value)} className="h-9 text-sm flex-1" data-testid={`proj-new-brand-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleProjCreateBrand(idx); }} autoFocus />
+                                        <Button size="sm" className="h-9 px-2 bg-green-600 hover:bg-green-700" onClick={() => handleProjCreateBrand(idx)}><Check className="h-3.5 w-3.5" /></Button>
+                                        <Button size="sm" variant="ghost" className="h-9 px-2" onClick={() => setProjAddingBrandFor(null)}><X className="h-3.5 w-3.5" /></Button>
+                                      </div>
+                                    ) : (
+                                      <Select value={m.brand || '__pick__'} onValueChange={v => { if (v === '__create__') { setProjAddingBrandFor(idx); setProjNewBrandName(''); } else if (v !== '__pick__') { updateProjectMaterial(idx, 'brand', v); } }} disabled={!m.name}>
+                                        <SelectTrigger className="h-9" data-testid={`proj-mat-brand-${idx}`}><SelectValue placeholder={m.name ? 'Select Brand' : 'Pick material first'} /></SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__pick__" disabled>Select Brand</SelectItem>
+                                          {(projBrandsByMat[m.name] || []).map(b => <SelectItem key={b.brand_id} value={b.name}>{b.name}</SelectItem>)}
+                                          <SelectItem value="__create__" className="text-blue-600 font-medium">+ Create New Brand</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    )}
+                                  </div>
+                                  <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-red-400 hover:text-red-600 shrink-0" onClick={() => removeProjectMaterial(idx)} data-testid={`proj-mat-delete-${idx}`}><X className="h-4 w-4" /></Button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
