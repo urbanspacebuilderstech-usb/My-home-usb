@@ -1577,7 +1577,7 @@ export default function SiteEngineerDashboard() {
 
       {/* Curing Video Dialog */}
       <Dialog open={curingDialog} onOpenChange={setCuringDialog}>
-        <DialogContent className="max-w-sm" data-testid="curing-video-dialog">
+        <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto" data-testid="curing-video-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Video className="h-4 w-4 text-purple-600" /> Curing Video
