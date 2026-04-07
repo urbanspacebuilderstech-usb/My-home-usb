@@ -1,76 +1,91 @@
 # Construction CRM - Product Requirements Document
 
 ## Original Problem Statement
-Automate the "Project Onboarding" workflow for a construction CRM application. The project has expanded to include a full Sales pipeline, Pre-Sales board, Planning board with RE Templates, and comprehensive project management features.
+Build a comprehensive Construction CRM/ERP system with automated project onboarding, sales pipeline management, and operational workflows for a construction company.
 
 ## Core Architecture
 - **Frontend**: React + Shadcn/UI + Tailwind CSS
 - **Backend**: FastAPI + MongoDB Atlas
-- **Auth**: Cookie-based session auth with demo-login
-- **Key Libraries**: @dnd-kit (drag-and-drop), jsPDF, Leaflet, Resend, Google Sheets API
+- **Auth**: Cookie-based session auth with role-based access control (RBAC)
+- **Roles**: super_admin, sales, pre_sales, cre, planning, project_manager, site_engineer, sr_site_engineer, accountant
 
 ## What's Been Implemented
 
 ### Sales Pipeline (CRMSales.jsx)
-- 16-stage automated Kanban board
-- Follow-up system with auto-move and date filters
+- 16-stage Kanban board with drag-and-drop (DnD-Kit)
+- Follow-up management with auto-move + date filtering
 - Site Visit management (Client Land / Our Projects)
-- CRE-style Convert to Project popup
-- Payment Collect → Accountant Approval → Project Onboarded flow
+- Automated onboarding: Payment Collect → Accountant Approval → Project Onboarded
+- CRE-style "Convert to Project" multi-step dialog
 
-### Pre-Sales Board (CRMPreSales.jsx)
-- Full lead management with custom fields in Edit Lead dialog
+### Project Management (ProjectDetail.jsx)
+- Project header with inline editing, auto-generated USB-H0001 format IDs
+- Role-based client contact visibility (Sales/Pre-sales/CRE only)
+- 7-role team assignment with dropdowns
+- Estimate / Final Estimate / Stages / Payments / Additional / Deductions tabs
+- Materials tab: Package template loader, View/Edit toggle, dynamic Material/Brand dropdowns
+- Labours tab: Work order creation, attendance tracking, payment stages
+- **Work Orders tab (NEW)**: Full CRUD with contractor type → contractor → scope/stages/additional
+- **4-Level Payment Approval Pipeline (NEW)**: SE Request → PM → Planning → Accountant
+- Documents tab: Site plans, design files
+- Summary tab: Financial overview
+
+### Site Engineer View (SiteEngineerProject.jsx)
+- Labour tracking, attendance, material requests
+- **Contractor Payments section (NEW)**: View project work orders, request stage payments
+- Work order tab (old labour-based system)
+- Stock management, daily progress
 
 ### Planning Board (PlanningBoard.jsx)
-- RE Templates CRUD
-- Sub-tabs: New Projects, Current (Active), Delivered
-- Date filtering per sub-tab
-- **Package Management**: Full CRUD with Package Name, Description, Per Sq.ft Rate, Scope Items (Name + Unit + Rate), Materials List with Material Name + Brand dropdowns, inline create-new for both — DONE Feb 2026
+- Packages tab with dynamic Material/Brand dropdowns + "Create New"
+- Scope items with Qty/Total columns
 
-### Project Detail (ProjectDetail.jsx)
-- Drag-and-Drop reordering for scope items, stages, estimates
-- "Final Estimate" tab (renamed from "Scope")
-- **Team Assignment**: 7 role-based dropdowns (Architect, PM, Sr. SE, SE, CRE, QC, Procurement) — DONE Feb 2026
-- **Inline Header Edit**: CRE/Planning can edit Project Name, Client Name, Location, Package (dropdown) — DONE Feb 2026
-- **Project ID Format**: Auto-generated USB-H0001 sequential format, all existing projects migrated — DONE Feb 2026
-- Materials, Labour, Vendor, Payment Schedule, Files, Design tabs
+### Other Modules
+- Vendor management, Purchase orders
+- Contractor management
+- BOQ (Bill of Quantities)
+- Income/Expense tracking
+- PDF generation (jsPDF)
 
-### Global Features
-- Drag-and-Drop reordering via @dnd-kit across all list UIs
-- Stage Management with DnD
-- RE Template management with DnD
+## Database Collections (Key)
+- `users`, `projects`, `leads`, `lead_stages`
+- `project_work_orders` (NEW - scope-based work orders with 4-level approval)
+- `work_orders` (OLD - labour-based, used by Labours tab)
+- `labour_work_orders` (OLD - used by Site Engineer)
+- `material_names`, `material_requests`, `purchase_orders`
+- `contractors`, `vendor_master`
 
 ## Key API Endpoints
-- `GET /api/users/by-role/{role}` - Fetch users by role for team assignment
-- `PATCH /api/projects/{project_id}/team` - Save 7 team role assignments
-- `GET /api/projects/{project_id}/team` - Get current team assignments
-- `POST /api/crm/re-templates` / `GET /api/crm/re-templates` - RE Template CRUD
-- `POST /api/projects/{project_id}/scope-items/reorder` - DnD reorder
-- `POST /api/projects/{project_id}/stages/reorder` - DnD reorder
+- Work Orders: GET/POST/PATCH/DELETE `/api/projects/{project_id}/work-orders`
+- Payment Pipeline: PATCH `.../stages/{stage_id}/request-payment`, `.../approve`, `.../revert`
+- Contractor Types: GET `/api/contractor-types`
 
-## DB Schema Additions
-- `projects.team`: `{ architect: user_id, project_manager: user_id, sr_site_engineer: user_id, site_engineer: user_id, cre: user_id, qc: user_id, procurement: user_id }`
-- `projects.planning_status`: 'new' | 'active' | 'delivered'
-- `re_templates` collection: `{ template_id, name, sqft, scope_items: [] }`
+## Completed Tasks (Latest Session - April 2026)
+- [x] Work Orders CRUD backend (project_work_orders collection)
+- [x] 4-level payment approval pipeline (SE → PM → Planning → Accountant)
+- [x] Work Orders tab in ProjectDetail with approval trail UI
+- [x] Site Engineer contractor payments view with "Request Payment"
+- [x] Fixed null safety crash in ProjectDetail (materialsData, laboursData, designData, woForm)
+- [x] Testing: 24/24 backend tests passed, all frontend verified
 
 ## Prioritized Backlog
 
-### P1 (Next Up)
-- Refactor CRMSales.jsx (2300+ lines) and ProjectDetail.jsx (4400+ lines)
+### P0 (Critical)
+- None currently blocking
+
+### P1 (High Priority)
+- Refactor ProjectDetail.jsx (~5000 lines) into components
+- Refactor CRMSales.jsx (~2300 lines) into components
 - Geo-fencing & Location Tracking (Phase 1)
-- Pre-Deployment Security Checklist (rate limiting in Mongo, 2FA, disable demo-login)
+- Pre-Deployment Security: 2FA, rate limiting to MongoDB, disable demo-login
 
-### P2
-- Project Page Package Integration
-- Sr. Engineer → Jr. Engineer Assignment
+### P2 (Medium Priority)
+- Sr. Engineer → Jr. Engineer Assignment Workflow
 - Aadhar Document Upload (encrypted storage)
-
-### P3 (Deferred)
 - Cash Denomination feature (paused)
-- UI/UX comprehensive review
-- SaaS conversion (paused)
+- SaaS model conversion (paused)
+- Comprehensive UI/UX review
 
 ## Credentials
-- Demo Access buttons on login page (Sales, Pre-Sales, Planning, Accountant, Super Admin)
-- Planning: planning@constructionos.com
+- Demo Access buttons on login page for all roles
 - Accountant: accountant@constructionos.com / USB@123.26
