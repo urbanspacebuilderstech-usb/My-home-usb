@@ -3105,15 +3105,28 @@ async def get_live_se_locations(user: User = Depends(get_current_user)):
                     {"_id": 0},
                     sort=[("timestamp", -1)]
                 )
+                se_lat = latest_ping.get("latitude") if latest_ping else entry.get("login_lat")
+                se_lng = latest_ping.get("longitude") if latest_ping else entry.get("login_lng")
+
+                # Check distance from project
+                dist_km = None
+                is_out_of_range = False
+                project = await db.projects.find_one({"project_id": entry["project_id"]}, {"_id": 0, "latitude": 1, "longitude": 1})
+                if project and project.get("latitude") and project.get("longitude") and se_lat and se_lng:
+                    dist_km = round(haversine_km(se_lat, se_lng, float(project["latitude"]), float(project["longitude"])), 1)
+                    is_out_of_range = dist_km > 5
+
                 live_ses.append({
                     "user_id": rec["user_id"],
                     "user_name": rec.get("user_name", ""),
                     "project_id": entry["project_id"],
                     "project_name": entry.get("project_name", ""),
                     "login_time": entry["login_time"],
-                    "latitude": latest_ping.get("latitude") if latest_ping else entry.get("login_lat"),
-                    "longitude": latest_ping.get("longitude") if latest_ping else entry.get("login_lng"),
+                    "latitude": se_lat,
+                    "longitude": se_lng,
                     "last_ping": latest_ping.get("timestamp") if latest_ping else None,
+                    "distance_km": dist_km,
+                    "is_out_of_range": is_out_of_range,
                 })
                 break  # Only one active session per SE
 

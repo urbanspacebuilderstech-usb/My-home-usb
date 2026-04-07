@@ -35,6 +35,11 @@ const seIcon = L.divIcon({
   html: '<div style="background:#22c55e;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.3)"></div>',
   iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10]
 });
+const seOutIcon = L.divIcon({
+  className: '',
+  html: '<div style="background:#ef4444;width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 0 8px rgba(239,68,68,0.5);animation:pulse 1.5s infinite"></div>',
+  iconSize: [16, 16], iconAnchor: [8, 8], popupAnchor: [0, -10]
+});
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
@@ -84,6 +89,11 @@ function LiveMapSection() {
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1 animate-pulse"></span>
               {data?.total_active || 0} Active
             </Badge>
+            {(data?.active_engineers || []).some(e => e.is_out_of_range) && (
+              <Badge className="bg-red-100 text-red-700 text-xs animate-pulse" data-testid="out-of-range-count">
+                {(data?.active_engineers || []).filter(e => e.is_out_of_range).length} Out of Range
+              </Badge>
+            )}
             <Button variant="outline" size="sm" className="h-7 text-xs" onClick={fetchLive} disabled={loading}>
               Refresh
             </Button>
@@ -119,12 +129,17 @@ function LiveMapSection() {
                 ))}
                 {/* Active SE markers */}
                 {(data?.active_engineers || []).filter(e => e.latitude && e.longitude).map(e => (
-                  <Marker key={e.user_id} position={[e.latitude, e.longitude]} icon={seIcon}>
+                  <Marker key={e.user_id} position={[e.latitude, e.longitude]} icon={e.is_out_of_range ? seOutIcon : seIcon}>
                     <Popup>
                       <div className="text-xs min-w-[140px]">
-                        <p className="font-bold text-green-700">{e.user_name}</p>
+                        <p className={`font-bold ${e.is_out_of_range ? 'text-red-700' : 'text-green-700'}`}>{e.user_name}</p>
                         <p>{e.project_name}</p>
                         <p className="text-gray-500">Login: {e.login_time}</p>
+                        {e.distance_km != null && (
+                          <p className={`font-medium ${e.is_out_of_range ? 'text-red-600' : 'text-green-600'}`}>
+                            {e.distance_km}km from site {e.is_out_of_range ? '(OUT OF RANGE!)' : ''}
+                          </p>
+                        )}
                         {e.last_ping && <p className="text-[10px] text-gray-400">Last ping: {new Date(e.last_ping).toLocaleTimeString()}</p>}
                       </div>
                     </Popup>
@@ -146,21 +161,27 @@ function LiveMapSection() {
                       <th className="px-3 py-2 text-left font-medium">Engineer</th>
                       <th className="px-3 py-2 text-left font-medium">Project Site</th>
                       <th className="px-3 py-2 text-center font-medium">Login Time</th>
-                      <th className="px-3 py-2 text-center font-medium">Last Ping</th>
-                      <th className="px-3 py-2 text-center font-medium">GPS</th>
+                      <th className="px-3 py-2 text-center font-medium">Distance</th>
+                      <th className="px-3 py-2 text-center font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {(data?.active_engineers || []).map(e => (
-                      <tr key={e.user_id} className="hover:bg-gray-50">
+                      <tr key={e.user_id} className={`hover:bg-gray-50 ${e.is_out_of_range ? 'bg-red-50' : ''}`}>
                         <td className="px-3 py-2 font-medium">{e.user_name}</td>
                         <td className="px-3 py-2">{e.project_name}</td>
                         <td className="px-3 py-2 text-center">{e.login_time}</td>
-                        <td className="px-3 py-2 text-center text-gray-500">{e.last_ping ? new Date(e.last_ping).toLocaleTimeString() : '-'}</td>
                         <td className="px-3 py-2 text-center">
-                          {e.latitude && e.longitude ? (
-                            <span className="text-green-600 text-[10px]">{e.latitude?.toFixed(3)}, {e.longitude?.toFixed(3)}</span>
-                          ) : <span className="text-gray-400">-</span>}
+                          {e.distance_km != null ? (
+                            <span className={e.is_out_of_range ? 'text-red-600 font-bold' : 'text-green-600'}>{e.distance_km}km</span>
+                          ) : '-'}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {e.is_out_of_range ? (
+                            <Badge className="bg-red-100 text-red-700 text-[10px]">OUT OF RANGE</Badge>
+                          ) : (
+                            <Badge className="bg-green-100 text-green-700 text-[10px]">On Site</Badge>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -174,9 +195,10 @@ function LiveMapSection() {
             )}
 
             {/* Legend */}
-            <div className="flex items-center gap-4 text-[10px] text-gray-500">
-              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded-sm opacity-80"></span> Project Location (5km radius)</div>
-              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Active Site Engineer</div>
+            <div className="flex items-center gap-4 text-[10px] text-gray-500 flex-wrap">
+              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded-sm opacity-80"></span> Project (5km fence)</div>
+              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500 rounded-full"></span> On Site</div>
+              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-red-500 rounded-full"></span> Out of Range</div>
               <div className="text-gray-400">Auto-refreshes every 30s</div>
             </div>
           </div>
