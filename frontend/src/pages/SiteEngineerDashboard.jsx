@@ -311,6 +311,21 @@ export default function SiteEngineerDashboard() {
   const [curingHistoryLoading, setCuringHistoryLoading] = useState(false);
   const [curingFilterProject, setCuringFilterProject] = useState('');
 
+  // Petty Cash Revamped states
+  const [pettyCashSummary, setPettyCashSummary] = useState({});
+  const [incomeHistory, setIncomeHistory] = useState([]);
+  const [directExpensesList, setDirectExpensesList] = useState([]);
+  const [directExpenseDialog, setDirectExpenseDialog] = useState(false);
+  const [directExpProject, setDirectExpProject] = useState('');
+  const [directExpItems, setDirectExpItems] = useState([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]);
+  const [directExpLoading, setDirectExpLoading] = useState(false);
+  const [expenseCategories, setExpenseCategories] = useState([]);
+  const [newCategoryDialog, setNewCategoryDialog] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [expenseFilterProject, setExpenseFilterProject] = useState('');
+  const [expenseFilterFrom, setExpenseFilterFrom] = useState('');
+  const [expenseFilterTo, setExpenseFilterTo] = useState('');
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -393,6 +408,98 @@ export default function SiteEngineerDashboard() {
     await axios.patch(`${API}/site-engineer/curing-video/${record.record_id}/whatsapp-sent`).catch(() => {});
     fetchCuringHistory(curingFilterProject);
   };
+
+  // ============ PETTY CASH REVAMP FUNCTIONS ============
+  const fetchPettyCashSummary = async () => {
+    try {
+      const res = await axios.get(`${API}/site-engineer/petty-cash/summary`);
+      setPettyCashSummary(res.data || {});
+    } catch { setPettyCashSummary({}); }
+  };
+
+  const fetchIncomeHistory = async () => {
+    try {
+      const res = await axios.get(`${API}/site-engineer/petty-cash/income-history`);
+      setIncomeHistory(res.data || []);
+    } catch { setIncomeHistory([]); }
+  };
+
+  const fetchDirectExpenses = async (proj, from, to) => {
+    try {
+      const params = new URLSearchParams();
+      if (proj && proj !== 'all') params.append('project_id', proj);
+      if (from) params.append('date_from', from);
+      if (to) params.append('date_to', to);
+      const res = await axios.get(`${API}/site-engineer/direct-expenses?${params.toString()}`);
+      setDirectExpensesList(res.data || []);
+    } catch { setDirectExpensesList([]); }
+  };
+
+  const fetchExpenseCategories = async () => {
+    try {
+      const res = await axios.get(`${API}/expense-categories`);
+      setExpenseCategories(res.data || []);
+    } catch { setExpenseCategories(['Electrical','Plumbing','Painting','Civil','Wooden','Miscellaneous']); }
+  };
+
+  const handleAcknowledgePettyCash = async (pcId) => {
+    try {
+      await axios.patch(`${API}/site-engineer/petty-cash/${pcId}/acknowledge`);
+      toast.success('Petty cash acknowledged!');
+      fetchData();
+      fetchPettyCashSummary();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to acknowledge'); }
+  };
+
+  const handleDirectExpenseSubmit = async () => {
+    if (!directExpProject) { toast.error('Select a project'); return; }
+    const validItems = directExpItems.filter(i => i.expense_name && i.amount);
+    if (validItems.length === 0) { toast.error('Add at least one expense item'); return; }
+    setDirectExpLoading(true);
+    try {
+      await axios.post(`${API}/site-engineer/direct-expense`, {
+        project_id: directExpProject,
+        items: validItems.map(i => ({ category: i.category || 'Miscellaneous', expense_name: i.expense_name, amount: parseFloat(i.amount), bill_file_id: i.bill_file_id, bill_filename: i.bill_filename })),
+      });
+      toast.success('Expense recorded!');
+      setDirectExpenseDialog(false);
+      fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, expenseFilterTo);
+      fetchPettyCashSummary();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save'); }
+    setDirectExpLoading(false);
+  };
+
+  const handleBillUpload = async (idx, file) => {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', 'expense_bill');
+    try {
+      const res = await axios.post(`${API}/files/upload`, formData);
+      const newItems = [...directExpItems];
+      newItems[idx].bill_file_id = res.data.file_id;
+      newItems[idx].bill_filename = res.data.filename;
+      setDirectExpItems(newItems);
+      toast.success('Bill uploaded');
+    } catch { toast.error('Upload failed'); }
+  };
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    try {
+      await axios.post(`${API}/expense-categories`, { name: newCategoryName.trim() });
+      toast.success('Category created!');
+      setNewCategoryName('');
+      setNewCategoryDialog(false);
+      fetchExpenseCategories();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create'); }
+  };
+
+  // Fetch summary & categories on mount
+  useEffect(() => {
+    fetchPettyCashSummary();
+    fetchExpenseCategories();
+  }, []);
   
   // Petty Cash Functions
   const handleRequestPettyCash = async () => {
@@ -537,6 +644,11 @@ export default function SiteEngineerDashboard() {
   const getPettyCashStatusBadge = (status) => {
     const config = {
       requested: { label: 'Requested', className: 'bg-yellow-100 text-yellow-700' },
+      pm_approved: { label: 'PM Approved', className: 'bg-blue-100 text-blue-700' },
+      pm_rejected: { label: 'PM Rejected', className: 'bg-red-100 text-red-700' },
+      accountant_processing: { label: 'Processing', className: 'bg-purple-100 text-purple-700' },
+      payment_done: { label: 'Payment Done', className: 'bg-teal-100 text-teal-700' },
+      acknowledged: { label: 'Acknowledged', className: 'bg-green-100 text-green-700' },
       issued: { label: 'Issued', className: 'bg-green-100 text-green-700' },
       partially_spent: { label: 'In Use', className: 'bg-amber-50 text-amber-700' },
       pending_settlement: { label: 'Pending Settlement', className: 'bg-orange-100 text-orange-700' },
@@ -1027,96 +1139,175 @@ export default function SiteEngineerDashboard() {
           </TabsContent>
           
           {/* Petty Cash Tab */}
-          <TabsContent value="pettycash" className="mt-4">
-            <div className="flex justify-between items-center mb-4">
+          <TabsContent value="pettycash" className="mt-4" data-testid="pettycash-tab">
+            {/* Header with buttons */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
               <h3 className="text-lg font-semibold">Petty Cash</h3>
-              <Button onClick={() => setPettyCashDialog(true)} className="gap-2">
-                <Plus className="h-4 w-4" /> Request Petty Cash
-              </Button>
+              <div className="flex gap-2">
+                <Button onClick={() => setPettyCashDialog(true)} className="gap-1.5 bg-green-600 hover:bg-green-700 h-8 text-xs" data-testid="req-petty-cash-btn">
+                  <Plus className="h-3.5 w-3.5" /> Req Petty Cash
+                </Button>
+                <Button onClick={() => { setDirectExpenseDialog(true); setDirectExpItems([{category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}]); setDirectExpProject(''); }} variant="outline" className="gap-1.5 h-8 text-xs border-orange-300 text-orange-700 hover:bg-orange-50" data-testid="record-expense-btn">
+                  <Receipt className="h-3.5 w-3.5" /> Record Expense
+                </Button>
+              </div>
             </div>
             
-            {pettyCashList.length === 0 ? (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Petty Cash</h3>
-                  <p className="text-sm text-gray-600">Request petty cash for site expenses</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-4">
-                {pettyCashList.map((pc) => (
-                  <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500">
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-semibold">{pc.project_name}</h4>
-                            {getPettyCashStatusBadge(pc.status)}
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-green-600 font-medium uppercase">Cash in Hand</p>
+                <p className="text-lg font-bold text-green-700" data-testid="pc-cash-in-hand">₹{pettyCashSummary.total_cash_in_hand?.toLocaleString('en-IN') || '0'}</p>
+              </CardContent></Card>
+              <Card className="bg-red-50 border-red-200"><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-red-600 font-medium uppercase">Expenses</p>
+                <p className="text-lg font-bold text-red-700" data-testid="pc-expenses">₹{pettyCashSummary.total_expenses?.toLocaleString('en-IN') || '0'}</p>
+              </CardContent></Card>
+              <Card className="bg-amber-50 border-amber-200"><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-amber-600 font-medium uppercase">Pending Req</p>
+                <p className="text-lg font-bold text-amber-700" data-testid="pc-pending">{pettyCashSummary.pending_requests || 0}</p>
+              </CardContent></Card>
+              <Card className="bg-blue-50 border-blue-200"><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-blue-600 font-medium uppercase">Waiting Approval</p>
+                <p className="text-lg font-bold text-blue-700" data-testid="pc-waiting">{pettyCashSummary.waiting_approval || 0}</p>
+              </CardContent></Card>
+            </div>
+
+            {/* Sub-tabs: Income | Expenses | Request Status */}
+            <Tabs defaultValue="request_status" className="w-full">
+              <TabsList className="flex w-full overflow-x-auto mb-3">
+                <TabsTrigger value="request_status" className="flex-shrink-0 text-xs px-3">Payment Req Status</TabsTrigger>
+                <TabsTrigger value="income_history" className="flex-shrink-0 text-xs px-3" onClick={() => fetchIncomeHistory()}>Income History</TabsTrigger>
+                <TabsTrigger value="expense_record" className="flex-shrink-0 text-xs px-3" onClick={() => fetchDirectExpenses()}>Expense Record</TabsTrigger>
+              </TabsList>
+
+              {/* REQUEST STATUS */}
+              <TabsContent value="request_status">
+                {pettyCashList.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400"><Wallet className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No petty cash requests</p></div>
+                ) : (
+                  <div className="space-y-3">
+                    {pettyCashList.map((pc) => (
+                      <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500" data-testid={`pc-card-${pc.petty_cash_id}`}>
+                        <CardContent className="p-3">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <h4 className="font-semibold text-sm">{pc.project_name}</h4>
+                                {getPettyCashStatusBadge(pc.status)}
+                              </div>
+                              <p className="text-xs text-gray-500">{pc.purpose}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{new Date(pc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-base font-bold text-green-600">₹{(pc.amount_issued || pc.amount_requested).toLocaleString('en-IN')}</p>
+                            </div>
                           </div>
-                          <p className="text-sm text-gray-600">{pc.purpose}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-600">₹{pc.amount_issued || pc.amount_requested}</p>
-                          <p className="text-xs text-gray-500">
-                            Spent: ₹{pc.amount_spent || 0}
-                          </p>
-                        </div>
-                      </div>
-                      
-                      {/* Expenses List */}
-                      {pc.expenses && pc.expenses.length > 0 && (
-                        <div className="bg-gray-50 rounded-lg p-3 mb-3">
-                          <p className="text-xs font-semibold text-gray-500 mb-2">Expenses ({pc.expenses.length})</p>
-                          <div className="space-y-1">
-                            {pc.expenses.slice(-3).map((exp, idx) => (
-                              <div key={idx} className="flex justify-between text-sm">
-                                <span className="text-gray-600">{exp.description}</span>
-                                <span className="font-medium">₹{exp.amount}</span>
+                          {/* Status timeline */}
+                          <div className="flex items-center gap-1 text-[10px] mt-2 flex-wrap">
+                            <span className={`px-1.5 py-0.5 rounded ${pc.status !== 'rejected' && pc.status !== 'pm_rejected' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>Requested</span>
+                            <span className="text-gray-300">→</span>
+                            <span className={`px-1.5 py-0.5 rounded ${['pm_approved','accountant_processing','payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'pm_rejected' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-400'}`}>PM {pc.status === 'pm_rejected' ? 'Rejected' : 'Approved'}</span>
+                            <span className="text-gray-300">→</span>
+                            <span className={`px-1.5 py-0.5 rounded ${['payment_done','acknowledged','issued','partially_spent','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : ['pm_approved'].includes(pc.status) ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Accountant</span>
+                            <span className="text-gray-300">→</span>
+                            <span className={`px-1.5 py-0.5 rounded ${['acknowledged','settled'].includes(pc.status) ? 'bg-green-100 text-green-700' : pc.status === 'payment_done' ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>Acknowledged</span>
+                          </div>
+                          {/* Action: Acknowledge */}
+                          {pc.status === 'payment_done' && (
+                            <div className="mt-2 p-2 bg-blue-50 rounded-md border border-blue-200">
+                              <p className="text-xs text-blue-700 mb-1">Payment processed via {pc.payment_details?.payment_mode || 'N/A'} {pc.payment_details?.bank_name ? `(${pc.payment_details.bank_name})` : ''}</p>
+                              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 h-7 text-xs" onClick={() => handleAcknowledgePettyCash(pc.petty_cash_id)} data-testid={`pc-acknowledge-${pc.petty_cash_id}`}>
+                                <CheckCircle className="h-3 w-3 mr-1" /> Acknowledge Receipt
+                              </Button>
+                            </div>
+                          )}
+                          {pc.status === 'pm_rejected' && pc.pm_rejected_reason && (
+                            <p className="mt-1 text-xs text-red-500">Reason: {pc.pm_rejected_reason}</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* INCOME HISTORY */}
+              <TabsContent value="income_history">
+                {incomeHistory.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400"><DollarSign className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No income history yet</p></div>
+                ) : (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm" data-testid="income-history-table">
+                      <thead><tr className="bg-gray-50 border-b">
+                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Date</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Project</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Purpose</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Amount</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs">Status</th>
+                      </tr></thead>
+                      <tbody>
+                        {incomeHistory.map(r => (
+                          <tr key={r.petty_cash_id} className="border-b hover:bg-gray-50">
+                            <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</td>
+                            <td className="px-3 py-2 text-xs">{r.project_name}</td>
+                            <td className="px-3 py-2 text-xs text-gray-600">{r.purpose}</td>
+                            <td className="px-3 py-2 text-xs text-right font-semibold text-green-700">₹{(r.amount_issued || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-center">{getPettyCashStatusBadge(r.status)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* EXPENSE RECORD */}
+              <TabsContent value="expense_record">
+                <div className="flex flex-wrap gap-2 mb-3">
+                  <Select value={expenseFilterProject} onValueChange={(v) => { setExpenseFilterProject(v); fetchDirectExpenses(v, expenseFilterFrom, expenseFilterTo); }}>
+                    <SelectTrigger className="w-[160px] h-8 text-xs"><SelectValue placeholder="All Projects" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Projects</SelectItem>
+                      {projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterFrom} onChange={e => { setExpenseFilterFrom(e.target.value); fetchDirectExpenses(expenseFilterProject, e.target.value, expenseFilterTo); }} placeholder="From" data-testid="exp-filter-from" />
+                  <input type="date" className="h-8 text-xs border rounded px-2" value={expenseFilterTo} onChange={e => { setExpenseFilterTo(e.target.value); fetchDirectExpenses(expenseFilterProject, expenseFilterFrom, e.target.value); }} placeholder="To" data-testid="exp-filter-to" />
+                </div>
+                {directExpensesList.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400"><Receipt className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No expense records</p></div>
+                ) : (
+                  <div className="space-y-3">
+                    {directExpensesList.map(de => (
+                      <Card key={de.expense_id} className="border-l-4 border-l-red-400" data-testid={`dexp-card-${de.expense_id}`}>
+                        <CardContent className="p-3">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h4 className="font-semibold text-sm">{de.project_name}</h4>
+                              <p className="text-[10px] text-gray-400">{new Date(de.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })} {new Date(de.created_at).toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}</p>
+                            </div>
+                            <p className="text-base font-bold text-red-600">₹{de.total_amount?.toLocaleString('en-IN')}</p>
+                          </div>
+                          <div className="bg-gray-50 rounded p-2 space-y-1">
+                            {de.items?.map((item, i) => (
+                              <div key={i} className="flex justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="text-[10px] px-1 py-0">{item.category}</Badge>
+                                  <span className="text-gray-700">{item.expense_name}</span>
+                                  {item.bill_filename && <span className="text-blue-500 text-[10px]">[bill]</span>}
+                                </div>
+                                <span className="font-medium">₹{item.amount?.toLocaleString('en-IN')}</span>
                               </div>
                             ))}
-                            {pc.expenses.length > 3 && (
-                              <p className="text-xs text-gray-400">...and {pc.expenses.length - 3} more</p>
-                            )}
                           </div>
-                        </div>
-                      )}
-                      
-                      {/* Action Buttons */}
-                      <div className="flex gap-2 flex-wrap">
-                        {(pc.status === 'issued' || pc.status === 'partially_spent') && (
-                          <>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedPettyCash(pc);
-                                setPettyCashExpenseDialog(true);
-                              }}
-                            >
-                              <Receipt className="h-4 w-4 mr-1" /> Add Expense
-                            </Button>
-                            <Button 
-                              size="sm"
-                              className="bg-orange-600 hover:bg-orange-700"
-                              onClick={() => handleSubmitPettyCash(pc.petty_cash_id)}
-                            >
-                              <Send className="h-4 w-4 mr-1" /> Submit for Settlement
-                            </Button>
-                          </>
-                        )}
-                        {pc.status === 'pending_settlement' && (
-                          <Badge className="bg-orange-100 text-orange-700">Waiting for Accountant</Badge>
-                        )}
-                        {pc.status === 'settled' && (
-                          <Badge className="bg-green-100 text-green-700">Settled ✓</Badge>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           {/* Mini Cashbook Tab */}
@@ -1633,6 +1824,96 @@ export default function SiteEngineerDashboard() {
             <Button onClick={handleCuringSubmit} className="bg-purple-600 hover:bg-purple-700" disabled={curingLoading} data-testid="curing-submit-btn">
               {curingLoading ? 'Saving...' : 'Save & Send'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Expense Dialog */}
+      <Dialog open={directExpenseDialog} onOpenChange={setDirectExpenseDialog}>
+        <DialogContent className="max-w-lg" data-testid="record-expense-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base"><Receipt className="h-4 w-4 text-orange-600" /> Record Expense</DialogTitle>
+            <DialogDescription>Add expense line items directly — no approval needed.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs font-medium">Select Project *</Label>
+              <Select value={directExpProject} onValueChange={setDirectExpProject}>
+                <SelectTrigger data-testid="dexp-project-select"><SelectValue placeholder="Choose project..." /></SelectTrigger>
+                <SelectContent>{projects.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            {/* Line Items */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Label className="text-xs font-medium">Expense Items</Label>
+              </div>
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                {directExpItems.map((item, idx) => (
+                  <div key={idx} className="p-2 bg-gray-50 rounded-lg border space-y-2" data-testid={`dexp-item-${idx}`}>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Select value={item.category} onValueChange={(v) => { const n = [...directExpItems]; n[idx].category = v; setDirectExpItems(n); }}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Category" /></SelectTrigger>
+                          <SelectContent>
+                            {expenseCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                            <div className="p-1 border-t">
+                              <Button size="sm" variant="ghost" className="w-full h-7 text-xs text-blue-600" onClick={(e) => { e.stopPropagation(); setNewCategoryDialog(true); }}>
+                                <Plus className="h-3 w-3 mr-1" /> Create New
+                              </Button>
+                            </div>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {directExpItems.length > 1 && (
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-400 hover:text-red-600" onClick={() => setDirectExpItems(directExpItems.filter((_, i) => i !== idx))}>
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Input placeholder="Expense name" className="h-8 text-xs flex-1" value={item.expense_name} onChange={e => { const n = [...directExpItems]; n[idx].expense_name = e.target.value; setDirectExpItems(n); }} />
+                      <Input placeholder="Amount" type="number" className="h-8 text-xs w-24" value={item.amount} onChange={e => { const n = [...directExpItems]; n[idx].amount = e.target.value; setDirectExpItems(n); }} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1.5 text-xs text-blue-600 cursor-pointer hover:text-blue-800">
+                        <input type="file" className="hidden" accept="image/*,.pdf" onChange={e => handleBillUpload(idx, e.target.files[0])} />
+                        <Plus className="h-3 w-3" /> {item.bill_filename ? item.bill_filename : 'Upload Bill'}
+                      </label>
+                      {item.bill_filename && <Badge variant="outline" className="text-[10px] text-green-600">{item.bill_filename}</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Button size="sm" variant="outline" className="w-full mt-2 h-7 text-xs" onClick={() => setDirectExpItems([...directExpItems, {category:'',expense_name:'',amount:'',bill_file_id:null,bill_filename:''}])} data-testid="dexp-add-item">
+                <Plus className="h-3 w-3 mr-1" /> Add Item
+              </Button>
+            </div>
+            {/* Total */}
+            <div className="flex justify-between items-center p-2 bg-orange-50 rounded-lg border border-orange-200">
+              <span className="text-xs font-medium text-orange-700">Total</span>
+              <span className="text-base font-bold text-orange-700" data-testid="dexp-total">₹{directExpItems.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0).toLocaleString('en-IN')}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDirectExpenseDialog(false)}>Cancel</Button>
+            <Button onClick={handleDirectExpenseSubmit} className="bg-orange-600 hover:bg-orange-700" disabled={directExpLoading} data-testid="dexp-submit-btn">
+              {directExpLoading ? 'Saving...' : 'Record Expense'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Category Dialog */}
+      <Dialog open={newCategoryDialog} onOpenChange={setNewCategoryDialog}>
+        <DialogContent className="max-w-xs">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Create New Category</DialogTitle>
+          </DialogHeader>
+          <Input placeholder="Category name" className="h-8 text-sm" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} data-testid="new-category-input" />
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setNewCategoryDialog(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleCreateCategory} data-testid="new-category-submit">Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

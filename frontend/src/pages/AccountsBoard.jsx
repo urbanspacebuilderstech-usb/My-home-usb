@@ -272,12 +272,22 @@ function PettyCashManagement({ onBack }) {
   const [issuePC, setIssuePC] = useState(null);
   const [issueAmount, setIssueAmount] = useState('');
   const [issueRemarks, setIssueRemarks] = useState('');
+  // New: Payment processing dialog
+  const [payDialog, setPayDialog] = useState(false);
+  const [payPC, setPayPC] = useState(null);
+  const [payForm, setPayForm] = useState({ payment_mode: 'cash', bank_name: '', cheque_number: '', reference_number: '', amount_paid: '', remarks: '', payment_date: new Date().toISOString().slice(0, 10) });
+  // Pending PM-approved requests
+  const [pendingRequests, setPendingRequests] = useState([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await axios.get(`${API}/accountant/petty-cash-management`);
-        setData(res.data);
+        const [mgmtRes, pcRes] = await Promise.allSettled([
+          axios.get(`${API}/accountant/petty-cash-management`),
+          axios.get(`${API}/accountant/petty-cash`)
+        ]);
+        if (mgmtRes.status === 'fulfilled') setData(mgmtRes.value.data);
+        if (pcRes.status === 'fulfilled') setPendingRequests(pcRes.value.data || []);
       } catch { /* ignore */ }
       setLoading(false);
     })();
@@ -300,12 +310,31 @@ function PettyCashManagement({ onBack }) {
       });
       toast.success('Petty cash issued');
       setIssueDialog(false);
-      // Refresh data
       const res = await axios.get(`${API}/accountant/petty-cash-management`);
       setData(res.data);
       if (selectedSE) fetchSECashbook(selectedSE);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to issue');
+    }
+  };
+
+  const handleProcessPayment = async () => {
+    if (!payForm.amount_paid) { toast.error('Enter amount'); return; }
+    try {
+      await axios.patch(`${API}/accountant/petty-cash/${payPC.petty_cash_id}/process-payment`, {
+        ...payForm,
+        amount_paid: parseFloat(payForm.amount_paid),
+      });
+      toast.success('Payment processed! SE will be notified.');
+      setPayDialog(false);
+      const [mgmtRes, pcRes] = await Promise.allSettled([
+        axios.get(`${API}/accountant/petty-cash-management`),
+        axios.get(`${API}/accountant/petty-cash`)
+      ]);
+      if (mgmtRes.status === 'fulfilled') setData(mgmtRes.value.data);
+      if (pcRes.status === 'fulfilled') setPendingRequests(pcRes.value.data || []);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to process');
     }
   };
 
@@ -425,6 +454,48 @@ function PettyCashManagement({ onBack }) {
         </CardContent></Card>
       </div>
 
+      {/* PM-Approved Requests Needing Payment Processing */}
+      {pendingRequests.filter(r => r.status === 'pm_approved').length > 0 && (
+        <Card className="border-l-4 border-l-teal-500">
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-sm flex items-center gap-2 text-teal-700">PM-Approved — Awaiting Payment ({pendingRequests.filter(r => r.status === 'pm_approved').length})</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="acc-pc-pending-table">
+                <thead className="bg-teal-50 border-y"><tr>
+                  <th className="px-3 py-2 text-left font-medium text-teal-700">Date</th>
+                  <th className="px-3 py-2 text-left font-medium text-teal-700">SE</th>
+                  <th className="px-3 py-2 text-left font-medium text-teal-700">Project</th>
+                  <th className="px-3 py-2 text-left font-medium text-teal-700">Purpose</th>
+                  <th className="px-3 py-2 text-right font-medium text-teal-700">Amount</th>
+                  <th className="px-3 py-2 text-center font-medium text-teal-700">PM</th>
+                  <th className="px-3 py-2 text-center font-medium text-teal-700">Action</th>
+                </tr></thead>
+                <tbody className="divide-y">
+                  {pendingRequests.filter(r => r.status === 'pm_approved').map(pc => (
+                    <tr key={pc.petty_cash_id} className="hover:bg-teal-50/50">
+                      <td className="px-3 py-2 whitespace-nowrap">{new Date(pc.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</td>
+                      <td className="px-3 py-2 font-medium">{pc.requested_by_name}</td>
+                      <td className="px-3 py-2">{pc.project_name}</td>
+                      <td className="px-3 py-2 text-gray-600 max-w-[150px] truncate">{pc.purpose}</td>
+                      <td className="px-3 py-2 text-right font-bold">₹{(pc.amount_requested || 0).toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-2 text-center"><Badge className="bg-green-100 text-green-700 text-[10px]">{pc.pm_approved_by_name || 'PM'}</Badge></td>
+                      <td className="px-3 py-2 text-center">
+                        <Button size="sm" className="bg-teal-600 hover:bg-teal-700 h-6 text-[10px]" data-testid={`acc-pc-pay-${pc.petty_cash_id}`}
+                          onClick={() => { setPayPC(pc); setPayForm({ ...payForm, amount_paid: pc.amount_requested?.toString() || '' }); setPayDialog(true); }}>
+                          Process Payment
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {siteEngineers.length === 0 ? (
         <Card><CardContent className="p-8 text-center text-gray-400">No petty cash records found</CardContent></Card>
       ) : (
@@ -486,6 +557,71 @@ function PettyCashManagement({ onBack }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIssueDialog(false)}>Cancel</Button>
             <Button className="bg-green-600 hover:bg-green-700" onClick={handleIssue}>Issue Cash</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Process Payment Dialog */}
+      <Dialog open={payDialog} onOpenChange={setPayDialog}>
+        <DialogContent className="max-w-md" data-testid="acc-pc-pay-dialog">
+          <DialogHeader><DialogTitle className="text-sm">Process Petty Cash Payment</DialogTitle></DialogHeader>
+          {payPC && (
+            <div className="space-y-3">
+              <Card className="bg-teal-50 border-teal-200"><CardContent className="p-3 text-xs space-y-1">
+                <p><span className="text-gray-500">SE:</span> <span className="font-semibold">{payPC.requested_by_name}</span></p>
+                <p><span className="text-gray-500">Project:</span> <span className="font-semibold">{payPC.project_name}</span></p>
+                <p><span className="text-gray-500">Purpose:</span> {payPC.purpose}</p>
+                <p><span className="text-gray-500">Requested:</span> <span className="font-bold text-teal-700">₹{(payPC.amount_requested || 0).toLocaleString('en-IN')}</span></p>
+              </CardContent></Card>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Payment Mode *</Label>
+                  <Select value={payForm.payment_mode} onValueChange={v => setPayForm({...payForm, payment_mode: v})}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-xs">Amount to Pay *</Label>
+                  <NumericInput className="h-8 text-xs" value={payForm.amount_paid} onChange={e => setPayForm({...payForm, amount_paid: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs">Bank Name</Label>
+                  <Input className="h-8 text-xs" value={payForm.bank_name} onChange={e => setPayForm({...payForm, bank_name: e.target.value})} placeholder="e.g., SBI" />
+                </div>
+                <div>
+                  <Label className="text-xs">Payment Date</Label>
+                  <Input type="date" className="h-8 text-xs" value={payForm.payment_date} onChange={e => setPayForm({...payForm, payment_date: e.target.value})} />
+                </div>
+              </div>
+              {(payForm.payment_mode === 'cheque') && (
+                <div>
+                  <Label className="text-xs">Cheque Number</Label>
+                  <Input className="h-8 text-xs" value={payForm.cheque_number} onChange={e => setPayForm({...payForm, cheque_number: e.target.value})} placeholder="e.g., 123456" />
+                </div>
+              )}
+              {(payForm.payment_mode === 'bank_transfer' || payForm.payment_mode === 'upi') && (
+                <div>
+                  <Label className="text-xs">Reference / Transaction Number</Label>
+                  <Input className="h-8 text-xs" value={payForm.reference_number} onChange={e => setPayForm({...payForm, reference_number: e.target.value})} placeholder="e.g., TXN001" />
+                </div>
+              )}
+              <div>
+                <Label className="text-xs">Remarks</Label>
+                <Textarea className="text-xs" rows={2} value={payForm.remarks} onChange={e => setPayForm({...payForm, remarks: e.target.value})} placeholder="Optional notes..." />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPayDialog(false)}>Cancel</Button>
+            <Button size="sm" className="bg-teal-600 hover:bg-teal-700" onClick={handleProcessPayment} data-testid="acc-pc-pay-confirm">Process Payment</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

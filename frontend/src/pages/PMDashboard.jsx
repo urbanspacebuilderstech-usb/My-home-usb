@@ -52,6 +52,12 @@ export default function PMDashboard() {
   const [createSEDialog, setCreateSEDialog] = useState(false);
   const [seForm, setSEForm] = useState({ name: '', phone: '', email: '', role: 'site_engineer' });
 
+  // Petty Cash
+  const [pettyCashRequests, setPettyCashRequests] = useState([]);
+  const [pcRejectDialog, setPcRejectDialog] = useState(false);
+  const [pcRejectTarget, setPcRejectTarget] = useState(null);
+  const [pcRejectReason, setPcRejectReason] = useState('');
+
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async (showLoader = true) => {
@@ -63,12 +69,13 @@ export default function PMDashboard() {
       }
       setUser(userRes.data);
 
-      const [projRes, matReqRes, labReqRes, teamRes, stagesRes] = await Promise.allSettled([
+      const [projRes, matReqRes, labReqRes, teamRes, stagesRes, pcRes] = await Promise.allSettled([
         axios.get(`${API}/pm/projects`),
         axios.get(`${API}/pm/material-requests`),
         axios.get(`${API}/pm/labour-requests`),
         axios.get(`${API}/pm/team-members`),
-        axios.get(`${API}/pm/project-stages`)
+        axios.get(`${API}/pm/project-stages`),
+        axios.get(`${API}/pm/petty-cash-requests`)
       ]);
 
       if (projRes.status === 'fulfilled') setProjects(projRes.value.data || []);
@@ -76,6 +83,7 @@ export default function PMDashboard() {
       if (labReqRes.status === 'fulfilled') setLabourRequests(labReqRes.value.data || []);
       if (teamRes.status === 'fulfilled') setTeamMembers(teamRes.value.data || []);
       if (stagesRes.status === 'fulfilled') setStages(stagesRes.value.data || []);
+      if (pcRes.status === 'fulfilled') setPettyCashRequests(pcRes.value.data || []);
     } catch (error) {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally { setLoading(false); }
@@ -168,6 +176,23 @@ export default function PMDashboard() {
   };
 
   // === HELPERS ===
+  const handleApprovePettyCash = async (pcId) => {
+    try {
+      await axios.patch(`${API}/pm/petty-cash/${pcId}/approve`, { remarks: '' });
+      toast.success('Petty cash approved! Sent to Accountant.');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to approve'); }
+  };
+
+  const handleRejectPettyCash = async () => {
+    if (!pcRejectTarget) return;
+    try {
+      await axios.patch(`${API}/pm/petty-cash/${pcRejectTarget.petty_cash_id}/reject`, { reason: pcRejectReason });
+      toast.success('Petty cash rejected');
+      setPcRejectDialog(false); fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reject'); }
+  };
+
   const getStageBadge = (id) => {
     const s = stages.find(x => x.id === id);
     return <Badge variant="outline" className="text-xs capitalize">{s?.name || id?.replace(/_/g, ' ') || '-'}</Badge>;
@@ -182,6 +207,7 @@ export default function PMDashboard() {
   const filteredTeam = teamMembers.filter(m => !teamSearch || m.name.toLowerCase().includes(teamSearch.toLowerCase()));
 
   const requestCount = materialRequests.length + labourRequests.length;
+  const pendingPcCount = pettyCashRequests.filter(r => r.status === 'requested').length;
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
 
   if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48" /></div></div></div>;
@@ -194,6 +220,7 @@ export default function PMDashboard() {
           <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
+            <TabsTrigger value="petty_cash" className="text-xs sm:text-sm" data-testid="tab-petty-cash">Petty Cash<CountBadge count={pendingPcCount} /></TabsTrigger>
             <TabsTrigger value="team" className="text-xs sm:text-sm" data-testid="tab-team">Team ({teamMembers.length})</TabsTrigger>
           </TabsList>
 
@@ -329,6 +356,73 @@ export default function PMDashboard() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+
+          {/* ==================== PETTY CASH ==================== */}
+          <TabsContent value="petty_cash" data-testid="pm-petty-cash-tab">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Package className="h-4 w-4 text-green-600" /> Petty Cash Requests ({pettyCashRequests.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {pettyCashRequests.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No petty cash requests</p></div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="pm-pc-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Project</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested By</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
+                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Status</th>
+                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {pettyCashRequests.map(pc => (
+                          <tr key={pc.petty_cash_id} className="hover:bg-gray-50" data-testid={`pm-pc-row-${pc.petty_cash_id}`}>
+                            <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(pc.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</td>
+                            <td className="px-3 py-2 text-xs font-medium">{pc.project_name}</td>
+                            <td className="px-3 py-2 text-xs">{pc.requested_by_name}</td>
+                            <td className="px-3 py-2 text-xs text-gray-600 max-w-[200px] truncate">{pc.purpose}</td>
+                            <td className="px-3 py-2 text-xs text-right font-semibold">₹{(pc.amount_requested || 0).toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-center">
+                              <Badge className={`text-[10px] ${
+                                pc.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
+                                pc.status === 'pm_approved' ? 'bg-green-100 text-green-700' :
+                                pc.status === 'pm_rejected' ? 'bg-red-100 text-red-700' :
+                                pc.status === 'payment_done' ? 'bg-teal-100 text-teal-700' :
+                                pc.status === 'acknowledged' ? 'bg-blue-100 text-blue-700' :
+                                'bg-gray-100 text-gray-600'
+                              }`}>{pc.status.replace(/_/g, ' ')}</Badge>
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              {pc.status === 'requested' && (
+                                <div className="flex gap-1 justify-center">
+                                  <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApprovePettyCash(pc.petty_cash_id)} data-testid={`pm-pc-approve-${pc.petty_cash_id}`}>
+                                    <Check className="h-3 w-3 mr-1" /> Approve
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300" onClick={() => { setPcRejectTarget(pc); setPcRejectReason(''); setPcRejectDialog(true); }} data-testid={`pm-pc-reject-${pc.petty_cash_id}`}>
+                                    <X className="h-3 w-3 mr-1" /> Reject
+                                  </Button>
+                                </div>
+                              )}
+                              {pc.status !== 'requested' && <span className="text-[10px] text-gray-400">-</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ==================== TEAM ==================== */}
@@ -498,6 +592,24 @@ export default function PMDashboard() {
             </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setCreateSEDialog(false)}>Cancel</Button><Button onClick={handleCreateSE} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-create-se">Create</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Petty Cash Reject Dialog */}
+      <Dialog open={pcRejectDialog} onOpenChange={setPcRejectDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Reject Petty Cash</DialogTitle>
+            <DialogDescription>Provide a reason for rejecting this request.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Reason</Label>
+            <Input value={pcRejectReason} onChange={e => setPcRejectReason(e.target.value)} placeholder="Enter rejection reason..." className="mt-1" data-testid="pc-reject-reason" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPcRejectDialog(false)}>Cancel</Button>
+            <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={handleRejectPettyCash} data-testid="pc-reject-confirm">Reject</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

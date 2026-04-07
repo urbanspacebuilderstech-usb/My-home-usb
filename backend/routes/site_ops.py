@@ -1775,27 +1775,23 @@ async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(
         "amount_returned": 0,
         "purpose": data.purpose,
         "remarks": data.remarks,
-        "status": "requested",  # requested, issued, partially_spent, settled, rejected
-        "expenses": [],  # List of expense entries
+        "status": "requested",  # requested → pm_approved → accountant_processing → payment_done → acknowledged
+        "expenses": [],
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "week_start": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        "week_end": (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
     }
     
     await db.petty_cash.insert_one(petty_cash)
     petty_cash.pop("_id", None)
     
-    # Notify accountant (in-app)
-    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(10)
-    for acc in accountants:
-        await create_notification(acc["user_id"], f"Petty cash request: ₹{data.amount} for {project['name'] if project else 'project'}")
-    
-    # Send email notification (non-blocking)
-    try:
-        from core.notifications import notify_petty_cash_request
-        asyncio.ensure_future(notify_petty_cash_request(petty_cash, user.name))
-    except Exception:
-        pass
+    # Notify Project Manager(s) for the project
+    team = await db.site_engineer_assignments.find({"project_id": data.project_id, "role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+    pm_ids = [t["user_id"] for t in team]
+    if not pm_ids:
+        # Fallback: notify all PMs
+        pms = await db.users.find({"role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+        pm_ids = [p["user_id"] for p in pms]
+    for pm_id in pm_ids:
+        await create_notification(pm_id, f"Petty cash request: ₹{data.amount:,.0f} for {project['name'] if project else 'project'} by {user.name}")
     
     return petty_cash
 
@@ -1890,13 +1886,15 @@ async def submit_petty_cash_for_settlement(petty_cash_id: str, user: User = Depe
 
 @router.get("/accountant/petty-cash")
 async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Accountant gets petty cash requests"""
+    """Accountant gets petty cash requests (only PM-approved and beyond)"""
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant can access this")
     
     query = {}
     if status:
         query["status"] = status
+    else:
+        query["status"] = {"$in": ["pm_approved", "accountant_processing", "payment_done", "acknowledged", "issued", "partially_spent", "pending_settlement", "settled", "requested"]}
     
     petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     return petty_cash_list
@@ -2032,6 +2030,256 @@ async def reject_petty_cash(petty_cash_id: str, reason: str = "", user: User = D
     await create_notification(petty_cash["requested_by"], f"Petty cash rejected: {reason or 'No reason provided'}")
     
     return {"message": "Petty cash rejected"}
+
+
+
+# ============ PETTY CASH - PM APPROVAL ============
+
+@router.get("/pm/petty-cash-requests")
+async def get_petty_cash_for_pm(user: User = Depends(get_current_user)):
+    """PM gets pending petty cash requests for approval"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can access this")
+    requests = await db.petty_cash.find({"status": {"$in": ["requested", "pm_approved", "accountant_processing", "payment_done", "acknowledged"]}}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return requests
+
+
+@router.patch("/pm/petty-cash/{petty_cash_id}/approve")
+async def pm_approve_petty_cash(petty_cash_id: str, request: Request, user: User = Depends(get_current_user)):
+    """PM approves petty cash - moves to accountant"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can approve")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if pc["status"] != "requested":
+        raise HTTPException(status_code=400, detail=f"Cannot approve - current status is {pc['status']}")
+    data = {}
+    try:
+        data = await request.json()
+    except Exception:
+        pass
+    now = datetime.now(timezone.utc).isoformat()
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "pm_approved",
+            "pm_approved_by": user.user_id,
+            "pm_approved_by_name": user.name,
+            "pm_approved_at": now,
+            "pm_remarks": data.get("remarks", ""),
+        }}
+    )
+    # Notify accountants
+    accountants = await db.users.find({"role": "accountant", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash approved by PM: ₹{pc['amount_requested']:,.0f} for {pc.get('project_name', '')}")
+    await create_notification(pc["requested_by"], f"Petty cash approved by PM {user.name}")
+    return {"message": "Approved", "status": "pm_approved"}
+
+
+@router.patch("/pm/petty-cash/{petty_cash_id}/reject")
+async def pm_reject_petty_cash(petty_cash_id: str, request: Request, user: User = Depends(get_current_user)):
+    """PM rejects petty cash request"""
+    if user.role not in [UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only PM can reject")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    data = {}
+    try:
+        data = await request.json()
+    except Exception:
+        pass
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {"status": "pm_rejected", "pm_rejected_by": user.user_id, "pm_rejected_reason": data.get("reason", ""), "pm_rejected_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await create_notification(pc["requested_by"], f"Petty cash rejected by PM: {data.get('reason', 'No reason')}")
+    return {"message": "Rejected"}
+
+
+# ============ PETTY CASH - ACCOUNTANT PAYMENT PROCESSING ============
+
+@router.patch("/accountant/petty-cash/{petty_cash_id}/process-payment")
+async def accountant_process_payment(petty_cash_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Accountant processes payment with full details"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can process payment")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if pc["status"] != "pm_approved":
+        raise HTTPException(status_code=400, detail=f"Cannot process - current status is {pc['status']}")
+    data = await request.json()
+    now = datetime.now(timezone.utc).isoformat()
+    payment_details = {
+        "payment_mode": data.get("payment_mode", "cash"),
+        "bank_name": data.get("bank_name", ""),
+        "cheque_number": data.get("cheque_number", ""),
+        "reference_number": data.get("reference_number", ""),
+        "payment_date": data.get("payment_date", now[:10]),
+        "amount_paid": data.get("amount_paid", pc["amount_requested"]),
+        "remarks": data.get("remarks", ""),
+    }
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "payment_done",
+            "amount_issued": payment_details["amount_paid"],
+            "payment_details": payment_details,
+            "payment_processed_by": user.user_id,
+            "payment_processed_by_name": user.name,
+            "payment_processed_at": now,
+        }}
+    )
+    await create_notification(pc["requested_by"], f"Petty cash payment processed: ₹{payment_details['amount_paid']:,.0f} via {payment_details['payment_mode']}")
+    return {"message": "Payment processed", "status": "payment_done", "payment_details": payment_details}
+
+
+# ============ PETTY CASH - SE ACKNOWLEDGE ============
+
+@router.patch("/site-engineer/petty-cash/{petty_cash_id}/acknowledge")
+async def se_acknowledge_petty_cash(petty_cash_id: str, user: User = Depends(get_current_user)):
+    """SE acknowledges receipt of petty cash"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only SE can acknowledge")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if pc["status"] != "payment_done":
+        raise HTTPException(status_code=400, detail=f"Cannot acknowledge - status is {pc['status']}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {"status": "acknowledged", "acknowledged_at": now, "acknowledged_by": user.user_id}}
+    )
+    return {"message": "Acknowledged", "status": "acknowledged"}
+
+
+# ============ PETTY CASH - SUMMARY & HISTORY ============
+
+@router.get("/site-engineer/petty-cash/summary")
+async def get_petty_cash_summary(user: User = Depends(get_current_user)):
+    """Get petty cash summary for SE dashboard"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    query = {"requested_by": user.user_id} if user.role not in [UserRole.SUPER_ADMIN] else {}
+    all_pc = await db.petty_cash.find(query, {"_id": 0}).to_list(500)
+    direct_expenses = await db.direct_expenses.find({"recorded_by": user.user_id} if user.role not in [UserRole.SUPER_ADMIN] else {}, {"_id": 0}).to_list(500)
+
+    total_cash_in_hand = sum(pc.get("amount_issued", 0) - pc.get("amount_spent", 0) for pc in all_pc if pc.get("status") in ["acknowledged", "issued", "partially_spent"])
+    total_expenses = sum(sum(item.get("amount", 0) for item in de.get("items", [])) for de in direct_expenses)
+    pending_requests = len([pc for pc in all_pc if pc.get("status") in ["requested"]])
+    waiting_approval = len([pc for pc in all_pc if pc.get("status") in ["pm_approved", "accountant_processing"]])
+
+    return {
+        "total_cash_in_hand": total_cash_in_hand,
+        "total_expenses": total_expenses,
+        "pending_requests": pending_requests,
+        "waiting_approval": waiting_approval,
+    }
+
+
+# ============ EXPENSE CATEGORIES ============
+
+DEFAULT_EXPENSE_CATEGORIES = ["Electrical", "Plumbing", "Painting", "Civil", "Wooden", "Miscellaneous"]
+
+@router.get("/expense-categories")
+async def get_expense_categories(user: User = Depends(get_current_user)):
+    """Get all expense categories (defaults + custom)"""
+    custom = await db.expense_categories.find({"is_active": True}, {"_id": 0}).to_list(100)
+    custom_names = [c["name"] for c in custom]
+    all_cats = DEFAULT_EXPENSE_CATEGORIES + [n for n in custom_names if n not in DEFAULT_EXPENSE_CATEGORIES]
+    return all_cats
+
+
+@router.post("/expense-categories")
+async def create_expense_category(request: Request, user: User = Depends(get_current_user)):
+    """Create a custom expense category"""
+    data = await request.json()
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+    existing = await db.expense_categories.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(status_code=400, detail="Category already exists")
+    cat = {"category_id": f"cat_{secrets.token_hex(4)}", "name": name, "is_active": True, "created_by": user.user_id, "created_at": datetime.now(timezone.utc).isoformat()}
+    await db.expense_categories.insert_one(cat)
+    cat.pop("_id", None)
+    return cat
+
+
+# ============ DIRECT EXPENSE RECORDING (NO APPROVAL) ============
+
+@router.post("/site-engineer/direct-expense")
+async def record_direct_expense(request: Request, user: User = Depends(get_current_user)):
+    """Record a direct expense with multiple line items - no approval needed"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    data = await request.json()
+    project_id = data.get("project_id")
+    items = data.get("items", [])
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    if not items:
+        raise HTTPException(status_code=400, detail="At least one expense item is required")
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    now = datetime.now(timezone.utc).isoformat()
+    expense_id = f"dexp_{secrets.token_hex(6)}"
+    total = sum(float(item.get("amount", 0)) for item in items)
+
+    record = {
+        "expense_id": expense_id,
+        "project_id": project_id,
+        "project_name": project.get("name", "") if project else "",
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "items": [{
+            "item_id": f"di_{secrets.token_hex(4)}",
+            "category": item.get("category", "Miscellaneous"),
+            "expense_name": item.get("expense_name", ""),
+            "amount": float(item.get("amount", 0)),
+            "bill_file_id": item.get("bill_file_id"),
+            "bill_filename": item.get("bill_filename"),
+        } for item in items],
+        "total_amount": total,
+        "created_at": now,
+    }
+    await db.direct_expenses.insert_one(record)
+    record.pop("_id", None)
+    return record
+
+
+@router.get("/site-engineer/direct-expenses")
+async def get_direct_expenses(project_id: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get direct expense history for SE"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    query = {"recorded_by": user.user_id} if user.role not in [UserRole.SUPER_ADMIN] else {}
+    if project_id and project_id != "all":
+        query["project_id"] = project_id
+    if date_from:
+        query["created_at"] = {"$gte": date_from}
+    if date_to:
+        query.setdefault("created_at", {})
+        if isinstance(query["created_at"], dict):
+            query["created_at"]["$lte"] = date_to + "T23:59:59"
+        else:
+            query["created_at"] = {"$gte": query["created_at"], "$lte": date_to + "T23:59:59"}
+    records = await db.direct_expenses.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return records
+
+
+@router.get("/site-engineer/petty-cash/income-history")
+async def get_income_history(user: User = Depends(get_current_user)):
+    """Get petty cash income history (acknowledged/issued amounts)"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    query = {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent", "settled"]}}
+    records = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return records
+
 
 
 # ==================== ACCOUNTANT MODULE - COMPREHENSIVE ====================
