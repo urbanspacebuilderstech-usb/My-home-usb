@@ -2739,3 +2739,221 @@ async def get_se_mini_cashbook_for_accountant(user_id: str, user: User = Depends
         }
     }
 
+
+
+# ==================== SITE ENGINEER ATTENDANCE ====================
+
+import math
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    """Calculate distance between two GPS points in km"""
+    R = 6371
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+
+class AttendanceLogin(BaseModel):
+    project_id: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+class AttendanceLogout(BaseModel):
+    project_id: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+
+@router.post("/attendance/login")
+async def attendance_login(data: AttendanceLogin, user: User = Depends(get_current_user)):
+    """Site Engineer logs in to a project site - GPS verified"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only site engineers can log attendance")
+
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # GPS verification if project has coordinates
+    proj_lat = project.get("latitude")
+    proj_lng = project.get("longitude")
+    if proj_lat and proj_lng and data.latitude and data.longitude:
+        dist = haversine_km(data.latitude, data.longitude, float(proj_lat), float(proj_lng))
+        if dist > 5:
+            raise HTTPException(status_code=400, detail=f"You are {dist:.1f}km away from the project site. Must be within 5km to log in.")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_time = datetime.now(timezone.utc).strftime("%H:%M")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Check if already logged in to this project today without logout
+    existing = await db.se_attendance.find_one({
+        "user_id": user.user_id, "date": today
+    })
+
+    if existing:
+        # Check if already logged in to this project without logout
+        for entry in existing.get("entries", []):
+            if entry["project_id"] == data.project_id and not entry.get("logout_time"):
+                raise HTTPException(status_code=400, detail=f"Already logged in to {project.get('name', 'this project')}. Please logout first.")
+        # Also check if logged into any other project without logout
+        for entry in existing.get("entries", []):
+            if not entry.get("logout_time"):
+                raise HTTPException(status_code=400, detail=f"Please logout from {entry.get('project_name', 'current site')} first.")
+
+        # Add new entry
+        new_entry = {
+            "project_id": data.project_id,
+            "project_name": project.get("name", ""),
+            "login_time": now_time,
+            "logout_time": None,
+            "login_lat": data.latitude,
+            "login_lng": data.longitude,
+            "logout_lat": None,
+            "logout_lng": None,
+        }
+        await db.se_attendance.update_one(
+            {"_id": existing["_id"]},
+            {"$push": {"entries": new_entry}, "$set": {"updated_at": now_iso}}
+        )
+    else:
+        # Create new attendance record for today
+        doc = {
+            "attendance_id": f"att_{uuid.uuid4().hex[:8]}",
+            "user_id": user.user_id,
+            "user_name": user.name,
+            "date": today,
+            "entries": [{
+                "project_id": data.project_id,
+                "project_name": project.get("name", ""),
+                "login_time": now_time,
+                "logout_time": None,
+                "login_lat": data.latitude,
+                "login_lng": data.longitude,
+                "logout_lat": None,
+                "logout_lng": None,
+            }],
+            "total_hours": 0,
+            "status": "present",
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        await db.se_attendance.insert_one(doc)
+
+    return {"message": f"Logged in to {project.get('name', '')} at {now_time}", "login_time": now_time}
+
+
+@router.post("/attendance/logout")
+async def attendance_logout(data: AttendanceLogout, user: User = Depends(get_current_user)):
+    """Site Engineer logs out from a project site"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only site engineers can log attendance")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_time = datetime.now(timezone.utc).strftime("%H:%M")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    record = await db.se_attendance.find_one({"user_id": user.user_id, "date": today})
+    if not record:
+        raise HTTPException(status_code=400, detail="No attendance record for today")
+
+    entries = record.get("entries", [])
+    updated = False
+    for i, entry in enumerate(entries):
+        if entry["project_id"] == data.project_id and not entry.get("logout_time"):
+            entries[i]["logout_time"] = now_time
+            entries[i]["logout_lat"] = data.latitude
+            entries[i]["logout_lng"] = data.longitude
+            updated = True
+            break
+
+    if not updated:
+        raise HTTPException(status_code=400, detail="Not currently logged in to this project")
+
+    # Calculate total hours
+    total_minutes = 0
+    for entry in entries:
+        if entry.get("login_time") and entry.get("logout_time"):
+            try:
+                login_parts = entry["login_time"].split(":")
+                logout_parts = entry["logout_time"].split(":")
+                login_min = int(login_parts[0]) * 60 + int(login_parts[1])
+                logout_min = int(logout_parts[0]) * 60 + int(logout_parts[1])
+                total_minutes += max(0, logout_min - login_min)
+            except (ValueError, IndexError):
+                pass
+
+    total_hours = round(total_minutes / 60, 2)
+    if total_hours >= 8:
+        status = "full_day"
+    elif total_hours >= 4:
+        status = "half_day"
+    else:
+        status = "short_day"
+
+    await db.se_attendance.update_one(
+        {"_id": record["_id"]},
+        {"$set": {"entries": entries, "total_hours": total_hours, "status": status, "updated_at": now_iso}}
+    )
+
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    return {"message": f"Logged out from {project.get('name', '')} at {now_time}", "logout_time": now_time, "total_hours": total_hours, "status": status}
+
+
+@router.get("/attendance/my-today")
+async def get_my_today_attendance(user: User = Depends(get_current_user)):
+    """Get current day's attendance for the logged-in SE"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    record = await db.se_attendance.find_one({"user_id": user.user_id, "date": today}, {"_id": 0})
+    if not record:
+        return {"date": today, "entries": [], "total_hours": 0, "status": "absent"}
+    return record
+
+
+@router.get("/attendance/my-history")
+async def get_my_attendance_history(
+    days: int = 30,
+    user: User = Depends(get_current_user)
+):
+    """Get attendance history for the logged-in SE"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    records = await db.se_attendance.find(
+        {"user_id": user.user_id, "date": {"$gte": cutoff}},
+        {"_id": 0}
+    ).sort("date", -1).to_list(100)
+    return records
+
+
+@router.get("/attendance/all")
+async def get_all_attendance(
+    date: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user: User = Depends(get_current_user)
+):
+    """PM/Planning view all SE attendance"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    query = {}
+    if date:
+        query["date"] = date
+    if user_id:
+        query["user_id"] = user_id
+    records = await db.se_attendance.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    return records
+
+
+@router.patch("/projects/{project_id}/set-location")
+async def set_project_location(project_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Set GPS coordinates for a project"""
+    body = await request.json()
+    lat = body.get("latitude")
+    lng = body.get("longitude")
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="latitude and longitude required")
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"latitude": float(lat), "longitude": float(lng), "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Project location updated", "latitude": lat, "longitude": lng}

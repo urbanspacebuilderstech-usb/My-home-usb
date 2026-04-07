@@ -281,6 +281,15 @@ export default function SiteEngineerDashboard() {
     date: new Date().toISOString().split('T')[0]
   });
 
+  // Attendance states
+  const [todayAttendance, setTodayAttendance] = useState(null);
+  const [attendanceHistory, setAttendanceHistory] = useState([]);
+  const [attLoginDialog, setAttLoginDialog] = useState(false);
+  const [attSelectedProject, setAttSelectedProject] = useState('');
+  const [attLoading, setAttLoading] = useState(false);
+  const [gpsPosition, setGpsPosition] = useState(null);
+  const [gpsError, setGpsError] = useState(null);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -288,16 +297,20 @@ export default function SiteEngineerDashboard() {
   const fetchData = async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const [userRes, projectsRes, workOrdersRes, pettyCashRes] = await Promise.all([
+      const [userRes, projectsRes, workOrdersRes, pettyCashRes, attTodayRes, attHistRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/site-engineer/my-projects`),
         axios.get(`${API}/site-engineer/work-orders`).catch(() => ({ data: [] })),
-        axios.get(`${API}/site-engineer/petty-cash`).catch(() => ({ data: [] }))
+        axios.get(`${API}/site-engineer/petty-cash`).catch(() => ({ data: [] })),
+        axios.get(`${API}/attendance/my-today`).catch(() => ({ data: null })),
+        axios.get(`${API}/attendance/my-history`).catch(() => ({ data: [] }))
       ]);
       setUser(userRes.data);
       setProjects(projectsRes.data);
       setWorkOrders(workOrdersRes.data);
       setPettyCashList(pettyCashRes.data);
+      setTodayAttendance(attTodayRes.data);
+      setAttendanceHistory(attHistRes.data || []);
     } catch (error) {
       console.error('Failed to fetch data:', error);
       if (error.response?.status === 403) {
@@ -364,6 +377,69 @@ export default function SiteEngineerDashboard() {
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to submit petty cash');
     }
+  };
+
+  // Attendance functions
+  const getGPS = () => new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject('GPS not available'); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      err => reject(err.message || 'GPS denied'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+
+  const currentlyLoggedProject = todayAttendance?.entries?.find(e => !e.logout_time);
+
+  const handleAttLogin = async () => {
+    if (!attSelectedProject) { toast.error('Select a project site'); return; }
+    setAttLoading(true);
+    try {
+      let gps = { latitude: null, longitude: null };
+      try { gps = await getGPS(); } catch { toast.info('GPS unavailable — logging without location'); }
+      await axios.post(`${API}/attendance/login`, {
+        project_id: attSelectedProject,
+        latitude: gps.latitude,
+        longitude: gps.longitude
+      });
+      toast.success('Logged in to site!');
+      setAttLoginDialog(false);
+      setAttSelectedProject('');
+      fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Login failed');
+    }
+    setAttLoading(false);
+  };
+
+  const handleAttLogout = async (projectId) => {
+    setAttLoading(true);
+    try {
+      let gps = { latitude: null, longitude: null };
+      try { gps = await getGPS(); } catch {}
+      const res = await axios.post(`${API}/attendance/logout`, {
+        project_id: projectId,
+        latitude: gps.latitude,
+        longitude: gps.longitude
+      });
+      toast.success(res.data.message);
+      fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Logout failed');
+    }
+    setAttLoading(false);
+  };
+
+  const getStatusBadge = (status) => {
+    const cfg = {
+      full_day: { label: 'Full Day', cls: 'bg-green-100 text-green-700' },
+      half_day: { label: 'Half Day', cls: 'bg-amber-100 text-amber-700' },
+      short_day: { label: 'Short Day', cls: 'bg-red-100 text-red-700' },
+      present: { label: 'Present', cls: 'bg-blue-100 text-blue-700' },
+      absent: { label: 'Absent', cls: 'bg-gray-100 text-gray-500' },
+    };
+    const c = cfg[status] || { label: status, cls: 'bg-gray-100 text-gray-600' };
+    return <Badge className={c.cls}>{c.label}</Badge>;
   };
   
   const getPettyCashStatusBadge = (status) => {
@@ -487,6 +563,29 @@ export default function SiteEngineerDashboard() {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
+            {/* Attendance Login/Logout Button */}
+            {currentlyLoggedProject ? (
+              <Button
+                className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs sm:text-sm animate-pulse"
+                onClick={() => handleAttLogout(currentlyLoggedProject.project_id)}
+                disabled={attLoading}
+                data-testid="att-logout-btn"
+              >
+                <LogOut className="h-3.5 w-3.5 mr-1" />
+                <span className="hidden sm:inline">Logout {currentlyLoggedProject.project_name}</span>
+                <span className="sm:hidden">Logout</span>
+              </Button>
+            ) : (
+              <Button
+                className="bg-green-500 hover:bg-green-600 text-white h-8 text-xs sm:text-sm"
+                onClick={() => setAttLoginDialog(true)}
+                data-testid="att-login-btn"
+              >
+                <Play className="h-3.5 w-3.5 mr-1" />
+                <span className="hidden sm:inline">Site Login</span>
+                <span className="sm:hidden">Login</span>
+              </Button>
+            )}
             <Button 
               variant="outline" 
               className="text-white border-white/50 hover:bg-orange-500 h-8 text-xs sm:text-sm"
@@ -561,7 +660,7 @@ export default function SiteEngineerDashboard() {
 
         {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="projects" className="gap-2">
               <Building2 className="h-4 w-4" /> Projects
             </TabsTrigger>
@@ -586,6 +685,9 @@ export default function SiteEngineerDashboard() {
             </TabsTrigger>
             <TabsTrigger value="minicashbook" className="gap-2" data-testid="tab-mini-cashbook">
               <Receipt className="h-4 w-4" /> Mini Cashbook
+            </TabsTrigger>
+            <TabsTrigger value="attendance" className="gap-2" data-testid="tab-attendance">
+              <Clock className="h-4 w-4" /> Attendance
             </TabsTrigger>
           </TabsList>
 
@@ -874,8 +976,166 @@ export default function SiteEngineerDashboard() {
           <TabsContent value="minicashbook" className="mt-4">
             <MiniCashbookSection projects={projects} />
           </TabsContent>
+
+          {/* ATTENDANCE TAB */}
+          <TabsContent value="attendance" className="mt-4" data-testid="attendance-tab">
+            <Card>
+              <CardHeader className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-orange-600" />Daily Attendance
+                    </CardTitle>
+                    <p className="text-xs text-gray-500 mt-0.5">Multi-site time tracking</p>
+                  </div>
+                  {!currentlyLoggedProject ? (
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-xs" onClick={() => setAttLoginDialog(true)} data-testid="att-login-tab-btn">
+                      <Play className="h-3 w-3 mr-1" /> Site Login
+                    </Button>
+                  ) : (
+                    <Button size="sm" className="bg-red-500 hover:bg-red-600 text-xs" onClick={() => handleAttLogout(currentlyLoggedProject.project_id)} disabled={attLoading}>
+                      <LogOut className="h-3 w-3 mr-1" /> Logout {currentlyLoggedProject.project_name}
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 pt-0 space-y-4">
+                {/* Today's Summary */}
+                {todayAttendance && todayAttendance.entries?.length > 0 && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3" data-testid="att-today-summary">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-orange-700">Today - {todayAttendance.date}</span>
+                      {getStatusBadge(todayAttendance.status)}
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {todayAttendance.entries.map((e, i) => (
+                        <div key={i} className={`rounded-lg p-2 text-center text-xs ${!e.logout_time ? 'bg-green-100 border border-green-300' : 'bg-white border'}`}>
+                          <p className="font-semibold truncate">{e.project_name}</p>
+                          <p className="text-gray-600">{e.login_time} - {e.logout_time || <span className="text-green-600 font-bold">Active</span>}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Total: <span className="font-bold text-orange-700">{todayAttendance.total_hours}h</span></span>
+                      <span className="text-gray-500">{todayAttendance.entries.length} site(s) visited</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* History Table */}
+                <div className="border rounded-lg overflow-hidden" data-testid="att-history-table">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-800 text-white">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left font-medium">Date</th>
+                        {/* Dynamic project columns from all unique projects */}
+                        {(() => {
+                          const allProjects = new Map();
+                          [todayAttendance, ...attendanceHistory].filter(Boolean).forEach(r => {
+                            (r.entries || []).forEach(e => {
+                              if (!allProjects.has(e.project_id)) allProjects.set(e.project_id, e.project_name);
+                            });
+                          });
+                          return Array.from(allProjects.entries()).map(([pid, pname]) => (
+                            <th key={pid} className="px-2 py-2.5 text-center font-medium bg-orange-700">
+                              <span className="truncate block max-w-[100px]">{pname}</span>
+                            </th>
+                          ));
+                        })()}
+                        <th className="px-2 py-2.5 text-center font-medium bg-blue-700">Total Hours</th>
+                        <th className="px-2 py-2.5 text-center font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {(() => {
+                        const allProjects = new Map();
+                        const allRecords = [todayAttendance, ...attendanceHistory].filter(Boolean);
+                        // Deduplicate by date
+                        const seen = new Set();
+                        const uniqueRecords = allRecords.filter(r => {
+                          if (seen.has(r.date)) return false;
+                          seen.add(r.date);
+                          return true;
+                        });
+                        uniqueRecords.forEach(r => {
+                          (r.entries || []).forEach(e => {
+                            if (!allProjects.has(e.project_id)) allProjects.set(e.project_id, e.project_name);
+                          });
+                        });
+                        const projectIds = Array.from(allProjects.keys());
+
+                        if (uniqueRecords.length === 0) return (
+                          <tr><td colSpan={projectIds.length + 3} className="text-center py-8 text-gray-400">No attendance records yet. Click "Site Login" to start tracking.</td></tr>
+                        );
+
+                        return uniqueRecords.map((r, ri) => (
+                          <tr key={r.date} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                            <td className="px-3 py-2 font-medium whitespace-nowrap">
+                              {new Date(r.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', weekday: 'short' })}
+                            </td>
+                            {projectIds.map(pid => {
+                              const entry = (r.entries || []).find(e => e.project_id === pid);
+                              return (
+                                <td key={pid} className="px-2 py-2 text-center">
+                                  {entry ? (
+                                    <div>
+                                      <span className="text-green-700">{entry.login_time}</span>
+                                      <span className="text-gray-400"> - </span>
+                                      <span className="text-red-600">{entry.logout_time || <span className="text-green-600 font-bold text-[10px]">Active</span>}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-300">-</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-2 text-center font-bold">{r.total_hours}h</td>
+                            <td className="px-2 py-2 text-center">{getStatusBadge(r.status)}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Attendance Login Dialog */}
+      <Dialog open={attLoginDialog} onOpenChange={setAttLoginDialog}>
+        <DialogContent className="max-w-sm" data-testid="att-login-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MapPin className="h-4 w-4 text-green-600" /> Site Login
+            </DialogTitle>
+            <DialogDescription>Select a project site to login. GPS will be captured automatically.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Select Project Site</Label>
+              <Select value={attSelectedProject} onValueChange={setAttSelectedProject}>
+                <SelectTrigger data-testid="att-project-select">
+                  <SelectValue placeholder="Choose site..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => (
+                    <SelectItem key={p.project_id} value={p.project_id}>{p.name} - {p.location || 'No location'}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-[11px] text-gray-500">Your current GPS location will be captured and verified against the project site (5km radius).</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAttLoginDialog(false)}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleAttLogin} disabled={attLoading} data-testid="att-confirm-login">
+              {attLoading ? 'Locating...' : 'Login to Site'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
         <DialogContent>
