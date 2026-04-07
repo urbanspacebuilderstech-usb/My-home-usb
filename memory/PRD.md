@@ -34,6 +34,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ### Site Engineer View (SiteEngineerProject.jsx)
 - Labour tracking, attendance, material requests
 - Contractor Payments section: View project work orders, request stage payments
+- **Daily Labour Report (DLR)**: Toggle DLR panel on each work order card to record/view attendance
 - Work order tab (old labour-based system)
 - Stock management, daily progress
 
@@ -51,7 +52,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ## Database Collections (Key)
 - `users`, `projects`, `leads`, `lead_stages`
 - `project_work_orders` (scope-based work orders with 4-level approval)
-- `freeze_otps` (NEW - stores hashed OTPs for freeze verification)
+- `daily_labour_reports` (DLR per work order per day, tracks type/count/day_value/rate)
+- `freeze_otps` (stores hashed OTPs for freeze verification)
 - `work_orders` (OLD - labour-based, used by Labours tab)
 - `labour_work_orders` (OLD - used by Site Engineer)
 - `material_names`, `material_requests`, `purchase_orders`
@@ -61,6 +63,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - Work Orders: GET/POST/PATCH/DELETE `/api/projects/{project_id}/work-orders`
 - Payment Pipeline: PATCH `.../stages/{stage_id}/request-payment`, `.../approve`, `.../revert`
 - Freeze: POST `.../freeze/send-otp`, `.../freeze/verify-otp`, `.../freeze/reassign`
+- **DLR**: POST/GET `/api/projects/{pid}/work-orders/{woid}/dlr`, DELETE `.../dlr/{dlr_id}`, GET `/api/projects/{pid}/dlr/summary`
 - Contractor Types: GET `/api/contractor-types`
 
 ## Completed Tasks (Latest Session - April 2026)
@@ -70,7 +73,9 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Site Engineer contractor payments view with "Request Payment"
 - [x] Fixed null safety crash in ProjectDetail (materialsData, laboursData, designData, woForm)
 - [x] **Freeze & Reassign feature**: OTP-verified freeze + auto-reassign balance stages to new contractor
-- [x] Testing: iteration_121 (24/24 passed), iteration_122 (14/14 passed, all frontend verified)
+- [x] Planning Board 2-Level Nested Tab Restructuring
+- [x] **Daily Labour Report (DLR)**: Per work order attendance tracking (Skilled/Semi-Skilled/Unskilled, day fractions 0.5/1/1.5, auto-cost calc). Shared DLRPanel component used in both SiteEngineerProject & ProjectDetail.
+- [x] Testing: iteration_121-124 all passed
 
 ## Prioritized Backlog
 
