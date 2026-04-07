@@ -78,7 +78,12 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **Inventory Management System**: Enhanced daily stock tracking — Opening/Received/Used/Closing with auto-calc. Current Stock dashboard with LOW alerts (min threshold). Visible in SE "Inventory" tab + ProjectDetail.
 - [x] **SE Daily Attendance**: Multi-project time tracking with GPS verification (5km radius). Login/Logout button in SE header, Attendance tab with today summary + history table (dynamic project columns, Total Hours, Status: Full/Half/Short Day).
 - [x] **Project Location Map**: Leaflet map in SE dashboard Projects tab showing pins for all GPS-enabled projects. Popup with name, location, client, coordinates. Green "GPS" badge on project cards.
-- [x] Testing: iteration_121-128 all passed
+- [x] **Geo-fencing & Live Map**: 
+  - Google Maps URL paste → auto-extract lat/lng (supports @lat,lng and ?q=lat,lng formats) in ProjectDetail
+  - SE background GPS tracking every 5 min while logged in
+  - Auto-logout if SE moves >5km from project + notification
+  - PM "Live Map" tab in PlanningBoard: real-time map with project pins (5km radius circles), active SE green dots, engineer list table, 30s auto-refresh
+- [x] Testing: iteration_121-129 all passed
 
 ## Prioritized Backlog
 
