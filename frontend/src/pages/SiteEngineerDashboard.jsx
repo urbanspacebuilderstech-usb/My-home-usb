@@ -335,6 +335,16 @@ export default function SiteEngineerDashboard() {
   const [petrolLoading, setPetrolLoading] = useState(false);
   const [petrolHistory, setPetrolHistory] = useState([]);
 
+  // Material Request states
+  const [matReqDialog, setMatReqDialog] = useState(false);
+  const [matReqProject, setMatReqProject] = useState(null);
+  const [matReqMaterials, setMatReqMaterials] = useState([]);
+  const [matReqSelected, setMatReqSelected] = useState('');
+  const [matReqQty, setMatReqQty] = useState('');
+  const [matReqRemarks, setMatReqRemarks] = useState('');
+  const [matReqLoading, setMatReqLoading] = useState(false);
+  const [matReqFetching, setMatReqFetching] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -534,6 +544,45 @@ export default function SiteEngineerDashboard() {
       fetchPettyCashSummary();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
     setPetrolLoading(false);
+  };
+
+  // ============ MATERIAL REQUEST FUNCTIONS ============
+  const openMatReqDialog = async (project) => {
+    setMatReqProject(project);
+    setMatReqSelected('');
+    setMatReqQty('');
+    setMatReqRemarks('');
+    setMatReqDialog(true);
+    setMatReqFetching(true);
+    try {
+      const res = await axios.get(`${API}/projects/${project.project_id}/approved-materials`);
+      setMatReqMaterials(res.data || []);
+    } catch { setMatReqMaterials([]); toast.error('Could not load materials for this project'); }
+    setMatReqFetching(false);
+  };
+
+  const handleMatReqSubmit = async () => {
+    if (!matReqSelected) { toast.error('Select a material'); return; }
+    if (!matReqQty || parseFloat(matReqQty) <= 0) { toast.error('Enter valid quantity'); return; }
+    const mat = matReqMaterials.find(m => m.material_id === matReqSelected);
+    if (!mat) { toast.error('Material not found'); return; }
+    setMatReqLoading(true);
+    try {
+      await axios.post(`${API}/site-engineer/material-requests`, {
+        project_id: matReqProject.project_id,
+        material_id: mat.material_id,
+        material_name: mat.name,
+        brand: mat.brand || '',
+        is_approved_material: true,
+        quantity: parseFloat(matReqQty),
+        unit: mat.unit || 'unit',
+        remarks: matReqRemarks || null,
+      });
+      toast.success(`Material requested! ${mat.name} x ${matReqQty} ${mat.unit || ''}`);
+      setMatReqDialog(false);
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Request failed'); }
+    setMatReqLoading(false);
   };
   
   // Petty Cash Functions
@@ -1067,16 +1116,24 @@ export default function SiteEngineerDashboard() {
                               )}
                             </div>
                           </div>
-                          {project.active_orders > 0 && (
-                            <div className="mt-2 sm:mt-3">
+                          <div className="mt-2 sm:mt-3 flex items-center gap-2 flex-wrap">
+                            {project.active_orders > 0 && (
                               <div className="inline-flex items-center gap-1.5 bg-orange-100 px-2 py-1 rounded-lg">
                                 <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
                                 <span className="text-xs sm:text-sm font-medium text-orange-700">
                                   {project.active_orders} Active Orders
                                 </span>
                               </div>
-                            </div>
-                          )}
+                            )}
+                            <Button
+                              size="sm"
+                              className="bg-blue-600 hover:bg-blue-700 h-7 text-xs gap-1"
+                              data-testid={`req-material-btn-${project.project_id}`}
+                              onClick={(e) => { e.stopPropagation(); openMatReqDialog(project); }}
+                            >
+                              <Package className="h-3 w-3" /> Request Material
+                            </Button>
+                          </div>
                         </div>
                         <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6 text-gray-400 flex-shrink-0" />
                       </div>
@@ -2125,6 +2182,87 @@ export default function SiteEngineerDashboard() {
             <Button variant="outline" onClick={() => setPetrolDialog(false)}>Cancel</Button>
             <Button onClick={handlePetrolSubmit} className="bg-blue-600 hover:bg-blue-700" disabled={petrolLoading} data-testid="petrol-submit">
               {petrolLoading ? 'Submitting...' : 'Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Material Request Dialog */}
+      <Dialog open={matReqDialog} onOpenChange={setMatReqDialog}>
+        <DialogContent className="max-w-md" data-testid="material-request-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Package className="h-4 w-4 text-blue-600" /> Request Material
+            </DialogTitle>
+            <DialogDescription>Request materials assigned by Planning for this project.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Project (auto-selected) */}
+            <div>
+              <Label className="text-xs">Project</Label>
+              <div className="mt-1 px-3 py-2 bg-gray-100 rounded-md text-sm font-medium text-gray-700" data-testid="matreq-project-name">
+                {matReqProject?.name || '—'}
+              </div>
+            </div>
+
+            {/* Material Dropdown */}
+            <div>
+              <Label className="text-xs">Select Material <span className="text-red-500">*</span></Label>
+              {matReqFetching ? (
+                <div className="text-xs text-gray-400 py-2">Loading materials...</div>
+              ) : matReqMaterials.length === 0 ? (
+                <div className="text-xs text-amber-600 py-2 bg-amber-50 rounded px-2">No materials added by Planning for this project yet.</div>
+              ) : (
+                <Select value={matReqSelected} onValueChange={setMatReqSelected}>
+                  <SelectTrigger data-testid="matreq-material-select" className="mt-1">
+                    <SelectValue placeholder="Choose material..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {matReqMaterials.map(m => (
+                      <SelectItem key={m.material_id} value={m.material_id}>
+                        {m.name} {m.brand ? `— ${m.brand}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Selected Material Info */}
+            {matReqSelected && (() => {
+              const mat = matReqMaterials.find(m => m.material_id === matReqSelected);
+              if (!mat) return null;
+              return (
+                <div className="p-2 bg-blue-50 border border-blue-200 rounded-md text-xs space-y-1" data-testid="matreq-material-info">
+                  <div className="flex justify-between"><span className="text-gray-500">Material</span><span className="font-medium">{mat.name}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Brand</span><span className="font-medium">{mat.brand || '—'}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Unit</span><span className="font-medium">{mat.unit || '—'}</span></div>
+                </div>
+              );
+            })()}
+
+            {/* Quantity */}
+            <div>
+              <Label className="text-xs">Quantity Required <span className="text-red-500">*</span></Label>
+              <NumericInput value={matReqQty} onChange={e => setMatReqQty(e.target.value)} placeholder="Enter quantity" className="mt-1" data-testid="matreq-qty" />
+            </div>
+
+            {/* Remarks */}
+            <div>
+              <Label className="text-xs">Remarks (optional)</Label>
+              <Textarea value={matReqRemarks} onChange={e => setMatReqRemarks(e.target.value)} placeholder="Any notes..." className="mt-1 h-16 text-sm" data-testid="matreq-remarks" />
+            </div>
+
+            {/* 48 Hours Notice */}
+            <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
+              <Clock className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <p className="text-[11px] text-amber-700 font-medium">Minimum 48 hours required to receive materials after approval.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMatReqDialog(false)}>Cancel</Button>
+            <Button onClick={handleMatReqSubmit} className="bg-blue-600 hover:bg-blue-700" disabled={matReqLoading || !matReqSelected} data-testid="matreq-submit">
+              {matReqLoading ? 'Submitting...' : 'Request Material'}
             </Button>
           </DialogFooter>
         </DialogContent>
