@@ -18,71 +18,62 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 
 ### Project Management (ProjectDetail.jsx)
 - Full project lifecycle: Estimates, Materials, Labours, Work Orders, Payments, Documents, Summary
-- 4-Level Payment Approval Pipeline, Freeze & Reassign
-- DLR (Daily Labour Report), Google Maps URL Location Setup
+- **Work Order Stage Payment System (REVAMPED)**:
+  - Multiple partial payment requests per stage until total is paid
+  - Amount tracking: Released / Pending / Balance per stage
+  - 4-Level Approval: SE → PM → Planning → Accountant
+  - "Finish Stage" button with SE remarks (blocks further payments)
+  - Backward compatible with legacy single-status stages
+- Freeze & Reassign, DLR, Google Maps URL Location
 
 ### Site Engineer View (SiteEngineerDashboard.jsx)
 - 7 tabs: Projects, Site Visits, Work Orders, Petty Cash, Cashbook, Curing Video, Attendance
-- **Petty Cash (REVAMPED)**: Multi-level approval flow:
-  - SE requests → PM approves → Accountant processes payment (with bank/cheque details) → SE acknowledges
-  - Summary cards: Cash in Hand, Expenses, Pending Requests, Waiting Approval
-  - 3 sub-tabs: Payment Request Status (with status timeline), Income History, Expense Record (with date/project filters)
-- **Record Expense**: Direct expense recording (no approval), multi-line items with category selector (Electrical, Plumbing, Painting, Civil, Wooden, Miscellaneous + custom), bill upload via Object Storage
-- **Curing Video Management**: Global button, popup, WhatsApp link, history tab
-- **Inventory Management**: Opening/Closing stock with threshold alerts
-- **Multi-Project GPS Attendance**: Login/logout with 5km geofencing
+- **Work Orders Tab (REVAMPED)**: Stage cards with amount breakdown, "Request Payment" dialog (amount + notes), "Finish Stage" dialog (remarks)
+- **Petty Cash (REVAMPED)**: Global request (no project), multi-level approval, Record Expense with categories
+- **Curing Video**: Global button, popup, WhatsApp link, history tab
+- **Inventory, GPS Attendance, Background GPS Tracking**
 
 ### Planning Board (PlanningBoard.jsx)
-- Packages, Material Vendors, Labour Contractors, RE Templates, Live Map
-- Custom header navigation injected into AppHeader
+- Packages, Material Vendors, Live Map Dashboard
+- Custom header navigation in AppHeader
 
 ### PM Dashboard (PMDashboard.jsx)
-- All Projects, Requests, **Petty Cash (NEW)**, Team tabs
-- **Petty Cash Approval**: Table with approve/reject buttons for SE requests
+- All Projects, Requests, **Petty Cash Approval**, Team tabs
 
 ### Accounts Board (AccountsBoard.jsx)
-- Income/Expense tracking, Suspense, Indirect Expenses
-- **Petty Cash Management (UPDATED)**: PM-Approved requests section with "Process Payment" dialog (payment mode, bank, cheque no, reference, date, amount, remarks)
+- **Petty Cash Management**: PM-Approved requests section with Process Payment dialog
 
-## Database Collections (Key)
-- `petty_cash`: Updated status flow: requested → pm_approved → accountant_processing → payment_done → acknowledged
-- `direct_expenses`: NEW - Direct expense records with line items and bill uploads
-- `expense_categories`: NEW - Custom expense categories
-- `curing_video_records`: Curing video status + WhatsApp tracking
-
-## Key API Endpoints (New)
-- Petty Cash Flow: POST `/api/site-engineer/petty-cash/request`, GET `/api/pm/petty-cash-requests`, PATCH `/api/pm/petty-cash/{id}/approve`, PATCH `/api/pm/petty-cash/{id}/reject`, PATCH `/api/accountant/petty-cash/{id}/process-payment`, PATCH `/api/site-engineer/petty-cash/{id}/acknowledge`
-- Summary/History: GET `/api/site-engineer/petty-cash/summary`, GET `/api/site-engineer/petty-cash/income-history`
-- Direct Expenses: POST `/api/site-engineer/direct-expense`, GET `/api/site-engineer/direct-expenses`
-- Categories: GET `/api/expense-categories`, POST `/api/expense-categories`
+## Key API Endpoints (Latest)
+- Stage Payments: PATCH `.../stages/{sid}/request-payment` (partial), `.../stages/{sid}/approve` (4-level), `.../stages/{sid}/finish`
+- Petty Cash: POST `/api/site-engineer/petty-cash/request` (global), PM approve/reject, Accountant process-payment, SE acknowledge
+- Direct Expenses: POST `/api/site-engineer/direct-expense`, GET `.../direct-expenses`
 - Curing Video: POST/GET/PATCH `/api/site-engineer/curing-video/...`
 
 ## Completed Tasks (Latest Session - Apr 2026)
-- [x] AppHeader custom navigation for Planning Board - Tested iteration_130
-- [x] Curing Video Management - Tested iteration_131
-- [x] Dialog viewport overflow fix - Tested iteration_132
-- [x] **Petty Cash Multi-Level Approval System** - Tested iteration_133 (17/17 backend, 100% frontend)
-  - SE → PM → Accountant → SE acknowledge flow
-  - Record Expense with categories & bill upload
-  - PM Dashboard approval tab
-  - Accountant payment processing dialog
+- [x] AppHeader custom navigation - iteration_130
+- [x] Curing Video Management - iteration_131
+- [x] Dialog viewport fix - iteration_132
+- [x] Petty Cash Multi-Level Approval - iteration_133 (17/17)
+- [x] Petty Cash Request made global - verified via curl
+- [x] **Work Order Stage Payment System** - iteration_134 (21/21 backend)
+  - Multiple partial payments per stage
+  - 4-level approval pipeline
+  - Balance validation, finish stage, rejection flow
 
 ## Prioritized Backlog
 
 ### P0 (Critical)
-- Refactor ProjectDetail.jsx (~5400 lines) into components
-- Refactor PlanningBoard.jsx (~1900 lines) into components
+- Refactor ProjectDetail.jsx (~5400 lines)
+- Refactor PlanningBoard.jsx (~1900 lines)
 
 ### P1 (High Priority)
 - Pre-Deployment Security: 2FA, rate limiting, disable demo-login
-- Refactor SiteEngineerDashboard.jsx (~2000+ lines)
+- Refactor SiteEngineerDashboard.jsx (~2100+ lines)
 
 ### P2 (Medium Priority)
 - Sr. Engineer → Jr. Engineer Assignment Workflow
 - Aadhar Document Upload (encrypted storage)
-- Cash Denomination feature (paused)
-- SaaS model conversion (paused)
-- Comprehensive UI/UX review
+- Cash Denomination (paused), SaaS conversion (paused)
 
 ## Credentials
 - Demo Access buttons on login page for all roles
