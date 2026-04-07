@@ -1,0 +1,68 @@
+{
+  "summary": "Materials List Read-Only/Edit Mode Feature - ALL TESTS PASSED. Frontend UI successfully implements two modes: read-only table view (with # | Material Name | Brand columns) and edit mode (with dropdown cards). All 10 test scenarios verified via Playwright.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_119.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Implementation correctly toggles between read-only table view and edit mode with dropdown cards",
+    "Read-only table shows # | Material Name | Brand columns as specified",
+    "Edit button (data-testid='edit-materials-btn') visible in read-only mode, triggers edit mode",
+    "In edit mode: Add button (data-testid='add-project-material') and Save button (data-testid='save-project-materials') appear",
+    "Package dropdown (data-testid='mat-package-select') loads materials from selected package and enters edit mode",
+    "Save button saves materials and switches back to read-only table view with toast notification",
+    "Delete button (data-testid='proj-mat-delete-{idx}') removes material row in edit mode",
+    "Material name dropdown shows options from /api/material-names with '+ Create New Material' option",
+    "Brand dropdown shows brands filtered by selected material with '+ Create New Brand' option"
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (not tested - no backend changes)",
+    "frontend": "100% - All 10 test scenarios passed"
+  },
+  "test_credentials": {
+    "Planning User": "Demo Access -> Planning button (planning@constructionos.com)"
+  },
+  "seed_data_creation": "Used existing test project proj_2d500929fbe9 with pre-saved materials",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Materials List feature now has two modes: 1) Read-only mode shows a table with # | Material Name | Brand columns and an Edit button. 2) Edit mode shows dropdown cards with Add/Save buttons. Package dropdown at top loads materials from selected package. Save button persists changes and returns to read-only view. All data-testids verified: pkg-materials-section, mat-package-select, edit-materials-btn, materials-readonly-table, add-project-material, save-project-materials, proj-mat-row-{idx}, proj-mat-name-{idx}, proj-mat-brand-{idx}, proj-mat-delete-{idx}.",
+  "verified_features": {
+    "Materials List Section Visible": "PASS - data-testid='pkg-materials-section' visible",
+    "Package Dropdown": "PASS - data-testid='mat-package-select' shows packages (Basic Package A, Premium Package)",
+    "Edit Button in Read-Only Mode": "PASS - data-testid='edit-materials-btn' visible when materials saved",
+    "Read-Only Table": "PASS - data-testid='materials-readonly-table' with # | Material Name | Brand columns",
+    "Edit Mode - Add Button": "PASS - data-testid='add-project-material' visible in edit mode",
+    "Edit Mode - Save Button": "PASS - data-testid='save-project-materials' visible in edit mode",
+    "Edit Mode - Material Dropdowns": "PASS - data-testid='proj-mat-name-{idx}' shows material options",
+    "Edit Mode - Brand Dropdowns": "PASS - data-testid='proj-mat-brand-{idx}' shows brand options",
+    "Edit Mode - Delete Buttons": "PASS - data-testid='proj-mat-delete-{idx}' removes row",
+    "Add New Material Row": "PASS - Row count increased from 2 to 3",
+    "Select Material from Dropdown": "PASS - Selected 'Cement' from options",
+    "Save Returns to Read-Only": "PASS - Toast 'Materials saved', Edit button reappeared",
+    "Package Dropdown Loads Materials": "PASS - Selected 'Premium Package', loaded 2 materials in edit mode",
+    "Delete Material in Edit Mode": "PASS - Row count decreased from 2 to 1"
+  },
+  "data_testids_verified": [
+    "tab-materials",
+    "pkg-materials-section",
+    "mat-package-select",
+    "edit-materials-btn",
+    "materials-readonly-table",
+    "add-project-material",
+    "save-project-materials",
+    "proj-mat-row-{idx}",
+    "proj-mat-name-{idx}",
+    "proj-mat-brand-{idx}",
+    "proj-mat-delete-{idx}"
+  ]
+}

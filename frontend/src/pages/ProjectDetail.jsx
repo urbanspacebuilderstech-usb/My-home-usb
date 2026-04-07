@@ -463,6 +463,8 @@ export default function ProjectDetail() {
   const [projAddingBrandFor, setProjAddingBrandFor] = useState(null);
   const [projNewMatName, setProjNewMatName] = useState('');
   const [projNewBrandName, setProjNewBrandName] = useState('');
+  const [editingMaterials, setEditingMaterials] = useState(false);
+  const [selectedMatPackage, setSelectedMatPackage] = useState('');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
   const [workOrders, setWorkOrders] = useState([]);
@@ -658,21 +660,22 @@ export default function ProjectDetail() {
         axios.get(`${API}/projects/${projectId}/package-materials`).catch(() => ({ data: [] })),
       ]);
       setProjMaterialNames(matNamesRes.data || []);
+      setSelectedMatPackage(projectData?.project?.package_id || '');
       if (savedRes.data?.length > 0) {
         setProjectMaterials(savedRes.data);
         savedRes.data.forEach(m => { if (m.name) fetchProjBrands(m.name); });
+        setEditingMaterials(false);
       } else if (projectData?.project?.package_id) {
-        // Auto-import from package if no saved materials yet
         const pkgListRes = await axios.get(`${API}/packages`).catch(() => ({ data: [] }));
         const pkg = (pkgListRes.data || []).find(p => p.package_id === projectData.project.package_id);
         if (pkg?.material_items?.length > 0) {
           const items = pkg.material_items.map(m => ({ name: m.name, brand: m.brand || '' }));
           setProjectMaterials(items);
           items.forEach(m => { if (m.name) fetchProjBrands(m.name); });
-          await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: items });
-        } else { setProjectMaterials([]); }
-      } else { setProjectMaterials([]); }
-    } catch { setProjectMaterials([]); }
+          setEditingMaterials(true); // New import - show in edit mode
+        } else { setProjectMaterials([]); setEditingMaterials(true); }
+      } else { setProjectMaterials([]); setEditingMaterials(true); }
+    } catch { setProjectMaterials([]); setEditingMaterials(true); }
     setProjectMaterialsLoaded(true);
   };
 
@@ -731,6 +734,27 @@ export default function ProjectDetail() {
       setProjAddingBrandFor(null);
       toast.success(`Brand "${res.data.name}" added`);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleLoadPackageMaterials = async (pkgId) => {
+    setSelectedMatPackage(pkgId);
+    if (!pkgId || pkgId === '__none__') return;
+    try {
+      const pkgRes = await axios.get(`${API}/packages`);
+      const pkg = (pkgRes.data || []).find(p => p.package_id === pkgId);
+      if (pkg?.material_items?.length > 0) {
+        const items = pkg.material_items.map(m => ({ name: m.name, brand: m.brand || '' }));
+        setProjectMaterials(items);
+        items.forEach(m => { if (m.name) fetchProjBrands(m.name); });
+        setEditingMaterials(true);
+      }
+    } catch { toast.error('Failed to load package materials'); }
+  };
+
+  const handleSaveMaterials = async () => {
+    await saveProjectMaterials(projectMaterials);
+    setEditingMaterials(false);
+    toast.success('Materials saved');
   };
 
   const addProjectMaterial = () => {
@@ -3644,27 +3668,64 @@ export default function ProjectDetail() {
 
                   {/* MATERIALS SUB-TAB */}
                   <TabsContent value="materials" className="mt-4">
-                    {/* === Materials List (Editable) === */}
+                    {/* === Materials List === */}
                     <div className="border rounded-lg p-4 mb-4" data-testid="pkg-materials-section">
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                         <h4 className="text-sm font-bold flex items-center gap-2">
                           <Package className="h-4 w-4 text-amber-600" />
                           Materials List
-                          {project?.package_id && allPackages.length > 0 && <Badge variant="outline" className="text-[10px]">{allPackages.find(p => p.package_id === project.package_id)?.name || ''}</Badge>}
                         </h4>
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={addProjectMaterial} data-testid="add-project-material">
-                            <Plus className="h-3 w-3 mr-1" />Add Material
-                          </Button>
-                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => { saveProjectMaterials(projectMaterials); toast.success('Materials saved'); }} data-testid="save-project-materials">
-                            <Save className="h-3 w-3 mr-1" />Save
-                          </Button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {/* Package Dropdown */}
+                          <Select value={selectedMatPackage || '__none__'} onValueChange={v => handleLoadPackageMaterials(v === '__none__' ? '' : v)}>
+                            <SelectTrigger className="h-8 w-44 text-xs" data-testid="mat-package-select"><SelectValue placeholder="Select Package" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">-- Select Package --</SelectItem>
+                              {allPackages.map(pkg => <SelectItem key={pkg.package_id} value={pkg.package_id}>{pkg.name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          {!editingMaterials ? (
+                            <Button size="sm" variant="outline" onClick={() => { setEditingMaterials(true); if (projMaterialNames.length === 0) axios.get(`${API}/material-names`).then(r => setProjMaterialNames(r.data || [])).catch(() => {}); }} data-testid="edit-materials-btn">
+                              <Edit className="h-3 w-3 mr-1" />Edit
+                            </Button>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" onClick={addProjectMaterial} data-testid="add-project-material">
+                                <Plus className="h-3 w-3 mr-1" />Add
+                              </Button>
+                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={handleSaveMaterials} data-testid="save-project-materials">
+                                <Save className="h-3 w-3 mr-1" />Save
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                       {!projectMaterialsLoaded ? (
                         <p className="text-sm text-gray-400 text-center py-4">Loading...</p>
                       ) : projectMaterials.length === 0 ? (
-                        <p className="text-sm text-gray-400 text-center py-4">No materials. Click "Add Material" to start.</p>
+                        <p className="text-sm text-gray-400 text-center py-4">No materials. Select a package or click "Edit" then "Add" to start.</p>
+                      ) : !editingMaterials ? (
+                        /* ---- READ-ONLY VIEW ---- */
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm" data-testid="materials-readonly-table">
+                            <thead className="bg-gray-50 border-y">
+                              <tr>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-10">#</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {projectMaterials.map((m, idx) => (
+                                <tr key={idx} className="hover:bg-gray-50" data-testid={`proj-mat-view-${idx}`}>
+                                  <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
+                                  <td className="px-3 py-2.5 font-medium">{m.name || '-'}</td>
+                                  <td className="px-3 py-2.5">{m.brand ? <Badge variant="outline" className="text-xs">{m.brand}</Badge> : <span className="text-gray-400">-</span>}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       ) : (
                           <div className="space-y-3 mt-2">
                             {projectMaterials.map((m, idx) => (
