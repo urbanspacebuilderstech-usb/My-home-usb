@@ -1520,6 +1520,12 @@ export default function ProjectDetail() {
                   <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap text-xs sm:text-sm">
                     {project.project_code && <span className="text-indigo-600 font-semibold" data-testid="project-code">{project.project_code}</span>}
                     <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
+                    {['sales', 'pre_sales', 'cre', 'super_admin'].includes(user?.role) && project.client_phone && (
+                      <span className="text-gray-600" data-testid="project-client-phone"><strong>Phone:</strong> {project.client_phone}</span>
+                    )}
+                    {['sales', 'pre_sales', 'cre', 'super_admin'].includes(user?.role) && project.client_email && (
+                      <span className="text-gray-600 hidden sm:inline" data-testid="project-client-email"><strong>Email:</strong> {project.client_email}</span>
+                    )}
                     <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location || '-'}</span>
                     {project.package_id && (
                       <span className="text-gray-600"><strong>Package:</strong> {allPackages.find(p => p.package_id === project.package_id)?.name || project.package_id}</span>

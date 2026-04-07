@@ -1000,6 +1000,11 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
+    # Hide client contact info for roles other than sales, pre_sales, cre, super_admin
+    if user.role not in [UserRole.SALES, UserRole.PRE_SALES, UserRole.CRE, UserRole.SUPER_ADMIN]:
+        project.pop("client_phone", None)
+        project.pop("client_email", None)
+    
     # Get scope items
     scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     for item in scope_items:
