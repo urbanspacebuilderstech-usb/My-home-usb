@@ -98,6 +98,18 @@ export default function PlanningBoard() {
   const [templateForm, setTemplateForm] = useState({ name: '', sqft: '', scope_items: [] });
   const [templateSearch, setTemplateSearch] = useState('');
 
+  // Packages
+  const [packages, setPackages] = useState([]);
+  const [packageDialog, setPackageDialog] = useState(false);
+  const [editingPackage, setEditingPackage] = useState(null);
+  const [packageForm, setPackageForm] = useState({ name: '', description: '', base_rate_per_sqft: '', scope_items: [], material_items: [] });
+  const [packageSearch, setPackageSearch] = useState('');
+  const [materialNames, setMaterialNames] = useState([]);
+  const [brandsByMaterial, setBrandsByMaterial] = useState({});
+  const [newMaterialName, setNewMaterialName] = useState('');
+  const [newBrandName, setNewBrandName] = useState('');
+  const [addingMaterialFor, setAddingMaterialFor] = useState(null); // index
+  const [addingBrandFor, setAddingBrandFor] = useState(null); // index
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { fetchSubTabProjects('new', projectDateFilter); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -144,6 +156,7 @@ export default function PlanningBoard() {
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
     if (tab === 'payment_schedule') fetchMonthlySchedule();
     if (tab === 're_templates') fetchTemplates();
+    if (tab === 'packages') fetchPackages();
     if (tab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter);
   };
 
@@ -384,6 +397,147 @@ export default function PlanningBoard() {
 
   const filteredTemplates = reTemplates.filter(t => !templateSearch || t.name.toLowerCase().includes(templateSearch.toLowerCase()));
 
+  // === PACKAGES HANDLERS ===
+  const fetchPackages = async () => {
+    try {
+      const res = await axios.get(`${API}/packages`);
+      setPackages(res.data || []);
+    } catch { toast.error('Failed to load packages'); }
+  };
+
+  const fetchMaterialNames = async () => {
+    try {
+      const res = await axios.get(`${API}/material-names`);
+      setMaterialNames(res.data || []);
+    } catch { setMaterialNames([]); }
+  };
+
+  const fetchBrandsForMaterial = async (materialName) => {
+    if (!materialName) return;
+    try {
+      const res = await axios.get(`${API}/brands?category=${encodeURIComponent(materialName)}`);
+      setBrandsByMaterial(prev => ({ ...prev, [materialName]: res.data || [] }));
+    } catch { /* ignore */ }
+  };
+
+  const openPackageDialog = (pkg = null) => {
+    setEditingPackage(pkg);
+    setPackageForm(pkg ? {
+      name: pkg.name || '',
+      description: pkg.description || '',
+      base_rate_per_sqft: pkg.base_rate_per_sqft || '',
+      scope_items: (pkg.scope_items || []).map(i => ({ name: i.name || '', unit: i.unit || 'nos', unit_rate: i.unit_rate || 0 })),
+      material_items: (pkg.material_items || []).map(i => ({ name: i.name || '', brand: i.brand || '' }))
+    } : { name: '', description: '', base_rate_per_sqft: '', scope_items: [], material_items: [] });
+    fetchMaterialNames();
+    // Prefetch brands for existing material items
+    if (pkg?.material_items) {
+      pkg.material_items.forEach(i => { if (i.name) fetchBrandsForMaterial(i.name); });
+    }
+    setAddingMaterialFor(null);
+    setAddingBrandFor(null);
+    setNewMaterialName('');
+    setNewBrandName('');
+    setPackageDialog(true);
+  };
+
+  const addPackageScopeItem = () => {
+    setPackageForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', unit_rate: 0 }] }));
+  };
+
+  const updatePackageScopeItem = (idx, field, val) => {
+    setPackageForm(f => {
+      const items = [...f.scope_items];
+      items[idx] = { ...items[idx], [field]: val };
+      return { ...f, scope_items: items };
+    });
+  };
+
+  const removePackageScopeItem = (idx) => {
+    setPackageForm(f => ({ ...f, scope_items: f.scope_items.filter((_, i) => i !== idx) }));
+  };
+
+  const addPackageMaterialItem = () => {
+    setPackageForm(f => ({ ...f, material_items: [...f.material_items, { name: '', brand: '' }] }));
+  };
+
+  const updatePackageMaterialItem = (idx, field, val) => {
+    setPackageForm(f => {
+      const items = [...f.material_items];
+      items[idx] = { ...items[idx], [field]: val };
+      if (field === 'name') { items[idx].brand = ''; fetchBrandsForMaterial(val); }
+      return { ...f, material_items: items };
+    });
+  };
+
+  const removePackageMaterialItem = (idx) => {
+    setPackageForm(f => ({ ...f, material_items: f.material_items.filter((_, i) => i !== idx) }));
+  };
+
+  const handleCreateMaterialName = async (idx) => {
+    const name = newMaterialName.trim();
+    if (!name) return;
+    try {
+      const res = await axios.post(`${API}/material-names`, { name });
+      if (!res.data.exists) setMaterialNames(prev => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name)));
+      updatePackageMaterialItem(idx, 'name', res.data.name);
+      setNewMaterialName('');
+      setAddingMaterialFor(null);
+      toast.success(`Material "${res.data.name}" added`);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create material'); }
+  };
+
+  const handleCreateBrand = async (idx) => {
+    const name = newBrandName.trim();
+    const materialName = packageForm.material_items[idx]?.name;
+    if (!name || !materialName) return;
+    try {
+      const res = await axios.post(`${API}/brands`, { name, category: materialName });
+      setBrandsByMaterial(prev => ({ ...prev, [materialName]: [...(prev[materialName] || []), res.data].sort((a, b) => a.name.localeCompare(b.name)) }));
+      updatePackageMaterialItem(idx, 'brand', res.data.name);
+      setNewBrandName('');
+      setAddingBrandFor(null);
+      toast.success(`Brand "${res.data.name}" added`);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to create brand'); }
+  };
+
+  const handleSavePackage = async () => {
+    if (!packageForm.name.trim()) { toast.error('Package name is required'); return; }
+    const payload = {
+      name: packageForm.name,
+      description: packageForm.description || '',
+      base_rate_per_sqft: parseFloat(packageForm.base_rate_per_sqft) || 0,
+      scope_items: packageForm.scope_items.filter(i => i.name.trim()).map(i => ({
+        name: i.name, unit: i.unit || 'nos', unit_rate: parseFloat(i.unit_rate) || 0, quantity: 1
+      })),
+      material_items: packageForm.material_items.filter(i => i.name.trim()).map(i => ({
+        name: i.name, brand: i.brand || ''
+      }))
+    };
+    try {
+      if (editingPackage) {
+        await axios.patch(`${API}/packages/${editingPackage.package_id}`, payload);
+        toast.success('Package updated');
+      } else {
+        await axios.post(`${API}/packages`, payload);
+        toast.success('Package created');
+      }
+      setPackageDialog(false);
+      fetchPackages();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save package'); }
+  };
+
+  const handleDeletePackage = async (pkg) => {
+    if (!window.confirm(`Delete package "${pkg.name}"?`)) return;
+    try {
+      await axios.delete(`${API}/packages/${pkg.package_id}`);
+      toast.success('Package deleted');
+      fetchPackages();
+    } catch { toast.error('Failed to delete'); }
+  };
+
+  const filteredPackages = packages.filter(p => !packageSearch || p.name?.toLowerCase().includes(packageSearch.toLowerCase()));
+
   // === HELPERS ===
   const formatCurrency = (a) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(a || 0);
 
@@ -479,7 +633,7 @@ export default function PlanningBoard() {
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">
               All Projects<CountBadge count={newProjectCount} />
             </TabsTrigger>
-            <TabsTrigger value="packages_link" className="text-xs sm:text-sm bg-amber-50 text-amber-700 hover:bg-amber-100" data-testid="tab-packages" onClick={(e) => { e.preventDefault(); navigate('/packages'); }}>
+            <TabsTrigger value="packages" className="text-xs sm:text-sm" data-testid="tab-packages">
               <Package className="h-3 w-3 mr-1" />Packages
             </TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">
@@ -673,6 +827,174 @@ export default function PlanningBoard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+
+          {/* ==================== PACKAGES ==================== */}
+          <TabsContent value="packages">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Package className="h-4 w-4 text-amber-600" />Packages ({filteredPackages.length})
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative"><Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-gray-400" /><Input placeholder="Search packages..." value={packageSearch} onChange={e => setPackageSearch(e.target.value)} className="pl-8 h-9 w-48 text-sm" data-testid="package-search" /></div>
+                    <Button size="sm" onClick={() => openPackageDialog()} className="bg-amber-600 hover:bg-amber-700" data-testid="add-package-btn"><Plus className="h-3.5 w-3.5 mr-1" />Add Package</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {filteredPackages.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8 text-sm">No packages yet. Click "Add Package" to create one.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredPackages.map(pkg => (
+                      <div key={pkg.package_id} className="border rounded-lg p-4 hover:border-amber-300 transition" data-testid={`package-card-${pkg.package_id}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-sm">{pkg.name}</h4>
+                              <Badge variant="outline" className="text-[10px]">{formatCurrency(pkg.base_rate_per_sqft)}/sqft</Badge>
+                            </div>
+                            {pkg.description && <p className="text-xs text-gray-500 mb-2">{pkg.description}</p>}
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              <span>{pkg.scope_items?.length || 0} scope items</span>
+                              <span>{pkg.material_items?.length || 0} materials</span>
+                            </div>
+                            {pkg.material_items?.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {pkg.material_items.slice(0, 6).map((m, i) => (
+                                  <Badge key={i} variant="secondary" className="text-[10px]">{m.name}{m.brand ? ` - ${m.brand}` : ''}</Badge>
+                                ))}
+                                {pkg.material_items.length > 6 && <Badge variant="secondary" className="text-[10px]">+{pkg.material_items.length - 6} more</Badge>}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openPackageDialog(pkg)} data-testid={`edit-pkg-${pkg.package_id}`}><Edit className="h-3.5 w-3.5" /></Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeletePackage(pkg)} data-testid={`delete-pkg-${pkg.package_id}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Package Create/Edit Dialog */}
+            <Dialog open={packageDialog} onOpenChange={setPackageDialog}>
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{editingPackage ? 'Edit Package' : 'Add New Package'}</DialogTitle>
+                  <DialogDescription>Fill in the package details, scope items, and materials</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  {/* Basic Fields */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <Label className="text-xs">Package Name *</Label>
+                      <Input data-testid="pkg-name" value={packageForm.name} onChange={e => setPackageForm(f => ({ ...f, name: e.target.value }))} placeholder="Package Name" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Per Sq.ft Rate</Label>
+                      <Input data-testid="pkg-rate" type="number" value={packageForm.base_rate_per_sqft} onChange={e => setPackageForm(f => ({ ...f, base_rate_per_sqft: e.target.value }))} placeholder="0" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <Textarea data-testid="pkg-desc" value={packageForm.description} onChange={e => setPackageForm(f => ({ ...f, description: e.target.value }))} placeholder="Package description..." rows={2} />
+                  </div>
+
+                  {/* Scope Items */}
+                  <div className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-semibold">Scope Items</Label>
+                      <Button size="sm" variant="outline" onClick={addPackageScopeItem} data-testid="add-scope-item"><Plus className="h-3 w-3 mr-1" />Add Item</Button>
+                    </div>
+                    {packageForm.scope_items.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-3">No scope items. Click "Add Item" to start.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {packageForm.scope_items.map((item, idx) => (
+                          <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                            <div className="col-span-5"><Input placeholder="Item Name" value={item.name} onChange={e => updatePackageScopeItem(idx, 'name', e.target.value)} className="h-8 text-xs" data-testid={`scope-name-${idx}`} /></div>
+                            <div className="col-span-3"><Input placeholder="Unit" value={item.unit} onChange={e => updatePackageScopeItem(idx, 'unit', e.target.value)} className="h-8 text-xs" data-testid={`scope-unit-${idx}`} /></div>
+                            <div className="col-span-3"><Input type="number" placeholder="Rate" value={item.unit_rate} onChange={e => updatePackageScopeItem(idx, 'unit_rate', e.target.value)} className="h-8 text-xs" data-testid={`scope-rate-${idx}`} /></div>
+                            <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => removePackageScopeItem(idx)}><X className="h-3 w-3" /></Button></div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Materials List */}
+                  <div className="border rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-semibold">Materials</Label>
+                      <Button size="sm" variant="outline" onClick={addPackageMaterialItem} data-testid="add-material-item"><Plus className="h-3 w-3 mr-1" />Add Material</Button>
+                    </div>
+                    {packageForm.material_items.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-3">No materials. Click "Add Material" to start.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {packageForm.material_items.map((item, idx) => (
+                          <div key={idx} className="border border-dashed rounded p-2 space-y-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-gray-400 w-5 shrink-0">#{idx + 1}</span>
+                              {/* Material Name */}
+                              <div className="flex-1">
+                                {addingMaterialFor === idx ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input placeholder="New material name..." value={newMaterialName} onChange={e => setNewMaterialName(e.target.value)} className="h-8 text-xs flex-1" data-testid={`new-mat-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleCreateMaterialName(idx); }} />
+                                    <Button size="sm" className="h-8 px-2 bg-green-600 hover:bg-green-700" onClick={() => handleCreateMaterialName(idx)}><Check className="h-3 w-3" /></Button>
+                                    <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setAddingMaterialFor(null)}><X className="h-3 w-3" /></Button>
+                                  </div>
+                                ) : (
+                                  <Select value={item.name || '__pick__'} onValueChange={v => { if (v === '__create__') { setAddingMaterialFor(idx); setNewMaterialName(''); } else if (v !== '__pick__') { updatePackageMaterialItem(idx, 'name', v); } }}>
+                                    <SelectTrigger className="h-8 text-xs" data-testid={`mat-name-${idx}`}><SelectValue placeholder="Select Material" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__pick__" disabled>Select Material</SelectItem>
+                                      {materialNames.map(m => <SelectItem key={m.material_name_id} value={m.name}>{m.name}</SelectItem>)}
+                                      <SelectItem value="__create__" className="text-blue-600 font-medium">+ Create New Material</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
+                              {/* Brand */}
+                              <div className="flex-1">
+                                {addingBrandFor === idx ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input placeholder="New brand name..." value={newBrandName} onChange={e => setNewBrandName(e.target.value)} className="h-8 text-xs flex-1" data-testid={`new-brand-input-${idx}`} onKeyDown={e => { if (e.key === 'Enter') handleCreateBrand(idx); }} />
+                                    <Button size="sm" className="h-8 px-2 bg-green-600 hover:bg-green-700" onClick={() => handleCreateBrand(idx)}><Check className="h-3 w-3" /></Button>
+                                    <Button size="sm" variant="ghost" className="h-8 px-2" onClick={() => setAddingBrandFor(null)}><X className="h-3 w-3" /></Button>
+                                  </div>
+                                ) : (
+                                  <Select value={item.brand || '__pick__'} onValueChange={v => { if (v === '__create__') { setAddingBrandFor(idx); setNewBrandName(''); } else if (v !== '__pick__') { updatePackageMaterialItem(idx, 'brand', v); } }} disabled={!item.name}>
+                                    <SelectTrigger className="h-8 text-xs" data-testid={`mat-brand-${idx}`}><SelectValue placeholder={item.name ? 'Select Brand' : 'Pick material first'} /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__pick__" disabled>Select Brand</SelectItem>
+                                      {(brandsByMaterial[item.name] || []).map(b => <SelectItem key={b.brand_id} value={b.name}>{b.name}</SelectItem>)}
+                                      <SelectItem value="__create__" className="text-blue-600 font-medium">+ Create New Brand</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              </div>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 shrink-0" onClick={() => removePackageMaterialItem(idx)}><X className="h-3.5 w-3.5" /></Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setPackageDialog(false)}>Cancel</Button>
+                  <Button onClick={handleSavePackage} className="bg-amber-600 hover:bg-amber-700" data-testid="save-package-btn">{editingPackage ? 'Update Package' : 'Create Package'}</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* ==================== REQUESTS ==================== */}

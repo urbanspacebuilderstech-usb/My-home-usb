@@ -1750,7 +1750,7 @@ class PackageLabourItemInput(BaseModel):
 
 class PackageCreateInput(BaseModel):
     name: str
-    code: str
+    code: Optional[str] = None
     description: Optional[str] = None
     building_types: List[str] = []
     base_rate_per_sqft: float = 0
@@ -1777,14 +1777,17 @@ async def get_package(package_id: str, user: User = Depends(get_current_user)):
 
 @router.post("/packages")
 async def create_package(package_input: PackageCreateInput, user: User = Depends(get_current_user)):
-    """Create a new package (Super Admin and GM only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
-        raise HTTPException(status_code=403, detail="Only Super Admin and GM can create packages")
+    """Create a new package"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Auto-generate code if not provided
+    pkg_code = package_input.code or f"PKG-{uuid.uuid4().hex[:6].upper()}"
     
     # Check for duplicate code
-    existing = await db.packages.find_one({"code": package_input.code, "is_active": True})
+    existing = await db.packages.find_one({"code": pkg_code, "is_active": True})
     if existing:
-        raise HTTPException(status_code=400, detail=f"Package with code '{package_input.code}' already exists")
+        raise HTTPException(status_code=400, detail=f"Package with code '{pkg_code}' already exists")
     
     # Process scope items with calculated totals
     scope_items = []
@@ -1830,7 +1833,7 @@ async def create_package(package_input: PackageCreateInput, user: User = Depends
     
     package = Package(
         name=package_input.name,
-        code=package_input.code,
+        code=pkg_code,
         description=package_input.description,
         building_types=package_input.building_types,
         base_rate_per_sqft=package_input.base_rate_per_sqft,
@@ -1851,9 +1854,9 @@ async def create_package(package_input: PackageCreateInput, user: User = Depends
 
 @router.patch("/packages/{package_id}")
 async def update_package(package_id: str, package_input: PackageCreateInput, user: User = Depends(get_current_user)):
-    """Update a package (Super Admin and GM only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
-        raise HTTPException(status_code=403, detail="Only Super Admin and GM can update packages")
+    """Update a package"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
     
     existing = await db.packages.find_one({"package_id": package_id})
     if not existing:
@@ -1917,9 +1920,9 @@ async def update_package(package_id: str, package_input: PackageCreateInput, use
 
 @router.delete("/packages/{package_id}")
 async def delete_package(package_id: str, user: User = Depends(get_current_user)):
-    """Soft delete a package (Super Admin and GM only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
-        raise HTTPException(status_code=403, detail="Only Super Admin and GM can delete packages")
+    """Soft delete a package"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
     
     result = await db.packages.update_one(
         {"package_id": package_id},

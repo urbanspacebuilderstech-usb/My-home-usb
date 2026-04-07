@@ -53,10 +53,10 @@ class ReorderRequest(BaseModel):
 
 @router.get("/brands")
 async def get_brands(category: Optional[str] = None, user: User = Depends(get_current_user)):
-    """Get all brands, optionally filtered by category"""
+    """Get all brands, optionally filtered by category (material name)"""
     query = {}
     if category:
-        query["category"] = category
+        query["category"] = {"$regex": f"^{category}$", "$options": "i"}
     brands = await db.brands.find(query, {"_id": 0}).sort("name", 1).to_list(500)
     return brands
 
@@ -64,9 +64,9 @@ async def get_brands(category: Optional[str] = None, user: User = Depends(get_cu
 @router.post("/brands")
 async def create_brand(data: BrandCreate, user: User = Depends(get_current_user)):
     """Create a new brand (no special permission needed)"""
-    existing = await db.brands.find_one({"name": {"$regex": f"^{data.name}$", "$options": "i"}})
+    existing = await db.brands.find_one({"name": {"$regex": f"^{data.name}$", "$options": "i"}, "category": {"$regex": f"^{data.category}$", "$options": "i"} if data.category else None})
     if existing:
-        return {"brand_id": existing.get("brand_id"), "name": existing.get("name"), "exists": True}
+        return {"brand_id": existing.get("brand_id"), "name": existing.get("name"), "category": existing.get("category"), "exists": True}
 
     brand = {
         "brand_id": f"brand_{uuid.uuid4().hex[:8]}",
@@ -78,6 +78,36 @@ async def create_brand(data: BrandCreate, user: User = Depends(get_current_user)
     await db.brands.insert_one(brand)
     brand.pop("_id", None)
     return brand
+
+
+# ==================== MATERIAL NAMES (simple master list) ====================
+
+@router.get("/material-names")
+async def get_material_names(user: User = Depends(get_current_user)):
+    """Get all material names for dropdown"""
+    names = await db.material_names.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return names
+
+
+@router.post("/material-names")
+async def create_material_name(data: dict, user: User = Depends(get_current_user)):
+    """Create a new material name (no approval needed)"""
+    name = data.get("name", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    existing = await db.material_names.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+    if existing:
+        existing.pop("_id", None)
+        return {**existing, "exists": True}
+    entry = {
+        "material_name_id": f"mn_{uuid.uuid4().hex[:8]}",
+        "name": name,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.material_names.insert_one(entry)
+    entry.pop("_id", None)
+    return entry
 
 
 # ==================== PACKAGE ENHANCEMENTS ====================
