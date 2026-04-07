@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="16" time="56.579" timestamp="2026-04-07T04:15:53.134989+00:00" hostname="agent-env-3424cef2-2abd-46d6-a745-55245ed282e4"><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_unauthenticated_patch_returns_401" time="0.229" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_planning_can_get_project_full_details" time="3.876" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_planning_can_patch_project_name" time="8.901" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_planning_can_patch_client_name" time="6.925" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_planning_can_patch_location" time="6.874" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_planning_can_patch_package_id" time="7.159" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_cre_can_get_project_full_details" time="2.962" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_cre_can_patch_project_name" time="6.606" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_cre_can_patch_client_name" time="6.675" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_get_packages_returns_list" time="1.759" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_project_code_usb_h_format" time="2.760" /><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_multiple_projects_have_usb_h_format" time="0.341"><failure message="AssertionError: Planning login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_project_header_edit.py:250: in test_multiple_projects_have_usb_h_format
+    self.login_as_planning()
+backend/tests/test_project_header_edit.py:29: in login_as_planning
+    assert response.status_code == 200, f"Planning login failed: {response.text}"
+E   AssertionError: Planning login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_super_admin_can_patch_project" time="0.336"><failure message="AssertionError: Super admin login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_project_header_edit.py:272: in test_super_admin_can_patch_project
+    self.login_as_super_admin()
+backend/tests/test_project_header_edit.py:41: in login_as_super_admin
+    assert response.status_code == 200, f"Super admin login failed: {response.text}"
+E   AssertionError: Super admin login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_patch_with_empty_payload_returns_400" time="0.351"><failure message="AssertionError: Planning login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_project_header_edit.py:290: in test_patch_with_empty_payload_returns_400
+    self.login_as_planning()
+backend/tests/test_project_header_edit.py:29: in login_as_planning
+    assert response.status_code == 200, f"Planning login failed: {response.text}"
+E   AssertionError: Planning login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_patch_nonexistent_project_returns_error" time="0.356"><failure message="AssertionError: Planning login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_project_header_edit.py:297: in test_patch_nonexistent_project_returns_error
+    self.login_as_planning()
+backend/tests/test_project_header_edit.py:29: in login_as_planning
+    assert response.status_code == 200, f"Planning login failed: {response.text}"
+E   AssertionError: Planning login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_project_header_edit.TestProjectHeaderEdit" name="test_clear_package_id" time="0.344"><failure message="AssertionError: Planning login failed: {&quot;detail&quot;:&quot;Too many login attempts. Please wait a minute.&quot;}&#10;assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_project_header_edit.py:305: in test_clear_package_id
+    self.login_as_planning()
+backend/tests/test_project_header_edit.py:29: in login_as_planning
+    assert response.status_code == 200, f"Planning login failed: {response.text}"
+E   AssertionError: Planning login failed: {"detail":"Too many login attempts. Please wait a minute."}
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase></testsuite></testsuites>

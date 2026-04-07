@@ -422,6 +422,11 @@ export default function ProjectDetail() {
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
+  // Inline edit for project header
+  const [headerEditing, setHeaderEditing] = useState(false);
+  const [headerForm, setHeaderForm] = useState({ name: '', client_name: '', location: '', package_id: '' });
+  const [headerSaving, setHeaderSaving] = useState(false);
+  const [allPackages, setAllPackages] = useState([]);
   // Payment Schedule Edit Dialog states
   const [editPaymentDialog, setEditPaymentDialog] = useState(false);
   const [editPaymentStage, setEditPaymentStage] = useState(null);
@@ -484,7 +489,7 @@ export default function ProjectDetail() {
       }
       
       // Run ALL data fetches in parallel
-      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes] = await Promise.all([
+      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/full-details`),
         axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
@@ -498,6 +503,7 @@ export default function ProjectDetail() {
         axios.get(`${API}/vendor-master`).catch(() => null),
         axios.get(`${API}/vendor-categories`).catch(() => null),
         axios.get(`${API}/purchase-orders?project_id=${projectId}`).catch(() => null),
+        axios.get(`${API}/packages`).catch(() => null),
       ]);
       
       setProjectData(projectRes.data);
@@ -513,6 +519,7 @@ export default function ProjectDetail() {
       if (vendorsRes) setAllVendors(vendorsRes.data || []);
       if (vendorCatsRes) setVendorCategories(vendorCatsRes.data || []);
       if (poRes) setPurchaseOrders(poRes.data || []);
+      if (pkgRes) setAllPackages(pkgRes.data || []);
 
       // Load work orders, contractors, attendance, inventory
       try {
@@ -617,6 +624,41 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update team'); }
     setTeamSaving(false);
   };
+
+  const fetchPackages = async () => {
+    try {
+      const res = await axios.get(`${API}/packages`);
+      setAllPackages(res.data || []);
+    } catch { setAllPackages([]); }
+  };
+
+  const startHeaderEdit = () => {
+    if (!projectData?.project) return;
+    const p = projectData.project;
+    setHeaderForm({ name: p.name || '', client_name: p.client_name || '', location: p.location || '', package_id: p.package_id || '' });
+    fetchPackages();
+    setHeaderEditing(true);
+  };
+
+  const saveHeaderEdit = async () => {
+    setHeaderSaving(true);
+    try {
+      const payload = {};
+      const p = projectData.project;
+      if (headerForm.name !== (p.name || '')) payload.name = headerForm.name;
+      if (headerForm.client_name !== (p.client_name || '')) payload.client_name = headerForm.client_name;
+      if (headerForm.location !== (p.location || '')) payload.location = headerForm.location;
+      if (headerForm.package_id !== (p.package_id || '')) payload.package_id = headerForm.package_id || '';
+      if (Object.keys(payload).length === 0) { setHeaderEditing(false); setHeaderSaving(false); return; }
+      await axios.patch(`${API}/projects/${projectId}`, payload);
+      // Optimistic update
+      setProjectData(prev => ({ ...prev, project: { ...prev.project, ...payload, package_id: headerForm.package_id || null } }));
+      toast.success('Project details updated');
+      setHeaderEditing(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
+    setHeaderSaving(false);
+  };
+
 
   const fetchMaterialsData = async () => {
     try {
@@ -1426,16 +1468,69 @@ export default function ProjectDetail() {
               <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
             <div className="flex-1 min-w-0">
-              <h2 data-testid="project-detail-title" className="text-xl sm:text-3xl font-bold text-gray-900 truncate">
-                {project.name}
-              </h2>
-              <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap text-xs sm:text-sm">
-                <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
-                <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location}</span>
-                <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>{project.status}</Badge>
-              </div>
+              {headerEditing ? (
+                <div className="space-y-3" data-testid="header-edit-form">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-500">Project Name</Label>
+                      <Input data-testid="header-edit-name" value={headerForm.name} onChange={e => setHeaderForm(f => ({ ...f, name: e.target.value }))} placeholder="Project Name" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Client Name</Label>
+                      <Input data-testid="header-edit-client" value={headerForm.client_name} onChange={e => setHeaderForm(f => ({ ...f, client_name: e.target.value }))} placeholder="Client Name" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Location</Label>
+                      <Input data-testid="header-edit-location" value={headerForm.location} onChange={e => setHeaderForm(f => ({ ...f, location: e.target.value }))} placeholder="Location" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Package</Label>
+                      <Select value={headerForm.package_id || '__none__'} onValueChange={v => setHeaderForm(f => ({ ...f, package_id: v === '__none__' ? '' : v }))}>
+                        <SelectTrigger data-testid="header-edit-package"><SelectValue placeholder="Select Package" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">-- No Package --</SelectItem>
+                          {allPackages.map(pkg => (
+                            <SelectItem key={pkg.package_id} value={pkg.package_id}>{pkg.name}{pkg.tag ? ` (${pkg.tag})` : ''}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={saveHeaderEdit} disabled={headerSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="header-edit-save">
+                      <Save className="h-3.5 w-3.5 mr-1" />{headerSaving ? 'Saving...' : 'Save'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setHeaderEditing(false)} data-testid="header-edit-cancel">
+                      <X className="h-3.5 w-3.5 mr-1" />Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <h2 data-testid="project-detail-title" className="text-xl sm:text-3xl font-bold text-gray-900 truncate">
+                      {project.name}
+                    </h2>
+                    {(user?.role === 'super_admin' || user?.role === 'cre' || user?.role === 'planning') && (
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-indigo-600 shrink-0" onClick={startHeaderEdit} data-testid="header-edit-btn">
+                        <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 sm:gap-4 mt-1 flex-wrap text-xs sm:text-sm">
+                    {project.project_code && <span className="text-indigo-600 font-semibold" data-testid="project-code">{project.project_code}</span>}
+                    <span className="text-gray-600"><strong>Client:</strong> {project.client_name}</span>
+                    <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location || '-'}</span>
+                    {project.package_id && (
+                      <span className="text-gray-600"><strong>Package:</strong> {allPackages.find(p => p.package_id === project.package_id)?.name || project.package_id}</span>
+                    )}
+                    <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>{project.status}</Badge>
+                  </div>
+                </>
+              )}
             </div>
             {/* Delete Project Button - visible for super_admin or planning (for draft/in_planning projects) */}
+            {!headerEditing && (
             <div className="flex items-center gap-2 flex-shrink-0">
               {/* Share as PDF Button */}
               <Button 
@@ -1505,6 +1600,7 @@ export default function ProjectDetail() {
               </Dialog>
               )}
             </div>
+            )}
           </div>
         </div>
 

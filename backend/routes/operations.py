@@ -61,19 +61,23 @@ PROJECT_STAGES = [
 
 
 async def generate_project_code():
-    """Generate project code in format USB010226 (USB + serial + month + year)"""
-    now = datetime.now(timezone.utc)
-    month = now.strftime("%m")
-    year = now.strftime("%y")
+    """Generate project code in format USB-H0001 (USB-H + sequential 4-digit number)"""
+    # Find the highest existing sequence number
+    latest = await db.projects.find(
+        {"project_code": {"$regex": r"^USB-H\d+$"}},
+        {"_id": 0, "project_code": 1}
+    ).sort("project_code", -1).limit(1).to_list(1)
     
-    # Count projects this month to generate serial
-    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    count = await db.projects.count_documents({
-        "created_at": {"$gte": start_of_month.isoformat()}
-    })
-    serial = str(count + 1).zfill(2)
+    if latest:
+        try:
+            last_num = int(latest[0]["project_code"].replace("USB-H", ""))
+        except (ValueError, KeyError):
+            last_num = 0
+    else:
+        # Count all projects to set starting point
+        last_num = await db.projects.count_documents({})
     
-    return f"USB{serial}{month}{year}"
+    return f"USB-H{str(last_num + 1).zfill(4)}"
 
 
 @router.get("/cre/dashboard")
@@ -279,6 +283,7 @@ async def convert_deal_to_project(
     # Generate project ID
     project_count = await db.projects.count_documents({})
     project_id = f"proj_{secrets.token_hex(6)}"
+    project_code = await generate_project_code()
     
     # Create the main project with CRE-edited details
     project_name = data.project_name or (re_project.get("project_name") if re_project else None) or lead.get("name", "New Project")
@@ -292,6 +297,7 @@ async def convert_deal_to_project(
     
     main_project = {
         "project_id": project_id,
+        "project_code": project_code,
         "name": project_name,
         # Client details (editable by CRE)
         "client_name": client_name,
@@ -503,6 +509,7 @@ async def convert_re_project_to_project(
     
     # Generate project ID
     project_id = f"proj_{secrets.token_hex(6)}"
+    project_code = await generate_project_code()
     
     # Create the main project with CRE-edited details
     project_name = data.project_name or re_project.get("project_name") or f"RE - {re_project.get('client_name', 'Project')}"
@@ -516,6 +523,7 @@ async def convert_re_project_to_project(
     
     main_project = {
         "project_id": project_id,
+        "project_code": project_code,
         "name": project_name,
         # Client details (editable by CRE)
         "client_name": client_name,

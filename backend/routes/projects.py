@@ -1221,14 +1221,19 @@ class ProjectUpdate(BaseModel):
     income_additional: Optional[float] = None
     total_expense: Optional[float] = None
     status: Optional[str] = None
+    package_id: Optional[str] = None
 
 
 @router.patch("/projects/{project_id}")
 async def update_project(project_id: str, update_data: ProjectUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
+    # Allow explicitly clearing package_id
+    raw = update_data.model_dump()
+    if "package_id" in raw and raw["package_id"] == "":
+        update_dict["package_id"] = None
     if not update_dict:
         raise HTTPException(status_code=400, detail="No fields to update")
     
