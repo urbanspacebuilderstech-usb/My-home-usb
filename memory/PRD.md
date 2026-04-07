@@ -1,54 +1,73 @@
-# My Home USB - Product Requirements Document
+# Construction CRM - Product Requirements Document
 
 ## Original Problem Statement
-Construction CRM application with automated sales pipeline, project onboarding, HR management, and package-based estimation.
+Automate the "Project Onboarding" workflow for a construction CRM application. The project has expanded to include a full Sales pipeline, Pre-Sales board, Planning board with RE Templates, and comprehensive project management features.
 
-## Core Modules
+## Core Architecture
+- **Frontend**: React + Shadcn/UI + Tailwind CSS
+- **Backend**: FastAPI + MongoDB Atlas
+- **Auth**: Cookie-based session auth with demo-login
+- **Key Libraries**: @dnd-kit (drag-and-drop), jsPDF, Leaflet, Resend, Google Sheets API
 
-### 1. CRM & Sales Pipeline (16 Stages)
-1. New Appointment → 2. Follow-up (date+reason, ascending) → 3. Discussion (remarks popup) → 4. Site Visit → 5. Site Visit (Client Land) (Sr. Engineer popup) → 6. Site Visit (Our Projects) (project popup) → 7. Site Visit Done → 8. Rough Estimate Requested → 9. RE - From Planning (auto on GM approval) → 10. RE - To Client (remarks) → 11. Negotiation → 12. Deal Closed (remarks) → 13. Payment Collect (advance popup) → 14. Accountant Approval (locked) → 15. Project Onboarded (auto-move only) → 16. Lost (reason required)
+## What's Been Implemented
 
-- **Phone Masking**: Sales/Pre-Sales/CRE see full numbers; other roles see masked
-- **RE Revision Flow**: Duplicate-based (RE0→RE1→RE2), GM lock, revision request
-- **Auto-blocks**: Project Onboarded & RE-From Planning cannot be moved manually
-- Date filter (from-to range) with ascending sort across ALL stages
+### Sales Pipeline (CRMSales.jsx)
+- 16-stage automated Kanban board
+- Follow-up system with auto-move and date filters
+- Site Visit management (Client Land / Our Projects)
+- CRE-style Convert to Project popup
+- Payment Collect → Accountant Approval → Project Onboarded flow
 
-### 2. Pre-Sales Board (7 Stages)
-- New Lead → Contacted → RNR → **New RNR Leads** (auto 14-day redistribution) → Portfolio sent → Follow-up → Appointment Booked
-- **RNR Auto-Redistribution**: Round-robin among all pre-sales team
-- Date filter for ALL stages, Appointment Booked card
+### Pre-Sales Board (CRMPreSales.jsx)
+- Full lead management with custom fields in Edit Lead dialog
 
-### 3. HR Admin Module (7 Tabs)
-- Dashboard, Employees, Roles, Attendance, Leave, Payroll, Settings
+### Planning Board (PlanningBoard.jsx)
+- RE Templates CRUD
+- Sub-tabs: New Projects, Current (Active), Delivered
+- Date filtering per sub-tab
 
-### 4. Package Management
-- Packages, Materials, Brands, Rough Estimates, Drag-and-Drop
+### Project Detail (ProjectDetail.jsx)
+- Drag-and-Drop reordering for scope items, stages, estimates
+- "Final Estimate" tab (renamed from "Scope")
+- **Team Assignment**: 7 role-based dropdowns (Architect, PM, Sr. SE, SE, CRE, QC, Procurement)
+- Materials, Labour, Vendor, Payment Schedule, Files, Design tabs
 
-## Completed Features
-- [x] Complete 16-stage Sales pipeline with intercepts
-- [x] Phone number masking for non-sales roles
-- [x] Stage remarks (Discussion, Deal Closed, RE-To Client)
-- [x] Lost stage with required reason
-- [x] Auto-blocks (Project Onboarded, RE-From Planning)
-- [x] RE revision duplication, GM lock, auto-notifications
-- [x] Pre-Sales RNR auto-redistribution (14-day, round-robin)
-- [x] Date filter (range) + ascending sort for all stages
-- [x] HR Admin, Package Management, Site Visit workflow
-- [x] Bug fix: Remarks dialog opens on top of Lead Detail (race condition fix) - 2026-03-28
-- [x] Accessibility: Added DialogDescription to Lead Detail dialog - 2026-03-28
-- [x] Edit Lead dialog now shows ALL fields (Source, Pincode, Custom Fields) matching Add New Lead - both Pre-Sales & Sales - 2026-04-06
-- [x] RE Templates CRUD in Planning Board (Create, Edit, Delete, List with scope items) - 2026-04-06
-- [x] All Projects 3 sub-tabs: New Projects, Current Projects, Delivered Projects with status transitions and date filters - 2026-04-06
-- [x] Drag-and-drop reordering across all lists: Stage Management, RE Templates, RE Projects, Package Management estimates - 2026-04-06
-- [x] Drag-and-drop added to Project Detail: Scope items, Additional Costs, Deductions, Bulk entry forms with backend auto-save - 2026-04-06
-- [x] Drag-and-drop added to Project Detail: Construction Stages with backend auto-save. Fixed optimistic update to prevent 'Failed to load project data' error - 2026-04-06
+### Global Features
+- Drag-and-Drop reordering via @dnd-kit across all list UIs
+- Stage Management with DnD
+- RE Template management with DnD
 
-## Upcoming Tasks (P1)
-- CRE Board: New projects on onboard → move to Planning
-- Project page: Select package → populate materials
-- Refactor CRMSales.jsx & ProjectDetail.jsx
+## Key API Endpoints
+- `GET /api/users/by-role/{role}` - Fetch users by role for team assignment
+- `PATCH /api/projects/{project_id}/team` - Save 7 team role assignments
+- `GET /api/projects/{project_id}/team` - Get current team assignments
+- `POST /api/crm/re-templates` / `GET /api/crm/re-templates` - RE Template CRUD
+- `POST /api/projects/{project_id}/scope-items/reorder` - DnD reorder
+- `POST /api/projects/{project_id}/stages/reorder` - DnD reorder
 
-## Backlog (P2)
-- 2FA (Google Auth) at deployment
-- Aadhar Document Upload
-- Disable demo-login, MongoDB rate limiting
+## DB Schema Additions
+- `projects.team`: `{ architect: user_id, project_manager: user_id, sr_site_engineer: user_id, site_engineer: user_id, cre: user_id, qc: user_id, procurement: user_id }`
+- `projects.planning_status`: 'new' | 'active' | 'delivered'
+- `re_templates` collection: `{ template_id, name, sqft, scope_items: [] }`
+
+## Prioritized Backlog
+
+### P1 (Next Up)
+- Refactor CRMSales.jsx (2300+ lines) and ProjectDetail.jsx (4400+ lines)
+- Geo-fencing & Location Tracking (Phase 1)
+- Pre-Deployment Security Checklist (rate limiting in Mongo, 2FA, disable demo-login)
+
+### P2
+- Project Page Package Integration
+- Sr. Engineer → Jr. Engineer Assignment
+- Aadhar Document Upload (encrypted storage)
+
+### P3 (Deferred)
+- Cash Denomination feature (paused)
+- UI/UX comprehensive review
+- SaaS conversion (paused)
+
+## Credentials
+- Demo Access buttons on login page (Sales, Pre-Sales, Planning, Accountant, Super Admin)
+- Planning: planning@constructionos.com
+- Accountant: accountant@constructionos.com / USB@123.26
