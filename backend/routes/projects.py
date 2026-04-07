@@ -3195,6 +3195,11 @@ class WorkOrderAdditionalItem(BaseModel):
     quantity: float = 1
     unit_rate: float = 0
 
+class LabourRates(BaseModel):
+    skilled: float = 0
+    semi_skilled: float = 0
+    unskilled: float = 0
+
 class WorkOrderCreate(BaseModel):
     contractor_id: str
     contractor_name: Optional[str] = None
@@ -3202,6 +3207,7 @@ class WorkOrderCreate(BaseModel):
     scope_items: List[WorkOrderScopeItem] = []
     stages: List[WorkOrderStage] = []
     additional_work: List[WorkOrderAdditionalItem] = []
+    labour_rates: Optional[LabourRates] = None
     notes: Optional[str] = ""
 
 @router.get("/projects/{project_id}/work-orders")
@@ -3278,6 +3284,7 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
         "total_value": round(scope_total + additional_total, 2),
         "paid_amount": 0,
         "notes": data.notes or "",
+        "labour_rates": data.labour_rates.model_dump() if data.labour_rates else {"skilled": 0, "semi_skilled": 0, "unskilled": 0},
         "status": "active",
         "is_active": True,
         "created_by": user.user_id,
@@ -3333,6 +3340,7 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
         "additional_work": additional, "additional_total": round(additional_total, 2),
         "total_value": round(scope_total + additional_total, 2),
         "notes": data.notes or "",
+        "labour_rates": data.labour_rates.model_dump() if data.labour_rates else {"skilled": 0, "semi_skilled": 0, "unskilled": 0},
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     result = await db.project_work_orders.update_one({"work_order_id": work_order_id, "project_id": project_id}, {"$set": update})

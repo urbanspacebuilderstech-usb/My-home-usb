@@ -1087,6 +1087,7 @@ export default function SiteEngineerProject() {
                             <DLRPanel
                               projectId={projectId}
                               workOrderId={wo.work_order_id}
+                              labourRates={wo.labour_rates}
                               canRecord={true}
                             />
                           </div>

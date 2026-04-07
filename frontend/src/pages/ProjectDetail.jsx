@@ -811,10 +811,11 @@ export default function ProjectDetail() {
         scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
         stages: (wo.stages || []).map(s => ({ name: s.name, type: s.type, value: s.value })),
         additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        labour_rates: wo.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
       });
     } else {
       setWoSelectedType('');
-      setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [] });
+      setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
     }
     setWoSubTab('scope');
     setWoDialog(true);
@@ -4465,6 +4466,7 @@ export default function ProjectDetail() {
                               <DLRPanel
                                 projectId={projectId}
                                 workOrderId={wo.work_order_id}
+                                labourRates={wo.labour_rates}
                                 canRecord={['site_engineer', 'sr_site_engineer', 'super_admin'].includes(user?.role)}
                               />
                             </TabsContent>
@@ -4547,6 +4549,25 @@ export default function ProjectDetail() {
                       </div>
                     </div>
                     <div><Label className="text-xs">Notes</Label><Textarea value={woForm.notes} onChange={e => setWoForm(f => ({ ...f, notes: e.target.value }))} placeholder="Work order notes..." rows={2} data-testid="wo-notes" /></div>
+
+                    {/* Labour Rates */}
+                    <div className="border rounded-lg p-3 bg-teal-50/30">
+                      <Label className="text-xs font-semibold text-teal-700 mb-2 block">Labour Day Rates (INR) - Used for DLR</Label>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <Label className="text-[11px] text-gray-500">Skilled</Label>
+                          <Input type="number" min="0" placeholder="e.g. 800" value={woForm.labour_rates?.skilled || ''} onChange={e => setWoForm(f => ({ ...f, labour_rates: { ...f.labour_rates, skilled: Number(e.target.value) || 0 } }))} className="h-8 text-xs mt-0.5" data-testid="wo-rate-skilled" />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-gray-500">Semi-Skilled</Label>
+                          <Input type="number" min="0" placeholder="e.g. 600" value={woForm.labour_rates?.semi_skilled || ''} onChange={e => setWoForm(f => ({ ...f, labour_rates: { ...f.labour_rates, semi_skilled: Number(e.target.value) || 0 } }))} className="h-8 text-xs mt-0.5" data-testid="wo-rate-semi-skilled" />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-gray-500">Unskilled</Label>
+                          <Input type="number" min="0" placeholder="e.g. 400" value={woForm.labour_rates?.unskilled || ''} onChange={e => setWoForm(f => ({ ...f, labour_rates: { ...f.labour_rates, unskilled: Number(e.target.value) || 0 } }))} className="h-8 text-xs mt-0.5" data-testid="wo-rate-unskilled" />
+                        </div>
+                      </div>
+                    </div>
 
                     {/* Sub-tabs: Scope / Stages / Additional */}
                     <Tabs value={woSubTab} onValueChange={setWoSubTab}>
