@@ -1595,7 +1595,7 @@ export default function ProjectDetail() {
                   Estimate
                 </TabsTrigger>
                 <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
-                  Scope
+                  Final Estimate
                 </TabsTrigger>
                 <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
                   Stages
@@ -1834,7 +1834,7 @@ export default function ProjectDetail() {
             <TabsContent value="scope" className="p-3 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
-                  <h3 className="text-base sm:text-lg font-bold">Project Scope</h3>
+                  <h3 className="text-base sm:text-lg font-bold">Final Estimate</h3>
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
