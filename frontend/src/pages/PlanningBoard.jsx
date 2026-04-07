@@ -65,6 +65,7 @@ export default function PlanningBoard() {
   const [materialDialog, setMaterialDialog] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState(null);
   const [materialForm, setMaterialForm] = useState({ name: '', category: 'cement', unit: 'bag', description: '', hsn_code: '' });
+  const [materialPackageFilter, setMaterialPackageFilter] = useState('all');
 
   // Labours
   const [contractors, setContractors] = useState([]);
@@ -152,6 +153,7 @@ export default function PlanningBoard() {
   const handleTabChange = (tab) => {
     setActiveTab(tab);
     if (tab === 'materials' && materials.length === 0) fetchMaterials();
+    if (tab === 'materials' && packages.length === 0) fetchPackages();
     if (tab === 'labours' && contractors.length === 0) fetchContractors();
     if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
     if (tab === 'payment_schedule') fetchMonthlySchedule();
@@ -426,7 +428,7 @@ export default function PlanningBoard() {
       name: pkg.name || '',
       description: pkg.description || '',
       base_rate_per_sqft: pkg.base_rate_per_sqft || '',
-      scope_items: (pkg.scope_items || []).map(i => ({ name: i.name || '', unit: i.unit || 'nos', unit_rate: i.unit_rate || 0 })),
+      scope_items: (pkg.scope_items || []).map(i => ({ name: i.name || '', unit: i.unit || 'nos', quantity: i.quantity || 1, unit_rate: i.unit_rate || 0 })),
       material_items: (pkg.material_items || []).map(i => ({ name: i.name || '', brand: i.brand || '' }))
     } : { name: '', description: '', base_rate_per_sqft: '', scope_items: [], material_items: [] });
     fetchMaterialNames();
@@ -442,7 +444,7 @@ export default function PlanningBoard() {
   };
 
   const addPackageScopeItem = () => {
-    setPackageForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', unit_rate: 0 }] }));
+    setPackageForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }));
   };
 
   const updatePackageScopeItem = (idx, field, val) => {
@@ -508,7 +510,7 @@ export default function PlanningBoard() {
       description: packageForm.description || '',
       base_rate_per_sqft: parseFloat(packageForm.base_rate_per_sqft) || 0,
       scope_items: packageForm.scope_items.filter(i => i.name.trim()).map(i => ({
-        name: i.name, unit: i.unit || 'nos', unit_rate: parseFloat(i.unit_rate) || 0, quantity: 1
+        name: i.name, unit: i.unit || 'nos', quantity: parseFloat(i.quantity) || 1, unit_rate: parseFloat(i.unit_rate) || 0
       })),
       material_items: packageForm.material_items.filter(i => i.name.trim()).map(i => ({
         name: i.name, brand: i.brand || ''
@@ -917,14 +919,22 @@ export default function PlanningBoard() {
                       <p className="text-xs text-gray-400 text-center py-3">No scope items. Click "Add Item" to start.</p>
                     ) : (
                       <div className="space-y-2">
-                        {packageForm.scope_items.map((item, idx) => (
+                        <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-gray-400 uppercase px-1">
+                          <div className="col-span-3">Name</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div>
+                        </div>
+                        {packageForm.scope_items.map((item, idx) => {
+                          const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                          return (
                           <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                            <div className="col-span-5"><Input placeholder="Item Name" value={item.name} onChange={e => updatePackageScopeItem(idx, 'name', e.target.value)} className="h-8 text-xs" data-testid={`scope-name-${idx}`} /></div>
-                            <div className="col-span-3"><Input placeholder="Unit" value={item.unit} onChange={e => updatePackageScopeItem(idx, 'unit', e.target.value)} className="h-8 text-xs" data-testid={`scope-unit-${idx}`} /></div>
-                            <div className="col-span-3"><Input type="number" placeholder="Rate" value={item.unit_rate} onChange={e => updatePackageScopeItem(idx, 'unit_rate', e.target.value)} className="h-8 text-xs" data-testid={`scope-rate-${idx}`} /></div>
+                            <div className="col-span-3"><Input placeholder="Item Name" value={item.name} onChange={e => updatePackageScopeItem(idx, 'name', e.target.value)} className="h-8 text-xs" data-testid={`scope-name-${idx}`} /></div>
+                            <div className="col-span-2"><Input placeholder="Unit" value={item.unit} onChange={e => updatePackageScopeItem(idx, 'unit', e.target.value)} className="h-8 text-xs" data-testid={`scope-unit-${idx}`} /></div>
+                            <div className="col-span-2"><Input type="number" placeholder="Qty" value={item.quantity} onChange={e => updatePackageScopeItem(idx, 'quantity', e.target.value)} className="h-8 text-xs" data-testid={`scope-qty-${idx}`} /></div>
+                            <div className="col-span-2"><Input type="number" placeholder="Rate" value={item.unit_rate} onChange={e => updatePackageScopeItem(idx, 'unit_rate', e.target.value)} className="h-8 text-xs" data-testid={`scope-rate-${idx}`} /></div>
+                            <div className="col-span-2"><span className="text-xs font-medium text-gray-600 pl-1">{formatCurrency(total)}</span></div>
                             <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => removePackageScopeItem(idx)}><X className="h-3 w-3" /></Button></div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1068,19 +1078,70 @@ export default function PlanningBoard() {
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Materials ({filteredMaterials.length})</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
-                      {['active', 'inactive', 'all'].map(f => (
-                        <button key={f} className={`px-2 py-1 text-xs rounded-md ${materialFilter === f ? 'bg-white shadow font-medium' : 'text-gray-500'}`} onClick={() => setMaterialFilter(f)} data-testid={`filter-${f}`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
-                      ))}
-                    </div>
-                    <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                    <Button size="sm" onClick={() => openMaterialDialog()} className="bg-blue-600 hover:bg-blue-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add</Button>
+                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Materials</CardTitle>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Package Filter */}
+                    <Select value={materialPackageFilter} onValueChange={v => setMaterialPackageFilter(v)}>
+                      <SelectTrigger className="h-8 w-44 text-xs" data-testid="material-package-filter"><SelectValue placeholder="Filter by Package" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Materials</SelectItem>
+                        {packages.map(p => <SelectItem key={p.package_id} value={p.package_id}>{p.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {materialPackageFilter === 'all' && (
+                      <>
+                        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
+                          {['active', 'inactive', 'all'].map(f => (
+                            <button key={f} className={`px-2 py-1 text-xs rounded-md ${materialFilter === f ? 'bg-white shadow font-medium' : 'text-gray-500'}`} onClick={() => setMaterialFilter(f)} data-testid={`filter-${f}`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+                          ))}
+                        </div>
+                        <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
+                        <Button size="sm" onClick={() => openMaterialDialog()} className="bg-blue-600 hover:bg-blue-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add</Button>
+                      </>
+                    )}
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
+                {materialPackageFilter !== 'all' ? (
+                  /* Package Materials View */
+                  (() => {
+                    const pkg = packages.find(p => p.package_id === materialPackageFilter);
+                    const pkgMats = pkg?.material_items || [];
+                    return (
+                      <div className="p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm font-medium text-gray-700">{pkg?.name} — {pkgMats.length} material(s)</p>
+                          <Button size="sm" variant="outline" onClick={() => openPackageDialog(pkg)} data-testid="edit-pkg-materials"><Edit className="h-3 w-3 mr-1" />Edit Package Materials</Button>
+                        </div>
+                        {pkgMats.length === 0 ? (
+                          <p className="text-gray-400 text-center py-8 text-sm">No materials in this package.</p>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm" data-testid="pkg-materials-table">
+                              <thead className="bg-gray-50 border-y">
+                                <tr>
+                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {pkgMats.map((m, i) => (
+                                  <tr key={m.item_id || i} className="hover:bg-gray-50" data-testid={`pkg-mat-row-${i}`}>
+                                    <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                                    <td className="px-4 py-2.5 font-medium">{m.name}</td>
+                                    <td className="px-4 py-2.5">{m.brand ? <Badge variant="outline" className="text-xs">{m.brand}</Badge> : <span className="text-gray-400">-</span>}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm" data-testid="materials-table">
                     <thead className="bg-gray-50 border-y">
@@ -1114,6 +1175,7 @@ export default function PlanningBoard() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
