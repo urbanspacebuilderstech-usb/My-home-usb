@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight
 } from 'lucide-react';
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
@@ -33,7 +33,9 @@ export default function PlanningBoard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('all_projects');
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [dashSubTab, setDashSubTab] = useState('all_projects');
+  const [requestSubTab, setRequestSubTab] = useState('site_eng_req');
 
   // Projects
   const [projects, setProjects] = useState([]);
@@ -152,14 +154,23 @@ export default function PlanningBoard() {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === 'materials' && materials.length === 0) fetchMaterials();
-    if (tab === 'materials' && packages.length === 0) fetchPackages();
-    if (tab === 'labours' && contractors.length === 0) fetchContractors();
-    if (tab === 'suppliers' && vendors.length === 0) fetchVendors();
-    if (tab === 'payment_schedule') fetchMonthlySchedule();
+    if (tab === 'dashboard') {
+      handleDashSubTabChange(dashSubTab);
+    }
+    if (tab === 'material_vendors' && vendors.length === 0) fetchVendors();
+    if (tab === 'labour_contractors' && contractors.length === 0) fetchContractors();
     if (tab === 're_templates') fetchTemplates();
     if (tab === 'packages') fetchPackages();
-    if (tab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter);
+  };
+
+  const handleDashSubTabChange = (sub) => {
+    setDashSubTab(sub);
+    if (sub === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter);
+    if (sub === 'requests') {
+      if (materials.length === 0) fetchMaterials();
+      if (packages.length === 0) fetchPackages();
+    }
+    if (sub === 'payment_schedule') fetchMonthlySchedule();
   };
 
   // Fetch projects by planning lifecycle sub-tab with date filters
@@ -623,6 +634,15 @@ export default function PlanningBoard() {
 
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
 
+  // Stage counts for Dashboard summary
+  const allProjectsList = projects || [];
+  const stageCountMap = {
+    pre_construction: allProjectsList.filter(p => ['yet_to_start', 'new', 'planning', 'in_planning'].includes((p.current_stage || '').toLowerCase()) || !p.current_stage || p.status === 'draft').length,
+    under_construction: allProjectsList.filter(p => !['yet_to_start', 'new', 'planning', 'in_planning', 'completed', 'delivered', 'handover'].includes((p.current_stage || '').toLowerCase()) && p.current_stage && p.status !== 'draft' && !['completed', 'delivered'].includes(p.status)).length,
+    completed: allProjectsList.filter(p => ['completed', 'delivered', 'handover'].includes((p.current_stage || '').toLowerCase()) || ['completed', 'delivered'].includes(p.status)).length,
+  };
+  stageCountMap.other = Math.max(0, allProjectsList.length - stageCountMap.pre_construction - stageCountMap.under_construction - stageCountMap.completed);
+
   if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
 
   return (
@@ -632,31 +652,68 @@ export default function PlanningBoard() {
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
           <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
-            <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">
-              All Projects<CountBadge count={newProjectCount} />
+            <TabsTrigger value="dashboard" className="text-xs sm:text-sm" data-testid="tab-dashboard">
+              <Building2 className="h-3 w-3 mr-1" />Dashboard
             </TabsTrigger>
             <TabsTrigger value="packages" className="text-xs sm:text-sm" data-testid="tab-packages">
               <Package className="h-3 w-3 mr-1" />Packages
             </TabsTrigger>
-            <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">
-              Requests<CountBadge count={requestCount} />
+            <TabsTrigger value="material_vendors" className="text-xs sm:text-sm" data-testid="tab-material-vendors">
+              <Truck className="h-3 w-3 mr-1" />Material Vendors
             </TabsTrigger>
-            <TabsTrigger value="materials" className="text-xs sm:text-sm" data-testid="tab-materials">Materials</TabsTrigger>
-            <TabsTrigger value="labours" className="text-xs sm:text-sm" data-testid="tab-labours">Labours</TabsTrigger>
-            <TabsTrigger value="suppliers" className="text-xs sm:text-sm" data-testid="tab-suppliers">Suppliers</TabsTrigger>
-            <TabsTrigger value="rough_estimates" className="text-xs sm:text-sm" data-testid="tab-rough-estimates">
-              Rough Estimates<CountBadge count={reNewCount} />
+            <TabsTrigger value="labour_contractors" className="text-xs sm:text-sm" data-testid="tab-labour-contractors">
+              <Users className="h-3 w-3 mr-1" />Labour Contractors
             </TabsTrigger>
             <TabsTrigger value="re_templates" className="text-xs sm:text-sm" data-testid="tab-re-templates">
               <FileText className="h-3 w-3 mr-1" />RE Templates
             </TabsTrigger>
-            <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm" data-testid="tab-payment-schedule">
-              <Calendar className="h-3 w-3 mr-1" />Payment Schedule
-            </TabsTrigger>
           </TabsList>
 
-          {/* ==================== ALL PROJECTS ==================== */}
-          <TabsContent value="all_projects">
+          {/* ==================== DASHBOARD ==================== */}
+          <TabsContent value="dashboard">
+            {/* Stage summary cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" data-testid="stage-summary">
+              {[
+                { label: 'Pre-Construction', count: stageCountMap.pre_construction, color: 'bg-blue-50 border-blue-200 text-blue-800', icon: '🏗️' },
+                { label: 'Under Construction', count: stageCountMap.under_construction, color: 'bg-amber-50 border-amber-200 text-amber-800', icon: '⚙️' },
+                { label: 'Completed', count: stageCountMap.completed, color: 'bg-green-50 border-green-200 text-green-800', icon: '✅' },
+                { label: 'Other', count: stageCountMap.other, color: 'bg-gray-50 border-gray-200 text-gray-600', icon: '📋' },
+              ].map(s => (
+                <Card key={s.label} className={`border ${s.color}`}>
+                  <CardContent className="p-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-medium opacity-80">{s.label}</p>
+                      <p className="text-2xl font-bold">{s.count}</p>
+                    </div>
+                    <span className="text-2xl">{s.icon}</span>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Dashboard sub-tabs */}
+            <div className="flex gap-1 border-b mb-3 bg-white rounded-t-lg px-2 pt-1">
+              {[
+                { key: 'all_projects', label: 'All Projects', badge: newProjectCount },
+                { key: 'requests', label: 'Requests', badge: requestCount },
+                { key: 'rough_estimates', label: 'Rough Estimates', badge: reNewCount },
+                { key: 'payment_schedule', label: 'Payment Schedule' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => handleDashSubTabChange(tab.key)}
+                  className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    dashSubTab === tab.key ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                  data-testid={`dash-subtab-${tab.key}`}
+                >
+                  {tab.label}{tab.badge > 0 ? <CountBadge count={tab.badge} /> : null}
+                </button>
+              ))}
+            </div>
+
+            {/* ---- Dashboard > All Projects ---- */}
+            {dashSubTab === 'all_projects' && (
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -829,8 +886,241 @@ export default function PlanningBoard() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
+            )}
 
+            {/* ---- Dashboard > Requests ---- */}
+            {dashSubTab === 'requests' && (
+              <div className="space-y-4">
+                {/* Request sub-tabs */}
+                <div className="flex gap-1 bg-gray-50 rounded-lg p-1">
+                  {[
+                    { key: 'site_eng_req', label: 'Site Engineer Req' },
+                    { key: 'materials_req', label: 'Materials' },
+                    { key: 'labour_payment', label: 'Labour Payment' },
+                    { key: 'labour_stage', label: 'Labour Stage' },
+                    { key: 'open_req', label: 'Open Req' },
+                  ].map(t => (
+                    <button key={t.key} onClick={() => setRequestSubTab(t.key)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${requestSubTab === t.key ? 'bg-white shadow text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}
+                      data-testid={`req-subtab-${t.key}`}
+                    >{t.label}</button>
+                  ))}
+                </div>
+
+                {/* Site Engineer Requests */}
+                {requestSubTab === 'site_eng_req' && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-orange-600" />Site Engineer Requests ({pendingRequests.filter(r => r.type === 'material' || r.type === 'labour').length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {pendingRequests.length === 0 ? (
+                        <div className="p-6 text-center text-gray-400 text-sm">No pending site requests</div>
+                      ) : (
+                        <div className="divide-y">
+                          {pendingRequests.map((req) => (
+                            <div key={req.request_id || req.expense_id} className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => window.location.href = `/projects/${req.project_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{req.project_name || 'Unknown'}</p>
+                                <p className="text-xs text-gray-500">{req.type === 'material' ? `Material: ${req.material_name || req.items?.length + ' items'}` : `Labour: ${formatCurrency(req.amount || 0)}`}</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className={req.type === 'material' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}>{req.type}</Badge>
+                                <ChevronRight className="h-4 w-4 text-gray-400" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Materials Requests */}
+                {requestSubTab === 'materials_req' && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Material Requests ({pendingRequests.filter(r => r.type === 'material').length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {pendingRequests.filter(r => r.type === 'material').length === 0 ? (
+                        <div className="p-6 text-center text-gray-400 text-sm">No pending material requests</div>
+                      ) : (
+                        <div className="divide-y">
+                          {pendingRequests.filter(r => r.type === 'material').map(req => (
+                            <div key={req.request_id} className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => window.location.href = `/projects/${req.project_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{req.project_name || 'Unknown'}</p>
+                                <p className="text-xs text-gray-500">{req.material_name || `${req.items?.length || 0} items`} | Requested by: {req.requested_by_name || '-'}</p>
+                              </div>
+                              <Badge variant="outline" className="bg-blue-50 text-blue-700">Material</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Labour Payment Requests */}
+                {requestSubTab === 'labour_payment' && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2"><CreditCard className="h-4 w-4 text-green-600" />Labour Payment Requests ({paymentRequests.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {paymentRequests.length === 0 ? (
+                        <div className="p-6 text-center text-gray-400 text-sm">No pending payment requests</div>
+                      ) : (
+                        <div className="divide-y">
+                          {paymentRequests.map(req => (
+                            <div key={req.request_id || req.work_order_id} className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => window.location.href = `/projects/${req.project_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{req.project_name || req.contractor_name || 'Unknown'}</p>
+                                <p className="text-xs text-gray-500">Amount: {formatCurrency(req.amount || 0)}</p>
+                              </div>
+                              <Badge variant="outline" className="bg-green-50 text-green-700">Payment</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Labour Stage Requests */}
+                {requestSubTab === 'labour_stage' && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4 text-amber-600" />Labour Stage Requests ({pendingRequests.filter(r => r.type === 'labour').length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {pendingRequests.filter(r => r.type === 'labour').length === 0 ? (
+                        <div className="p-6 text-center text-gray-400 text-sm">No pending labour stage requests</div>
+                      ) : (
+                        <div className="divide-y">
+                          {pendingRequests.filter(r => r.type === 'labour').map(req => (
+                            <div key={req.expense_id} className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => window.location.href = `/projects/${req.project_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{req.project_name || 'Unknown'}</p>
+                                <p className="text-xs text-gray-500">{req.contractor_name || '-'} | {formatCurrency(req.amount || 0)}</p>
+                              </div>
+                              <Badge variant="outline" className="bg-amber-50 text-amber-700">Labour</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Open Requests */}
+                {requestSubTab === 'open_req' && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2"><AlertCircle className="h-4 w-4 text-red-600" />Open Requests ({pendingRequests.length + paymentRequests.length})</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      {(pendingRequests.length + paymentRequests.length) === 0 ? (
+                        <div className="p-6 text-center text-gray-400 text-sm">No open requests</div>
+                      ) : (
+                        <div className="divide-y">
+                          {[...pendingRequests, ...paymentRequests.map(r => ({...r, type: 'payment'}))].map((req, idx) => (
+                            <div key={req.request_id || req.expense_id || idx} className="p-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => window.location.href = `/projects/${req.project_id}`}>
+                              <div>
+                                <p className="font-medium text-sm">{req.project_name || req.contractor_name || 'Unknown'}</p>
+                                <p className="text-xs text-gray-500">{req.type} | {formatCurrency(req.amount || 0)}</p>
+                              </div>
+                              <Badge variant="outline" className={req.type === 'material' ? 'bg-blue-50 text-blue-700' : req.type === 'labour' ? 'bg-amber-50 text-amber-700' : 'bg-green-50 text-green-700'}>{req.type}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* ---- Dashboard > Rough Estimates ---- */}
+            {dashSubTab === 'rough_estimates' && (
+              <REProjectsPage embedded />
+            )}
+
+            {/* ---- Dashboard > Payment Schedule ---- */}
+            {dashSubTab === 'payment_schedule' && (
+              <div className="space-y-4">
+                {/* Month Navigation */}
+                <Card>
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month"><ArrowRight className="h-4 w-4 rotate-180" /></Button>
+                        <div className="text-center min-w-[140px]">
+                          <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
+                          <p className="text-xs text-gray-500">Payment Schedule</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month"><ArrowRight className="h-4 w-4" /></Button>
+                      </div>
+                      <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn"><Plus className="h-4 w-4 mr-1" />Add Stages</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Summary Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <Card className="border-l-4 border-l-indigo-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p><p className="text-lg font-bold text-indigo-700">{formatCurrency(monthlySchedule.summary?.total_planned)}</p><p className="text-[10px] text-gray-400">{monthlySchedule.summary?.total_entries || 0} stages</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-green-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-green-700">{formatCurrency(monthlySchedule.summary?.total_received)}</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-red-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p><p className="text-lg font-bold text-red-700">{formatCurrency(monthlySchedule.summary?.total_balance)}</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Pending</p><p className="text-lg font-bold text-amber-700">{monthlySchedule.summary?.pending_count || 0}</p></CardContent></Card>
+                  <Card className="border-l-4 border-l-blue-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p><p className="text-lg font-bold text-blue-700">{monthlySchedule.summary?.collected_count || 0}</p></CardContent></Card>
+                </div>
+
+                {/* Schedule Table */}
+                <Card>
+                  <CardContent className="p-0">
+                    {scheduleLoading ? (<div className="p-8 text-center text-gray-400">Loading...</div>) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm" data-testid="payment-schedule-table">
+                          <thead className="bg-gray-50 border-y">
+                            <tr>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                              <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
+                              <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                              <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                              <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {(monthlySchedule.entries || []).length === 0 ? (
+                              <tr><td colSpan="7" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
+                            ) : (monthlySchedule.entries || []).map((e) => {
+                              const balance = (e.amount || 0) - (e.amount_received || 0);
+                              const stageStatusConfig = { pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' }, partial: { label: 'Partially', cls: 'bg-amber-100 text-amber-700' }, paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' }, collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' } };
+                              const cfg = stageStatusConfig[e.status] || stageStatusConfig.pending;
+                              return (
+                                <tr key={e.entry_id} className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
+                                  <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
+                                  <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
+                                  <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
+                                  <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(e.amount_received || 0)}</td>
+                                  <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
+                                  <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge></td>
+                                  <td className="px-4 py-2.5 text-center"><Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button></td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
 
           {/* ==================== PACKAGES ==================== */}
           <TabsContent value="packages">
@@ -1007,188 +1297,60 @@ export default function PlanningBoard() {
             </Dialog>
           </TabsContent>
 
-          {/* ==================== REQUESTS ==================== */}
-          <TabsContent value="requests">
-            <div className="space-y-4">
-              {/* Site Requests */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2"><ClipboardList className="h-4 w-4 text-orange-600" />Site Requests ({pendingRequests.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {pendingRequests.length === 0 ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No pending site requests</div>
-                  ) : (
-                    <div className="divide-y">
-                      {pendingRequests.map((req) => (
-                        <div key={`${req.type}-${req.request_id || req.expense_id}`} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`request-${req.request_id || req.expense_id}`}>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <Badge variant={req.type === 'material' ? 'default' : 'secondary'} className="text-xs">{req.type}</Badge>
-                              <span className="font-medium text-sm">{req.material_name || req.labour_type}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">{req.type === 'material' ? `Qty: ${req.quantity} ${req.unit}` : `Workers: ${req.workers_count}, Days: ${req.days}`} | {req.project_name}</p>
-                            {req.assigned_vendor_name && (
-                              <p className="text-xs text-blue-600 font-medium mt-0.5">Vendor: {req.assigned_vendor_name} ({req.assigned_vendor_category})</p>
-                            )}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveRequest(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>
-                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleRejectRequest(req)}><X className="h-3 w-3 mr-1" />Reject</Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Payment Requests */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2"><DollarSign className="h-4 w-4 text-purple-600" />Payment Requests ({paymentRequests.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {paymentRequests.length === 0 ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No payment requests</div>
-                  ) : (
-                    <div className="divide-y">
-                      {paymentRequests.map((p) => (
-                        <div key={p.stage_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`payment-req-${p.stage_id}`}>
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{p.stage_name}</p>
-                            <p className="text-xs text-gray-500">{p.project_name} | By: {p.requested_by_name}</p>
-                            <p className="font-bold text-green-600 text-sm">{formatCurrency(p.amount)}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApprovePayment(p)}><Check className="h-3 w-3 mr-1" />Approve</Button>
-                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { setSelectedPayment(p); setRejectReason(''); setRejectDialog(true); }}><X className="h-3 w-3" /></Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* ==================== MATERIALS ==================== */}
-          <TabsContent value="materials">
+          {/* ==================== MATERIAL VENDORS ==================== */}
+          <TabsContent value="material_vendors">
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Materials</CardTitle>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Package Filter */}
-                    <Select value={materialPackageFilter} onValueChange={v => setMaterialPackageFilter(v)}>
-                      <SelectTrigger className="h-8 w-44 text-xs" data-testid="material-package-filter"><SelectValue placeholder="Filter by Package" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Materials</SelectItem>
-                        {packages.map(p => <SelectItem key={p.package_id} value={p.package_id}>{p.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    {materialPackageFilter === 'all' && (
-                      <>
-                        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
-                          {['active', 'inactive', 'all'].map(f => (
-                            <button key={f} className={`px-2 py-1 text-xs rounded-md ${materialFilter === f ? 'bg-white shadow font-medium' : 'text-gray-500'}`} onClick={() => setMaterialFilter(f)} data-testid={`filter-${f}`}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
-                          ))}
-                        </div>
-                        <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                        <Button size="sm" onClick={() => openMaterialDialog()} className="bg-blue-600 hover:bg-blue-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add</Button>
-                      </>
-                    )}
+                  <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4 text-teal-600" />Material Vendors ({filteredVendors.length})</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
+                    <Button size="sm" onClick={() => openVendorDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-vendor-btn"><Plus className="h-4 w-4 mr-1" />Add Vendor</Button>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {materialPackageFilter !== 'all' ? (
-                  /* Package Materials View */
-                  (() => {
-                    const pkg = packages.find(p => p.package_id === materialPackageFilter);
-                    const pkgMats = pkg?.material_items || [];
-                    return (
-                      <div className="p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-sm font-medium text-gray-700">{pkg?.name} — {pkgMats.length} material(s)</p>
-                          <Button size="sm" variant="outline" onClick={() => openPackageDialog(pkg)} data-testid="edit-pkg-materials"><Edit className="h-3 w-3 mr-1" />Edit Package Materials</Button>
-                        </div>
-                        {pkgMats.length === 0 ? (
-                          <p className="text-gray-400 text-center py-8 text-sm">No materials in this package.</p>
-                        ) : (
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm" data-testid="pkg-materials-table">
-                              <thead className="bg-gray-50 border-y">
-                                <tr>
-                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
-                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Material Name</th>
-                                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y">
-                                {pkgMats.map((m, i) => (
-                                  <tr key={m.item_id || i} className="hover:bg-gray-50" data-testid={`pkg-mat-row-${i}`}>
-                                    <td className="px-4 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-                                    <td className="px-4 py-2.5 font-medium">{m.name}</td>
-                                    <td className="px-4 py-2.5">{m.brand ? <Badge variant="outline" className="text-xs">{m.brand}</Badge> : <span className="text-gray-400">-</span>}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="materials-table">
+                  <table className="w-full text-sm" data-testid="vendors-table">
                     <thead className="bg-gray-50 border-y">
                       <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">HSN</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Contact</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">GST</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {filteredMaterials.length === 0 ? (
-                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No materials found</td></tr>
-                      ) : filteredMaterials.map((m) => (
-                        <tr key={m.material_id} className={`hover:bg-gray-50 ${!m.is_active ? 'opacity-50' : ''}`} data-testid={`material-row-${m.material_id}`}>
-                          <td className="px-4 py-2.5"><p className="font-medium">{m.name}</p>{m.description && <p className="text-xs text-gray-400">{m.description}</p>}</td>
-                          <td className="px-4 py-2.5"><Badge variant="outline" className="capitalize text-xs">{m.category?.replace(/_/g, ' ')}</Badge></td>
-                          <td className="px-4 py-2.5 text-gray-600">{m.unit}</td>
-                          <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">{m.hsn_code || '-'}</td>
-                          <td className="px-4 py-2.5 text-center">{m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
-                          <td className="px-4 py-2.5">
-                            <div className="flex justify-center gap-1">
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openMaterialDialog(m)}><Edit className="h-3 w-3" /></Button>
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleMaterial(m)}>{m.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}</Button>
-                            </div>
-                          </td>
+                      {filteredVendors.length === 0 ? (
+                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No vendors found</td></tr>
+                      ) : filteredVendors.map((v) => (
+                        <tr key={v.vendor_id} className={`hover:bg-gray-50 ${!v.is_active ? 'opacity-50' : ''}`} data-testid={`vendor-row-${v.vendor_id}`}>
+                          <td className="px-4 py-2.5"><p className="font-medium">{v.name}</p>{v.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{v.address}</p>}</td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell"><p className="text-xs">{v.contact_person || '-'}</p><p className="text-xs text-gray-400">{v.phone || '-'}</p></td>
+                          <td className="px-4 py-2.5"><div className="flex flex-wrap gap-1">{(v.materials_supplied||[]).slice(0,2).map(id => <Badge key={id} variant="outline" className="text-xs">{getMaterialName(id)}</Badge>)}{(v.materials_supplied||[]).length > 2 && <Badge variant="outline" className="text-xs">+{v.materials_supplied.length-2}</Badge>}</div></td>
+                          <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{v.gst_number || '-'}</td>
+                          <td className="px-4 py-2.5 text-center">{v.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
+                          <td className="px-4 py-2.5"><div className="flex justify-center gap-1"><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openVendorDialog(v)}><Edit className="h-3 w-3" /></Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleVendor(v)}>{v.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}</Button></div></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                )}
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* ==================== LABOURS ==================== */}
-          <TabsContent value="labours">
+          {/* ==================== LABOUR CONTRACTORS ==================== */}
+          <TabsContent value="labour_contractors">
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4 text-amber-600" />Labour Contractors ({filteredContractors.length})</CardTitle>
                   <div className="flex items-center gap-2">
                     <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={contractorSearch} onChange={(e) => setContractorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                    <Button size="sm" onClick={() => openContractorDialog()} className="bg-amber-600 hover:bg-amber-700" data-testid="add-contractor-btn"><Plus className="h-4 w-4 mr-1" />Add</Button>
+                    <Button size="sm" onClick={() => openContractorDialog()} className="bg-amber-600 hover:bg-amber-700" data-testid="add-contractor-btn"><Plus className="h-4 w-4 mr-1" />Add Contractor</Button>
                   </div>
                 </div>
               </CardHeader>
@@ -1221,56 +1383,6 @@ export default function PlanningBoard() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-
-          {/* ==================== SUPPLIERS ==================== */}
-          <TabsContent value="suppliers">
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <CardTitle className="text-base flex items-center gap-2"><Truck className="h-4 w-4 text-teal-600" />Suppliers ({filteredVendors.length})</CardTitle>
-                  <div className="flex items-center gap-2">
-                    <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={vendorSearch} onChange={(e) => setVendorSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
-                    <Button size="sm" onClick={() => openVendorDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-vendor-btn"><Plus className="h-4 w-4 mr-1" />Add</Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="vendors-table">
-                    <thead className="bg-gray-50 border-y">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Contact</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Materials</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">GST</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {filteredVendors.length === 0 ? (
-                        <tr><td colSpan="6" className="p-8 text-center text-gray-400">No suppliers found</td></tr>
-                      ) : filteredVendors.map((v) => (
-                        <tr key={v.vendor_id} className={`hover:bg-gray-50 ${!v.is_active ? 'opacity-50' : ''}`} data-testid={`vendor-row-${v.vendor_id}`}>
-                          <td className="px-4 py-2.5"><p className="font-medium">{v.name}</p>{v.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{v.address}</p>}</td>
-                          <td className="px-4 py-2.5 hidden sm:table-cell"><p className="text-xs">{v.contact_person || '-'}</p><p className="text-xs text-gray-400">{v.phone || '-'}</p></td>
-                          <td className="px-4 py-2.5"><div className="flex flex-wrap gap-1">{(v.materials_supplied||[]).slice(0,2).map(id => <Badge key={id} variant="outline" className="text-xs">{getMaterialName(id)}</Badge>)}{(v.materials_supplied||[]).length > 2 && <Badge variant="outline" className="text-xs">+{v.materials_supplied.length-2}</Badge>}</div></td>
-                          <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{v.gst_number || '-'}</td>
-                          <td className="px-4 py-2.5 text-center">{v.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
-                          <td className="px-4 py-2.5"><div className="flex justify-center gap-1"><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openVendorDialog(v)}><Edit className="h-3 w-3" /></Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleVendor(v)}>{v.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}</Button></div></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* ==================== ROUGH ESTIMATES ==================== */}
-          <TabsContent value="rough_estimates">
-            <REProjectsPage embedded />
           </TabsContent>
 
           {/* ==================== RE TEMPLATES ==================== */}
@@ -1356,166 +1468,6 @@ export default function PlanningBoard() {
             </Card>
           </TabsContent>
 
-          {/* ==================== PAYMENT SCHEDULE ==================== */}
-          <TabsContent value="payment_schedule">
-            {/* Month Navigation */}
-            <Card className="mb-4">
-              <CardContent className="p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(-1)} data-testid="schedule-prev-month">
-                      <ArrowRight className="h-4 w-4 rotate-180" />
-                    </Button>
-                    <div className="text-center min-w-[140px]">
-                      <p className="text-lg font-bold text-gray-900" data-testid="schedule-current-month">{MONTH_NAMES[scheduleMonth]} {scheduleYear}</p>
-                      <p className="text-xs text-gray-500">Payment Schedule</p>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => handleScheduleMonthChange(1)} data-testid="schedule-next-month">
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <Button onClick={openAddStagesDialog} className="bg-amber-600 hover:bg-amber-700" data-testid="add-stages-btn">
-                    <Plus className="h-4 w-4 mr-1" /> Add Stages
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-              <Card className="border-l-4 border-l-indigo-500">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p>
-                  <p className="text-lg font-bold text-indigo-700">{formatCurrency(monthlySchedule.summary?.total_planned)}</p>
-                  <p className="text-[10px] text-gray-400">{monthlySchedule.summary?.total_entries || 0} stages</p>
-                </CardContent>
-              </Card>
-              <Card className="border-l-4 border-l-green-500">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Collected</p>
-                  <p className="text-lg font-bold text-green-700">{formatCurrency(monthlySchedule.summary?.total_received)}</p>
-                  <p className="text-[10px] text-gray-400">{monthlySchedule.summary?.collected_count || 0} collected</p>
-                </CardContent>
-              </Card>
-              <Card className="border-l-4 border-l-amber-500">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p>
-                  <p className="text-lg font-bold text-amber-700">{formatCurrency(monthlySchedule.summary?.total_balance)}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-l-4 border-l-red-500">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Carry Over Due</p>
-                  <p className="text-lg font-bold text-red-700">{monthlySchedule.summary?.carryover_count || 0}</p>
-                  <p className="text-[10px] text-gray-400">from prev months</p>
-                </CardContent>
-              </Card>
-              <Card className="border-l-4 border-l-blue-500">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase font-medium">Requested</p>
-                  <p className="text-lg font-bold text-blue-700">{monthlySchedule.summary?.requested_count || 0}</p>
-                  <p className="text-[10px] text-gray-400">sent to CRE</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Schedule Table */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <IndianRupee className="h-4 w-4 text-green-600" />
-                  {MONTH_NAMES[scheduleMonth]} {scheduleYear} — Payment Entries ({(monthlySchedule.entries || []).length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {scheduleLoading ? (
-                  <div className="p-8 text-center text-gray-400">Loading...</div>
-                ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm" data-testid="payment-schedule-table">
-                    <thead className="bg-gray-50 border-y">
-                      <tr>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {(monthlySchedule.entries || []).length === 0 ? (
-                        <tr><td colSpan="7" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}. Click "Add Stages" to plan this month's collections.</td></tr>
-                      ) : (monthlySchedule.entries || []).map((e) => {
-                        const balance = (e.amount || 0) - (e.amount_received || 0);
-                        const stageStatusConfig = {
-                          pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' },
-                          partial: { label: 'Partially Collected', cls: 'bg-amber-100 text-amber-700' },
-                          paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                          collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' },
-                        };
-                        const wfConfig = {
-                          requested: { label: 'Req. Raised', cls: 'bg-blue-100 text-blue-700' },
-                          pending_collection: { label: 'Pending Collection', cls: 'bg-indigo-100 text-indigo-700' },
-                        };
-                        const sc = wfConfig[e.workflow_status] || stageStatusConfig[e.stage_status] || stageStatusConfig.pending;
-                        const canRequest = e.stage_status !== 'paid' && e.stage_status !== 'collected' && e.workflow_status !== 'requested' && e.workflow_status !== 'pending_collection';
-                        
-                        return (
-                          <tr key={e.entry_id} className="hover:bg-indigo-50/50 transition-colors" data-testid={`schedule-row-${e.entry_id}`}>
-                            <td className="px-4 py-2.5">
-                              <p className="font-medium text-indigo-700 cursor-pointer hover:underline" onClick={() => navigate(`/projects/${e.project_id}`)}>{e.project_name}</p>
-                              <p className="text-[10px] text-gray-400">{e.client_name}</p>
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <span className="font-medium">Stage {e.stage_label}</span>
-                              <p className="text-xs text-gray-500 max-w-[200px] truncate">{e.stage_name}</p>
-                              {e.is_carryover && (
-                                <Badge className="bg-red-50 text-red-700 border-red-200 text-[10px] mt-0.5">
-                                  Due from {MONTH_NAMES[e.carry_from_month]} {e.carry_from_year}
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
-                            <td className="px-4 py-2.5 text-right text-green-600 font-medium">{formatCurrency(e.amount_received)}</td>
-                            <td className="px-4 py-2.5 text-right text-red-600 font-medium">{formatCurrency(balance)}</td>
-                            <td className="px-4 py-2.5 text-center">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${sc.cls}`}>{sc.label}</span>
-                            </td>
-                            <td className="px-4 py-2.5 text-center">
-                              <div className="flex justify-center gap-1">
-                                {canRequest && (
-                                  <Button size="sm" variant="outline" className="h-7 text-xs text-blue-600 border-blue-200" onClick={() => handleRequestPayment(e.entry_id)} data-testid={`req-payment-${e.entry_id}`}>
-                                    <Send className="h-3 w-3 mr-1" />Req Payment
-                                  </Button>
-                                )}
-                                <Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}>
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    {(monthlySchedule.entries || []).length > 0 && (
-                      <tfoot className="bg-gray-50 border-t-2">
-                        <tr className="font-bold text-sm">
-                          <td colSpan="2" className="px-4 py-2.5 text-right text-gray-600">Total</td>
-                          <td className="px-4 py-2.5 text-right">{formatCurrency(monthlySchedule.summary?.total_planned)}</td>
-                          <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(monthlySchedule.summary?.total_received)}</td>
-                          <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(monthlySchedule.summary?.total_balance)}</td>
-                          <td colSpan="2"></td>
-                        </tr>
-                      </tfoot>
-                    )}
-                  </table>
-                </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
 
