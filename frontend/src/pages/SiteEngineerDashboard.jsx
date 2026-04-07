@@ -762,37 +762,37 @@ export default function SiteEngineerDashboard() {
 
         {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-7">
-            <TabsTrigger value="projects" className="gap-2">
-              <Building2 className="h-4 w-4" /> Projects
+          <TabsList className="flex w-full overflow-x-auto">
+            <TabsTrigger value="projects" className="gap-1.5 flex-shrink-0 text-xs px-3">
+              <Building2 className="h-3.5 w-3.5" /> Projects
             </TabsTrigger>
-            <TabsTrigger value="sitevisits" className="gap-2" data-testid="tab-site-visits">
-              <MapPin className="h-4 w-4" /> Site Visits
+            <TabsTrigger value="sitevisits" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-site-visits">
+              <MapPin className="h-3.5 w-3.5" /> Site Visits
             </TabsTrigger>
-            <TabsTrigger value="workorders" className="gap-2">
-              <ClipboardList className="h-4 w-4" /> Work Orders
+            <TabsTrigger value="workorders" className="gap-1.5 flex-shrink-0 text-xs px-3">
+              <ClipboardList className="h-3.5 w-3.5" /> Work Orders
               {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length > 0 && (
                 <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
                   {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="pettycash" className="gap-2">
-              <Wallet className="h-4 w-4" /> Petty Cash
+            <TabsTrigger value="pettycash" className="gap-1.5 flex-shrink-0 text-xs px-3">
+              <Wallet className="h-3.5 w-3.5" /> Petty Cash
               {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length > 0 && (
                 <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-green-500">
                   {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="minicashbook" className="gap-2" data-testid="tab-mini-cashbook">
-              <Receipt className="h-4 w-4" /> Mini Cashbook
+            <TabsTrigger value="minicashbook" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-mini-cashbook">
+              <Receipt className="h-3.5 w-3.5" /> Cashbook
             </TabsTrigger>
-            <TabsTrigger value="curingvideo" className="gap-2" data-testid="tab-curing-video" onClick={() => fetchCuringHistory(curingFilterProject)}>
-              <Video className="h-4 w-4" /> Curing Video
+            <TabsTrigger value="curingvideo" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-curing-video" onClick={() => fetchCuringHistory(curingFilterProject)}>
+              <Video className="h-3.5 w-3.5" /> Curing Video
             </TabsTrigger>
-            <TabsTrigger value="attendance" className="gap-2" data-testid="tab-attendance">
-              <Clock className="h-4 w-4" /> Attendance
+            <TabsTrigger value="attendance" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-attendance">
+              <Clock className="h-3.5 w-3.5" /> Attendance
             </TabsTrigger>
           </TabsList>
 
