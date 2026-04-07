@@ -1,0 +1,62 @@
+{
+  "summary": "SE Dashboard 'Assigned Contractors' view testing completed. Fixed backend bug where SE work orders endpoint was querying wrong collection. All features working: contractor list view, drill-down to stages, amount breakdown, Request Payment/Finish Stage buttons, back navigation. Backend E2E tests pass (21/21).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [],
+    "fixed": [
+      {
+        "endpoint": "GET /api/site-engineer/work-orders",
+        "issue": "Was querying 'work_orders' collection instead of 'project_work_orders'. Also was using 'assigned_to' field instead of 'site_engineer_assignments' collection.",
+        "fix": "Updated to query 'project_work_orders' collection and use 'site_engineer_assignments' for project filtering. Added order_type, work_order_number, total_amount field mapping."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_work_order_stage_payment.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/routes/operations.py"
+  ],
+  "success_rate": {
+    "backend": "100% (21/21 tests passed)",
+    "frontend": "100% (all UI features verified)"
+  },
+  "test_credentials": {
+    "site_engineer": "engineer@constructionos.com (via Demo Access)",
+    "project_manager": "pm@constructionos.com (via Demo Access)",
+    "planning": "planning@constructionos.com (via Demo Access)",
+    "accountant": "accountant@constructionos.com (via Demo Access)"
+  },
+  "seed_data_creation": "Used existing work orders from iteration_134 (Kumar Painters, Kumar Masonry Works)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "SE Dashboard Work Orders tab now shows 'Assigned Contractors' view correctly. Backend endpoint /api/site-engineer/work-orders was fixed to query project_work_orders collection using site_engineer_assignments for project filtering. All 21 backend tests pass. UI verified: contractor list with icon/name/badge/stages/amount/chevron, drill-down to stages with Released/Pending/Balance breakdown, Request Payment and Finish Stage buttons on active stages, Back to Contractors navigation.",
+  "features_tested": {
+    "frontend_ui": {
+      "assigned_contractors_title": "PASS - 'Assigned Contractors' title visible",
+      "contractor_cards": "PASS - 2 contractor cards displayed (Kumar Painters, Kumar Masonry Works)",
+      "contractor_card_elements": "PASS - icon, name, work type badge (Labour), X/Y active stages, total amount, chevron arrow",
+      "drill_down_to_stages": "PASS - clicking contractor shows stages detail view",
+      "back_to_contractors_link": "PASS - visible and functional",
+      "stage_cards": "PASS - 4 stage cards with stage number badge, name, amount",
+      "amount_breakdown": "PASS - Released/Pending/Balance columns visible",
+      "request_payment_buttons": "PASS - 3 buttons on active stages",
+      "finish_stage_buttons": "PASS - 3 buttons on active stages",
+      "back_navigation": "PASS - returns to contractor list"
+    },
+    "backend_apis": {
+      "se_work_orders_endpoint": "PASS - GET /api/site-engineer/work-orders returns work orders from project_work_orders collection",
+      "request_payment": "PASS - PATCH .../request-payment creates payment_request",
+      "approval_pipeline": "PASS - PM → Planning → Accountant approval flow",
+      "finish_stage": "PASS - PATCH .../finish marks stage as finished",
+      "validation_rules": "PASS - balance validation, pending requests check, finished stage check"
+    }
+  }
+}

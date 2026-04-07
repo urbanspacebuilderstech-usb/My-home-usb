@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
   Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck,
-  Wallet, Plus, Receipt, Send, Video, MessageCircle
+  Wallet, Plus, Receipt, Send, Video, MessageCircle, ArrowLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -268,6 +268,7 @@ export default function SiteEngineerDashboard() {
   const [user, setUser] = useState(null);
   const [projects, setProjects] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
+  const [selectedContractor, setSelectedContractor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('projects');
   
@@ -1036,7 +1037,7 @@ export default function SiteEngineerDashboard() {
             )}
           </TabsContent>
 
-          {/* Work Orders Tab */}
+          {/* Work Orders Tab - Assigned Contractors View */}
           <TabsContent value="workorders" className="mt-4">
             {workOrders.length === 0 ? (
               <Card>
@@ -1048,131 +1049,158 @@ export default function SiteEngineerDashboard() {
                   </p>
                 </CardContent>
               </Card>
+            ) : !selectedContractor ? (
+              /* ===== CONTRACTOR LIST VIEW ===== */
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <ClipboardList className="h-5 w-5 text-indigo-600" />
+                  <h3 className="text-base font-semibold">Assigned Contractors</h3>
+                </div>
+                <p className="text-xs text-gray-400 mb-4">Tap a contractor to view their work order stages.</p>
+                <div className="space-y-2">
+                  {(() => {
+                    const grouped = {};
+                    workOrders.filter(wo => wo.order_type === 'labour').forEach(wo => {
+                      const key = wo.contractor_name || wo.work_type || 'Unknown';
+                      if (!grouped[key]) grouped[key] = { name: key, workType: wo.work_type || '', workOrders: [], totalAmount: 0, activeStages: 0, totalStages: 0 };
+                      grouped[key].workOrders.push(wo);
+                      grouped[key].totalAmount += wo.total_amount || 0;
+                      (wo.stages || []).forEach(s => {
+                        grouped[key].totalStages++;
+                        if (s.stage_status !== 'finished' && s.status !== 'completed') grouped[key].activeStages++;
+                      });
+                    });
+                    return Object.values(grouped).map(c => (
+                      <Card key={c.name} className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-indigo-400" onClick={() => setSelectedContractor(c)} data-testid={`contractor-card-${c.name}`}>
+                        <CardContent className="p-3 flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                            <Users className="h-5 w-5 text-indigo-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-bold text-gray-900 truncate">{c.name}</h4>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.workType || 'Labour'}</Badge>
+                              <span className="text-[10px] text-gray-500">{c.activeStages}/{c.totalStages} active</span>
+                            </div>
+                          </div>
+                          <span className="text-sm font-bold text-blue-600 whitespace-nowrap">{formatCurrency(c.totalAmount)}</span>
+                          <ChevronRight className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        </CardContent>
+                      </Card>
+                    ));
+                  })()}
+                </div>
+              </div>
             ) : (
-              <div className="space-y-4">
-                {workOrders.map((wo) => (
-                  <Card key={wo.work_order_id} className="border-l-4 border-l-indigo-500">
-                    <CardContent className="p-4">
-                      {/* Work Order Header */}
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            {wo.order_type === 'labour' ? (
-                              <Users className="h-4 w-4 text-amber-600" />
-                            ) : (
-                              <Package className="h-4 w-4 text-green-600" />
-                            )}
-                            <span className="font-bold">{wo.work_order_number}</span>
-                            <Badge variant={wo.order_type === 'labour' ? 'default' : 'secondary'}>
-                              {wo.order_type}
-                            </Badge>
-                          </div>
-                          <p className="text-sm font-medium">
-                            {wo.order_type === 'labour' ? wo.work_type : wo.material_name}
-                            {wo.brand && <span className="text-gray-500"> - {wo.brand}</span>}
-                          </p>
-                          <p className="text-xs text-gray-500">Project: {wo.project_name}</p>
+              /* ===== CONTRACTOR STAGES DETAIL VIEW ===== */
+              <div>
+                <button className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 mb-3" onClick={() => setSelectedContractor(null)} data-testid="back-to-contractors">
+                  <ArrowLeft className="h-4 w-4" /> Back to Contractors
+                </button>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+                    <Users className="h-5 w-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold">{selectedContractor.name}</h3>
+                    <p className="text-xs text-gray-500">{selectedContractor.workType} &bull; {selectedContractor.workOrders.length} Work Order(s) &bull; {formatCurrency(selectedContractor.totalAmount)}</p>
+                  </div>
+                </div>
+
+                {selectedContractor.workOrders.map(wo => (
+                  <Card key={wo.work_order_id} className="mb-3 border-l-4 border-l-indigo-400" data-testid={`wo-detail-${wo.work_order_id}`}>
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold">{wo.work_order_number}</span>
+                          <Badge variant="outline" className="text-[10px]">{wo.work_type || wo.order_type}</Badge>
                         </div>
-                        <div className="text-right">
-                          <p className="font-bold text-green-600">{formatCurrency(wo.total_amount)}</p>
-                        </div>
+                        <span className="text-sm font-bold text-green-600">{formatCurrency(wo.total_amount)}</span>
                       </div>
+                      <p className="text-[10px] text-gray-400 mb-3">Project: {wo.project_name}</p>
 
-                      {/* Payment Stages for Labour Orders */}
-                      {wo.order_type === 'labour' && wo.stages && wo.stages.length > 0 && (
-                        <div className="border-t pt-3">
-                          <p className="text-xs font-semibold text-gray-500 mb-2">PAYMENT STAGES</p>
-                          <div className="space-y-2">
-                            {wo.stages.map((stage, idx) => {
-                              const stageTotal = stage.amount || 0;
-                              const released = (stage.payment_requests || []).filter(pr => pr.status === 'approved').reduce((s, pr) => s + (pr.approved_amount || 0), 0) || stage.amount_released || 0;
-                              const pending = (stage.payment_requests || []).filter(pr => ['requested','pm_approved','planning_approved'].includes(pr.status)).reduce((s, pr) => s + (pr.amount || 0), 0) || 0;
-                              const balance = stageTotal - released - pending;
-                              const isFinished = stage.stage_status === 'finished' || stage.status === 'completed';
-                              const prs = stage.payment_requests || [];
-                              
-                              return (
-                              <div key={idx} className={`rounded-lg p-3 ${isFinished ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`} data-testid={`stage-card-${stage.stage_id}`}>
-                                <div className="flex items-center justify-between mb-2">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-sm font-medium">
-                                      Stage {stage.stage_number}: {stage.stage_name}
-                                    </span>
-                                    {isFinished && <Badge className="bg-green-100 text-green-700 text-[10px]">Finished</Badge>}
-                                  </div>
-                                  <span className="font-bold text-green-600">{formatCurrency(stageTotal)}</span>
+                      {/* STAGES */}
+                      {wo.stages && wo.stages.length > 0 && (
+                        <div className="space-y-2">
+                          {wo.stages.map((stage, idx) => {
+                            const stageTotal = stage.amount || 0;
+                            const released = (stage.payment_requests || []).filter(pr => pr.status === 'approved').reduce((s, pr) => s + (pr.approved_amount || 0), 0) || stage.amount_released || 0;
+                            const pending = (stage.payment_requests || []).filter(pr => ['requested','pm_approved','planning_approved'].includes(pr.status)).reduce((s, pr) => s + (pr.amount || 0), 0) || 0;
+                            const balance = stageTotal - released - pending;
+                            const isFinished = stage.stage_status === 'finished' || stage.status === 'completed';
+                            const prs = stage.payment_requests || [];
+
+                            return (
+                            <div key={idx} className={`rounded-lg p-3 border ${isFinished ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`} data-testid={`stage-card-${stage.stage_id}`}>
+                              {/* Stage header */}
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded">Stage {stage.stage_number}</span>
+                                  <span className="text-sm font-medium">{stage.stage_name}</span>
+                                  {isFinished && <Badge className="bg-green-100 text-green-700 text-[10px]">Finished</Badge>}
                                 </div>
-
-                                {/* Amount breakdown */}
-                                <div className="grid grid-cols-3 gap-2 mb-2 text-[10px]">
-                                  <div className="bg-white p-1.5 rounded text-center border">
-                                    <p className="text-gray-500 uppercase">Released</p>
-                                    <p className="font-bold text-green-700">{formatCurrency(released)}</p>
-                                  </div>
-                                  <div className="bg-white p-1.5 rounded text-center border">
-                                    <p className="text-gray-500 uppercase">Pending</p>
-                                    <p className="font-bold text-amber-600">{formatCurrency(pending)}</p>
-                                  </div>
-                                  <div className="bg-white p-1.5 rounded text-center border">
-                                    <p className="text-gray-500 uppercase">Balance</p>
-                                    <p className="font-bold text-red-600">{formatCurrency(balance)}</p>
-                                  </div>
-                                </div>
-
-                                {/* Payment requests history */}
-                                {prs.length > 0 && (
-                                  <div className="mb-2 space-y-1">
-                                    {prs.map((pr) => (
-                                      <div key={pr.request_id} className="flex items-center justify-between bg-white px-2 py-1 rounded border text-[10px]" data-testid={`pr-${pr.request_id}`}>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="font-medium">{formatCurrency(pr.amount)}</span>
-                                          <span className="text-gray-400">{new Date(pr.requested_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</span>
-                                        </div>
-                                        <Badge className={`text-[9px] ${
-                                          pr.status === 'approved' ? 'bg-green-100 text-green-700' :
-                                          pr.status === 'rejected' ? 'bg-red-100 text-red-600' :
-                                          pr.status === 'planning_approved' ? 'bg-purple-100 text-purple-700' :
-                                          pr.status === 'pm_approved' ? 'bg-blue-100 text-blue-700' :
-                                          'bg-amber-100 text-amber-700'
-                                        }`}>
-                                          {pr.status === 'requested' ? 'Pending PM' : pr.status === 'pm_approved' ? 'Pending Planning' : pr.status === 'planning_approved' ? 'Pending Accountant' : pr.status === 'approved' ? 'Paid' : pr.status === 'rejected' ? 'Rejected' : pr.status}
-                                        </Badge>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Action buttons */}
-                                {!isFinished && (
-                                  <div className="flex gap-2 flex-wrap">
-                                    {balance > 0 && (
-                                      <Button 
-                                        size="sm"
-                                        onClick={() => openPaymentRequest(wo, stage)}
-                                        className="gap-1 bg-orange-600 hover:bg-orange-700 h-7 text-xs"
-                                        data-testid={`req-pay-${stage.stage_id}`}
-                                      >
-                                        <DollarSign className="h-3 w-3" /> Request Payment
-                                      </Button>
-                                    )}
-                                    <Button 
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => { setFinishStageTarget({ workOrder: wo, stage }); setFinishStageRemarks(''); setFinishStageDialog(true); }}
-                                      className="gap-1 text-green-700 border-green-300 hover:bg-green-50 h-7 text-xs"
-                                      data-testid={`finish-stage-${stage.stage_id}`}
-                                    >
-                                      <CheckCircle className="h-3 w-3" /> Finish Stage
-                                    </Button>
-                                  </div>
-                                )}
-                                {isFinished && stage.finished_remarks && (
-                                  <p className="text-[10px] text-green-600 mt-1">Remarks: {stage.finished_remarks}</p>
-                                )}
+                                <span className="font-bold text-green-600 text-sm">{formatCurrency(stageTotal)}</span>
                               </div>
-                              );
-                            })}
-                          </div>
+
+                              {/* Amount breakdown */}
+                              <div className="grid grid-cols-3 gap-2 mb-2 text-[10px]">
+                                <div className="bg-white p-1.5 rounded text-center border">
+                                  <p className="text-gray-500 uppercase">Released</p>
+                                  <p className="font-bold text-green-700">{formatCurrency(released)}</p>
+                                </div>
+                                <div className="bg-white p-1.5 rounded text-center border">
+                                  <p className="text-gray-500 uppercase">Pending</p>
+                                  <p className="font-bold text-amber-600">{formatCurrency(pending)}</p>
+                                </div>
+                                <div className="bg-white p-1.5 rounded text-center border">
+                                  <p className="text-gray-500 uppercase">Balance</p>
+                                  <p className="font-bold text-red-600">{formatCurrency(balance)}</p>
+                                </div>
+                              </div>
+
+                              {/* Payment requests */}
+                              {prs.length > 0 && (
+                                <div className="mb-2 space-y-1">
+                                  {prs.map((pr) => (
+                                    <div key={pr.request_id} className="flex items-center justify-between bg-white px-2 py-1 rounded border text-[10px]">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-medium">{formatCurrency(pr.amount)}</span>
+                                        <span className="text-gray-400">{new Date(pr.requested_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</span>
+                                      </div>
+                                      <Badge className={`text-[9px] ${
+                                        pr.status === 'approved' ? 'bg-green-100 text-green-700' :
+                                        pr.status === 'rejected' ? 'bg-red-100 text-red-600' :
+                                        pr.status === 'planning_approved' ? 'bg-purple-100 text-purple-700' :
+                                        pr.status === 'pm_approved' ? 'bg-blue-100 text-blue-700' :
+                                        'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {pr.status === 'requested' ? 'Pending PM' : pr.status === 'pm_approved' ? 'Pending Planning' : pr.status === 'planning_approved' ? 'Pending Accountant' : pr.status === 'approved' ? 'Paid' : pr.status === 'rejected' ? 'Rejected' : pr.status}
+                                      </Badge>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Action buttons */}
+                              {!isFinished && (
+                                <div className="flex gap-2 flex-wrap">
+                                  {balance > 0 && (
+                                    <Button size="sm" onClick={() => openPaymentRequest(wo, stage)} className="gap-1 bg-orange-600 hover:bg-orange-700 h-7 text-xs" data-testid={`req-pay-${stage.stage_id}`}>
+                                      <DollarSign className="h-3 w-3" /> Request Payment
+                                    </Button>
+                                  )}
+                                  <Button size="sm" variant="outline" onClick={() => { setFinishStageTarget({ workOrder: wo, stage }); setFinishStageRemarks(''); setFinishStageDialog(true); }}
+                                    className="gap-1 text-green-700 border-green-300 hover:bg-green-50 h-7 text-xs" data-testid={`finish-stage-${stage.stage_id}`}>
+                                    <CheckCircle className="h-3 w-3" /> Finish Stage
+                                  </Button>
+                                </div>
+                              )}
+                              {isFinished && stage.finished_remarks && (
+                                <p className="text-[10px] text-green-600 mt-1">Remarks: {stage.finished_remarks}</p>
+                              )}
+                            </div>
+                            );
+                          })}
                         </div>
                       )}
                     </CardContent>

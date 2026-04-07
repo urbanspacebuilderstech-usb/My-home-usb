@@ -2957,14 +2957,38 @@ async def process_stage_payment(work_order_id: str, stage_id: str, user: User = 
 
 @router.get("/site-engineer/work-orders")
 async def get_site_engineer_work_orders(user: User = Depends(get_current_user)):
-    """Get work orders for site engineer"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER]:
+    """Get work orders for site engineer - from project_work_orders collection"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can access this")
     
-    work_orders = await db.work_orders.find(
-        {"assigned_to": user.user_id} if user.role == UserRole.SITE_ENGINEER else {},
-        {"_id": 0}
-    ).sort("created_at", -1).to_list(100)
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
+        # Get projects assigned to this SE from site_engineer_assignments collection
+        assignments = await db.site_engineer_assignments.find({
+            "user_id": user.user_id,
+            "is_active": True
+        }, {"_id": 0, "project_id": 1}).to_list(100)
+        project_ids = [a["project_id"] for a in assignments]
+        
+        # Get work orders from project_work_orders collection for these projects
+        work_orders = await db.project_work_orders.find(
+            {"project_id": {"$in": project_ids}, "is_active": {"$ne": False}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500)
+    else:
+        # Super admin sees all
+        work_orders = await db.project_work_orders.find(
+            {"is_active": {"$ne": False}},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500)
+    
+    # Add order_type field for frontend filtering (labour work orders)
+    for wo in work_orders:
+        if not wo.get("order_type"):
+            wo["order_type"] = "labour"  # Default to labour for contractor work orders
+        if not wo.get("work_order_number"):
+            wo["work_order_number"] = wo.get("work_order_id", "")
+        if not wo.get("total_amount"):
+            wo["total_amount"] = wo.get("total_value", 0)
     
     return work_orders
 
