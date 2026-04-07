@@ -6,74 +6,55 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ## Core Architecture
 - **Frontend**: React + Shadcn/UI + Tailwind CSS
 - **Backend**: FastAPI + MongoDB Atlas
-- **Auth**: Cookie-based session auth with role-based access control (RBAC)
+- **Auth**: Cookie-based session auth with RBAC
 - **Roles**: super_admin, sales, pre_sales, cre, planning, project_manager, site_engineer, sr_site_engineer, accountant
 
 ## What's Been Implemented
 
 ### Sales Pipeline (CRMSales.jsx)
-- 16-stage Kanban board with drag-and-drop
-- Follow-up management, Site Visit management
-- Automated onboarding pipeline with CRE-style Convert dialog
+- 16-stage Kanban board, Follow-ups, Site Visits, Automated onboarding
 
 ### Project Management (ProjectDetail.jsx)
-- Full project lifecycle: Estimates, Materials, Labours, Work Orders, Payments, Documents, Summary
-- **Work Order Stage Payment System (REVAMPED)**:
-  - Multiple partial payment requests per stage until total is paid
-  - Amount tracking: Released / Pending / Balance per stage
-  - 4-Level Approval: SE → PM → Planning → Accountant
-  - "Finish Stage" button with SE remarks (blocks further payments)
-  - Backward compatible with legacy single-status stages
-- Freeze & Reassign, DLR, Google Maps URL Location
+- Full lifecycle: Estimates, Materials, Labours, Work Orders, Payments, Documents, Summary
+- Work Order Stage Payment System with multiple partial payments
+- 4-Level Approval, Freeze & Reassign, DLR, Google Maps Location
 
 ### Site Engineer View (SiteEngineerDashboard.jsx)
-- 7 tabs: Projects, Site Visits, Work Orders, Petty Cash, Cashbook, Curing Video, Attendance
-- **Work Orders Tab (REVAMPED)**: Stage cards with amount breakdown, "Request Payment" dialog (amount + notes), "Finish Stage" dialog (remarks)
-- **Petty Cash (REVAMPED)**: Global request (no project), multi-level approval, Record Expense with categories
+- 7 tabs: Projects, Site Visits, **Work Orders (Assigned Contractors)**, Petty Cash, Cashbook, Curing Video, Attendance
+- **Assigned Contractors View (NEW)**: 
+  - Level 1: Grouped contractor list with icon, name, work type badge, active stages count, total amount
+  - Level 2: Drill-down into stages with Released/Pending/Balance breakdown, payment request history
+  - Request Payment & Finish Stage buttons per stage
+  - Back navigation to contractor list
+- **Petty Cash**: Global request, multi-level approval, Record Expense with categories
 - **Curing Video**: Global button, popup, WhatsApp link, history tab
 - **Inventory, GPS Attendance, Background GPS Tracking**
 
-### Planning Board (PlanningBoard.jsx)
-- Packages, Material Vendors, Live Map Dashboard
-- Custom header navigation in AppHeader
-
-### PM Dashboard (PMDashboard.jsx)
-- All Projects, Requests, **Petty Cash Approval**, Team tabs
-
-### Accounts Board (AccountsBoard.jsx)
-- **Petty Cash Management**: PM-Approved requests section with Process Payment dialog
-
-## Key API Endpoints (Latest)
-- Stage Payments: PATCH `.../stages/{sid}/request-payment` (partial), `.../stages/{sid}/approve` (4-level), `.../stages/{sid}/finish`
-- Petty Cash: POST `/api/site-engineer/petty-cash/request` (global), PM approve/reject, Accountant process-payment, SE acknowledge
-- Direct Expenses: POST `/api/site-engineer/direct-expense`, GET `.../direct-expenses`
-- Curing Video: POST/GET/PATCH `/api/site-engineer/curing-video/...`
+### Planning Board, PM Dashboard, Accounts Board
+- All with respective approval flows for petty cash and work order payments
 
 ## Completed Tasks (Latest Session - Apr 2026)
 - [x] AppHeader custom navigation - iteration_130
 - [x] Curing Video Management - iteration_131
 - [x] Dialog viewport fix - iteration_132
-- [x] Petty Cash Multi-Level Approval - iteration_133 (17/17)
-- [x] Petty Cash Request made global - verified via curl
-- [x] **Work Order Stage Payment System** - iteration_134 (21/21 backend)
-  - Multiple partial payments per stage
-  - 4-level approval pipeline
-  - Balance validation, finish stage, rejection flow
+- [x] Petty Cash Multi-Level Approval - iteration_133
+- [x] Petty Cash Request made global
+- [x] Work Order Stage Payment System - iteration_134
+- [x] **Assigned Contractors View** - iteration_135 (21/21 backend, 100% frontend)
 
 ## Prioritized Backlog
 
 ### P0 (Critical)
 - Refactor ProjectDetail.jsx (~5400 lines)
 - Refactor PlanningBoard.jsx (~1900 lines)
-
-### P1 (High Priority)
-- Pre-Deployment Security: 2FA, rate limiting, disable demo-login
 - Refactor SiteEngineerDashboard.jsx (~2100+ lines)
 
-### P2 (Medium Priority)
-- Sr. Engineer → Jr. Engineer Assignment Workflow
-- Aadhar Document Upload (encrypted storage)
-- Cash Denomination (paused), SaaS conversion (paused)
+### P1 (High)
+- Pre-Deployment Security: 2FA, rate limiting, disable demo-login
+
+### P2 (Medium)
+- Sr. Engineer → Jr. Engineer Assignment
+- Aadhar Document Upload, Cash Denomination (paused), SaaS (paused)
 
 ## Credentials
 - Demo Access buttons on login page for all roles
