@@ -424,7 +424,7 @@ export default function ProjectDetail() {
   
   // Inline edit for project header
   const [headerEditing, setHeaderEditing] = useState(false);
-  const [headerForm, setHeaderForm] = useState({ name: '', client_name: '', location: '', package_id: '' });
+  const [headerForm, setHeaderForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', package_id: '' });
   const [headerSaving, setHeaderSaving] = useState(false);
   const [allPackages, setAllPackages] = useState([]);
   // Payment Schedule Edit Dialog states
@@ -635,7 +635,7 @@ export default function ProjectDetail() {
   const startHeaderEdit = () => {
     if (!projectData?.project) return;
     const p = projectData.project;
-    setHeaderForm({ name: p.name || '', client_name: p.client_name || '', location: p.location || '', package_id: p.package_id || '' });
+    setHeaderForm({ name: p.name || '', client_name: p.client_name || '', client_phone: p.client_phone || '', client_email: p.client_email || '', location: p.location || '', package_id: p.package_id || '' });
     fetchPackages();
     setHeaderEditing(true);
   };
@@ -647,6 +647,8 @@ export default function ProjectDetail() {
       const p = projectData.project;
       if (headerForm.name !== (p.name || '')) payload.name = headerForm.name;
       if (headerForm.client_name !== (p.client_name || '')) payload.client_name = headerForm.client_name;
+      if (headerForm.client_phone !== (p.client_phone || '')) payload.client_phone = headerForm.client_phone;
+      if (headerForm.client_email !== (p.client_email || '')) payload.client_email = headerForm.client_email;
       if (headerForm.location !== (p.location || '')) payload.location = headerForm.location;
       if (headerForm.package_id !== (p.package_id || '')) payload.package_id = headerForm.package_id || '';
       if (Object.keys(payload).length === 0) { setHeaderEditing(false); setHeaderSaving(false); return; }
@@ -1470,7 +1472,7 @@ export default function ProjectDetail() {
             <div className="flex-1 min-w-0">
               {headerEditing ? (
                 <div className="space-y-3" data-testid="header-edit-form">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     <div>
                       <Label className="text-xs text-gray-500">Project Name</Label>
                       <Input data-testid="header-edit-name" value={headerForm.name} onChange={e => setHeaderForm(f => ({ ...f, name: e.target.value }))} placeholder="Project Name" />
@@ -1478,6 +1480,14 @@ export default function ProjectDetail() {
                     <div>
                       <Label className="text-xs text-gray-500">Client Name</Label>
                       <Input data-testid="header-edit-client" value={headerForm.client_name} onChange={e => setHeaderForm(f => ({ ...f, client_name: e.target.value }))} placeholder="Client Name" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Phone</Label>
+                      <Input data-testid="header-edit-phone" value={headerForm.client_phone} onChange={e => setHeaderForm(f => ({ ...f, client_phone: e.target.value }))} placeholder="Client Phone" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500">Email</Label>
+                      <Input data-testid="header-edit-email" value={headerForm.client_email} onChange={e => setHeaderForm(f => ({ ...f, client_email: e.target.value }))} placeholder="Client Email" />
                     </div>
                     <div>
                       <Label className="text-xs text-gray-500">Location</Label>
