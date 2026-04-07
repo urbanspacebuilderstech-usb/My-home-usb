@@ -3450,3 +3450,99 @@ async def get_curing_video_history(project_id: Optional[str] = None, user: User 
 
     records = await db.curing_video_records.find(query, {"_id": 0}).sort("date_time", -1).to_list(200)
     return records
+
+
+# ============ PETROL ALLOWANCE ============
+
+@router.post("/site-engineer/petrol-allowance")
+async def request_petrol_allowance(request: Request, user: User = Depends(get_current_user)):
+    """SE requests petrol allowance - goes directly to Accountant"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can request petrol allowance")
+    data = await request.json()
+    amount = data.get("amount")
+    km = data.get("km")
+    if not amount or float(amount) <= 0:
+        raise HTTPException(status_code=400, detail="Amount is required")
+    if not km or float(km) <= 0:
+        raise HTTPException(status_code=400, detail="KM is required")
+
+    now = datetime.now(timezone.utc).isoformat()
+    record = {
+        "allowance_id": f"pa_{uuid.uuid4().hex[:8]}",
+        "requested_by": user.user_id,
+        "requested_by_name": user.name,
+        "amount": float(amount),
+        "km": float(km),
+        "date": now[:10],
+        "status": "requested",  # requested → approved / rejected
+        "created_at": now,
+    }
+    await db.petrol_allowance.insert_one(record)
+    record.pop("_id", None)
+
+    # Notify accountants
+    accountants = await db.users.find({"role": "accountant", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petrol allowance request: ₹{float(amount):,.0f} ({float(km)} km) by {user.name}")
+
+    return record
+
+
+@router.get("/site-engineer/petrol-allowance/history")
+async def get_petrol_allowance_history(user: User = Depends(get_current_user)):
+    """Get petrol allowance history for SE"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    query = {"requested_by": user.user_id} if user.role != UserRole.SUPER_ADMIN else {}
+    records = await db.petrol_allowance.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return records
+
+
+@router.get("/accountant/petrol-allowance")
+async def get_petrol_allowance_for_accountant(user: User = Depends(get_current_user)):
+    """Accountant gets all petrol allowance requests"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can access")
+    records = await db.petrol_allowance.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return records
+
+
+@router.patch("/accountant/petrol-allowance/{allowance_id}/approve")
+async def approve_petrol_allowance(allowance_id: str, user: User = Depends(get_current_user)):
+    """Accountant approves petrol allowance"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve")
+    rec = await db.petrol_allowance.find_one({"allowance_id": allowance_id})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not found")
+    if rec["status"] != "requested":
+        raise HTTPException(status_code=400, detail=f"Cannot approve - status is {rec['status']}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.petrol_allowance.update_one(
+        {"allowance_id": allowance_id},
+        {"$set": {"status": "approved", "approved_by": user.user_id, "approved_by_name": user.name, "approved_at": now}}
+    )
+    await create_notification(rec["requested_by"], f"Petrol allowance ₹{rec['amount']:,.0f} approved by {user.name}")
+    return {"message": "Approved", "status": "approved"}
+
+
+@router.patch("/accountant/petrol-allowance/{allowance_id}/reject")
+async def reject_petrol_allowance(allowance_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Accountant rejects petrol allowance"""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant can reject")
+    rec = await db.petrol_allowance.find_one({"allowance_id": allowance_id})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not found")
+    data = {}
+    try:
+        data = await request.json()
+    except Exception:
+        pass
+    await db.petrol_allowance.update_one(
+        {"allowance_id": allowance_id},
+        {"$set": {"status": "rejected", "rejected_by": user.user_id, "rejection_reason": data.get("reason", ""), "rejected_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    await create_notification(rec["requested_by"], f"Petrol allowance ₹{rec['amount']:,.0f} rejected: {data.get('reason', 'No reason')}")
+    return {"message": "Rejected"}

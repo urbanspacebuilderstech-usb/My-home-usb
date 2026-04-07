@@ -278,16 +278,20 @@ function PettyCashManagement({ onBack }) {
   const [payForm, setPayForm] = useState({ payment_mode: 'cash', bank_name: '', cheque_number: '', reference_number: '', amount_paid: '', remarks: '', payment_date: new Date().toISOString().slice(0, 10) });
   // Pending PM-approved requests
   const [pendingRequests, setPendingRequests] = useState([]);
+  // Petrol Allowance
+  const [petrolRequests, setPetrolRequests] = useState([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [mgmtRes, pcRes] = await Promise.allSettled([
+        const [mgmtRes, pcRes, paRes] = await Promise.allSettled([
           axios.get(`${API}/accountant/petty-cash-management`),
-          axios.get(`${API}/accountant/petty-cash`)
+          axios.get(`${API}/accountant/petty-cash`),
+          axios.get(`${API}/accountant/petrol-allowance`)
         ]);
         if (mgmtRes.status === 'fulfilled') setData(mgmtRes.value.data);
         if (pcRes.status === 'fulfilled') setPendingRequests(pcRes.value.data || []);
+        if (paRes.status === 'fulfilled') setPetrolRequests(paRes.value.data || []);
       } catch { /* ignore */ }
       setLoading(false);
     })();
@@ -336,6 +340,24 @@ function PettyCashManagement({ onBack }) {
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to process');
     }
+  };
+
+  const handleApprovePetrol = async (id) => {
+    try {
+      await axios.patch(`${API}/accountant/petrol-allowance/${id}/approve`);
+      toast.success('Petrol allowance approved');
+      const res = await axios.get(`${API}/accountant/petrol-allowance`);
+      setPetrolRequests(res.data || []);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+
+  const handleRejectPetrol = async (id) => {
+    try {
+      await axios.patch(`${API}/accountant/petrol-allowance/${id}/reject`, { reason: 'Rejected' });
+      toast.success('Petrol allowance rejected');
+      const res = await axios.get(`${API}/accountant/petrol-allowance`);
+      setPetrolRequests(res.data || []);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
 
   if (loading) return <div className="flex justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>;
@@ -486,6 +508,44 @@ function PettyCashManagement({ onBack }) {
                           onClick={() => { setPayPC(pc); setPayForm({ ...payForm, amount_paid: pc.amount_requested?.toString() || '' }); setPayDialog(true); }}>
                           Process Payment
                         </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Petrol Allowance Requests */}
+      {petrolRequests.filter(r => r.status === 'requested').length > 0 && (
+        <Card className="border-l-4 border-l-blue-500 mb-4">
+          <CardHeader className="p-3 pb-1">
+            <CardTitle className="text-sm flex items-center gap-2 text-blue-700"><Truck className="h-4 w-4" /> Petrol Allowance — Pending ({petrolRequests.filter(r => r.status === 'requested').length})</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="acc-petrol-table">
+                <thead className="bg-blue-50 border-y"><tr>
+                  <th className="px-3 py-2 text-left font-medium text-blue-700">Date</th>
+                  <th className="px-3 py-2 text-left font-medium text-blue-700">SE</th>
+                  <th className="px-3 py-2 text-right font-medium text-blue-700">Amount</th>
+                  <th className="px-3 py-2 text-right font-medium text-blue-700">KM</th>
+                  <th className="px-3 py-2 text-center font-medium text-blue-700">Action</th>
+                </tr></thead>
+                <tbody className="divide-y">
+                  {petrolRequests.filter(r => r.status === 'requested').map(pa => (
+                    <tr key={pa.allowance_id} className="hover:bg-blue-50/50" data-testid={`acc-petrol-row-${pa.allowance_id}`}>
+                      <td className="px-3 py-2">{new Date(pa.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</td>
+                      <td className="px-3 py-2 font-medium">{pa.requested_by_name}</td>
+                      <td className="px-3 py-2 text-right font-bold">₹{(pa.amount || 0).toLocaleString('en-IN')}</td>
+                      <td className="px-3 py-2 text-right">{pa.km} km</td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="flex gap-1 justify-center">
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700 h-6 text-[10px]" onClick={() => handleApprovePetrol(pa.allowance_id)}>Approve</Button>
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300" onClick={() => handleRejectPetrol(pa.allowance_id)}>Reject</Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

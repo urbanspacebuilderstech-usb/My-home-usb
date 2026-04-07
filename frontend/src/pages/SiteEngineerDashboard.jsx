@@ -328,6 +328,13 @@ export default function SiteEngineerDashboard() {
   const [expenseFilterFrom, setExpenseFilterFrom] = useState('');
   const [expenseFilterTo, setExpenseFilterTo] = useState('');
 
+  // Petrol Allowance states
+  const [petrolDialog, setPetrolDialog] = useState(false);
+  const [petrolAmount, setPetrolAmount] = useState('');
+  const [petrolKm, setPetrolKm] = useState('');
+  const [petrolLoading, setPetrolLoading] = useState(false);
+  const [petrolHistory, setPetrolHistory] = useState([]);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -502,6 +509,32 @@ export default function SiteEngineerDashboard() {
     fetchPettyCashSummary();
     fetchExpenseCategories();
   }, []);
+
+  // ============ PETROL ALLOWANCE FUNCTIONS ============
+  const fetchPetrolHistory = async () => {
+    try {
+      const res = await axios.get(`${API}/site-engineer/petrol-allowance/history`);
+      setPetrolHistory(res.data || []);
+    } catch { setPetrolHistory([]); }
+  };
+
+  const handlePetrolSubmit = async () => {
+    if (!petrolAmount || !petrolKm) { toast.error('Enter amount and KM'); return; }
+    setPetrolLoading(true);
+    try {
+      await axios.post(`${API}/site-engineer/petrol-allowance`, {
+        amount: parseFloat(petrolAmount),
+        km: parseFloat(petrolKm),
+      });
+      toast.success('Petrol allowance requested! Goes to Accountant.');
+      setPetrolDialog(false);
+      setPetrolAmount('');
+      setPetrolKm('');
+      fetchPetrolHistory();
+      fetchPettyCashSummary();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+    setPetrolLoading(false);
+  };
   
   // Petty Cash Functions
   const handleRequestPettyCash = async () => {
@@ -1251,6 +1284,7 @@ export default function SiteEngineerDashboard() {
                 <TabsTrigger value="request_status" className="flex-shrink-0 text-xs px-3">Payment Req Status</TabsTrigger>
                 <TabsTrigger value="income_history" className="flex-shrink-0 text-xs px-3" onClick={() => fetchIncomeHistory()}>Income History</TabsTrigger>
                 <TabsTrigger value="expense_record" className="flex-shrink-0 text-xs px-3" onClick={() => fetchDirectExpenses()}>Expense Record</TabsTrigger>
+                <TabsTrigger value="petrol_allowance" className="flex-shrink-0 text-xs px-3" data-testid="tab-petrol" onClick={() => fetchPetrolHistory()}>Petrol Allowance</TabsTrigger>
               </TabsList>
 
               {/* REQUEST STATUS */}
@@ -1379,6 +1413,45 @@ export default function SiteEngineerDashboard() {
                   </div>
                 )}
               </TabsContent>
+
+              {/* PETROL ALLOWANCE */}
+              <TabsContent value="petrol_allowance" data-testid="petrol-allowance-tab">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-xs text-gray-500">Petrol allowance requests go directly to Accountant.</p>
+                  <Button size="sm" className="bg-blue-600 hover:bg-blue-700 h-8 text-xs" onClick={() => { setPetrolDialog(true); setPetrolAmount(''); setPetrolKm(''); }} data-testid="req-petrol-btn">
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Request Petrol Allowance
+                  </Button>
+                </div>
+                {petrolHistory.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400"><Truck className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No petrol allowance requests yet</p></div>
+                ) : (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm" data-testid="petrol-history-table">
+                      <thead><tr className="bg-gray-50 border-b">
+                        <th className="px-3 py-2 text-left font-medium text-gray-600 text-xs">Date</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">Amount</th>
+                        <th className="px-3 py-2 text-right font-medium text-gray-600 text-xs">KM</th>
+                        <th className="px-3 py-2 text-center font-medium text-gray-600 text-xs">Status</th>
+                      </tr></thead>
+                      <tbody>
+                        {petrolHistory.map(r => (
+                          <tr key={r.allowance_id} className="border-b hover:bg-gray-50" data-testid={`petrol-row-${r.allowance_id}`}>
+                            <td className="px-3 py-2 text-xs">{new Date(r.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</td>
+                            <td className="px-3 py-2 text-xs text-right font-semibold">₹{r.amount?.toLocaleString('en-IN')}</td>
+                            <td className="px-3 py-2 text-xs text-right">{r.km} km</td>
+                            <td className="px-3 py-2 text-center">
+                              <Badge className={`text-[10px] ${r.status === 'approved' ? 'bg-green-100 text-green-700' : r.status === 'rejected' ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                                {r.status === 'requested' ? 'Pending' : r.status === 'approved' ? 'Approved' : 'Rejected'}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </TabsContent>
+
             </Tabs>
           </TabsContent>
 
@@ -1999,6 +2072,39 @@ export default function SiteEngineerDashboard() {
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setNewCategoryDialog(false)}>Cancel</Button>
             <Button size="sm" onClick={handleCreateCategory} data-testid="new-category-submit">Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Petrol Allowance Dialog */}
+      <Dialog open={petrolDialog} onOpenChange={setPetrolDialog}>
+        <DialogContent className="max-w-sm" data-testid="petrol-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base"><Truck className="h-4 w-4 text-blue-600" /> Petrol Allowance</DialogTitle>
+            <DialogDescription>Request petrol allowance. Goes directly to Accountant.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs font-medium">Date</Label>
+              <div className="mt-1 px-3 py-2 bg-gray-100 rounded-md text-sm font-medium text-gray-700" data-testid="petrol-date">
+                {new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-0.5">Auto-captured</p>
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Amount (₹) *</Label>
+              <NumericInput value={petrolAmount} onChange={e => setPetrolAmount(e.target.value)} placeholder="Enter petrol amount" data-testid="petrol-amount" />
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Kilometers (KM) *</Label>
+              <NumericInput value={petrolKm} onChange={e => setPetrolKm(e.target.value)} placeholder="Enter KM traveled" data-testid="petrol-km" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPetrolDialog(false)}>Cancel</Button>
+            <Button onClick={handlePetrolSubmit} className="bg-blue-600 hover:bg-blue-700" disabled={petrolLoading} data-testid="petrol-submit">
+              {petrolLoading ? 'Submitting...' : 'Request'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
