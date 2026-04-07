@@ -25,14 +25,15 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - Estimate / Final Estimate / Stages / Payments / Additional / Deductions tabs
 - Materials tab: Package template loader, View/Edit toggle, dynamic Material/Brand dropdowns
 - Labours tab: Work order creation, attendance tracking, payment stages
-- **Work Orders tab (NEW)**: Full CRUD with contractor type → contractor → scope/stages/additional
-- **4-Level Payment Approval Pipeline (NEW)**: SE Request → PM → Planning → Accountant
+- **Work Orders tab**: Full CRUD with contractor type → contractor → scope/stages/additional
+- **4-Level Payment Approval Pipeline**: SE Request → PM → Planning → Accountant
+- **Freeze & Reassign (NEW)**: OTP-verified freeze of underperforming contractors, auto-creates new WO with balance stages for replacement contractor
 - Documents tab: Site plans, design files
 - Summary tab: Financial overview
 
 ### Site Engineer View (SiteEngineerProject.jsx)
 - Labour tracking, attendance, material requests
-- **Contractor Payments section (NEW)**: View project work orders, request stage payments
+- Contractor Payments section: View project work orders, request stage payments
 - Work order tab (old labour-based system)
 - Stock management, daily progress
 
@@ -49,7 +50,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 
 ## Database Collections (Key)
 - `users`, `projects`, `leads`, `lead_stages`
-- `project_work_orders` (NEW - scope-based work orders with 4-level approval)
+- `project_work_orders` (scope-based work orders with 4-level approval)
+- `freeze_otps` (NEW - stores hashed OTPs for freeze verification)
 - `work_orders` (OLD - labour-based, used by Labours tab)
 - `labour_work_orders` (OLD - used by Site Engineer)
 - `material_names`, `material_requests`, `purchase_orders`
@@ -58,6 +60,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ## Key API Endpoints
 - Work Orders: GET/POST/PATCH/DELETE `/api/projects/{project_id}/work-orders`
 - Payment Pipeline: PATCH `.../stages/{stage_id}/request-payment`, `.../approve`, `.../revert`
+- Freeze: POST `.../freeze/send-otp`, `.../freeze/verify-otp`, `.../freeze/reassign`
 - Contractor Types: GET `/api/contractor-types`
 
 ## Completed Tasks (Latest Session - April 2026)
@@ -66,7 +69,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Work Orders tab in ProjectDetail with approval trail UI
 - [x] Site Engineer contractor payments view with "Request Payment"
 - [x] Fixed null safety crash in ProjectDetail (materialsData, laboursData, designData, woForm)
-- [x] Testing: 24/24 backend tests passed, all frontend verified
+- [x] **Freeze & Reassign feature**: OTP-verified freeze + auto-reassign balance stages to new contractor
+- [x] Testing: iteration_121 (24/24 passed), iteration_122 (14/14 passed, all frontend verified)
 
 ## Prioritized Backlog
 
@@ -74,7 +78,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - None currently blocking
 
 ### P1 (High Priority)
-- Refactor ProjectDetail.jsx (~5000 lines) into components
+- Refactor ProjectDetail.jsx (~5300 lines) into components
 - Refactor CRMSales.jsx (~2300 lines) into components
 - Geo-fencing & Location Tracking (Phase 1)
 - Pre-Deployment Security: 2FA, rate limiting to MongoDB, disable demo-login
