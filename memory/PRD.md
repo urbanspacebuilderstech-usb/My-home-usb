@@ -74,8 +74,9 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Fixed null safety crash in ProjectDetail (materialsData, laboursData, designData, woForm)
 - [x] **Freeze & Reassign feature**: OTP-verified freeze + auto-reassign balance stages to new contractor
 - [x] Planning Board 2-Level Nested Tab Restructuring
-- [x] **Daily Labour Report (DLR)**: Per work order attendance tracking (Skilled/Semi-Skilled/Unskilled, day fractions 0.5/1/1.5, auto-cost calc). Shared DLRPanel component used in both SiteEngineerProject & ProjectDetail.
-- [x] Testing: iteration_121-124 all passed
+- [x] **Daily Labour Report (DLR)**: Per work order attendance tracking with 3 fixed rows (Skilled/Semi-Skilled/Unskilled), pre-filled rates from Work Order, day fractions 0.5/1/1.5, auto-cost calc.
+- [x] **Inventory Management System**: Enhanced daily stock tracking — Opening/Received/Used/Closing with auto-calc. Current Stock dashboard with LOW alerts (min threshold). Visible in SE "Inventory" tab + ProjectDetail.
+- [x] Testing: iteration_121-126 all passed
 
 ## Prioritized Backlog
 

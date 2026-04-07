@@ -555,16 +555,18 @@ export default function ProjectDetail() {
 
       // Load work orders, contractors, attendance, inventory
       try {
-        const [woRes, contRes, attRes, invRes] = await Promise.all([
+        const [woRes, contRes, attRes, invRes, dashRes] = await Promise.all([
           axios.get(`${API}/labour-work-orders?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/contractors`).catch(() => null),
           axios.get(`${API}/labour-attendance?project_id=${projectId}`).catch(() => null),
-          axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null)
+          axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null),
+          axios.get(`${API}/material-inventory/dashboard?project_id=${projectId}`).catch(() => null)
         ]);
         if (woRes) setWorkOrders(woRes.data || []);
         if (contRes) setAllContractors(contRes.data || []);
         if (attRes) setLabourAttendance(attRes.data || []);
         if (invRes) setMaterialInventory(invRes.data || []);
+        if (dashRes) setInvDashboard(dashRes.data || null);
       } catch { /* ignore */ }
       
       // Fetch RE project if available (depends on projectRes)
