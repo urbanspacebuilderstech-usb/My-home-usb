@@ -25,6 +25,7 @@ Automate the "Project Onboarding" workflow for a construction CRM application. T
 - RE Templates CRUD
 - Sub-tabs: New Projects, Current (Active), Delivered
 - Date filtering per sub-tab
+- **Package Management**: Full CRUD with Package Name, Description, Per Sq.ft Rate, Scope Items (Name + Unit + Rate), Materials List with Material Name + Brand dropdowns, inline create-new for both — DONE Feb 2026
 
 ### Project Detail (ProjectDetail.jsx)
 - Drag-and-Drop reordering for scope items, stages, estimates
