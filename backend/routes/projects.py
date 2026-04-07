@@ -3173,3 +3173,163 @@ async def get_project_labours(project_id: str, user: User = Depends(get_current_
         summary["total_cost"] = total_cost
 
     return {"summary": summary, "labours": clean_labours}
+
+
+
+# ==================== WORK ORDERS ====================
+
+class WorkOrderScopeItem(BaseModel):
+    name: str
+    unit: str = "nos"
+    quantity: float = 1
+    unit_rate: float = 0
+
+class WorkOrderStage(BaseModel):
+    name: str
+    type: str = "percentage"  # percentage or amount
+    value: float = 0
+    
+class WorkOrderAdditionalItem(BaseModel):
+    description: str
+    unit: str = "nos"
+    quantity: float = 1
+    unit_rate: float = 0
+
+class WorkOrderCreate(BaseModel):
+    contractor_id: str
+    contractor_name: Optional[str] = None
+    contractor_type: Optional[str] = None
+    scope_items: List[WorkOrderScopeItem] = []
+    stages: List[WorkOrderStage] = []
+    additional_work: List[WorkOrderAdditionalItem] = []
+    notes: Optional[str] = ""
+
+@router.get("/projects/{project_id}/work-orders")
+async def get_work_orders(project_id: str, user: User = Depends(get_current_user)):
+    """Get all work orders for a project"""
+    orders = await db.work_orders.find({"project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return orders
+
+@router.get("/projects/{project_id}/work-orders/{work_order_id}")
+async def get_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+    """Get a single work order"""
+    wo = await db.work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    return wo
+
+@router.post("/projects/{project_id}/work-orders")
+async def create_work_order(project_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
+    """Create a new work order"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "project_id": 1, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Lookup contractor
+    contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(status_code=404, detail="Contractor not found")
+    
+    # Calculate totals
+    scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
+    additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
+    
+    scope_items = []
+    for s in data.scope_items:
+        scope_items.append({
+            "name": s.name, "unit": s.unit, "quantity": s.quantity,
+            "unit_rate": s.unit_rate, "total": round(s.quantity * s.unit_rate, 2)
+        })
+    
+    stages = []
+    for st in data.stages:
+        amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
+        stages.append({"name": st.name, "type": st.type, "value": st.value, "amount": amt, "status": "pending"})
+    
+    additional = []
+    for a in data.additional_work:
+        additional.append({
+            "description": a.description, "unit": a.unit, "quantity": a.quantity,
+            "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)
+        })
+    
+    wo = {
+        "work_order_id": f"wo_{uuid.uuid4().hex[:8]}",
+        "project_id": project_id,
+        "project_name": project.get("name", ""),
+        "contractor_id": data.contractor_id,
+        "contractor_name": contractor.get("name", data.contractor_name or ""),
+        "contractor_type": contractor.get("contractor_type", data.contractor_type or ""),
+        "scope_items": scope_items,
+        "scope_total": round(scope_total, 2),
+        "stages": stages,
+        "additional_work": additional,
+        "additional_total": round(additional_total, 2),
+        "total_value": round(scope_total + additional_total, 2),
+        "notes": data.notes or "",
+        "status": "active",
+        "is_active": True,
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.work_orders.insert_one(wo)
+    wo.pop("_id", None)
+    return {"work_order_id": wo["work_order_id"], "message": "Work order created", "total_value": wo["total_value"]}
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}")
+async def update_work_order(project_id: str, work_order_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
+    """Update a work order"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
+    additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
+    
+    scope_items = [{"name": s.name, "unit": s.unit, "quantity": s.quantity, "unit_rate": s.unit_rate, "total": round(s.quantity * s.unit_rate, 2)} for s in data.scope_items]
+    stages = []
+    for st in data.stages:
+        amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
+        stages.append({"name": st.name, "type": st.type, "value": st.value, "amount": amt, "status": "pending"})
+    additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)} for a in data.additional_work]
+    
+    # Lookup contractor name
+    contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1})
+    
+    update = {
+        "contractor_id": data.contractor_id,
+        "contractor_name": contractor.get("name", "") if contractor else data.contractor_name or "",
+        "contractor_type": contractor.get("contractor_type", "") if contractor else data.contractor_type or "",
+        "scope_items": scope_items, "scope_total": round(scope_total, 2),
+        "stages": stages,
+        "additional_work": additional, "additional_total": round(additional_total, 2),
+        "total_value": round(scope_total + additional_total, 2),
+        "notes": data.notes or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    result = await db.work_orders.update_one({"work_order_id": work_order_id, "project_id": project_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    return {"message": "Work order updated"}
+
+@router.delete("/projects/{project_id}/work-orders/{work_order_id}")
+async def delete_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+    """Soft delete a work order"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    result = await db.work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    return {"message": "Work order deleted"}
+
+@router.get("/contractor-types")
+async def get_contractor_types(user: User = Depends(get_current_user)):
+    """Get distinct contractor types"""
+    types = await db.contractors.distinct("contractor_type", {"is_active": {"$ne": False}})
+    return [t for t in types if t]

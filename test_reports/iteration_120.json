@@ -1,0 +1,83 @@
+{
+  "summary": "Work Orders Tab Testing - Backend 100% PASS (14/14 tests), Frontend BLOCKED by pre-existing bug in ProjectDetail.jsx causing crash",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ProjectDetail.jsx",
+        "issue": "CRITICAL: Component crashes with 'Cannot read properties of undefined (reading map)' when opening any project detail page",
+        "selector": "N/A - component crashes before render",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "ProjectDetail.jsx",
+        "issue": "Missing state variable 'showWOForm' - ReferenceError: showWOForm is not defined (FIXED by testing agent)",
+        "selector": "N/A",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Project Detail Page Load",
+        "issue": "Component crashes when API returns error or undefined data - null safety missing for scope_items, payment_stages, additional_costs, deductions arrays",
+        "affected_selectors": ["[data-testid='tab-work-orders']", "[data-testid='create-wo-btn']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_work_orders_crud.py",
+    "/app/test_reports/pytest/pytest_work_orders_crud.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Fix null safety in ProjectDetail.jsx - the component crashes when projectData arrays are undefined",
+    "The destructuring at line 1670 needs full null safety: const { project, scope_items = [], payment_stages = [], additional_costs = [], deductions = [], summary } = projectData || {};",
+    "All .map() calls on these arrays need (array || []).map() pattern",
+    "The showWOForm state variable was missing - testing agent added it at line 487"
+  ],
+  "critical_code_review_comments": [
+    "ProjectDetail.jsx line 1670: Destructuring projectData without null safety causes crash when API fails",
+    "Lines 1673-1682: .filter() calls on potentially undefined arrays",
+    "Lines 1257, 1268, 1279: .find() calls on potentially undefined arrays in reorder handlers",
+    "Lines 1338, 1344: .map() calls in toggle functions without null safety",
+    "Missing state declaration: showWOForm was used but never declared (fixed by testing agent)"
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/ProjectDetail.jsx - Added showWOForm state, added null safety to destructuring and array operations",
+    "/app/backend/tests/test_work_orders_crud.py - Created new test file for Work Orders CRUD"
+  ],
+  "success_rate": {
+    "backend": "100% - 14/14 tests passed",
+    "frontend": "0% - Component crashes before Work Orders tab can be tested"
+  },
+  "test_credentials": {
+    "Planning User": "Demo Access -> Planning button (planning@constructionos.com)"
+  },
+  "seed_data_creation": "Backend tests create and cleanup TEST_ prefixed work orders",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend Work Orders CRUD is fully functional. Frontend ProjectDetail.jsx has a critical bug causing crash on page load. The bug is in the render section where arrays from projectData are used without null safety. Testing agent made partial fixes but the component still crashes. Main agent needs to add comprehensive null safety to all array operations in ProjectDetail.jsx.",
+  "backend_tests_verified": {
+    "GET /api/contractor-types": "PASS - Returns distinct contractor types",
+    "GET /api/projects/{project_id}/work-orders": "PASS - Returns list of work orders",
+    "GET /api/projects/{project_id}/work-orders/{wo_id}": "PASS - Returns single work order",
+    "POST /api/projects/{project_id}/work-orders": "PASS - Creates work order with scope, stages, additional work",
+    "PATCH /api/projects/{project_id}/work-orders/{wo_id}": "PASS - Updates work order",
+    "DELETE /api/projects/{project_id}/work-orders/{wo_id}": "PASS - Soft deletes work order",
+    "Stage calculations": "PASS - Percentage and fixed amount stages calculate correctly",
+    "Permission checks": "PASS - Accountant cannot create work orders (403)"
+  },
+  "rca_of_the_issue": {
+    "root_cause": "ProjectDetail.jsx component lacks null safety for arrays destructured from projectData. When API calls fail (e.g., 429 rate limit), projectData is set but arrays are undefined, causing .map()/.filter() to crash.",
+    "reproduction_steps": [
+      "1. Login as Planning user",
+      "2. Navigate to Planning Board",
+      "3. Click View on any project",
+      "4. Component crashes with 'Cannot read properties of undefined (reading map)'"
+    ],
+    "mitigation": "Add null safety to all array operations: (array || []).map(), (array || []).filter(), etc. Ensure destructuring provides default empty arrays."
+  }
+}

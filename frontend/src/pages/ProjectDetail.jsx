@@ -465,18 +465,26 @@ export default function ProjectDetail() {
   const [projNewBrandName, setProjNewBrandName] = useState('');
   const [editingMaterials, setEditingMaterials] = useState(false);
   const [selectedMatPackage, setSelectedMatPackage] = useState('');
+
+  // Work Orders
+  const [workOrders, setWorkOrders] = useState([]);
+  const [woDialog, setWoDialog] = useState(false);
+  const [editingWo, setEditingWo] = useState(null);
+  const [woViewId, setWoViewId] = useState(null);
+  const [contractorTypes, setContractorTypes] = useState([]);
+  const [allContractors, setAllContractors] = useState([]);
+  const [woSelectedType, setWoSelectedType] = useState('');
+  const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [] });
+  const [woSubTab, setWoSubTab] = useState('scope');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
-  const [workOrders, setWorkOrders] = useState([]);
-  const [allContractors, setAllContractors] = useState([]);
   const [labourSubTab, setLabourSubTab] = useState('requests');
-  const [showWOForm, setShowWOForm] = useState(false);
-  const [woForm, setWoForm] = useState({ contractor_id: '', description: '', total_amount: 0, payment_stages: [{ stage_name: 'Stage 1', amount: 0, percentage: 0 }] });
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
   const [materialInventory, setMaterialInventory] = useState([]);
   const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [showWOForm, setShowWOForm] = useState(false);
   const [invForm, setInvForm] = useState({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
 
   // Team editing state
@@ -589,6 +597,13 @@ export default function ProjectDetail() {
       // Files endpoint may not have data yet
     }
   };
+
+  // Fetch work orders when tab is active
+  useEffect(() => {
+    if (activeTab === 'work-orders' && projectId) fetchWorkOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
 
   const fetchDesignData = async () => {
     try {
@@ -756,6 +771,73 @@ export default function ProjectDetail() {
     setEditingMaterials(false);
     toast.success('Materials saved');
   };
+
+  // === WORK ORDER HANDLERS ===
+  const fetchWorkOrders = async () => {
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/work-orders`);
+      setWorkOrders(res.data || []);
+    } catch { setWorkOrders([]); }
+  };
+
+  const openWoDialog = async (wo = null) => {
+    setEditingWo(wo);
+    setWoViewId(null);
+    // Fetch contractor types and contractors
+    try {
+      const [typesRes, contRes] = await Promise.all([
+        axios.get(`${API}/contractor-types`),
+        axios.get(`${API}/contractors`),
+      ]);
+      setContractorTypes(typesRes.data || []);
+      setAllContractors(contRes.data || []);
+    } catch { setContractorTypes([]); setAllContractors([]); }
+
+    if (wo) {
+      setWoSelectedType(wo.contractor_type || '');
+      setWoForm({
+        contractor_id: wo.contractor_id || '',
+        notes: wo.notes || '',
+        scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
+        stages: (wo.stages || []).map(s => ({ name: s.name, type: s.type, value: s.value })),
+        additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+      });
+    } else {
+      setWoSelectedType('');
+      setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [] });
+    }
+    setWoSubTab('scope');
+    setWoDialog(true);
+  };
+
+  const handleSaveWo = async () => {
+    if (!woForm.contractor_id) { toast.error('Select a contractor'); return; }
+    try {
+      const payload = { ...woForm };
+      if (editingWo) {
+        await axios.patch(`${API}/projects/${projectId}/work-orders/${editingWo.work_order_id}`, payload);
+        toast.success('Work order updated');
+      } else {
+        await axios.post(`${API}/projects/${projectId}/work-orders`, payload);
+        toast.success('Work order created');
+      }
+      setWoDialog(false);
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to save'); }
+  };
+
+  const handleDeleteWo = async (wo) => {
+    if (!window.confirm(`Delete work order for "${wo.contractor_name}"?`)) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}`);
+      toast.success('Work order deleted');
+      fetchWorkOrders();
+    } catch { toast.error('Failed to delete'); }
+  };
+
+  const filteredWoContractors = allContractors.filter(c => c.is_active !== false && (!woSelectedType || c.contractor_type === woSelectedType));
+
+
 
   const addProjectMaterial = () => {
     setProjectMaterials(prev => {
@@ -1172,7 +1254,7 @@ export default function ProjectDetail() {
 
   const handleScopeReorder = async (newIds) => {
     // Optimistic local reorder
-    const newItems = newIds.map(id => scope_items.find(s => s.scope_id === id)).filter(Boolean);
+    const newItems = newIds.map(id => (scope_items || []).find(s => s.scope_id === id)).filter(Boolean);
     setProjectData(prev => ({
       ...prev,
       scope_items: newItems
@@ -1183,7 +1265,7 @@ export default function ProjectDetail() {
   };
 
   const handleAdditionalCostReorder = async (newIds) => {
-    const newItems = newIds.map(id => additional_costs.find(c => c.cost_id === id)).filter(Boolean);
+    const newItems = newIds.map(id => (additional_costs || []).find(c => c.cost_id === id)).filter(Boolean);
     setProjectData(prev => ({
       ...prev,
       additional_costs: newItems
@@ -1194,7 +1276,7 @@ export default function ProjectDetail() {
   };
 
   const handleDeductionReorder = async (newIds) => {
-    const newItems = newIds.map(id => deductions.find(d => d.deduction_id === id)).filter(Boolean);
+    const newItems = newIds.map(id => (deductions || []).find(d => d.deduction_id === id)).filter(Boolean);
     setProjectData(prev => ({
       ...prev,
       deductions: newItems
@@ -1253,13 +1335,13 @@ export default function ProjectDetail() {
     setSelectedScopeIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
   const toggleAllScope = () => {
-    setSelectedScopeIds(prev => prev.length === scope_items.length ? [] : scope_items.map(s => s.scope_id));
+    setSelectedScopeIds(prev => prev.length === (scope_items || []).length ? [] : (scope_items || []).map(s => s.scope_id));
   };
   const togglePaymentSelect = (id) => {
     setSelectedPaymentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
   const toggleAllPayment = () => {
-    setSelectedPaymentIds(prev => prev.length === payment_stages.length ? [] : payment_stages.map(p => p.stage_id));
+    setSelectedPaymentIds(prev => prev.length === (payment_stages || []).length ? [] : (payment_stages || []).map(p => p.stage_id));
   };
 
   // ---- Project Stages Handlers ----
@@ -1585,19 +1667,19 @@ export default function ProjectDetail() {
     );
   }
 
-  const { project, scope_items, payment_stages, additional_costs, deductions, summary } = projectData;
+  const { project, scope_items = [], payment_stages = [], additional_costs = [], deductions = [], summary } = projectData || {};
 
   // Get draft items for verification
-  const draftScopeItems = scope_items.filter(s => s.workflow_status === 'draft');
-  const draftPaymentItems = payment_stages.filter(p => p.workflow_status === 'draft');
-  const draftAdditions = additional_costs.filter(a => a.workflow_status === 'draft');
-  const draftDeductions = deductions.filter(d => d.workflow_status === 'draft');
+  const draftScopeItems = (scope_items || []).filter(s => s.workflow_status === 'draft');
+  const draftPaymentItems = (payment_stages || []).filter(p => p.workflow_status === 'draft');
+  const draftAdditions = (additional_costs || []).filter(a => a.workflow_status === 'draft');
+  const draftDeductions = (deductions || []).filter(d => d.workflow_status === 'draft');
   
   // Get pending approval items
-  const pendingApprovalScope = scope_items.filter(s => s.workflow_status === 'pending_approval');
-  const pendingApprovalPayment = payment_stages.filter(p => p.workflow_status === 'pending_approval');
-  const pendingApprovalAdditions = additional_costs.filter(a => a.workflow_status === 'pending_approval');
-  const pendingApprovalDeductions = deductions.filter(d => d.workflow_status === 'pending_approval');
+  const pendingApprovalScope = (scope_items || []).filter(s => s.workflow_status === 'pending_approval');
+  const pendingApprovalPayment = (payment_stages || []).filter(p => p.workflow_status === 'pending_approval');
+  const pendingApprovalAdditions = (additional_costs || []).filter(a => a.workflow_status === 'pending_approval');
+  const pendingApprovalDeductions = (deductions || []).filter(d => d.workflow_status === 'pending_approval');
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -1865,6 +1947,9 @@ export default function ProjectDetail() {
                 </TabsTrigger>
                 <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
                   Labours
+                </TabsTrigger>
+                <TabsTrigger value="work-orders" className="data-[state=active]:border-b-2 data-[state=active]:border-violet-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-work-orders">
+                  Work Orders
                 </TabsTrigger>
                 {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Payments
@@ -4116,6 +4201,220 @@ export default function ProjectDetail() {
                 </Dialog>
               </div>
             </TabsContent>
+
+
+            {/* ==================== WORK ORDERS TAB ==================== */}
+            <TabsContent value="work-orders" className="p-3 sm:p-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-violet-600" />Work Orders ({workOrders.length})
+                  </h3>
+                  {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                    <Button size="sm" onClick={() => openWoDialog()} className="bg-violet-600 hover:bg-violet-700" data-testid="create-wo-btn">
+                      <Plus className="h-3.5 w-3.5 mr-1" />Create Work Order
+                    </Button>
+                  )}
+                </div>
+
+                {workOrders.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8 text-sm" data-testid="wo-empty">No work orders yet.</p>
+                ) : woViewId ? (
+                  /* ---- DETAIL VIEW ---- */
+                  (() => {
+                    const wo = workOrders.find(w => w.work_order_id === woViewId);
+                    if (!wo) return null;
+                    return (
+                      <div data-testid="wo-detail-view">
+                        <Button variant="ghost" size="sm" onClick={() => setWoViewId(null)} className="mb-3"><ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to List</Button>
+                        <div className="border rounded-lg overflow-hidden">
+                          <div className="bg-violet-50 p-4 border-b flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-sm">{wo.contractor_name}</p>
+                              <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}</p>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
+                              <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
+                            </div>
+                          </div>
+                          <Tabs defaultValue="scope" className="w-full">
+                            <TabsList className="w-full rounded-none border-b bg-white">
+                              <TabsTrigger value="scope" className="flex-1 text-xs">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="scope" className="p-3">
+                              {wo.scope_items?.length > 0 ? (
+                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                <tbody className="divide-y">{wo.scope_items.map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
+                                <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
+                              ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
+                            </TabsContent>
+                            <TabsContent value="stages" className="p-3">
+                              {wo.stages?.length > 0 ? (
+                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stage</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Value</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th></tr></thead>
+                                <tbody className="divide-y">{wo.stages.map((st, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{st.name}</td><td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge></td><td className="px-3 py-2 text-right">{st.type === 'percentage' ? `${st.value}%` : formatCurrency(st.value)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(st.amount)}</td><td className="px-3 py-2 text-center"><Badge className={st.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'} variant="outline">{st.status}</Badge></td></tr>))}</tbody></table>
+                              ) : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                            </TabsContent>
+                            <TabsContent value="additional" className="p-3">
+                              {wo.additional_work?.length > 0 ? (
+                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                <tbody className="divide-y">{wo.additional_work.map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
+                                <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
+                              ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
+                            </TabsContent>
+                          </Tabs>
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  /* ---- LIST VIEW ---- */
+                  <div className="space-y-3" data-testid="wo-list">
+                    {workOrders.map(wo => (
+                      <div key={wo.work_order_id} className="border rounded-lg p-4 hover:border-violet-300 cursor-pointer transition" onClick={() => setWoViewId(wo.work_order_id)} data-testid={`wo-card-${wo.work_order_id}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h4 className="font-semibold text-sm">{wo.contractor_name}</h4>
+                              <Badge variant="outline" className="text-[10px]">{wo.contractor_type}</Badge>
+                              <Badge className="bg-violet-100 text-violet-700 text-[10px]">{formatCurrency(wo.total_value)}</Badge>
+                            </div>
+                            <div className="flex gap-4 text-xs text-gray-500">
+                              <span>{wo.scope_items?.length || 0} scope items</span>
+                              <span>{wo.stages?.length || 0} stages</span>
+                              <span>{wo.additional_work?.length || 0} additional</span>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openWoDialog(wo)}><Edit className="h-3.5 w-3.5" /></Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Work Order Create/Edit Dialog */}
+              <Dialog open={woDialog} onOpenChange={setWoDialog}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>{editingWo ? 'Edit Work Order' : 'Create New Work Order'}</DialogTitle>
+                    <DialogDescription>Select a contractor and define scope, stages, and additional work</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    {/* Contractor Selection */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Contractor Type</Label>
+                        <Select value={woSelectedType} onValueChange={v => { setWoSelectedType(v); setWoForm(f => ({ ...f, contractor_id: '' })); }}>
+                          <SelectTrigger data-testid="wo-type-select"><SelectValue placeholder="All Types" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__all__">All Types</SelectItem>
+                            {contractorTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Contractor *</Label>
+                        <Select value={woForm.contractor_id || '__pick__'} onValueChange={v => v !== '__pick__' && setWoForm(f => ({ ...f, contractor_id: v }))}>
+                          <SelectTrigger data-testid="wo-contractor-select"><SelectValue placeholder="Select Contractor" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__pick__" disabled>Select Contractor</SelectItem>
+                            {filteredWoContractors.map(c => <SelectItem key={c.contractor_id} value={c.contractor_id}>{c.name} ({c.contractor_type})</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div><Label className="text-xs">Notes</Label><Textarea value={woForm.notes} onChange={e => setWoForm(f => ({ ...f, notes: e.target.value }))} placeholder="Work order notes..." rows={2} data-testid="wo-notes" /></div>
+
+                    {/* Sub-tabs: Scope / Stages / Additional */}
+                    <Tabs value={woSubTab} onValueChange={setWoSubTab}>
+                      <TabsList className="w-full">
+                        <TabsTrigger value="scope" className="flex-1 text-xs" data-testid="wo-tab-scope">Scope Items ({woForm.scope_items.length})</TabsTrigger>
+                        <TabsTrigger value="stages" className="flex-1 text-xs" data-testid="wo-tab-stages">Stages ({woForm.stages.length})</TabsTrigger>
+                        <TabsTrigger value="additional" className="flex-1 text-xs" data-testid="wo-tab-additional">Additional ({woForm.additional_work.length})</TabsTrigger>
+                      </TabsList>
+
+                      {/* SCOPE ITEMS */}
+                      <TabsContent value="scope" className="mt-3">
+                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-scope"><Plus className="h-3 w-3 mr-1" />Add Scope Item</Button></div>
+                        {woForm.scope_items.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No scope items</p> : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Name</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                            {woForm.scope_items.map((item, idx) => {
+                              const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                              return (
+                              <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                <div className="col-span-3"><Input placeholder="Name" value={item.name} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" data-testid={`wo-scope-name-${idx}`} /></div>
+                                <div className="col-span-2"><Input placeholder="Unit" value={item.unit} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, scope_items: f.scope_items.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                              </div>);
+                            })}
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      {/* STAGES */}
+                      <TabsContent value="stages" className="mt-3">
+                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Stage</Button></div>
+                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No stages</p> : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-4">Stage Name</div><div className="col-span-3">Type</div><div className="col-span-3">Value</div><div className="col-span-2"></div></div>
+                            {woForm.stages.map((st, idx) => (
+                              <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                <div className="col-span-4"><Input placeholder="Stage name" value={st.name} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" data-testid={`wo-stage-name-${idx}`} /></div>
+                                <div className="col-span-3">
+                                  <Select value={st.type} onValueChange={v => { const s = [...woForm.stages]; s[idx] = { ...s[idx], type: v }; setWoForm(f => ({ ...f, stages: s })); }}>
+                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent><SelectItem value="percentage">% Percentage</SelectItem><SelectItem value="amount">Fixed Amount</SelectItem></SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="col-span-3"><Input type="number" placeholder={st.type === 'percentage' ? '%' : 'Amount'} value={st.value} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], value: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      {/* ADDITIONAL WORK */}
+                      <TabsContent value="additional" className="mt-3">
+                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button></div>
+                        {woForm.additional_work.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work</p> : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                            {woForm.additional_work.map((item, idx) => {
+                              const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                              return (
+                              <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], description: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" data-testid={`wo-add-desc-${idx}`} /></div>
+                                <div className="col-span-2"><Input placeholder="Unit" value={item.unit} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                              </div>);
+                            })}
+                          </div>
+                        )}
+                      </TabsContent>
+                    </Tabs>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setWoDialog(false)}>Cancel</Button>
+                    <Button onClick={handleSaveWo} className="bg-violet-600 hover:bg-violet-700" data-testid="wo-save-btn">{editingWo ? 'Update Work Order' : 'Create Work Order'}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </TabsContent>
+
 
             {/* ==================== LABOURS TAB ==================== */}
             <TabsContent value="labours" className="p-3 sm:p-6">
