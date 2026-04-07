@@ -25,7 +25,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - Estimate / Final Estimate / Stages / Payments / Additional / Deductions tabs
 - Materials tab: Package template loader, View/Edit toggle, dynamic Material/Brand dropdowns
 - Labours tab: Work order creation, attendance tracking, payment stages
-- **Work Orders tab**: Full CRUD with contractor type → contractor → scope/stages/additional
+- **Work Orders tab**: Full CRUD with contractor type → contractor → scope/stages/additional + **Labour Day Rates** (skilled/semi-skilled/unskilled per-day rates for DLR)
 - **4-Level Payment Approval Pipeline**: SE Request → PM → Planning → Accountant
 - **Freeze & Reassign (NEW)**: OTP-verified freeze of underperforming contractors, auto-creates new WO with balance stages for replacement contractor
 - Documents tab: Site plans, design files
