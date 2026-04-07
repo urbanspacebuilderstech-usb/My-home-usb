@@ -1,0 +1,50 @@
+{
+  "summary": "Planning Board custom navigation in AppHeader feature testing completed. All 5 test cases passed successfully.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_130.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend only test)",
+    "frontend": "100%"
+  },
+  "test_credentials": "Used Demo Access buttons: Planning role for Planning Board, Sales role for Sales CRM",
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Planning Board custom navigation feature is fully working. AppHeader correctly renders custom nav items when customNav prop is provided. The feature was tested with Planning role login.",
+  "features_tested": {
+    "frontend": [
+      "Planning Board page loads with custom nav items (Dashboard, Packages, Material Vendors, Labour Contractors, RE Templates, Live Map) visible in AppHeader - PASSED",
+      "Clicking each nav item in the header switches the tab content correctly - PASSED (tested Packages, Live Map, Dashboard)",
+      "Dashboard tab is active/highlighted by default on page load (has amber styling) - PASSED",
+      "Other pages (Sales CRM) still show regular role-based navigation (Pre-Sales CRM, RE Projects) - PASSED",
+      "Sub-navigation bar does NOT appear on Planning Board page - PASSED"
+    ]
+  },
+  "test_evidence": {
+    "planning_board_custom_nav": {
+      "url": "https://crm-onboard-flow.preview.emergentagent.com/planning-board",
+      "nav_items_found": ["Dashboard", "Packages", "Material Vendors", "Labour Contractors", "RE Templates", "Live Map"],
+      "dashboard_active_by_default": true,
+      "sub_nav_hidden": true,
+      "tab_switching_works": true
+    },
+    "sales_crm_role_nav": {
+      "url": "https://crm-onboard-flow.preview.emergentagent.com/crm-pre-sales",
+      "nav_items_found": ["Pre-Sales CRM", "RE Projects"],
+      "custom_nav_items_absent": true
+    }
+  }
+}

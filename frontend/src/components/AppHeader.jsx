@@ -137,7 +137,7 @@ function getModuleKey(pathname, role) {
   return null;
 }
 
-export function AppHeader({ user, unreadNotifs = 0 }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -154,6 +154,7 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
   const moduleKey = getModuleKey(currentPath, role);
   const subMenus = ROLE_SUB_MENUS[role];
   const subItems = moduleKey && subMenus ? subMenus[moduleKey] : null;
+  const hasCustomNav = customNav && customNav.length > 0;
 
   const isMainActive = (path) => {
     if (subMenus) {
@@ -185,20 +186,37 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
 
           {/* Center: Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
-            {navItems.map((item) => (
-              <button
-                key={item.path}
-                data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
-                onClick={() => navigate(item.path)}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-                  isMainActive(item.path)
-                    ? 'bg-amber-50 text-amber-700 font-semibold'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
+            {hasCustomNav ? (
+              customNav.map((item) => (
+                <button
+                  key={item.value}
+                  data-testid={`nav-${item.value.replace(/_/g, '-')}`}
+                  onClick={() => onCustomNavChange?.(item.value)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                    activeCustomNav === item.value
+                      ? 'bg-amber-50 text-amber-700 font-semibold'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))
+            ) : (
+              navItems.map((item) => (
+                <button
+                  key={item.path}
+                  data-testid={`nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                  onClick={() => navigate(item.path)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
+                    isMainActive(item.path)
+                      ? 'bg-amber-50 text-amber-700 font-semibold'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))
+            )}
           </nav>
 
           {/* Right: Notifs + User + Logout */}
@@ -222,8 +240,8 @@ export function AppHeader({ user, unreadNotifs = 0 }) {
         </div>
       </header>
 
-      {/* Sub-navigation bar (only for roles with sub-menus) */}
-      {subItems && subItems.length > 1 && (
+      {/* Sub-navigation bar (only for roles with sub-menus, hidden when custom nav is active) */}
+      {!hasCustomNav && subItems && subItems.length > 1 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
           <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {subItems.map((item) => (
