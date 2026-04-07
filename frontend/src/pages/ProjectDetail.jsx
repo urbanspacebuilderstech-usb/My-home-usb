@@ -6,7 +6,7 @@ import {
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
   ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
-  GitBranch
+  GitBranch, Lock, Snowflake, Mail
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -493,6 +493,15 @@ export default function ProjectDetail() {
   const [teamDraft, setTeamDraft] = useState({});
   const [teamSaving, setTeamSaving] = useState(false);
 
+  // Freeze & Reassign state
+  const [freezeStep, setFreezeStep] = useState(null); // null | 'otp' | 'reassign'
+  const [freezeWoId, setFreezeWoId] = useState(null);
+  const [freezeOtp, setFreezeOtp] = useState('');
+  const [freezeOtpSending, setFreezeOtpSending] = useState(false);
+  const [freezeOtpVerified, setFreezeOtpVerified] = useState(false);
+  const [freezeNewType, setFreezeNewType] = useState('');
+  const [freezeForm, setFreezeForm] = useState({ new_contractor_id: '', scope_items: [], stages: [], additional_work: [], notes: '' });
+
   useEffect(() => {
     fetchData();
   }, [projectId]);
@@ -880,6 +889,73 @@ export default function ProjectDetail() {
     if (role === 'accountant' && status === 'planning_approved') return true;
     return false;
   };
+
+  // === FREEZE & REASSIGN HANDLERS ===
+  const startFreeze = async (woId) => {
+    setFreezeWoId(woId);
+    setFreezeOtp('');
+    setFreezeOtpVerified(false);
+    setFreezeStep('otp');
+    setFreezeOtpSending(true);
+    try {
+      // Also load contractors for the reassign step
+      const [typesRes, contRes] = await Promise.all([
+        axios.get(`${API}/contractor-types`),
+        axios.get(`${API}/contractors`),
+      ]);
+      setContractorTypes(typesRes.data || []);
+      setAllContractors(contRes.data || []);
+      // Send OTP
+      const res = await axios.post(`${API}/projects/${projectId}/work-orders/${woId}/freeze/send-otp`);
+      toast.success(res.data.message || 'OTP sent to your email');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send OTP'); setFreezeStep(null); }
+    finally { setFreezeOtpSending(false); }
+  };
+
+  const verifyFreezeOtp = async () => {
+    if (!freezeOtp || freezeOtp.length !== 6) { toast.error('Enter 6-digit OTP'); return; }
+    try {
+      await axios.post(`${API}/projects/${projectId}/work-orders/${freezeWoId}/freeze/verify-otp`, { otp: freezeOtp });
+      setFreezeOtpVerified(true);
+      toast.success('OTP verified');
+      // Pre-fill reassign form with balance stages
+      const wo = workOrders.find(w => w.work_order_id === freezeWoId);
+      if (wo) {
+        const balanceStages = (wo.stages || []).filter(s => s.status !== 'approved');
+        setFreezeForm({
+          new_contractor_id: '',
+          scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
+          stages: balanceStages.map(s => ({ name: s.name, type: s.type, value: s.value })),
+          additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+          notes: '',
+        });
+        setFreezeNewType('');
+      }
+      setFreezeStep('reassign');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Invalid OTP'); }
+  };
+
+  const submitFreezeReassign = async () => {
+    if (!freezeForm.new_contractor_id) { toast.error('Select a new contractor'); return; }
+    if (freezeForm.stages.length === 0) { toast.error('At least one stage is required'); return; }
+    try {
+      const res = await axios.post(`${API}/projects/${projectId}/work-orders/${freezeWoId}/freeze/reassign`, {
+        otp: freezeOtp,
+        new_contractor_id: freezeForm.new_contractor_id,
+        scope_items: freezeForm.scope_items,
+        stages: freezeForm.stages,
+        additional_work: freezeForm.additional_work,
+        notes: freezeForm.notes,
+      });
+      toast.success(`Work order frozen & reassigned to ${res.data.new_contractor}`);
+      setFreezeStep(null);
+      setFreezeWoId(null);
+      setWoViewId(null);
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to reassign'); }
+  };
+
+  const filteredFreezeContractors = allContractors.filter(c => c.is_active !== false && (!freezeNewType || c.contractor_type === freezeNewType));
 
 
 
@@ -4272,14 +4348,28 @@ export default function ProjectDetail() {
                       <div data-testid="wo-detail-view">
                         <Button variant="ghost" size="sm" onClick={() => setWoViewId(null)} className="mb-3"><ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to List</Button>
                         <div className="border rounded-lg overflow-hidden">
-                          <div className="bg-violet-50 p-4 border-b flex items-center justify-between">
+                          <div className={`p-4 border-b flex items-center justify-between ${wo.status === 'frozen' ? 'bg-red-50' : wo.reassigned_from ? 'bg-emerald-50' : 'bg-violet-50'}`}>
                             <div>
-                              <p className="font-bold text-sm">{wo.contractor_name}</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="font-bold text-sm">{wo.contractor_name}</p>
+                                {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]">Frozen</Badge>}
+                                {wo.reassigned_from && <Badge className="bg-emerald-600 text-white text-[10px]">Reassigned from {wo.reassigned_contractor || wo.reassigned_from}</Badge>}
+                              </div>
                               <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}{wo.paid_amount > 0 ? ` | Paid: ${formatCurrency(wo.paid_amount)}` : ''}</p>
+                              {wo.frozen_reason && <p className="text-xs text-red-600 mt-1">Reason: {wo.frozen_reason}</p>}
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
-                              <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
+                              {wo.status !== 'frozen' && ['planning', 'super_admin'].includes(user?.role) && (
+                                <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50" onClick={() => startFreeze(wo.work_order_id)} data-testid="wo-freeze-btn">
+                                  <Lock className="h-3 w-3 mr-1" />Freeze
+                                </Button>
+                              )}
+                              {wo.status !== 'frozen' && (
+                                <>
+                                  <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
+                                  <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
+                                </>
+                              )}
                             </div>
                           </div>
                           <Tabs defaultValue="scope" className="w-full">
@@ -4382,7 +4472,7 @@ export default function ProjectDetail() {
                       const totalStages = (wo.stages || []).length;
                       const pendingRequests = (wo.stages || []).filter(s => ['requested','pm_approved','planning_approved'].includes(s.status)).length;
                       return (
-                      <div key={wo.work_order_id} className="border rounded-lg p-4 hover:border-violet-300 cursor-pointer transition" onClick={() => setWoViewId(wo.work_order_id)} data-testid={`wo-card-${wo.work_order_id}`}>
+                      <div key={wo.work_order_id} className={`border rounded-lg p-4 hover:border-violet-300 cursor-pointer transition ${wo.status === 'frozen' ? 'border-red-200 bg-red-50/30 opacity-75' : wo.reassigned_from ? 'border-emerald-300 bg-emerald-50/30' : ''}`} onClick={() => setWoViewId(wo.work_order_id)} data-testid={`wo-card-${wo.work_order_id}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -4391,6 +4481,8 @@ export default function ProjectDetail() {
                               <Badge className="bg-violet-100 text-violet-700 text-[10px]">{formatCurrency(wo.total_value)}</Badge>
                               {wo.paid_amount > 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Paid: {formatCurrency(wo.paid_amount)}</Badge>}
                               {pendingRequests > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{pendingRequests} pending approval</Badge>}
+                              {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]"><Snowflake className="h-2.5 w-2.5 mr-0.5" />Frozen</Badge>}
+                              {wo.reassigned_from && <Badge className="bg-emerald-600 text-white text-[10px]">Reassigned</Badge>}
                             </div>
                             <div className="flex gap-4 text-xs text-gray-500">
                               <span>{wo.scope_items?.length || 0} scope items</span>
@@ -4399,8 +4491,13 @@ export default function ProjectDetail() {
                             </div>
                           </div>
                           <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openWoDialog(wo)}><Edit className="h-3.5 w-3.5" /></Button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                            {wo.status !== 'frozen' && (
+                              <>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openWoDialog(wo)}><Edit className="h-3.5 w-3.5" /></Button>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                              </>
+                            )}
+                            {wo.status === 'frozen' && <Lock className="h-4 w-4 text-red-400" />}
                           </div>
                         </div>
                       </div>);
@@ -4524,10 +4621,175 @@ export default function ProjectDetail() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
+
+              {/* ======= FREEZE OTP DIALOG ======= */}
+              <Dialog open={freezeStep === 'otp'} onOpenChange={(open) => { if (!open) setFreezeStep(null); }}>
+                <DialogContent className="max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2"><Lock className="h-4 w-4 text-red-500" />Freeze Work Order</DialogTitle>
+                    <DialogDescription>An OTP has been sent to your email. Enter it below to authorize the freeze.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+                      <Mail className="h-4 w-4" /><span>Check your email for the 6-digit code</span>
+                    </div>
+                    <div className="flex justify-center">
+                      <Input
+                        className="text-center text-2xl tracking-[0.5em] font-bold w-56 h-14"
+                        maxLength={6} placeholder="000000" value={freezeOtp}
+                        onChange={e => setFreezeOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        data-testid="freeze-otp-input"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <Button variant="ghost" size="sm" className="text-xs" disabled={freezeOtpSending}
+                        onClick={() => startFreeze(freezeWoId)}>
+                        Resend OTP
+                      </Button>
+                      <Button onClick={verifyFreezeOtp} disabled={freezeOtp.length !== 6} data-testid="freeze-otp-verify-btn">
+                        Verify & Continue
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              {/* ======= FREEZE REASSIGN DIALOG ======= */}
+              <Dialog open={freezeStep === 'reassign'} onOpenChange={(open) => { if (!open) setFreezeStep(null); }}>
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Snowflake className="h-4 w-4 text-blue-500" />Reassign Work Order
+                    </DialogTitle>
+                    <DialogDescription>
+                      The current work order will be frozen. Select a new contractor and review the balance items below.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    {/* Frozen WO info */}
+                    {(() => {
+                      const frozenWo = workOrders.find(w => w.work_order_id === freezeWoId);
+                      if (!frozenWo) return null;
+                      const paidCount = (frozenWo.stages || []).filter(s => s.status === 'approved').length;
+                      const balanceCount = (frozenWo.stages || []).length - paidCount;
+                      return (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm">
+                          <p className="font-medium text-red-800">Freezing: {frozenWo.contractor_name} ({frozenWo.contractor_type})</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            {paidCount} stages paid | {balanceCount} balance stages will be carried to new work order
+                          </p>
+                        </div>
+                      );
+                    })()}
+
+                    {/* New Contractor Selection */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Contractor Type</Label>
+                        <Select value={freezeNewType} onValueChange={v => { setFreezeNewType(v); setFreezeForm(f => ({...f, new_contractor_id: ''})); }}>
+                          <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
+                          <SelectContent>{contractorTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">New Contractor *</Label>
+                        <Select value={freezeForm.new_contractor_id} onValueChange={v => setFreezeForm(f => ({...f, new_contractor_id: v}))}>
+                          <SelectTrigger data-testid="freeze-new-contractor"><SelectValue placeholder="Select contractor" /></SelectTrigger>
+                          <SelectContent>{filteredFreezeContractors.map(c => <SelectItem key={c.contractor_id} value={c.contractor_id}>{c.name} ({c.contractor_type})</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Balance Scope Items */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-xs font-semibold">Scope Items ({freezeForm.scope_items.length})</Label>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setFreezeForm(f => ({...f, scope_items: [...f.scope_items, {name:'', unit:'nos', quantity:1, unit_rate:0}]}))}>
+                          <Plus className="h-2.5 w-2.5 mr-0.5" />Add
+                        </Button>
+                      </div>
+                      {freezeForm.scope_items.length > 0 && (
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                          <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1">
+                            <div className="col-span-3">Name</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div>
+                          </div>
+                          {freezeForm.scope_items.map((item, idx) => (
+                            <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                              <div className="col-span-3"><Input className="h-7 text-xs" value={item.name} onChange={e => { const s=[...freezeForm.scope_items]; s[idx]={...s[idx],name:e.target.value}; setFreezeForm(f=>({...f,scope_items:s})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" value={item.unit} onChange={e => { const s=[...freezeForm.scope_items]; s[idx]={...s[idx],unit:e.target.value}; setFreezeForm(f=>({...f,scope_items:s})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" type="number" value={item.quantity} onChange={e => { const s=[...freezeForm.scope_items]; s[idx]={...s[idx],quantity:parseFloat(e.target.value)||0}; setFreezeForm(f=>({...f,scope_items:s})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" type="number" value={item.unit_rate} onChange={e => { const s=[...freezeForm.scope_items]; s[idx]={...s[idx],unit_rate:parseFloat(e.target.value)||0}; setFreezeForm(f=>({...f,scope_items:s})); }} /></div>
+                              <div className="col-span-2"><span className="text-[11px] font-medium">{formatCurrency((parseFloat(item.quantity)||0)*(parseFloat(item.unit_rate)||0))}</span></div>
+                              <div className="col-span-1"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setFreezeForm(f=>({...f,scope_items:f.scope_items.filter((_,i)=>i!==idx)}))}><X className="h-3 w-3" /></Button></div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Balance Stages */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-xs font-semibold">Balance Stages ({freezeForm.stages.length})</Label>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setFreezeForm(f => ({...f, stages: [...f.stages, {name:`Stage ${f.stages.length+1}`, type:'percentage', value:0}]}))}>
+                          <Plus className="h-2.5 w-2.5 mr-0.5" />Add
+                        </Button>
+                      </div>
+                      {freezeForm.stages.length > 0 && (
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                          {freezeForm.stages.map((st, idx) => (
+                            <div key={idx} className="flex items-center gap-2 bg-amber-50 rounded p-2">
+                              <Input className="h-7 text-xs flex-1" value={st.name} onChange={e => { const s=[...freezeForm.stages]; s[idx]={...s[idx],name:e.target.value}; setFreezeForm(f=>({...f,stages:s})); }} />
+                              <Select value={st.type} onValueChange={v => { const s=[...freezeForm.stages]; s[idx]={...s[idx],type:v}; setFreezeForm(f=>({...f,stages:s})); }}>
+                                <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent><SelectItem value="percentage">%</SelectItem><SelectItem value="amount">Fixed</SelectItem></SelectContent>
+                              </Select>
+                              <Input className="h-7 w-20 text-xs" type="number" value={st.value} onChange={e => { const s=[...freezeForm.stages]; s[idx]={...s[idx],value:parseFloat(e.target.value)||0}; setFreezeForm(f=>({...f,stages:s})); }} />
+                              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setFreezeForm(f=>({...f,stages:f.stages.filter((_,i)=>i!==idx)}))}><X className="h-3 w-3" /></Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Additional Work */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-xs font-semibold">Additional Work ({freezeForm.additional_work.length})</Label>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setFreezeForm(f => ({...f, additional_work: [...f.additional_work, {description:'', unit:'nos', quantity:1, unit_rate:0}]}))}>
+                          <Plus className="h-2.5 w-2.5 mr-0.5" />Add
+                        </Button>
+                      </div>
+                      {freezeForm.additional_work.length > 0 && (
+                        <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                          {freezeForm.additional_work.map((item, idx) => (
+                            <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                              <div className="col-span-4"><Input className="h-7 text-xs" placeholder="Description" value={item.description} onChange={e => { const a=[...freezeForm.additional_work]; a[idx]={...a[idx],description:e.target.value}; setFreezeForm(f=>({...f,additional_work:a})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" value={item.unit} onChange={e => { const a=[...freezeForm.additional_work]; a[idx]={...a[idx],unit:e.target.value}; setFreezeForm(f=>({...f,additional_work:a})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" type="number" value={item.quantity} onChange={e => { const a=[...freezeForm.additional_work]; a[idx]={...a[idx],quantity:parseFloat(e.target.value)||0}; setFreezeForm(f=>({...f,additional_work:a})); }} /></div>
+                              <div className="col-span-2"><Input className="h-7 text-xs" type="number" value={item.unit_rate} onChange={e => { const a=[...freezeForm.additional_work]; a[idx]={...a[idx],unit_rate:parseFloat(e.target.value)||0}; setFreezeForm(f=>({...f,additional_work:a})); }} /></div>
+                              <div className="col-span-1"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setFreezeForm(f=>({...f,additional_work:f.additional_work.filter((_,i)=>i!==idx)}))}><X className="h-3 w-3" /></Button></div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Notes */}
+                    <div>
+                      <Label className="text-xs">Reason / Notes</Label>
+                      <Input className="h-8 text-sm" placeholder="Why is this contractor being replaced?" value={freezeForm.notes} onChange={e => setFreezeForm(f => ({...f, notes: e.target.value}))} data-testid="freeze-reason" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setFreezeStep(null)}>Cancel</Button>
+                    <Button className="bg-red-600 hover:bg-red-700" onClick={submitFreezeReassign} data-testid="freeze-reassign-btn">
+                      <Snowflake className="h-3.5 w-3.5 mr-1" />Freeze & Reassign
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </TabsContent>
-
-
-            {/* ==================== LABOURS TAB ==================== */}
             <TabsContent value="labours" className="p-3 sm:p-6">
               <div className="space-y-4">
                 <div className="flex justify-between items-center">

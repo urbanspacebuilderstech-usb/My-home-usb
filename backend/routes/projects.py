@@ -3500,3 +3500,227 @@ async def get_contractor_types(user: User = Depends(get_current_user)):
     """Get distinct contractor types"""
     types = await db.contractors.distinct("contractor_type", {"is_active": {"$ne": False}})
     return [t for t in types if t]
+
+
+# ==================== WORK ORDER FREEZE & REASSIGN ====================
+
+import resend
+import random
+import hashlib
+
+resend.api_key = os.environ.get('RESEND_API_KEY', '')
+SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+
+
+class FreezeReassignRequest(BaseModel):
+    otp: str
+    new_contractor_id: str
+    scope_items: List[WorkOrderScopeItem] = []
+    stages: List[WorkOrderStage] = []
+    additional_work: List[WorkOrderAdditionalItem] = []
+    notes: Optional[str] = ""
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/send-otp")
+async def wo_freeze_send_otp(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+    """Send OTP to current Planning user's email to authorize freeze"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can freeze work orders")
+
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if wo.get("status") == "frozen":
+        raise HTTPException(status_code=400, detail="Work order is already frozen")
+
+    # Check if there are any non-paid stages to carry over
+    balance_stages = [s for s in wo.get("stages", []) if s.get("status") != "approved"]
+    if not balance_stages:
+        raise HTTPException(status_code=400, detail="No balance stages to reassign — all stages are already paid")
+
+    otp_code = str(random.randint(100000, 999999))
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # Store OTP
+    await db.freeze_otps.delete_many({"user_id": user.user_id, "work_order_id": work_order_id})
+    await db.freeze_otps.insert_one({
+        "user_id": user.user_id,
+        "work_order_id": work_order_id,
+        "project_id": project_id,
+        "otp_hash": otp_hash,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "email": 1, "name": 1})
+    user_email = (user_doc or {}).get("email", "")
+    user_name = (user_doc or {}).get("name", "User")
+
+    if resend.api_key and user_email:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [user_email],
+                "subject": f"Work Order Freeze OTP - {wo.get('contractor_name', '')}",
+                "html": f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+                    <div style="background: #1F2937; padding: 16px; text-align: center;">
+                        <h2 style="margin: 0; color: #FBBF24;">ConstructionOS</h2>
+                    </div>
+                    <div style="padding: 24px; background: #fff; border: 1px solid #E5E7EB;">
+                        <p style="color: #1F2937;">Hi {user_name},</p>
+                        <p style="color: #4B5563;">You requested to <strong>freeze</strong> work order for <strong>{wo.get('contractor_name', '')}</strong>.</p>
+                        <div style="text-align: center; margin: 24px 0; padding: 16px; background: #FEF3C7; border-radius: 8px;">
+                            <p style="margin: 0; color: #92400E; font-size: 13px;">Your OTP Code</p>
+                            <p style="margin: 8px 0 0; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1F2937;">{otp_code}</p>
+                        </div>
+                        <p style="color: #9CA3AF; font-size: 12px;">This OTP expires in 10 minutes. If you did not request this, please ignore.</p>
+                    </div>
+                </div>
+                """
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logger.info(f"Freeze OTP sent to {user_email}")
+        except Exception as e:
+            logger.error(f"Failed to send freeze OTP email: {e}")
+
+    masked_email = user_email[:3] + "***" + user_email[user_email.index("@"):] if user_email and "@" in user_email else "your email"
+    return {"message": f"OTP sent to {masked_email}", "expires_in": 600}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/verify-otp")
+async def wo_freeze_verify_otp(project_id: str, work_order_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Verify OTP for freeze authorization"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    otp_code = data.get("otp", "")
+    if not otp_code:
+        raise HTTPException(status_code=400, detail="OTP is required")
+
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    record = await db.freeze_otps.find_one({
+        "user_id": user.user_id,
+        "work_order_id": work_order_id,
+        "project_id": project_id,
+        "otp_hash": otp_hash
+    }, {"_id": 0})
+
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    if datetime.fromisoformat(record["expires_at"]) < datetime.now(timezone.utc):
+        await db.freeze_otps.delete_many({"user_id": user.user_id, "work_order_id": work_order_id})
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+
+    return {"message": "OTP verified", "verified": True}
+
+
+@router.post("/projects/{project_id}/work-orders/{work_order_id}/freeze/reassign")
+async def wo_freeze_and_reassign(project_id: str, work_order_id: str, data: FreezeReassignRequest, user: User = Depends(get_current_user)):
+    """Freeze current WO and create new WO with balance stages for new contractor"""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Verify OTP again
+    otp_hash = hashlib.sha256(data.otp.encode()).hexdigest()
+    otp_record = await db.freeze_otps.find_one({
+        "user_id": user.user_id,
+        "work_order_id": work_order_id,
+        "project_id": project_id,
+        "otp_hash": otp_hash
+    }, {"_id": 0})
+    if not otp_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP. Please re-verify.")
+    if datetime.fromisoformat(otp_record["expires_at"]) < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
+
+    # Get current work order
+    wo = await db.project_work_orders.find_one(
+        {"work_order_id": work_order_id, "project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}
+    )
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    if wo.get("status") == "frozen":
+        raise HTTPException(status_code=400, detail="Work order is already frozen")
+
+    # Get new contractor
+    new_contractor = await db.contractors.find_one({"contractor_id": data.new_contractor_id}, {"_id": 0})
+    if not new_contractor:
+        raise HTTPException(status_code=404, detail="New contractor not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # === FREEZE original work order ===
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {
+            "status": "frozen",
+            "frozen_at": now,
+            "frozen_by": user.user_id,
+            "frozen_reason": data.notes or "Contractor replaced",
+            "updated_at": now
+        }}
+    )
+
+    # === CREATE new work order from balance data ===
+    scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
+    additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
+
+    scope_items = [{"name": s.name, "unit": s.unit, "quantity": s.quantity, "unit_rate": s.unit_rate, "total": round(s.quantity * s.unit_rate, 2)} for s in data.scope_items]
+
+    stages = []
+    for st in data.stages:
+        amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
+        stages.append({
+            "stage_id": f"wos_{uuid.uuid4().hex[:6]}",
+            "name": st.name, "type": st.type, "value": st.value, "amount": amt,
+            "status": "pending",
+            "requested_by": None, "requested_at": None,
+            "pm_approved_by": None, "pm_approved_at": None,
+            "planning_approved_by": None, "planning_approved_at": None,
+            "accountant_approved_by": None, "accountant_approved_at": None,
+            "approved_amount": None, "rejection_reason": None,
+        })
+
+    additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)} for a in data.additional_work]
+
+    new_wo = {
+        "work_order_id": f"wo_{uuid.uuid4().hex[:8]}",
+        "project_id": project_id,
+        "project_name": wo.get("project_name", ""),
+        "contractor_id": data.new_contractor_id,
+        "contractor_name": new_contractor.get("name", ""),
+        "contractor_type": new_contractor.get("contractor_type", ""),
+        "scope_items": scope_items,
+        "scope_total": round(scope_total, 2),
+        "stages": stages,
+        "additional_work": additional,
+        "additional_total": round(additional_total, 2),
+        "total_value": round(scope_total + additional_total, 2),
+        "paid_amount": 0,
+        "notes": data.notes or "",
+        "status": "active",
+        "is_active": True,
+        "reassigned_from": work_order_id,
+        "reassigned_contractor": wo.get("contractor_name", ""),
+        "created_by": user.user_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.project_work_orders.insert_one(new_wo)
+    new_wo.pop("_id", None)
+
+    # Cleanup OTP
+    await db.freeze_otps.delete_many({"user_id": user.user_id, "work_order_id": work_order_id})
+
+    return {
+        "message": "Work order frozen and reassigned successfully",
+        "frozen_work_order_id": work_order_id,
+        "new_work_order_id": new_wo["work_order_id"],
+        "new_contractor": new_contractor.get("name", ""),
+        "balance_stages": len(stages)
+    }
