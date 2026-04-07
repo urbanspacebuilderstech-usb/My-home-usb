@@ -487,6 +487,7 @@ export default function ProjectDetail() {
   const [showInventoryForm, setShowInventoryForm] = useState(false);
   const [showWOForm, setShowWOForm] = useState(false);
   const [invForm, setInvForm] = useState({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
+  const [invDashboard, setInvDashboard] = useState(null);
 
   // Team editing state
   const [teamEditDialog, setTeamEditDialog] = useState(false);
@@ -1052,16 +1053,18 @@ export default function ProjectDetail() {
 
   const fetchWorkOrderData = async () => {
     try {
-      const [woRes, cRes, attRes, invRes] = await Promise.all([
+      const [woRes, cRes, attRes, invRes, dashRes] = await Promise.all([
         axios.get(`${API}/labour-work-orders?project_id=${projectId}`),
         axios.get(`${API}/contractors`),
         axios.get(`${API}/labour-attendance?project_id=${projectId}`),
-        axios.get(`${API}/material-inventory?project_id=${projectId}`)
+        axios.get(`${API}/material-inventory?project_id=${projectId}`),
+        axios.get(`${API}/material-inventory/dashboard?project_id=${projectId}`).catch(() => null)
       ]);
       setWorkOrders(woRes.data || []);
       setAllContractors(cRes.data || []);
       setLabourAttendance(attRes.data || []);
       setMaterialInventory(invRes.data || []);
+      setInvDashboard(dashRes?.data || null);
     } catch { /* ignore */ }
   };
 
@@ -4198,6 +4201,65 @@ export default function ProjectDetail() {
                         </Button>
                       )}
                     </div>
+
+                    {/* Current Stock Dashboard */}
+                    {invDashboard && invDashboard.materials?.length > 0 && (
+                      <div className="mb-4" data-testid="inv-dashboard-pd">
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-center">
+                            <p className="text-[10px] text-amber-600 font-medium">Materials</p>
+                            <p className="text-lg font-bold text-amber-800">{invDashboard.total_materials}</p>
+                          </div>
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 text-center">
+                            <p className="text-[10px] text-green-600 font-medium">In Stock</p>
+                            <p className="text-lg font-bold text-green-800">{(invDashboard.total_materials || 0) - (invDashboard.low_stock_count || 0)}</p>
+                          </div>
+                          <div className={`border rounded-lg p-2.5 text-center ${invDashboard.low_stock_count > 0 ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
+                            <p className={`text-[10px] font-medium ${invDashboard.low_stock_count > 0 ? 'text-red-600' : 'text-gray-500'}`}>Low Stock</p>
+                            <p className={`text-lg font-bold ${invDashboard.low_stock_count > 0 ? 'text-red-700' : 'text-gray-400'}`}>{invDashboard.low_stock_count}</p>
+                          </div>
+                        </div>
+
+                        <div className="border rounded-lg overflow-hidden mb-4" data-testid="inv-current-stock">
+                          <div className="bg-gray-800 text-white px-3 py-2 text-xs font-semibold">Current Stock Levels</div>
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-100 border-b">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Material</th>
+                                <th className="px-2 py-2 text-center font-medium text-gray-600">Unit</th>
+                                <th className="px-2 py-2 text-center font-medium text-blue-700">Current Stock</th>
+                                <th className="px-2 py-2 text-center font-medium text-green-700">Total Received</th>
+                                <th className="px-2 py-2 text-center font-medium text-red-700">Total Used</th>
+                                <th className="px-2 py-2 text-center font-medium text-amber-700">Threshold</th>
+                                <th className="px-2 py-2 text-center font-medium">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {invDashboard.materials.map((m, i) => (
+                                <tr key={m.material_name} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''}`}>
+                                  <td className="px-3 py-2 font-medium">{m.material_name}</td>
+                                  <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
+                                  <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
+                                  <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
+                                  <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
+                                  <td className="px-2 py-2 text-center text-amber-700">{m.min_threshold || '-'}</td>
+                                  <td className="px-2 py-2 text-center">
+                                    {m.is_low_stock ? (
+                                      <Badge className="bg-red-100 text-red-700 text-[10px]">LOW</Badge>
+                                    ) : (
+                                      <Badge className="bg-green-100 text-green-700 text-[10px]">OK</Badge>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* History table */}
+                    <h4 className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Entry History</h4>
                     {materialInventory.length > 0 ? (
                       <div className="border rounded-lg overflow-hidden">
                         <table className="w-full text-sm">

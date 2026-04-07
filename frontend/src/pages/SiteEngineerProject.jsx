@@ -113,13 +113,15 @@ export default function SiteEngineerProject() {
   const [loadingPWO, setLoadingPWO] = useState(false);
   const [expandedDlr, setExpandedDlr] = useState(null);
 
-  // Stock Register state
+  // Stock Register / Inventory state
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
   const [stockEntries, setStockEntries] = useState({});
   const [latestStock, setLatestStock] = useState([]);
   const [stockHistory, setStockHistory] = useState([]);
   const [savingStock, setSavingStock] = useState(false);
   const [addStockMaterial, setAddStockMaterial] = useState({ name: '', unit: 'bags' });
+  const [inventoryDashboard, setInventoryDashboard] = useState(null);
+  const [savingThreshold, setSavingThreshold] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -270,14 +272,16 @@ export default function SiteEngineerProject() {
   // ============ STOCK REGISTER FUNCTIONS ============
   const fetchStockData = async (date) => {
     try {
-      const [latestRes, historyRes, receivedRes] = await Promise.all([
+      const [latestRes, historyRes, receivedRes, dashRes] = await Promise.all([
         axios.get(`${API}/material-inventory/latest?project_id=${projectId}`),
         axios.get(`${API}/material-inventory?project_id=${projectId}`),
-        axios.get(`${API}/projects/${projectId}/received-stock`)
+        axios.get(`${API}/projects/${projectId}/received-stock`),
+        axios.get(`${API}/material-inventory/dashboard?project_id=${projectId}`)
       ]);
       setLatestStock(latestRes.data || []);
       setStockHistory(historyRes.data || []);
       setReceivedStock(receivedRes.data || []);
+      setInventoryDashboard(dashRes.data || null);
 
       // Auto-populate entries from received stock + existing inventory
       const entries = {};
@@ -323,13 +327,28 @@ export default function SiteEngineerProject() {
           date: stockDate,
           opening_stock: Number(data.opening_stock) || 0,
           received: Number(data.received) || 0,
-          used: Number(data.used) || 0
+          used: Number(data.used) || 0,
+          min_threshold: Number(data.min_threshold) || 0
         });
       }
-      toast.success('Stock register saved for ' + stockDate);
+      toast.success('Inventory saved for ' + stockDate);
       fetchStockData(stockDate);
     } catch { toast.error('Failed to save stock'); }
     finally { setSavingStock(false); }
+  };
+
+  const handleUpdateThreshold = async (materialName, threshold) => {
+    setSavingThreshold(materialName);
+    try {
+      await axios.patch(`${API}/material-inventory/threshold`, {
+        project_id: projectId,
+        material_name: materialName,
+        min_threshold: Number(threshold) || 0
+      });
+      toast.success(`Threshold updated for ${materialName}`);
+      fetchStockData(stockDate);
+    } catch { toast.error('Failed to update threshold'); }
+    finally { setSavingThreshold(null); }
   };
 
   const handleAddStockMaterial = () => {
@@ -687,8 +706,8 @@ export default function SiteEngineerProject() {
             </TabsTrigger>
             <TabsTrigger value="stock_register" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-stock-register">
               <Warehouse className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Stock</span>
-              <span className="sm:hidden">Stock</span>
+              <span className="hidden sm:inline">Inventory</span>
+              <span className="sm:hidden">Inv</span>
             </TabsTrigger>
             <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-daily-progress">
               <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
@@ -1101,7 +1120,7 @@ export default function SiteEngineerProject() {
             <WorkOrderTab projectId={projectId} quickAttPopup={quickAttPopup} onQuickAttClose={() => setQuickAttPopup(false)} />
           </TabsContent>
 
-          {/* STOCK REGISTER TAB */}
+          {/* INVENTORY TAB */}
           <TabsContent value="stock_register">
             <Card>
               <CardHeader className="p-3 sm:p-6">
@@ -1109,9 +1128,9 @@ export default function SiteEngineerProject() {
                   <div>
                     <CardTitle className="text-base sm:text-lg flex items-center gap-2">
                       <Warehouse className="h-4 w-4 text-amber-600" />
-                      Daily Stock Count Report
+                      Daily Inventory Register
                     </CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Inventory tracking with daily order count and check-in</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Track stock daily — opening, received, used, closing</CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-gray-500" />
@@ -1128,31 +1147,87 @@ export default function SiteEngineerProject() {
               <CardContent className="p-3 sm:p-6 pt-0">
                 <div className="space-y-4">
 
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-3 gap-2 sm:gap-3" data-testid="stock-summary-cards">
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 sm:p-3 text-center">
-                      <p className="text-[10px] sm:text-xs text-amber-600 font-medium">Materials Tracked</p>
-                      <p className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="materials-count">{Object.keys(stockEntries).length}</p>
-                      <p className="text-[10px] text-amber-500">Rows</p>
+                  {/* Current Stock Dashboard */}
+                  {inventoryDashboard && (
+                    <div data-testid="inventory-dashboard">
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-3">
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 sm:p-3 text-center">
+                          <p className="text-[10px] sm:text-xs text-amber-600 font-medium">Materials Tracked</p>
+                          <p className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="materials-count">{inventoryDashboard.total_materials}</p>
+                        </div>
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 sm:p-3 text-center">
+                          <p className="text-[10px] sm:text-xs text-green-600 font-medium">In Stock</p>
+                          <p className="text-lg sm:text-2xl font-bold text-green-800">{(inventoryDashboard.total_materials || 0) - (inventoryDashboard.low_stock_count || 0)}</p>
+                        </div>
+                        <div className={`border rounded-lg p-2.5 sm:p-3 text-center ${inventoryDashboard.low_stock_count > 0 ? 'bg-red-50 border-red-300 animate-pulse' : 'bg-gray-50 border-gray-200'}`}>
+                          <p className={`text-[10px] sm:text-xs font-medium ${inventoryDashboard.low_stock_count > 0 ? 'text-red-600' : 'text-gray-500'}`}>Low Stock Alerts</p>
+                          <p className={`text-lg sm:text-2xl font-bold ${inventoryDashboard.low_stock_count > 0 ? 'text-red-700' : 'text-gray-400'}`} data-testid="low-stock-count">{inventoryDashboard.low_stock_count}</p>
+                        </div>
+                      </div>
+
+                      {/* Current Stock Summary Table */}
+                      {inventoryDashboard.materials?.length > 0 && (
+                        <div className="border rounded-lg overflow-hidden mb-3" data-testid="current-stock-table">
+                          <div className="bg-gray-800 text-white px-3 py-2 text-xs font-semibold flex items-center gap-1">
+                            <Warehouse className="h-3 w-3" /> Current Stock Levels
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-100 border-b">
+                              <tr>
+                                <th className="text-left px-3 py-2 font-medium text-gray-600">Material</th>
+                                <th className="text-center px-2 py-2 font-medium text-gray-600">Unit</th>
+                                <th className="text-center px-2 py-2 font-medium text-blue-700">Current Stock</th>
+                                <th className="text-center px-2 py-2 font-medium text-green-700">Total Received</th>
+                                <th className="text-center px-2 py-2 font-medium text-red-700">Total Used</th>
+                                <th className="text-center px-2 py-2 font-medium text-amber-700">Min Threshold</th>
+                                <th className="text-center px-2 py-2 font-medium text-gray-600">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {inventoryDashboard.materials.map((m, i) => (
+                                <tr key={m.material_name} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''}`} data-testid={`inv-row-${m.material_name}`}>
+                                  <td className="px-3 py-2 font-medium">{m.material_name}</td>
+                                  <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
+                                  <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
+                                  <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
+                                  <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
+                                  <td className="px-2 py-2 text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                      <Input
+                                        type="number" min="0"
+                                        className="h-6 w-16 text-center text-[11px] border-amber-200"
+                                        defaultValue={m.min_threshold || ''}
+                                        onBlur={(e) => {
+                                          const val = Number(e.target.value);
+                                          if (val !== (m.min_threshold || 0)) handleUpdateThreshold(m.material_name, val);
+                                        }}
+                                        data-testid={`inv-threshold-${m.material_name}`}
+                                      />
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    {m.is_low_stock ? (
+                                      <Badge className="bg-red-100 text-red-700 text-[10px]" data-testid={`inv-alert-${m.material_name}`}>LOW</Badge>
+                                    ) : (
+                                      <Badge className="bg-green-100 text-green-700 text-[10px]">OK</Badge>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <p className="text-[10px] text-gray-400 px-3 py-1 border-t bg-gray-50">Set min threshold to get low stock alerts. Click away from the input to save.</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 sm:p-3 text-center">
-                      <p className="text-[10px] sm:text-xs text-green-600 font-medium">Received / Check-in</p>
-                      <p className="text-lg sm:text-2xl font-bold text-green-800" data-testid="received-count">{receivedStock.length}</p>
-                      <p className="text-[10px] text-green-500">Materials</p>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 sm:p-3 text-center">
-                      <p className="text-[10px] sm:text-xs text-blue-600 font-medium">Total Orders</p>
-                      <p className="text-lg sm:text-2xl font-bold text-blue-800" data-testid="orders-count">{receivedStock.reduce((acc, m) => acc + (m.receipts?.length || 0), 0)}</p>
-                      <p className="text-[10px] text-blue-500">Deliveries</p>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Date Header */}
                   <div className="flex items-center justify-between bg-gray-100 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-2">
                       <Calendar className="h-3.5 w-3.5 text-gray-600" />
                       <span className="text-xs sm:text-sm font-semibold text-gray-700">
-                        {new Date(stockDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}
+                        Daily Entry: {new Date(stockDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}
                       </span>
                     </div>
                     <span className="text-[10px] sm:text-xs text-gray-500" data-testid="stock-row-count">
@@ -1181,7 +1256,7 @@ export default function SiteEngineerProject() {
                     </Button>
                   </div>
 
-                  {/* Stock Entry Table */}
+                  {/* Daily Stock Entry Table */}
                   {Object.keys(stockEntries).length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm border" data-testid="stock-register-table">
@@ -1190,20 +1265,25 @@ export default function SiteEngineerProject() {
                             <th className="text-left px-3 py-2.5 font-medium text-xs">#</th>
                             <th className="text-left px-3 py-2.5 font-medium text-xs">Material</th>
                             <th className="text-left px-2 py-2.5 font-medium text-xs w-14">Unit</th>
-                            <th className="text-center px-2 py-2.5 font-medium text-xs bg-amber-700">Opening Stock</th>
+                            <th className="text-center px-2 py-2.5 font-medium text-xs bg-amber-700">Opening</th>
                             <th className="text-center px-2 py-2.5 font-medium text-xs bg-green-700">Received</th>
                             <th className="text-center px-2 py-2.5 font-medium text-xs bg-red-700">Used</th>
-                            <th className="text-center px-2 py-2.5 font-medium text-xs bg-blue-700">Closing Stock</th>
+                            <th className="text-center px-2 py-2.5 font-medium text-xs bg-blue-700">Closing</th>
                             <th className="w-8"></th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
                           {Object.entries(stockEntries).map(([name, data], idx) => {
                             const closing = (Number(data.opening_stock) || 0) + (Number(data.received) || 0) - (Number(data.used) || 0);
+                            const threshold = inventoryDashboard?.materials?.find(m => m.material_name === name)?.min_threshold || 0;
+                            const isLow = threshold > 0 && closing <= threshold;
                             return (
-                              <tr key={name} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} data-testid={`stock-row-${name}`}>
+                              <tr key={name} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${isLow ? 'bg-red-50/50' : ''}`} data-testid={`stock-row-${name}`}>
                                 <td className="px-3 py-2 text-xs text-gray-400 font-mono">{idx + 1}</td>
-                                <td className="px-3 py-2 font-medium text-xs sm:text-sm">{name}</td>
+                                <td className="px-3 py-2 font-medium text-xs sm:text-sm">
+                                  {name}
+                                  {isLow && <Badge className="ml-1 bg-red-100 text-red-700 text-[9px]">LOW</Badge>}
+                                </td>
                                 <td className="px-2 py-2 text-xs text-gray-500">{data.unit}</td>
                                 <td className="px-1 py-1 bg-amber-50/50">
                                   <Input
@@ -1230,7 +1310,7 @@ export default function SiteEngineerProject() {
                                   />
                                 </td>
                                 <td className="px-2 py-2 text-center font-bold text-sm bg-blue-50/50">
-                                  <span className={closing < 0 ? 'text-red-600' : 'text-blue-700'}>{closing}</span>
+                                  <span className={closing < 0 ? 'text-red-600' : isLow ? 'text-red-600' : 'text-blue-700'}>{closing}</span>
                                 </td>
                                 <td className="px-1 py-1">
                                   <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => {
@@ -1245,7 +1325,7 @@ export default function SiteEngineerProject() {
                         </tbody>
                         <tfoot className="bg-gray-100 font-semibold">
                           <tr>
-                            <td colSpan={3} className="px-3 py-2 text-xs">Total ({Object.keys(stockEntries).length} rows)</td>
+                            <td colSpan={3} className="px-3 py-2 text-xs">Total ({Object.keys(stockEntries).length} materials)</td>
                             <td className="px-2 py-2 text-center text-xs">{Object.values(stockEntries).reduce((s, d) => s + (Number(d.opening_stock) || 0), 0)}</td>
                             <td className="px-2 py-2 text-center text-xs text-green-700">{Object.values(stockEntries).reduce((s, d) => s + (Number(d.received) || 0), 0)}</td>
                             <td className="px-2 py-2 text-center text-xs text-red-700">{Object.values(stockEntries).reduce((s, d) => s + (Number(d.used) || 0), 0)}</td>
@@ -1257,7 +1337,7 @@ export default function SiteEngineerProject() {
                       <div className="flex justify-end mt-3">
                         <Button onClick={handleSaveStock} disabled={savingStock} className="gap-1" data-testid="save-stock-btn">
                           <Save className="h-3.5 w-3.5" />
-                          {savingStock ? 'Saving...' : 'Save Stock Register'}
+                          {savingStock ? 'Saving...' : 'Save Inventory'}
                         </Button>
                       </div>
                     </div>
@@ -1265,7 +1345,7 @@ export default function SiteEngineerProject() {
                     <div className="text-center py-8 text-gray-400">
                       <Warehouse className="h-10 w-10 mx-auto mb-3 opacity-30" />
                       <p className="text-sm">No materials added yet</p>
-                      <p className="text-xs mt-1">Add materials above to start tracking stock</p>
+                      <p className="text-xs mt-1">Add materials above to start tracking inventory</p>
                     </div>
                   )}
 

@@ -565,6 +565,7 @@ async def create_inventory_entry(data: dict, user: User = Depends(get_current_us
         "received": received,
         "used": used,
         "closing_stock": closing,
+        "min_threshold": data.get("min_threshold", 0),
         "notes": data.get("notes", ""),
         "created_by": user.user_id,
         "created_at": now
@@ -592,6 +593,88 @@ async def get_latest_inventory(
     ]
     results = await db.material_inventory.aggregate(pipeline).to_list(500)
     return results
+
+
+@router.patch("/material-inventory/threshold")
+async def update_material_threshold(data: dict, user: User = Depends(get_current_user)):
+    """Update minimum stock threshold for a material in a project"""
+    project_id = data.get("project_id")
+    material_name = data.get("material_name")
+    min_threshold = data.get("min_threshold", 0)
+    if not project_id or not material_name:
+        raise HTTPException(status_code=400, detail="project_id and material_name required")
+    # Update threshold on all entries for this material in project
+    await db.material_inventory.update_many(
+        {"project_id": project_id, "material_name": material_name},
+        {"$set": {"min_threshold": min_threshold}}
+    )
+    # Also store in a dedicated threshold collection for materials that have no inventory yet
+    await db.inventory_thresholds.update_one(
+        {"project_id": project_id, "material_name": material_name},
+        {"$set": {"min_threshold": min_threshold, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    return {"message": "Threshold updated", "material_name": material_name, "min_threshold": min_threshold}
+
+
+@router.get("/material-inventory/dashboard")
+async def get_inventory_dashboard(
+    project_id: str,
+    user: User = Depends(get_current_user)
+):
+    """Get comprehensive inventory dashboard for a project"""
+    # Get latest stock per material
+    pipeline = [
+        {"$match": {"project_id": project_id}},
+        {"$sort": {"date": -1, "created_at": -1}},
+        {"$group": {
+            "_id": "$material_name",
+            "latest": {"$first": "$$ROOT"},
+            "total_received": {"$sum": "$received"},
+            "total_used": {"$sum": "$used"},
+            "entry_count": {"$sum": 1}
+        }},
+        {"$project": {"_id": 0}}
+    ]
+    results = await db.material_inventory.aggregate(pipeline).to_list(500)
+
+    # Get thresholds
+    thresholds = {}
+    threshold_docs = await db.inventory_thresholds.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    for t in threshold_docs:
+        thresholds[t.get("material_name", "")] = t.get("min_threshold", 0)
+
+    materials = []
+    low_stock_count = 0
+    total_stock_value = 0
+    for r in results:
+        latest = r.get("latest", {})
+        material_name = latest.get("material_name", "")
+        closing = latest.get("closing_stock", 0)
+        threshold = latest.get("min_threshold", 0) or thresholds.get(material_name, 0)
+        is_low = closing <= threshold and threshold > 0
+        if is_low:
+            low_stock_count += 1
+        materials.append({
+            "material_name": material_name,
+            "unit": latest.get("unit", ""),
+            "current_stock": closing,
+            "last_date": latest.get("date", ""),
+            "total_received": r.get("total_received", 0),
+            "total_used": r.get("total_used", 0),
+            "min_threshold": threshold,
+            "is_low_stock": is_low,
+            "entry_count": r.get("entry_count", 0),
+        })
+
+    materials.sort(key=lambda x: (not x["is_low_stock"], x["material_name"]))
+
+    return {
+        "project_id": project_id,
+        "total_materials": len(materials),
+        "low_stock_count": low_stock_count,
+        "materials": materials,
+    }
 
 
 # ==================== PROJECT CONTRACTOR ASSIGNMENTS ====================
