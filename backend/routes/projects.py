@@ -3205,22 +3205,22 @@ class WorkOrderCreate(BaseModel):
     notes: Optional[str] = ""
 
 @router.get("/projects/{project_id}/work-orders")
-async def get_work_orders(project_id: str, user: User = Depends(get_current_user)):
+async def get_project_work_orders(project_id: str, user: User = Depends(get_current_user)):
     """Get all work orders for a project"""
-    orders = await db.work_orders.find({"project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    orders = await db.project_work_orders.find({"project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return orders
 
 @router.get("/projects/{project_id}/work-orders/{work_order_id}")
-async def get_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+async def get_project_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
     """Get a single work order"""
-    wo = await db.work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     return wo
 
 @router.post("/projects/{project_id}/work-orders")
-async def create_work_order(project_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
-    """Create a new work order"""
+async def create_project_work_order(project_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
+    """Create a new work order with scope, stages, and additional work"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
@@ -3228,12 +3228,10 @@ async def create_work_order(project_id: str, data: WorkOrderCreate, user: User =
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Lookup contractor
     contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0})
     if not contractor:
         raise HTTPException(status_code=404, detail="Contractor not found")
     
-    # Calculate totals
     scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
     additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
     
@@ -3247,7 +3245,16 @@ async def create_work_order(project_id: str, data: WorkOrderCreate, user: User =
     stages = []
     for st in data.stages:
         amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
-        stages.append({"name": st.name, "type": st.type, "value": st.value, "amount": amt, "status": "pending"})
+        stages.append({
+            "stage_id": f"wos_{uuid.uuid4().hex[:6]}",
+            "name": st.name, "type": st.type, "value": st.value, "amount": amt,
+            "status": "pending",
+            "requested_by": None, "requested_at": None,
+            "pm_approved_by": None, "pm_approved_at": None,
+            "planning_approved_by": None, "planning_approved_at": None,
+            "accountant_approved_by": None, "accountant_approved_at": None,
+            "approved_amount": None, "rejection_reason": None,
+        })
     
     additional = []
     for a in data.additional_work:
@@ -3269,6 +3276,7 @@ async def create_work_order(project_id: str, data: WorkOrderCreate, user: User =
         "additional_work": additional,
         "additional_total": round(additional_total, 2),
         "total_value": round(scope_total + additional_total, 2),
+        "paid_amount": 0,
         "notes": data.notes or "",
         "status": "active",
         "is_active": True,
@@ -3276,12 +3284,12 @@ async def create_work_order(project_id: str, data: WorkOrderCreate, user: User =
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.work_orders.insert_one(wo)
+    await db.project_work_orders.insert_one(wo)
     wo.pop("_id", None)
     return {"work_order_id": wo["work_order_id"], "message": "Work order created", "total_value": wo["total_value"]}
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}")
-async def update_work_order(project_id: str, work_order_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
+async def update_project_work_order(project_id: str, work_order_id: str, data: WorkOrderCreate, user: User = Depends(get_current_user)):
     """Update a work order"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.CRE]:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -3290,13 +3298,30 @@ async def update_work_order(project_id: str, work_order_id: str, data: WorkOrder
     additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
     
     scope_items = [{"name": s.name, "unit": s.unit, "quantity": s.quantity, "unit_rate": s.unit_rate, "total": round(s.quantity * s.unit_rate, 2)} for s in data.scope_items]
+    
+    # Preserve existing stage statuses if they haven't changed
+    existing_wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    existing_stages_map = {}
+    if existing_wo:
+        for es in existing_wo.get("stages", []):
+            existing_stages_map[es.get("name", "")] = es
+    
     stages = []
     for st in data.stages:
         amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
-        stages.append({"name": st.name, "type": st.type, "value": st.value, "amount": amt, "status": "pending"})
+        existing = existing_stages_map.get(st.name, {})
+        stages.append({
+            "stage_id": existing.get("stage_id", f"wos_{uuid.uuid4().hex[:6]}"),
+            "name": st.name, "type": st.type, "value": st.value, "amount": amt,
+            "status": existing.get("status", "pending"),
+            "requested_by": existing.get("requested_by"), "requested_at": existing.get("requested_at"),
+            "pm_approved_by": existing.get("pm_approved_by"), "pm_approved_at": existing.get("pm_approved_at"),
+            "planning_approved_by": existing.get("planning_approved_by"), "planning_approved_at": existing.get("planning_approved_at"),
+            "accountant_approved_by": existing.get("accountant_approved_by"), "accountant_approved_at": existing.get("accountant_approved_at"),
+            "approved_amount": existing.get("approved_amount"), "rejection_reason": existing.get("rejection_reason"),
+        })
     additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)} for a in data.additional_work]
     
-    # Lookup contractor name
     contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1})
     
     update = {
@@ -3310,23 +3335,165 @@ async def update_work_order(project_id: str, work_order_id: str, data: WorkOrder
         "notes": data.notes or "",
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = await db.work_orders.update_one({"work_order_id": work_order_id, "project_id": project_id}, {"$set": update})
+    result = await db.project_work_orders.update_one({"work_order_id": work_order_id, "project_id": project_id}, {"$set": update})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Work order not found")
     return {"message": "Work order updated"}
 
 @router.delete("/projects/{project_id}/work-orders/{work_order_id}")
-async def delete_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
+async def delete_project_work_order(project_id: str, work_order_id: str, user: User = Depends(get_current_user)):
     """Soft delete a work order"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    result = await db.work_orders.update_one(
+    result = await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Work order not found")
     return {"message": "Work order deleted"}
+
+# ==================== WORK ORDER PAYMENT APPROVAL PIPELINE ====================
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/request-payment")
+async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Site Engineer requests payment for a completed stage"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can request payments")
+    
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    updated = False
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            if stage["status"] != "pending":
+                raise HTTPException(status_code=400, detail=f"Stage is already '{stage['status']}', cannot request payment")
+            stage["status"] = "requested"
+            stage["requested_by"] = user.user_id
+            stage["requested_at"] = now
+            stage["requested_notes"] = data.get("notes", "")
+            updated = True
+            break
+    
+    if not updated:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+    
+    # Notify Project Manager
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "team": 1, "name": 1})
+    pm_id = (project or {}).get("team", {}).get("project_manager")
+    if pm_id:
+        notif = Notification(
+            user_id=pm_id,
+            title="Payment Request",
+            message=f"Stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
+            link=f"/projects/{project_id}"
+        )
+        notif_dict = notif.model_dump()
+        notif_dict["created_at"] = notif_dict["created_at"].isoformat()
+        await db.notifications.insert_one(notif_dict)
+    
+    return {"message": "Payment requested successfully"}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/approve")
+async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
+    """4-level approval: SE Request -> PM Approve -> Planning Approve -> Accountant Process"""
+    allowed = [UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    action = data.get("action", "approve")  # approve or reject
+    
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            current = stage["status"]
+            
+            if action == "reject":
+                stage["status"] = "rejected"
+                stage["rejection_reason"] = data.get("notes", f"Rejected by {user.role}")
+                stage["rejected_by"] = user.user_id
+                stage["rejected_at"] = now
+                break
+            
+            if action == "approve":
+                if user.role == UserRole.PROJECT_MANAGER and current == "requested":
+                    stage["status"] = "pm_approved"
+                    stage["pm_approved_by"] = user.user_id
+                    stage["pm_approved_at"] = now
+                    stage["pm_notes"] = data.get("notes", "")
+                elif user.role == UserRole.PLANNING and current == "pm_approved":
+                    stage["status"] = "planning_approved"
+                    stage["planning_approved_by"] = user.user_id
+                    stage["planning_approved_at"] = now
+                    stage["planning_notes"] = data.get("notes", "")
+                elif user.role == UserRole.ACCOUNTANT and current == "planning_approved":
+                    approved_amount = data.get("approved_amount", stage.get("amount", 0))
+                    stage["status"] = "approved"
+                    stage["approved_amount"] = approved_amount
+                    stage["accountant_approved_by"] = user.user_id
+                    stage["accountant_approved_at"] = now
+                    stage["accountant_notes"] = data.get("notes", "")
+                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                elif user.role == UserRole.SUPER_ADMIN:
+                    approved_amount = data.get("approved_amount", stage.get("amount", 0))
+                    stage["status"] = "approved"
+                    stage["approved_amount"] = approved_amount
+                    stage["accountant_approved_by"] = user.user_id
+                    stage["accountant_approved_at"] = now
+                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                else:
+                    raise HTTPException(status_code=400, detail=f"Cannot {action} stage in '{current}' status with role '{user.role}'")
+            break
+    
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "paid_amount": wo.get("paid_amount", 0), "updated_at": now}}
+    )
+    return {"message": f"Stage {action}d successfully"}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/revert")
+async def wo_revert_rejected_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Revert a rejected stage back to pending so SE can re-request"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            if stage["status"] != "rejected":
+                raise HTTPException(status_code=400, detail="Stage is not rejected")
+            stage["status"] = "pending"
+            stage["requested_by"] = None
+            stage["requested_at"] = None
+            stage["rejection_reason"] = None
+            stage["rejected_by"] = None
+            stage["rejected_at"] = None
+            break
+    
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+    return {"message": "Stage reverted to pending"}
+
 
 @router.get("/contractor-types")
 async def get_contractor_types(user: User = Depends(get_current_user)):

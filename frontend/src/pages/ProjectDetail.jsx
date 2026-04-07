@@ -474,7 +474,7 @@ export default function ProjectDetail() {
   const [contractorTypes, setContractorTypes] = useState([]);
   const [allContractors, setAllContractors] = useState([]);
   const [woSelectedType, setWoSelectedType] = useState('');
-  const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [] });
+  const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], payment_stages: [], total_amount: 0, description: '' });
   const [woSubTab, setWoSubTab] = useState('scope');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
@@ -836,6 +836,50 @@ export default function ProjectDetail() {
   };
 
   const filteredWoContractors = allContractors.filter(c => c.is_active !== false && (!woSelectedType || c.contractor_type === woSelectedType));
+
+  // === WORK ORDER STAGE APPROVAL HANDLERS ===
+  const handleWoStageApprove = async (woId, stageId, action, extra = {}) => {
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/approve`, {
+        action, ...extra
+      });
+      toast.success(`Stage ${action === 'approve' ? 'approved' : 'rejected'} successfully`);
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || `Failed to ${action}`); }
+  };
+
+  const handleWoStageRequestPayment = async (woId, stageId) => {
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/request-payment`, {
+        notes: 'Payment requested'
+      });
+      toast.success('Payment requested successfully');
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to request payment'); }
+  };
+
+  const getStageStatusConfig = (status) => {
+    const map = {
+      pending: { label: 'Pending', className: 'bg-gray-100 text-gray-700 border-gray-300' },
+      requested: { label: 'Payment Requested', className: 'bg-amber-100 text-amber-800 border-amber-300' },
+      pm_approved: { label: 'PM Approved', className: 'bg-blue-100 text-blue-800 border-blue-300' },
+      planning_approved: { label: 'Planning Approved', className: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
+      approved: { label: 'Paid', className: 'bg-green-100 text-green-800 border-green-300' },
+      rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-300' },
+    };
+    return map[status] || { label: status, className: 'bg-gray-100 text-gray-600' };
+  };
+
+  const canApproveStage = (stage) => {
+    if (!user) return false;
+    const role = user.role;
+    const status = stage.status;
+    if (role === 'super_admin') return ['requested', 'pm_approved', 'planning_approved'].includes(status);
+    if (role === 'project_manager' && status === 'requested') return true;
+    if (role === 'planning' && status === 'pm_approved') return true;
+    if (role === 'accountant' && status === 'planning_approved') return true;
+    return false;
+  };
 
 
 
@@ -3864,7 +3908,7 @@ export default function ProjectDetail() {
                       </div>
 
                     {/* Material Requests Table (existing) */}
-                    {materialsData.materials.length > 0 ? (
+                    {(materialsData?.materials || []).length > 0 ? (
                       <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm" data-testid="materials-table">
                           <thead className="bg-gray-50 border-b">
@@ -3879,7 +3923,7 @@ export default function ProjectDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {materialsData.materials.map(m => (
+                            {(materialsData?.materials || []).map(m => (
                               <tr key={m.request_id} className="hover:bg-gray-50" data-testid={`mat-row-${m.request_id}`}>
                                 <td className="px-3 py-2.5">
                                   <p className="font-medium">{m.material_name}</p>
@@ -4231,7 +4275,7 @@ export default function ProjectDetail() {
                           <div className="bg-violet-50 p-4 border-b flex items-center justify-between">
                             <div>
                               <p className="font-bold text-sm">{wo.contractor_name}</p>
-                              <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}</p>
+                              <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}{wo.paid_amount > 0 ? ` | Paid: ${formatCurrency(wo.paid_amount)}` : ''}</p>
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
@@ -4247,20 +4291,81 @@ export default function ProjectDetail() {
                             <TabsContent value="scope" className="p-3">
                               {wo.scope_items?.length > 0 ? (
                                 <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                <tbody className="divide-y">{wo.scope_items.map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
+                                <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
                                 <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
                             </TabsContent>
                             <TabsContent value="stages" className="p-3">
                               {wo.stages?.length > 0 ? (
-                                <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stage</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Value</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Amount</th><th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th></tr></thead>
-                                <tbody className="divide-y">{wo.stages.map((st, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{st.name}</td><td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge></td><td className="px-3 py-2 text-right">{st.type === 'percentage' ? `${st.value}%` : formatCurrency(st.value)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(st.amount)}</td><td className="px-3 py-2 text-center"><Badge className={st.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'} variant="outline">{st.status}</Badge></td></tr>))}</tbody></table>
+                                <div className="space-y-2">
+                                  {wo.stages.map((st, i) => {
+                                    const cfg = getStageStatusConfig(st.status);
+                                    const showApprove = canApproveStage(st);
+                                    return (
+                                      <div key={st.stage_id || i} className="border rounded-lg p-3" data-testid={`wo-stage-${st.stage_id}`}>
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              <span className="font-medium text-sm">{i+1}. {st.name}</span>
+                                              <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
+                                              <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-1">Amount: {formatCurrency(st.amount)}{st.approved_amount ? ` | Paid: ${formatCurrency(st.approved_amount)}` : ''}</p>
+                                            {/* Approval trail */}
+                                            {st.status !== 'pending' && (
+                                              <div className="mt-2 flex flex-wrap gap-1">
+                                                {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
+                                                {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
+                                                {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
+                                                {st.accountant_approved_at && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
+                                                {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex gap-1 shrink-0">
+                                            {showApprove && (
+                                              <>
+                                                {user?.role === 'accountant' ? (
+                                                  <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                    onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount })}>
+                                                    Process Payment
+                                                  </Button>
+                                                ) : (
+                                                  <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                    onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve')}>
+                                                    Approve
+                                                  </Button>
+                                                )}
+                                                <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`wo-stage-reject-${st.stage_id}`}
+                                                  onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' })}>
+                                                  Reject
+                                                </Button>
+                                              </>
+                                            )}
+                                            {/* Site Engineer can request payment for pending stages */}
+                                            {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                              <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
+                                                onClick={() => handleWoStageRequestPayment(wo.work_order_id, st.stage_id)}>
+                                                Request Payment
+                                              </Button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {/* Total summary */}
+                                  <div className="flex justify-between items-center px-3 pt-2 border-t">
+                                    <span className="text-xs font-bold text-gray-500">Stage Total</span>
+                                    <span className="text-sm font-bold">{formatCurrency(wo.stages.reduce((sum, s) => sum + (s.amount || 0), 0))}</span>
+                                  </div>
+                                </div>
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
                             </TabsContent>
                             <TabsContent value="additional" className="p-3">
                               {wo.additional_work?.length > 0 ? (
                                 <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
-                                <tbody className="divide-y">{wo.additional_work.map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
+                                <tbody className="divide-y">{(wo.additional_work || []).map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
                                 <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
                             </TabsContent>
@@ -4272,18 +4377,24 @@ export default function ProjectDetail() {
                 ) : (
                   /* ---- LIST VIEW ---- */
                   <div className="space-y-3" data-testid="wo-list">
-                    {workOrders.map(wo => (
+                    {workOrders.map(wo => {
+                      const paidStages = (wo.stages || []).filter(s => s.status === 'approved').length;
+                      const totalStages = (wo.stages || []).length;
+                      const pendingRequests = (wo.stages || []).filter(s => ['requested','pm_approved','planning_approved'].includes(s.status)).length;
+                      return (
                       <div key={wo.work_order_id} className="border rounded-lg p-4 hover:border-violet-300 cursor-pointer transition" onClick={() => setWoViewId(wo.work_order_id)} data-testid={`wo-card-${wo.work_order_id}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <h4 className="font-semibold text-sm">{wo.contractor_name}</h4>
                               <Badge variant="outline" className="text-[10px]">{wo.contractor_type}</Badge>
                               <Badge className="bg-violet-100 text-violet-700 text-[10px]">{formatCurrency(wo.total_value)}</Badge>
+                              {wo.paid_amount > 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Paid: {formatCurrency(wo.paid_amount)}</Badge>}
+                              {pendingRequests > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{pendingRequests} pending approval</Badge>}
                             </div>
                             <div className="flex gap-4 text-xs text-gray-500">
                               <span>{wo.scope_items?.length || 0} scope items</span>
-                              <span>{wo.stages?.length || 0} stages</span>
+                              <span>{paidStages}/{totalStages} stages paid</span>
                               <span>{wo.additional_work?.length || 0} additional</span>
                             </div>
                           </div>
@@ -4292,8 +4403,8 @@ export default function ProjectDetail() {
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      </div>);
+                    })}
                   </div>
                 )}
               </div>
@@ -4436,29 +4547,29 @@ export default function ProjectDetail() {
                   <TabsContent value="requests" className="mt-4">
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4" data-testid="labours-summary">
                       <div className="rounded-lg p-3 text-center border bg-gray-50">
-                        <p className="text-xl font-bold">{laboursData.summary.total || 0}</p>
+                        <p className="text-xl font-bold">{laboursData?.summary?.total || 0}</p>
                         <p className="text-xs text-gray-500">Total Requests</p>
                       </div>
                       <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
-                        <p className="text-xl font-bold text-amber-700">{laboursData.summary.requested || 0}</p>
+                        <p className="text-xl font-bold text-amber-700">{laboursData?.summary?.requested || 0}</p>
                         <p className="text-xs text-gray-500">Pending</p>
                       </div>
                       <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
-                        <p className="text-xl font-bold text-green-700">{laboursData.summary.approved || 0}</p>
+                        <p className="text-xl font-bold text-green-700">{laboursData?.summary?.approved || 0}</p>
                         <p className="text-xs text-gray-500">Approved</p>
                       </div>
                       <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
-                        <p className="text-xl font-bold text-blue-700">{laboursData.summary.total_workers || 0}</p>
+                        <p className="text-xl font-bold text-blue-700">{laboursData?.summary?.total_workers || 0}</p>
                         <p className="text-xs text-gray-500">Total Workers</p>
                       </div>
-                      {!isPM && laboursData.summary.total_cost !== undefined && (
+                      {!isPM && laboursData?.summary?.total_cost !== undefined && (
                         <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
-                          <p className="text-xl font-bold text-purple-700">{formatCurrency(laboursData.summary.total_cost || 0)}</p>
+                          <p className="text-xl font-bold text-purple-700">{formatCurrency(laboursData?.summary?.total_cost || 0)}</p>
                           <p className="text-xs text-gray-500">Total Cost</p>
                         </div>
                       )}
                     </div>
-                    {laboursData.labours.length > 0 ? (
+                    {(laboursData?.labours || []).length > 0 ? (
                       <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm" data-testid="labours-table">
                           <thead className="bg-gray-50 border-b">
@@ -4472,7 +4583,7 @@ export default function ProjectDetail() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {laboursData.labours.map(l => (
+                            {(laboursData?.labours || []).map(l => (
                               <tr key={l.labour_expense_id} className="hover:bg-gray-50">
                                 <td className="px-3 py-2.5 font-medium">{l.description || l.labour_type || '-'}</td>
                                 <td className="px-3 py-2.5 text-xs">{l.contractor_name || '-'}</td>
@@ -4641,14 +4752,14 @@ export default function ProjectDetail() {
                       </div>
                       <div>
                         <Label className="flex justify-between"><span>Payment Stages</span>
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setWoForm({ ...woForm, payment_stages: [...woForm.payment_stages, { stage_name: `Stage ${woForm.payment_stages.length + 1}`, amount: 0, percentage: 0 }] })}>+ Add Stage</Button>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setWoForm({ ...woForm, payment_stages: [...(woForm.payment_stages || []), { stage_name: `Stage ${(woForm.payment_stages || []).length + 1}`, amount: 0, percentage: 0 }] })}>+ Add Stage</Button>
                         </Label>
                         <div className="space-y-2 mt-2">
-                          {woForm.payment_stages.map((s, i) => (
+                          {(woForm.payment_stages || []).map((s, i) => (
                             <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded">
                               <Input className="h-8 flex-1" value={s.stage_name} onChange={e => { const stages = [...woForm.payment_stages]; stages[i].stage_name = e.target.value; setWoForm({ ...woForm, payment_stages: stages }); }} />
                               <Input className="h-8 w-28" type="number" placeholder="Amount" value={s.amount} onChange={e => { const stages = [...woForm.payment_stages]; stages[i].amount = parseFloat(e.target.value) || 0; setWoForm({ ...woForm, payment_stages: stages }); }} />
-                              <Button variant="ghost" size="sm" className="h-8 text-red-500" onClick={() => setWoForm({ ...woForm, payment_stages: woForm.payment_stages.filter((_, j) => j !== i) })}><X className="h-3 w-3" /></Button>
+                              <Button variant="ghost" size="sm" className="h-8 text-red-500" onClick={() => setWoForm({ ...woForm, payment_stages: (woForm.payment_stages || []).filter((_, j) => j !== i) })}><X className="h-3 w-3" /></Button>
                             </div>
                           ))}
                         </div>
@@ -4761,9 +4872,9 @@ export default function ProjectDetail() {
                     </h3>
 
                     {/* Site Plans */}
-                    {designData.site_plans.length > 0 && (
+                    {(designData?.site_plans || []).length > 0 && (
                       <div>
-                        <p className="text-sm font-medium text-gray-500 mb-2">Site Plans ({designData.site_plans.length})</p>
+                        <p className="text-sm font-medium text-gray-500 mb-2">Site Plans ({(designData?.site_plans || []).length})</p>
                         <div className="overflow-x-auto border rounded-lg">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50 border-b">
@@ -4775,7 +4886,7 @@ export default function ProjectDetail() {
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {designData.site_plans.map(plan => (
+                              {(designData?.site_plans || []).map(plan => (
                                 <tr key={plan.plan_id} className="hover:bg-gray-50" data-testid={`doc-site-plan-${plan.plan_id}`}>
                                   <td className="px-3 py-2 font-medium">{plan.floor_name}</td>
                                   <td className="px-3 py-2 text-center">
@@ -4801,11 +4912,11 @@ export default function ProjectDetail() {
                     )}
 
                     {/* Design Files (3D + Elevations) */}
-                    {designData.design_files.length > 0 && (
+                    {(designData?.design_files || []).length > 0 && (
                       <div>
-                        <p className="text-sm font-medium text-gray-500 mb-2">3D Photos & Elevations ({designData.design_files.length})</p>
+                        <p className="text-sm font-medium text-gray-500 mb-2">3D Photos & Elevations ({(designData?.design_files || []).length})</p>
                         <div className="grid gap-2">
-                          {designData.design_files.map(file => (
+                          {(designData?.design_files || []).map(file => (
                             <div key={file.file_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border" data-testid={`doc-design-file-${file.file_id}`}>
                               <div>
                                 <p className="font-medium text-sm">{file.file_name}</p>

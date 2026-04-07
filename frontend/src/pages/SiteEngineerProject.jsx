@@ -107,6 +107,10 @@ export default function SiteEngineerProject() {
   const [savingLabourCount, setSavingLabourCount] = useState(false);
   const [requestingPayment, setRequestingPayment] = useState(false);
 
+  // Project Work Orders (new system with approval pipeline)
+  const [projectWorkOrders, setProjectWorkOrders] = useState([]);
+  const [loadingPWO, setLoadingPWO] = useState(false);
+
   // Stock Register state
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
   const [stockEntries, setStockEntries] = useState({});
@@ -158,6 +162,44 @@ export default function SiteEngineerProject() {
     }
   };
   useAutoRefresh(fetchData, 15000);
+
+  // ============ PROJECT WORK ORDERS FUNCTIONS ============
+  const fetchProjectWorkOrders = async () => {
+    setLoadingPWO(true);
+    try {
+      const res = await axios.get(`${API}/projects/${projectId}/work-orders`);
+      setProjectWorkOrders(res.data || []);
+    } catch { setProjectWorkOrders([]); }
+    finally { setLoadingPWO(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'work_orders') fetchProjectWorkOrders();
+  }, [activeTab, projectId]);
+
+  const handleRequestStagePaymentNew = async (woId, stageId) => {
+    setRequestingPayment(true);
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/request-payment`, {
+        notes: 'Payment requested by Site Engineer'
+      });
+      toast.success('Payment request sent for approval');
+      fetchProjectWorkOrders();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to request payment'); }
+    finally { setRequestingPayment(false); }
+  };
+
+  const getStageStatusBadge = (status) => {
+    const map = {
+      pending: { label: 'Active', cls: 'bg-blue-100 text-blue-800' },
+      requested: { label: 'Requested', cls: 'bg-amber-100 text-amber-800' },
+      pm_approved: { label: 'PM Approved', cls: 'bg-blue-100 text-blue-800' },
+      planning_approved: { label: 'Planning OK', cls: 'bg-indigo-100 text-indigo-800' },
+      approved: { label: 'Paid', cls: 'bg-green-100 text-green-800' },
+      rejected: { label: 'Rejected', cls: 'bg-red-100 text-red-800' },
+    };
+    return map[status] || { label: status, cls: 'bg-gray-100 text-gray-600' };
+  };
 
   // ============ LABOUR COUNT FUNCTIONS ============
   const fetchAssignedContractors = async () => {
@@ -958,6 +1000,79 @@ export default function SiteEngineerProject() {
 
           {/* WORK ORDERS TAB */}
           <TabsContent value="work_orders">
+            {/* Project Work Orders - Stage Payment Requests */}
+            {projectWorkOrders.length > 0 && (
+              <Card className="mb-4">
+                <CardHeader className="p-3 sm:p-4">
+                  <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                    <Banknote className="h-4 w-4 text-violet-600" />
+                    Contractor Payments ({projectWorkOrders.length} Work Orders)
+                  </CardTitle>
+                  <CardDescription className="text-xs">Request stage payments for completed work. Approval: You &rarr; PM &rarr; Planning &rarr; Accountant</CardDescription>
+                </CardHeader>
+                <CardContent className="p-3 sm:p-4 pt-0 space-y-3">
+                  {projectWorkOrders.map(wo => {
+                    const paidStages = (wo.stages || []).filter(s => s.status === 'approved').length;
+                    const totalStages = (wo.stages || []).length;
+                    return (
+                      <div key={wo.work_order_id} className="border rounded-lg overflow-hidden" data-testid={`pwo-card-${wo.work_order_id}`}>
+                        <div className="bg-violet-50 px-3 py-2 flex items-center justify-between">
+                          <div>
+                            <p className="font-semibold text-sm">{wo.contractor_name}</p>
+                            <p className="text-[11px] text-gray-500">{wo.contractor_type} | Total: {new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(wo.total_value || 0)} | Paid: {new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(wo.paid_amount || 0)}</p>
+                          </div>
+                          <Badge variant="outline" className="text-[10px]">{paidStages}/{totalStages} paid</Badge>
+                        </div>
+                        <div className="divide-y">
+                          {(wo.stages || []).map((st, idx) => {
+                            const cfg = getStageStatusBadge(st.status);
+                            const canRequest = st.status === 'pending';
+                            const isPaid = st.status === 'approved';
+                            const isRejected = st.status === 'rejected';
+                            return (
+                              <div key={st.stage_id || idx} className={`px-3 py-2.5 flex items-center justify-between gap-2 ${isPaid ? 'bg-green-50/50' : isRejected ? 'bg-red-50/30' : ''}`} data-testid={`pwo-stage-${st.stage_id}`}>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-medium">{idx + 1}. {st.name}</span>
+                                    <Badge variant="outline" className={`text-[10px] ${cfg.cls}`}>{cfg.label}</Badge>
+                                  </div>
+                                  <p className="text-[11px] text-gray-500 mt-0.5">
+                                    {st.type === 'percentage' ? `${st.value}%` : 'Fixed'} = {new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(st.amount || 0)}
+                                    {st.approved_amount ? ` (Paid: ${new Intl.NumberFormat('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0}).format(st.approved_amount)})` : ''}
+                                  </p>
+                                  {isRejected && st.rejection_reason && (
+                                    <p className="text-[10px] text-red-600 mt-0.5">Reason: {st.rejection_reason}</p>
+                                  )}
+                                  {/* Approval trail */}
+                                  {st.status !== 'pending' && !isPaid && !isRejected && (
+                                    <div className="flex gap-1 mt-1 flex-wrap">
+                                      {st.requested_at && <span className="text-[9px] bg-amber-50 text-amber-700 px-1 py-0.5 rounded">Requested</span>}
+                                      {st.pm_approved_at && <span className="text-[9px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded">PM OK</span>}
+                                      {st.planning_approved_at && <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1 py-0.5 rounded">Planning OK</span>}
+                                    </div>
+                                  )}
+                                </div>
+                                {canRequest && (
+                                  <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700 shrink-0"
+                                    disabled={requestingPayment}
+                                    onClick={() => handleRequestStagePaymentNew(wo.work_order_id, st.stage_id)}
+                                    data-testid={`pwo-request-payment-${st.stage_id}`}>
+                                    <Send className="h-3 w-3 mr-1" />Request
+                                  </Button>
+                                )}
+                                {isPaid && <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />}
+                                {isRejected && <XCircle className="h-4 w-4 text-red-500 shrink-0" />}
+                                {['requested','pm_approved','planning_approved'].includes(st.status) && <Clock className="h-4 w-4 text-amber-500 shrink-0 animate-pulse" />}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
             <WorkOrderTab projectId={projectId} quickAttPopup={quickAttPopup} onQuickAttClose={() => setQuickAttPopup(false)} />
           </TabsContent>
 
