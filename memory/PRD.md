@@ -40,6 +40,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - **Inventory Management**: Opening/Received/Used/Closing stock with min threshold alerts
 - **Multi-Project GPS Attendance**: Login/logout with 5km geofencing
 - **Background GPS Tracking**: Auto-sends location every 5 min while logged in
+- **Curing Video Management**: Global button in header, popup to select project/mark status, auto-date, WhatsApp link to client, history tab with table view
 
 ### Planning Board (PlanningBoard.jsx)
 - Packages tab with dynamic Material/Brand dropdowns + "Create New"
@@ -60,6 +61,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - `daily_labour_reports` (DLR per work order per day)
 - `site_engineer_attendance` (multi-project GPS attendance)
 - `material_inventory` (opening/closing stock with thresholds)
+- `curing_video_records` (curing video status + WhatsApp tracking per project)
 - `freeze_otps` (stores hashed OTPs for freeze verification)
 
 ## Key API Endpoints
@@ -70,9 +72,11 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - SE Attendance: POST `/api/site-engineer/attendance/login`, `/api/site-engineer/live-location`
 - Live Map: GET `/api/site-engineer/live-locations`
 - Project Location: POST `/api/projects/{project_id}/location`
+- **Curing Video**: POST `/api/site-engineer/curing-video`, GET `.../curing-video/history`, PATCH `.../curing-video/{id}/whatsapp-sent`
 
 ## Completed Tasks (Latest Session - Feb 2026)
-- [x] AppHeader custom navigation for Planning Board (Dashboard, Packages, Material Vendors, Labour Contractors, RE Templates, Live Map in main header) - Tested iteration_130
+- [x] AppHeader custom navigation for Planning Board - Tested iteration_130
+- [x] Curing Video Management (popup, history tab, WhatsApp link) - Tested iteration_131
 
 ## Prioritized Backlog
 
@@ -82,7 +86,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 
 ### P1 (High Priority)
 - Pre-Deployment Security: 2FA, rate limiting to MongoDB, disable demo-login
-- Refactor SiteEngineerDashboard.jsx (~1500 lines)
+- Refactor SiteEngineerDashboard.jsx (~1800 lines)
 
 ### P2 (Medium Priority)
 - Sr. Engineer -> Jr. Engineer Assignment Workflow
