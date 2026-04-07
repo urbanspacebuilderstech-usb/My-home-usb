@@ -1273,6 +1273,34 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
     return {"message": "Project and all related data deleted"}
 
 
+# ==================== PROJECT PACKAGE MATERIALS ====================
+
+class PackageMaterialEntry(BaseModel):
+    name: str
+    brand: Optional[str] = ""
+
+class PackageMaterialsPayload(BaseModel):
+    materials: List[PackageMaterialEntry]
+
+@router.get("/projects/{project_id}/package-materials")
+async def get_project_package_materials(project_id: str, user: User = Depends(get_current_user)):
+    """Get project's saved package materials list"""
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "package_materials": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project.get("package_materials", [])
+
+@router.put("/projects/{project_id}/package-materials")
+async def save_project_package_materials(project_id: str, payload: PackageMaterialsPayload, user: User = Depends(get_current_user)):
+    """Save/update project's package materials list"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    mats = [{"name": m.name, "brand": m.brand or ""} for m in payload.materials]
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"package_materials": mats}})
+    return {"message": "Materials saved", "count": len(mats)}
+
+
+
 # BOQ Update/Delete
 class BOQUpdate(BaseModel):
     item_name: Optional[str] = None

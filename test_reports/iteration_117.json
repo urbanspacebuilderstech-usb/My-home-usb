@@ -1,0 +1,86 @@
+{
+  "summary": "Project Package Materials Feature - ALL TESTS PASSED. Backend: 8/8 tests passed. Frontend: All UI flows verified via Playwright. Fixed a critical bug where useEffect for loading materials was in wrong component scope.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_project_package_materials.py",
+    "/app/test_reports/pytest/pytest_project_package_materials.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIXED: useEffect for loadProjectMaterials was incorrectly placed inside PaymentSummarySection component (line 97-100) where projectData, projectMaterialsLoaded, and loadProjectMaterials were not in scope. Moved to main ProjectDetail component after useAutoRefresh.",
+    "Backend: GET /api/projects/{project_id}/package-materials returns saved materials list correctly",
+    "Backend: PUT /api/projects/{project_id}/package-materials saves materials with proper role permissions (SUPER_ADMIN, PROJECT_MANAGER, CRE, PLANNING)",
+    "Frontend: Materials List section (data-testid='pkg-materials-section') shows when project has package_id",
+    "Frontend: Package badge displays package name next to 'Materials List' header",
+    "Frontend: Editable inputs for Material Name (data-testid='proj-mat-name-{idx}') and Brand (data-testid='proj-mat-brand-{idx}')",
+    "Frontend: Add Material button (data-testid='add-project-material') adds new empty row",
+    "Frontend: Delete button (data-testid='proj-mat-delete-{idx}') removes material row",
+    "Frontend: Auto-save with 600ms debounce works correctly"
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/ProjectDetail.jsx",
+    "/app/backend/tests/test_project_package_materials.py"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 tests passed)",
+    "frontend": "100% - All UI flows verified"
+  },
+  "test_credentials": {
+    "Planning User": "Demo Access -> Planning button (planning@constructionos.com)",
+    "CRE User": "cre@constructionos.com",
+    "PM User": "pm@constructionos.com"
+  },
+  "seed_data_creation": "Test project proj_2d500929fbe9 has pre-saved materials: [{name:'Cement', brand:'UltraTech'}, {name:'Steel', brand:'TATA'}]",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Project Package Materials feature is fully functional. When a project has a package_id, the Materials tab shows a 'Materials List' section with editable rows for Material Name and Brand. Users can add/edit/delete materials, and changes auto-save with 600ms debounce. Test project: proj_2d500929fbe9 (has package pkg_ef0f77f2). The useEffect for loading materials was fixed - it was incorrectly placed in PaymentSummarySection component.",
+  "verified_features": {
+    "Backend GET /api/projects/{project_id}/package-materials": {
+      "Returns saved materials list": "PASS",
+      "Returns 404 for non-existent project": "PASS",
+      "Returns empty array if no materials saved": "PASS"
+    },
+    "Backend PUT /api/projects/{project_id}/package-materials": {
+      "Saves materials list": "PASS",
+      "Planning role can update": "PASS",
+      "CRE role can update": "PASS",
+      "PM role can update": "PASS",
+      "Updates existing materials": "PASS",
+      "Removes materials when fewer sent": "PASS"
+    },
+    "Frontend Materials List Section": {
+      "Section visible when project has package_id": "PASS - data-testid='pkg-materials-section'",
+      "Package badge shows package name": "PASS",
+      "Materials table with columns": "PASS - #, Material Name, Brand, Actions",
+      "Editable Material Name input": "PASS - data-testid='proj-mat-name-{idx}'",
+      "Editable Brand input": "PASS - data-testid='proj-mat-brand-{idx}'",
+      "Add Material button": "PASS - data-testid='add-project-material'",
+      "Delete button per row": "PASS - data-testid='proj-mat-delete-{idx}'",
+      "Auto-save on edit": "PASS - 600ms debounce",
+      "Persistence after refresh": "PASS"
+    }
+  },
+  "data_testids_verified": [
+    "tab-materials",
+    "pkg-materials-section",
+    "add-project-material",
+    "proj-mat-row-{idx}",
+    "proj-mat-name-{idx}",
+    "proj-mat-brand-{idx}",
+    "proj-mat-delete-{idx}"
+  ],
+  "bug_fixed": {
+    "issue": "useEffect for loadProjectMaterials was in wrong component scope",
+    "location": "ProjectDetail.jsx line 97-100 (inside PaymentSummarySection)",
+    "fix": "Moved useEffect to main ProjectDetail component after useAutoRefresh (line 573)",
+    "root_cause": "The useEffect was referencing projectData, projectMaterialsLoaded, and loadProjectMaterials which are defined in the parent ProjectDetail component, not in PaymentSummarySection"
+  }
+}
