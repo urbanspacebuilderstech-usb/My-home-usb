@@ -15,7 +15,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - 16-stage Kanban board with drag-and-drop (DnD-Kit)
 - Follow-up management with auto-move + date filtering
 - Site Visit management (Client Land / Our Projects)
-- Automated onboarding: Payment Collect → Accountant Approval → Project Onboarded
+- Automated onboarding: Payment Collect -> Accountant Approval -> Project Onboarded
 - CRE-style "Convert to Project" multi-step dialog
 
 ### Project Management (ProjectDetail.jsx)
@@ -25,22 +25,27 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - Estimate / Final Estimate / Stages / Payments / Additional / Deductions tabs
 - Materials tab: Package template loader, View/Edit toggle, dynamic Material/Brand dropdowns
 - Labours tab: Work order creation, attendance tracking, payment stages
-- **Work Orders tab**: Full CRUD with contractor type → contractor → scope/stages/additional + **Labour Day Rates** (skilled/semi-skilled/unskilled per-day rates for DLR)
-- **4-Level Payment Approval Pipeline**: SE Request → PM → Planning → Accountant
-- **Freeze & Reassign (NEW)**: OTP-verified freeze of underperforming contractors, auto-creates new WO with balance stages for replacement contractor
+- **Work Orders tab**: Full CRUD with contractor type -> contractor -> scope/stages/additional + Labour Day Rates
+- **4-Level Payment Approval Pipeline**: SE Request -> PM -> Planning -> Accountant
+- **Freeze & Reassign**: OTP-verified freeze of underperforming contractors
 - Documents tab: Site plans, design files
 - Summary tab: Financial overview
+- **DLR (Daily Labour Report)**: Per work order attendance tracking with 3 fixed rows
+- **Google Maps URL Location Setup**: Paste Google Maps URL to set project coordinates
 
-### Site Engineer View (SiteEngineerProject.jsx)
+### Site Engineer View (SiteEngineerDashboard.jsx / SiteEngineerProject.jsx)
 - Labour tracking, attendance, material requests
-- Contractor Payments section: View project work orders, request stage payments
-- **Daily Labour Report (DLR)**: Toggle DLR panel on each work order card to record/view attendance
-- Work order tab (old labour-based system)
-- Stock management, daily progress
+- Contractor Payments section
+- **DLR Panel**: Toggle DLR panel on each work order card
+- **Inventory Management**: Opening/Received/Used/Closing stock with min threshold alerts
+- **Multi-Project GPS Attendance**: Login/logout with 5km geofencing
+- **Background GPS Tracking**: Auto-sends location every 5 min while logged in
 
 ### Planning Board (PlanningBoard.jsx)
 - Packages tab with dynamic Material/Brand dropdowns + "Create New"
 - Scope items with Qty/Total columns
+- **Live Map Dashboard**: Real-time SE locations with Leaflet, out-of-range flagging
+- **Custom Header Navigation**: Planning Board tabs rendered inside main AppHeader
 
 ### Other Modules
 - Vendor management, Purchase orders
@@ -52,52 +57,35 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ## Database Collections (Key)
 - `users`, `projects`, `leads`, `lead_stages`
 - `project_work_orders` (scope-based work orders with 4-level approval)
-- `daily_labour_reports` (DLR per work order per day, tracks type/count/day_value/rate)
+- `daily_labour_reports` (DLR per work order per day)
+- `site_engineer_attendance` (multi-project GPS attendance)
+- `material_inventory` (opening/closing stock with thresholds)
 - `freeze_otps` (stores hashed OTPs for freeze verification)
-- `work_orders` (OLD - labour-based, used by Labours tab)
-- `labour_work_orders` (OLD - used by Site Engineer)
-- `material_names`, `material_requests`, `purchase_orders`
-- `contractors`, `vendor_master`
 
 ## Key API Endpoints
 - Work Orders: GET/POST/PATCH/DELETE `/api/projects/{project_id}/work-orders`
 - Payment Pipeline: PATCH `.../stages/{stage_id}/request-payment`, `.../approve`, `.../revert`
 - Freeze: POST `.../freeze/send-otp`, `.../freeze/verify-otp`, `.../freeze/reassign`
-- **DLR**: POST/GET `/api/projects/{pid}/work-orders/{woid}/dlr`, DELETE `.../dlr/{dlr_id}`, GET `/api/projects/{pid}/dlr/summary`
-- Contractor Types: GET `/api/contractor-types`
+- DLR: POST/GET `/api/projects/{pid}/work-orders/{woid}/dlr`
+- SE Attendance: POST `/api/site-engineer/attendance/login`, `/api/site-engineer/live-location`
+- Live Map: GET `/api/site-engineer/live-locations`
+- Project Location: POST `/api/projects/{project_id}/location`
 
-## Completed Tasks (Latest Session - April 2026)
-- [x] Work Orders CRUD backend (project_work_orders collection)
-- [x] 4-level payment approval pipeline (SE → PM → Planning → Accountant)
-- [x] Work Orders tab in ProjectDetail with approval trail UI
-- [x] Site Engineer contractor payments view with "Request Payment"
-- [x] Fixed null safety crash in ProjectDetail (materialsData, laboursData, designData, woForm)
-- [x] **Freeze & Reassign feature**: OTP-verified freeze + auto-reassign balance stages to new contractor
-- [x] Planning Board 2-Level Nested Tab Restructuring
-- [x] **Daily Labour Report (DLR)**: Per work order attendance tracking with 3 fixed rows (Skilled/Semi-Skilled/Unskilled), pre-filled rates from Work Order, day fractions 0.5/1/1.5, auto-cost calc.
-- [x] **Inventory Management System**: Enhanced daily stock tracking — Opening/Received/Used/Closing with auto-calc. Current Stock dashboard with LOW alerts (min threshold). Visible in SE "Inventory" tab + ProjectDetail.
-- [x] **SE Daily Attendance**: Multi-project time tracking with GPS verification (5km radius). Login/Logout button in SE header, Attendance tab with today summary + history table (dynamic project columns, Total Hours, Status: Full/Half/Short Day).
-- [x] **Project Location Map**: Leaflet map in SE dashboard Projects tab showing pins for all GPS-enabled projects. Popup with name, location, client, coordinates. Green "GPS" badge on project cards.
-- [x] **Geo-fencing & Live Map**: 
-  - Google Maps URL paste → auto-extract lat/lng (supports @lat,lng and ?q=lat,lng formats) in ProjectDetail
-  - SE background GPS tracking every 5 min while logged in
-  - Auto-logout if SE moves >5km from project + notification
-  - PM "Live Map" tab in PlanningBoard: real-time map with project pins (5km radius circles), active SE green dots, engineer list table, 30s auto-refresh
-- [x] Testing: iteration_121-129 all passed
+## Completed Tasks (Latest Session - Feb 2026)
+- [x] AppHeader custom navigation for Planning Board (Dashboard, Packages, Material Vendors, Labour Contractors, RE Templates, Live Map in main header) - Tested iteration_130
 
 ## Prioritized Backlog
 
 ### P0 (Critical)
-- None currently blocking
+- Refactor ProjectDetail.jsx (~5400 lines) into components
+- Refactor PlanningBoard.jsx (~1900 lines) into components
 
 ### P1 (High Priority)
-- Refactor ProjectDetail.jsx (~5300 lines) into components
-- Refactor CRMSales.jsx (~2300 lines) into components
-- Geo-fencing & Location Tracking (Phase 1)
 - Pre-Deployment Security: 2FA, rate limiting to MongoDB, disable demo-login
+- Refactor SiteEngineerDashboard.jsx (~1500 lines)
 
 ### P2 (Medium Priority)
-- Sr. Engineer → Jr. Engineer Assignment Workflow
+- Sr. Engineer -> Jr. Engineer Assignment Workflow
 - Aadhar Document Upload (encrypted storage)
 - Cash Denomination feature (paused)
 - SaaS model conversion (paused)
