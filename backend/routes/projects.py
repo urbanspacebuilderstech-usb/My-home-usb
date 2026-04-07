@@ -2988,55 +2988,47 @@ async def get_project_team(project_id: str, user: User = Depends(get_current_use
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Get assignments
-    assignments = await db.site_engineer_assignments.find(
-        {"project_id": project_id, "is_active": True}, {"_id": 0}
-    ).to_list(50)
-
-    # Build team list
-    team = {
-        "project_manager": None,
-        "sr_site_engineers": [],
-        "site_engineers": [],
-    }
-
-    # PM from project
-    if project.get("assigned_pm"):
-        pm_user = await db.users.find_one(
-            {"user_id": project["assigned_pm"]},
-            {"_id": 0, "password_hash": 0}
-        )
-        if pm_user:
-            team["project_manager"] = {
-                "user_id": pm_user["user_id"],
-                "name": pm_user.get("name", ""),
-                "phone": pm_user.get("phone", ""),
-                "email": pm_user.get("email", ""),
-                "role": pm_user.get("role", ""),
-            }
-
-    for a in assignments:
-        member = {
-            "user_id": a["user_id"],
-            "name": a.get("user_name", ""),
-            "role": a.get("user_role", ""),
-            "assignment_id": a["assignment_id"],
-            "assigned_at": a.get("created_at", ""),
-        }
-        # Get full user info
-        u = await db.users.find_one({"user_id": a["user_id"]}, {"_id": 0, "password_hash": 0})
-        if u:
-            member["phone"] = u.get("phone", "")
-            member["email"] = u.get("email", "")
-
-        if a.get("user_role") == "sr_site_engineer":
-            team["sr_site_engineers"].append(member)
-        elif a.get("user_role") in ["site_engineer"]:
-            team["site_engineers"].append(member)
+    team_data = project.get("team", {})
+    team = {}
+    roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement"]
+    
+    for role in roles:
+        user_id = team_data.get(role)
+        if user_id:
+            u = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+            if u:
+                team[role] = {"user_id": u["user_id"], "name": u.get("name", ""), "phone": u.get("phone", ""), "email": u.get("email", ""), "role": u.get("role", "")}
+            else:
+                team[role] = None
         else:
-            team["site_engineers"].append(member)
+            team[role] = None
 
     return team
+
+
+@router.patch("/projects/{project_id}/team")
+async def update_project_team(project_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Assign team members to a project by role"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning/Admin can assign team")
+    
+    project = await db.projects.find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    body = await request.json()
+    valid_roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement"]
+    
+    team = project.get("team", {})
+    for role in valid_roles:
+        if role in body:
+            team[role] = body[role] if body[role] else None
+
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"team": team, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Team updated"}
 
 
 @router.get("/projects/{project_id}/materials-summary")

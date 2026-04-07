@@ -2595,11 +2595,11 @@ async def delete_user(user_id: str, current_user: User = Depends(get_current_use
 
 @router.get("/users/by-role/{role}")
 async def get_users_by_role(role: str, current_user: User = Depends(get_current_user)):
-    """Get users by role (Super Admin only)"""
-    if current_user.role != UserRole.SUPER_ADMIN:
+    """Get users by role"""
+    if current_user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    users = await db.users.find({"role": role}, {"_id": 0}).to_list(1000)
+    users = await db.users.find({"role": role, "is_active": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(1000)
     return users
 
 
