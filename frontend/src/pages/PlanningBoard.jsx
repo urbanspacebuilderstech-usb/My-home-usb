@@ -828,30 +828,30 @@ export default function PlanningBoard() {
 
   return (
     <div className="min-h-screen bg-gray-50" data-testid="planning-board">
-      <AppHeader user={user} />
-
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="bg-white border shadow-sm mb-3 flex-wrap">
-            <TabsTrigger value="dashboard" className="text-xs sm:text-sm" data-testid="tab-dashboard">
-              <Building2 className="h-3 w-3 mr-1" />Dashboard
-            </TabsTrigger>
-            <TabsTrigger value="packages" className="text-xs sm:text-sm" data-testid="tab-packages">
-              <Package className="h-3 w-3 mr-1" />Packages
-            </TabsTrigger>
-            <TabsTrigger value="material_vendors" className="text-xs sm:text-sm" data-testid="tab-material-vendors">
-              <Truck className="h-3 w-3 mr-1" />Material Vendors
-            </TabsTrigger>
-            <TabsTrigger value="labour_contractors" className="text-xs sm:text-sm" data-testid="tab-labour-contractors">
-              <Users className="h-3 w-3 mr-1" />Labour Contractors
-            </TabsTrigger>
-            <TabsTrigger value="re_templates" className="text-xs sm:text-sm" data-testid="tab-re-templates">
-              <FileText className="h-3 w-3 mr-1" />RE Templates
-            </TabsTrigger>
-            <TabsTrigger value="live_map" className="text-xs sm:text-sm" data-testid="tab-live-map">
-              <Radio className="h-3 w-3 mr-1 text-green-500" />Live Map
-            </TabsTrigger>
-          </TabsList>
+          <div className="bg-white border rounded-lg shadow-sm p-1 mb-4 sticky top-0 z-30">
+            <TabsList className="bg-transparent w-full flex-wrap gap-0.5">
+              <TabsTrigger value="dashboard" className="text-xs sm:text-sm" data-testid="tab-dashboard">
+                <Building2 className="h-3 w-3 mr-1" />Dashboard
+              </TabsTrigger>
+              <TabsTrigger value="packages" className="text-xs sm:text-sm" data-testid="tab-packages">
+                <Package className="h-3 w-3 mr-1" />Packages
+              </TabsTrigger>
+              <TabsTrigger value="material_vendors" className="text-xs sm:text-sm" data-testid="tab-material-vendors">
+                <Truck className="h-3 w-3 mr-1" />Material Vendors
+              </TabsTrigger>
+              <TabsTrigger value="labour_contractors" className="text-xs sm:text-sm" data-testid="tab-labour-contractors">
+                <Users className="h-3 w-3 mr-1" />Labour Contractors
+              </TabsTrigger>
+              <TabsTrigger value="re_templates" className="text-xs sm:text-sm" data-testid="tab-re-templates">
+                <FileText className="h-3 w-3 mr-1" />RE Templates
+              </TabsTrigger>
+              <TabsTrigger value="live_map" className="text-xs sm:text-sm" data-testid="tab-live-map">
+                <Radio className="h-3 w-3 mr-1 text-green-500" />Live Map
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* ==================== DASHBOARD ==================== */}
           <TabsContent value="dashboard">
