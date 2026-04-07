@@ -503,21 +503,21 @@ export default function SiteEngineerDashboard() {
   
   // Petty Cash Functions
   const handleRequestPettyCash = async () => {
-    if (!pettyCashForm.project_id || !pettyCashForm.amount || !pettyCashForm.purpose) {
-      toast.error('Please fill all required fields');
+    if (!pettyCashForm.amount || !pettyCashForm.purpose) {
+      toast.error('Please fill amount and purpose');
       return;
     }
     try {
       await axios.post(`${API}/site-engineer/petty-cash/request`, {
-        project_id: pettyCashForm.project_id,
         amount: parseFloat(pettyCashForm.amount),
         purpose: pettyCashForm.purpose,
         remarks: pettyCashForm.remarks
       });
-      toast.success('Petty cash requested! Goes to Accountant for approval.');
+      toast.success('Petty cash requested! Goes to PM for approval.');
       setPettyCashDialog(false);
       setPettyCashForm({ project_id: '', amount: '', purpose: '', remarks: '' });
       fetchData(false);
+      fetchPettyCashSummary();
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request petty cash');
     }
@@ -1617,28 +1617,11 @@ export default function SiteEngineerDashboard() {
           <DialogHeader>
             <DialogTitle>Request Petty Cash</DialogTitle>
             <DialogDescription>
-              Request petty cash for site expenses. Will be sent to Accountant for approval.
+              Global petty cash request. Goes to PM for approval.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Project *</label>
-              <Select 
-                value={pettyCashForm.project_id} 
-                onValueChange={(v) => setPettyCashForm({...pettyCashForm, project_id: v})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select project" />
-                </SelectTrigger>
-                <SelectContent>
-                  {projects.map(p => (
-                    <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
             <div>
               <label className="text-sm font-medium">Amount *</label>
               <NumericInput 

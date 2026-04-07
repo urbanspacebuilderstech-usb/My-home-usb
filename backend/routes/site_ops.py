@@ -1734,7 +1734,7 @@ async def get_labour_types(user: User = Depends(get_current_user)):
 # ==================== PETTY CASH MODULE ====================
 
 class PettyCashRequestCreate(BaseModel):
-    project_id: str
+    project_id: Optional[str] = None
     amount: float
     purpose: str
     remarks: Optional[str] = None
@@ -1748,25 +1748,19 @@ class PettyCashExpenseCreate(BaseModel):
 
 @router.post("/site-engineer/petty-cash/request")
 async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(get_current_user)):
-    """Site Engineer requests petty cash from Accountant"""
+    """Site Engineer requests petty cash - global (no project required)"""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can request petty cash")
     
-    # Verify assignment to project
-    assignment = await db.site_engineer_assignments.find_one({
-        "user_id": user.user_id,
-        "project_id": data.project_id,
-        "is_active": True
-    })
-    if not assignment:
-        raise HTTPException(status_code=403, detail="You are not assigned to this project")
-    
-    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    project_name = "General"
+    if data.project_id:
+        project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+        project_name = project["name"] if project else "Unknown"
     
     petty_cash = {
         "petty_cash_id": f"pc_{secrets.token_hex(6)}",
-        "project_id": data.project_id,
-        "project_name": project["name"] if project else "Unknown",
+        "project_id": data.project_id or "",
+        "project_name": project_name,
         "requested_by": user.user_id,
         "requested_by_name": user.name,
         "amount_requested": data.amount,
@@ -1775,7 +1769,7 @@ async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(
         "amount_returned": 0,
         "purpose": data.purpose,
         "remarks": data.remarks,
-        "status": "requested",  # requested → pm_approved → accountant_processing → payment_done → acknowledged
+        "status": "requested",
         "expenses": [],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -1783,15 +1777,10 @@ async def request_petty_cash(data: PettyCashRequestCreate, user: User = Depends(
     await db.petty_cash.insert_one(petty_cash)
     petty_cash.pop("_id", None)
     
-    # Notify Project Manager(s) for the project
-    team = await db.site_engineer_assignments.find({"project_id": data.project_id, "role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
-    pm_ids = [t["user_id"] for t in team]
-    if not pm_ids:
-        # Fallback: notify all PMs
-        pms = await db.users.find({"role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
-        pm_ids = [p["user_id"] for p in pms]
-    for pm_id in pm_ids:
-        await create_notification(pm_id, f"Petty cash request: ₹{data.amount:,.0f} for {project['name'] if project else 'project'} by {user.name}")
+    # Notify all PMs
+    pms = await db.users.find({"role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+    for pm in pms:
+        await create_notification(pm["user_id"], f"Petty cash request: ₹{data.amount:,.0f} by {user.name}")
     
     return petty_cash
 
