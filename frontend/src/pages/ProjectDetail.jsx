@@ -571,13 +571,13 @@ export default function ProjectDetail() {
   };
   useAutoRefresh(fetchData, 15000);
 
-  // Load package materials when project data is available and has a package_id
+  // Load package materials when project data is available
   useEffect(() => {
-    if (projectData?.project?.package_id && !projectMaterialsLoaded) {
+    if (projectData?.project && !projectMaterialsLoaded) {
       loadProjectMaterials();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectData?.project?.package_id, projectMaterialsLoaded]);
+  }, [projectData?.project?.project_id, projectMaterialsLoaded]);
 
   const fetchProjectFiles = async () => {
     try {
@@ -652,29 +652,26 @@ export default function ProjectDetail() {
   };
 
   const loadProjectMaterials = async () => {
-    const pkg_id = projectData?.project?.package_id;
-    if (!pkg_id) { setProjectMaterials([]); setProjectMaterialsLoaded(true); return; }
     try {
-      // Fetch material names + saved materials in parallel
-      const [matNamesRes, savedRes, pkgListRes] = await Promise.all([
+      const [matNamesRes, savedRes] = await Promise.all([
         axios.get(`${API}/material-names`).catch(() => ({ data: [] })),
         axios.get(`${API}/projects/${projectId}/package-materials`).catch(() => ({ data: [] })),
-        axios.get(`${API}/packages`).catch(() => ({ data: [] })),
       ]);
       setProjMaterialNames(matNamesRes.data || []);
       if (savedRes.data?.length > 0) {
         setProjectMaterials(savedRes.data);
-        // Prefetch brands for each material
         savedRes.data.forEach(m => { if (m.name) fetchProjBrands(m.name); });
-      } else {
-        const pkg = (pkgListRes.data || []).find(p => p.package_id === pkg_id);
+      } else if (projectData?.project?.package_id) {
+        // Auto-import from package if no saved materials yet
+        const pkgListRes = await axios.get(`${API}/packages`).catch(() => ({ data: [] }));
+        const pkg = (pkgListRes.data || []).find(p => p.package_id === projectData.project.package_id);
         if (pkg?.material_items?.length > 0) {
           const items = pkg.material_items.map(m => ({ name: m.name, brand: m.brand || '' }));
           setProjectMaterials(items);
           items.forEach(m => { if (m.name) fetchProjBrands(m.name); });
           await axios.put(`${API}/projects/${projectId}/package-materials`, { materials: items });
         } else { setProjectMaterials([]); }
-      }
+      } else { setProjectMaterials([]); }
     } catch { setProjectMaterials([]); }
     setProjectMaterialsLoaded(true);
   };
@@ -3647,24 +3644,28 @@ export default function ProjectDetail() {
 
                   {/* MATERIALS SUB-TAB */}
                   <TabsContent value="materials" className="mt-4">
-                    {/* === Package Materials List (Editable) === */}
-                    {project?.package_id && (
-                      <div className="border rounded-lg p-4 mb-4 bg-amber-50/30" data-testid="pkg-materials-section">
-                        <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-sm font-bold flex items-center gap-2">
-                            <Package className="h-4 w-4 text-amber-600" />
-                            Materials List
-                            {allPackages.length > 0 && <Badge variant="outline" className="text-[10px]">{allPackages.find(p => p.package_id === project.package_id)?.name || ''}</Badge>}
-                          </h4>
+                    {/* === Materials List (Editable) === */}
+                    <div className="border rounded-lg p-4 mb-4" data-testid="pkg-materials-section">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-bold flex items-center gap-2">
+                          <Package className="h-4 w-4 text-amber-600" />
+                          Materials List
+                          {project?.package_id && allPackages.length > 0 && <Badge variant="outline" className="text-[10px]">{allPackages.find(p => p.package_id === project.package_id)?.name || ''}</Badge>}
+                        </h4>
+                        <div className="flex items-center gap-2">
                           <Button size="sm" variant="outline" onClick={addProjectMaterial} data-testid="add-project-material">
                             <Plus className="h-3 w-3 mr-1" />Add Material
                           </Button>
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => { saveProjectMaterials(projectMaterials); toast.success('Materials saved'); }} data-testid="save-project-materials">
+                            <Save className="h-3 w-3 mr-1" />Save
+                          </Button>
                         </div>
-                        {!projectMaterialsLoaded ? (
-                          <p className="text-sm text-gray-400 text-center py-4">Loading...</p>
-                        ) : projectMaterials.length === 0 ? (
-                          <p className="text-sm text-gray-400 text-center py-4">No materials. Click "Add Material" to start.</p>
-                        ) : (
+                      </div>
+                      {!projectMaterialsLoaded ? (
+                        <p className="text-sm text-gray-400 text-center py-4">Loading...</p>
+                      ) : projectMaterials.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-4">No materials. Click "Add Material" to start.</p>
+                      ) : (
                           <div className="space-y-3 mt-2">
                             {projectMaterials.map((m, idx) => (
                               <div key={idx} className="border border-dashed rounded-lg p-3 space-y-2" data-testid={`proj-mat-row-${idx}`}>
@@ -3715,33 +3716,8 @@ export default function ProjectDetail() {
                           </div>
                         )}
                       </div>
-                    )}
 
-                    {/* Material Requests Summary */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4" data-testid="materials-summary">
-                      <div className="rounded-lg p-3 text-center border bg-gray-50">
-                        <p className="text-xl font-bold">{materialsData.summary.total_requests || 0}</p>
-                        <p className="text-xs text-gray-500">Total Requests</p>
-                      </div>
-                      <div className="rounded-lg p-3 text-center border bg-amber-50 border-amber-200">
-                        <p className="text-xl font-bold text-amber-700">{materialsData.summary.requested || 0}</p>
-                        <p className="text-xs text-gray-500">Pending</p>
-                      </div>
-                      <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
-                        <p className="text-xl font-bold text-blue-700">{materialsData.summary.in_progress || 0}</p>
-                        <p className="text-xs text-gray-500">In Progress</p>
-                      </div>
-                      <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
-                        <p className="text-xl font-bold text-green-700">{materialsData.summary.delivered || 0}</p>
-                        <p className="text-xs text-gray-500">Delivered</p>
-                      </div>
-                      {!isPM && materialsData.summary.total_cost !== undefined && (
-                        <div className="rounded-lg p-3 text-center border bg-purple-50 border-purple-200">
-                          <p className="text-xl font-bold text-purple-700">{formatCurrency(materialsData.summary.total_cost || 0)}</p>
-                          <p className="text-xs text-gray-500">Total Cost</p>
-                        </div>
-                      )}
-                    </div>
+                    {/* Material Requests Table (existing) */}
                     {materialsData.materials.length > 0 ? (
                       <div className="overflow-x-auto border rounded-lg">
                         <table className="w-full text-sm" data-testid="materials-table">
