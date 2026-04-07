@@ -274,6 +274,7 @@ export default function SiteEngineerDashboard() {
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedStage, setSelectedStage] = useState(null);
   const [paymentRemarks, setPaymentRemarks] = useState('');
+  const [paymentAmount, setPaymentAmount] = useState('');
   
   // Petty Cash states
   const [pettyCashList, setPettyCashList] = useState([]);
@@ -681,24 +682,44 @@ export default function SiteEngineerDashboard() {
 
   const openPaymentRequest = (workOrder, stage) => {
     setSelectedStage({ workOrder, stage });
+    setPaymentAmount('');
     setPaymentRemarks('');
     setPaymentDialog(true);
   };
 
   const handleRequestPayment = async () => {
     if (!selectedStage) return;
-    
+    const amount = parseFloat(paymentAmount);
+    if (!amount || amount <= 0) { toast.error('Enter a valid amount'); return; }
     try {
       await axios.patch(
-        `${API}/work-orders/${selectedStage.workOrder.work_order_id}/stages/${selectedStage.stage.stage_id}/request-payment`,
-        null,
-        { params: { remarks: paymentRemarks } }
+        `${API}/projects/${selectedStage.workOrder.project_id}/work-orders/${selectedStage.workOrder.work_order_id}/stages/${selectedStage.stage.stage_id}/request-payment`,
+        { amount, notes: paymentRemarks }
       );
-      toast.success('Payment request submitted! Goes to Planning for approval.');
+      toast.success('Payment request submitted! Goes to PM → Planning → Accountant.');
       setPaymentDialog(false);
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
+    }
+  };
+
+  const [finishStageDialog, setFinishStageDialog] = useState(false);
+  const [finishStageTarget, setFinishStageTarget] = useState(null);
+  const [finishStageRemarks, setFinishStageRemarks] = useState('');
+
+  const handleFinishStage = async () => {
+    if (!finishStageTarget) return;
+    try {
+      await axios.patch(
+        `${API}/projects/${finishStageTarget.workOrder.project_id}/work-orders/${finishStageTarget.workOrder.work_order_id}/stages/${finishStageTarget.stage.stage_id}/finish`,
+        { remarks: finishStageRemarks }
+      );
+      toast.success('Stage finished!');
+      setFinishStageDialog(false);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to finish stage');
     }
   };
 
@@ -1062,72 +1083,95 @@ export default function SiteEngineerDashboard() {
                         <div className="border-t pt-3">
                           <p className="text-xs font-semibold text-gray-500 mb-2">PAYMENT STAGES</p>
                           <div className="space-y-2">
-                            {wo.stages.map((stage, idx) => (
-                              <div key={idx} className="bg-gray-50 rounded-lg p-3">
+                            {wo.stages.map((stage, idx) => {
+                              const stageTotal = stage.amount || 0;
+                              const released = (stage.payment_requests || []).filter(pr => pr.status === 'approved').reduce((s, pr) => s + (pr.approved_amount || 0), 0) || stage.amount_released || 0;
+                              const pending = (stage.payment_requests || []).filter(pr => ['requested','pm_approved','planning_approved'].includes(pr.status)).reduce((s, pr) => s + (pr.amount || 0), 0) || 0;
+                              const balance = stageTotal - released - pending;
+                              const isFinished = stage.stage_status === 'finished' || stage.status === 'completed';
+                              const prs = stage.payment_requests || [];
+                              
+                              return (
+                              <div key={idx} className={`rounded-lg p-3 ${isFinished ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`} data-testid={`stage-card-${stage.stage_id}`}>
                                 <div className="flex items-center justify-between mb-2">
                                   <div className="flex items-center gap-2">
                                     <span className="text-sm font-medium">
                                       Stage {stage.stage_number}: {stage.stage_name}
                                     </span>
-                                    {getStageStatusBadge(stage.status)}
+                                    {isFinished && <Badge className="bg-green-100 text-green-700 text-[10px]">Finished</Badge>}
                                   </div>
-                                  <span className="font-bold text-green-600">{formatCurrency(stage.amount)}</span>
+                                  <span className="font-bold text-green-600">{formatCurrency(stageTotal)}</span>
                                 </div>
-                                
-                                {/* Stage Actions */}
-                                <div className="flex gap-2 flex-wrap">
-                                  {stage.status === 'pending' && (
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline"
-                                      onClick={() => handleStartStage(wo.work_order_id, stage.stage_id)}
-                                      className="gap-1"
-                                    >
-                                      <Play className="h-3 w-3" /> Start Work
-                                    </Button>
-                                  )}
-                                  
-                                  {stage.status === 'in_progress' && (
-                                    <Button 
-                                      size="sm" 
-                                      variant="outline"
-                                      onClick={() => handleCompleteStage(wo.work_order_id, stage.stage_id)}
-                                      className="gap-1"
-                                    >
-                                      <CheckCircle className="h-3 w-3" /> Mark Complete
-                                    </Button>
-                                  )}
-                                  
-                                  {(stage.status === 'completed' || stage.status === 'in_progress') && stage.status !== 'payment_requested' && stage.status !== 'payment_approved' && stage.status !== 'paid' && (
+
+                                {/* Amount breakdown */}
+                                <div className="grid grid-cols-3 gap-2 mb-2 text-[10px]">
+                                  <div className="bg-white p-1.5 rounded text-center border">
+                                    <p className="text-gray-500 uppercase">Released</p>
+                                    <p className="font-bold text-green-700">{formatCurrency(released)}</p>
+                                  </div>
+                                  <div className="bg-white p-1.5 rounded text-center border">
+                                    <p className="text-gray-500 uppercase">Pending</p>
+                                    <p className="font-bold text-amber-600">{formatCurrency(pending)}</p>
+                                  </div>
+                                  <div className="bg-white p-1.5 rounded text-center border">
+                                    <p className="text-gray-500 uppercase">Balance</p>
+                                    <p className="font-bold text-red-600">{formatCurrency(balance)}</p>
+                                  </div>
+                                </div>
+
+                                {/* Payment requests history */}
+                                {prs.length > 0 && (
+                                  <div className="mb-2 space-y-1">
+                                    {prs.map((pr) => (
+                                      <div key={pr.request_id} className="flex items-center justify-between bg-white px-2 py-1 rounded border text-[10px]" data-testid={`pr-${pr.request_id}`}>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-medium">{formatCurrency(pr.amount)}</span>
+                                          <span className="text-gray-400">{new Date(pr.requested_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</span>
+                                        </div>
+                                        <Badge className={`text-[9px] ${
+                                          pr.status === 'approved' ? 'bg-green-100 text-green-700' :
+                                          pr.status === 'rejected' ? 'bg-red-100 text-red-600' :
+                                          pr.status === 'planning_approved' ? 'bg-purple-100 text-purple-700' :
+                                          pr.status === 'pm_approved' ? 'bg-blue-100 text-blue-700' :
+                                          'bg-amber-100 text-amber-700'
+                                        }`}>
+                                          {pr.status === 'requested' ? 'Pending PM' : pr.status === 'pm_approved' ? 'Pending Planning' : pr.status === 'planning_approved' ? 'Pending Accountant' : pr.status === 'approved' ? 'Paid' : pr.status === 'rejected' ? 'Rejected' : pr.status}
+                                        </Badge>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Action buttons */}
+                                {!isFinished && (
+                                  <div className="flex gap-2 flex-wrap">
+                                    {balance > 0 && (
+                                      <Button 
+                                        size="sm"
+                                        onClick={() => openPaymentRequest(wo, stage)}
+                                        className="gap-1 bg-orange-600 hover:bg-orange-700 h-7 text-xs"
+                                        data-testid={`req-pay-${stage.stage_id}`}
+                                      >
+                                        <DollarSign className="h-3 w-3" /> Request Payment
+                                      </Button>
+                                    )}
                                     <Button 
                                       size="sm"
-                                      onClick={() => openPaymentRequest(wo, stage)}
-                                      className="gap-1 bg-orange-600 hover:bg-orange-700"
+                                      variant="outline"
+                                      onClick={() => { setFinishStageTarget({ workOrder: wo, stage }); setFinishStageRemarks(''); setFinishStageDialog(true); }}
+                                      className="gap-1 text-green-700 border-green-300 hover:bg-green-50 h-7 text-xs"
+                                      data-testid={`finish-stage-${stage.stage_id}`}
                                     >
-                                      <DollarSign className="h-3 w-3" /> Request Payment
+                                      <CheckCircle className="h-3 w-3" /> Finish Stage
                                     </Button>
-                                  )}
-                                  
-                                  {stage.status === 'payment_requested' && (
-                                    <span className="text-xs text-orange-600 flex items-center gap-1">
-                                      <Clock className="h-3 w-3" /> Waiting for Planning approval
-                                    </span>
-                                  )}
-                                  
-                                  {stage.status === 'payment_approved' && (
-                                    <span className="text-xs text-purple-600 flex items-center gap-1">
-                                      <CheckCircle className="h-3 w-3" /> Approved - Awaiting payment
-                                    </span>
-                                  )}
-                                  
-                                  {stage.status === 'paid' && (
-                                    <span className="text-xs text-green-600 flex items-center gap-1">
-                                      <CheckCircle className="h-3 w-3" /> Payment completed
-                                    </span>
-                                  )}
-                                </div>
+                                  </div>
+                                )}
+                                {isFinished && stage.finished_remarks && (
+                                  <p className="text-[10px] text-green-600 mt-1">Remarks: {stage.finished_remarks}</p>
+                                )}
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       )}
@@ -1568,44 +1612,74 @@ export default function SiteEngineerDashboard() {
       </Dialog>
 
       <Dialog open={paymentDialog} onOpenChange={setPaymentDialog}>
-        <DialogContent>
+        <DialogContent data-testid="payment-request-dialog">
           <DialogHeader>
-            <DialogTitle>Request Stage Payment</DialogTitle>
-            <DialogDescription>
-              Submit payment request for approval by Planning
-            </DialogDescription>
+            <DialogTitle className="text-sm">Request Stage Payment</DialogTitle>
+            <DialogDescription>Enter partial or full amount. Goes to PM → Planning → Accountant.</DialogDescription>
           </DialogHeader>
           
-          {selectedStage && (
-            <div className="space-y-4">
-              <Card className="bg-gray-50">
-                <CardContent className="p-4">
-                  <p className="text-sm text-gray-500">Work Order</p>
-                  <p className="font-semibold">{selectedStage.workOrder.work_order_number} - {selectedStage.workOrder.work_type}</p>
-                  <p className="text-sm text-gray-500 mt-2">Stage</p>
-                  <p className="font-semibold">{selectedStage.stage.stage_name}</p>
-                  <p className="text-xl font-bold text-green-600 mt-2">
-                    {formatCurrency(selectedStage.stage.amount)}
-                  </p>
-                </CardContent>
-              </Card>
+          {selectedStage && (() => {
+            const st = selectedStage.stage;
+            const released = (st.payment_requests || []).filter(pr => pr.status === 'approved').reduce((s, pr) => s + (pr.approved_amount || 0), 0) || st.amount_released || 0;
+            const pending = (st.payment_requests || []).filter(pr => ['requested','pm_approved','planning_approved'].includes(pr.status)).reduce((s, pr) => s + (pr.amount || 0), 0) || 0;
+            const balance = (st.amount || 0) - released - pending;
+            return (
+            <div className="space-y-3">
+              <Card className="bg-gray-50"><CardContent className="p-3 text-xs space-y-1">
+                <p><span className="text-gray-500">Work Order:</span> <span className="font-semibold">{selectedStage.workOrder.work_order_number} - {selectedStage.workOrder.work_type || selectedStage.workOrder.contractor_name}</span></p>
+                <p><span className="text-gray-500">Stage:</span> <span className="font-semibold">{st.stage_name}</span></p>
+                <div className="flex gap-3 mt-2 pt-2 border-t">
+                  <div><span className="text-gray-500">Total:</span> <span className="font-bold text-green-700">{formatCurrency(st.amount)}</span></div>
+                  <div><span className="text-gray-500">Released:</span> <span className="font-bold text-blue-600">{formatCurrency(released)}</span></div>
+                  <div><span className="text-gray-500">Balance:</span> <span className="font-bold text-red-600">{formatCurrency(balance)}</span></div>
+                </div>
+              </CardContent></Card>
               
               <div>
-                <label className="text-sm font-medium">Remarks (Optional)</label>
-                <Textarea 
-                  value={paymentRemarks}
-                  onChange={(e) => setPaymentRemarks(e.target.value)}
-                  placeholder="Add any notes for Planning..."
-                  rows={3}
-                />
+                <Label className="text-xs font-medium">Request Amount *</Label>
+                <NumericInput value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} placeholder={`Max: ₹${balance.toLocaleString('en-IN')}`} data-testid="payment-amount-input" />
+                <p className="text-[10px] text-gray-400 mt-0.5">You can request partial amounts. Max available: ₹{balance.toLocaleString('en-IN')}</p>
+              </div>
+              <div>
+                <Label className="text-xs font-medium">Notes (Optional)</Label>
+                <Textarea value={paymentRemarks} onChange={e => setPaymentRemarks(e.target.value)} placeholder="Work done summary, notes for PM..." rows={2} className="text-xs" />
               </div>
             </div>
-          )}
+            );
+          })()}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaymentDialog(false)}>Cancel</Button>
-            <Button onClick={handleRequestPayment} className="bg-orange-600 hover:bg-orange-700">
-              <DollarSign className="h-4 w-4 mr-2" /> Submit Request
+            <Button onClick={handleRequestPayment} className="bg-orange-600 hover:bg-orange-700" data-testid="payment-submit-btn">
+              <DollarSign className="h-4 w-4 mr-1" /> Submit Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Finish Stage Dialog */}
+      <Dialog open={finishStageDialog} onOpenChange={setFinishStageDialog}>
+        <DialogContent className="max-w-sm" data-testid="finish-stage-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Finish Stage</DialogTitle>
+            <DialogDescription>Mark this stage as finished. No more payment requests will be allowed.</DialogDescription>
+          </DialogHeader>
+          {finishStageTarget && (
+            <div className="space-y-3">
+              <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-xs">
+                <p className="font-semibold">{finishStageTarget.workOrder.work_order_number}</p>
+                <p>Stage: <span className="font-semibold">{finishStageTarget.stage.stage_name}</span></p>
+              </CardContent></Card>
+              <div>
+                <Label className="text-xs font-medium">Remarks *</Label>
+                <Textarea value={finishStageRemarks} onChange={e => setFinishStageRemarks(e.target.value)} placeholder="Stage completion notes..." rows={2} className="text-xs" data-testid="finish-remarks" />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFinishStageDialog(false)}>Cancel</Button>
+            <Button className="bg-green-600 hover:bg-green-700" onClick={handleFinishStage} data-testid="finish-stage-confirm">
+              <CheckCircle className="h-4 w-4 mr-1" /> Finish Stage
             </Button>
           </DialogFooter>
         </DialogContent>

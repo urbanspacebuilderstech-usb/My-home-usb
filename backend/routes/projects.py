@@ -3365,7 +3365,7 @@ async def delete_project_work_order(project_id: str, work_order_id: str, user: U
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/request-payment")
 async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
-    """Site Engineer requests payment for a completed stage"""
+    """Site Engineer requests PARTIAL payment for a stage. Can be called multiple times until stage total is paid."""
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Site Engineers can request payments")
     
@@ -3373,16 +3373,53 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     
+    request_amount = data.get("amount")
+    if not request_amount or float(request_amount) <= 0:
+        raise HTTPException(status_code=400, detail="Amount is required and must be positive")
+    request_amount = float(request_amount)
+    
     now = datetime.now(timezone.utc).isoformat()
     updated = False
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
-            if stage["status"] != "pending":
-                raise HTTPException(status_code=400, detail=f"Stage is already '{stage['status']}', cannot request payment")
-            stage["status"] = "requested"
-            stage["requested_by"] = user.user_id
-            stage["requested_at"] = now
-            stage["requested_notes"] = data.get("notes", "")
+            if stage.get("stage_status") == "finished":
+                raise HTTPException(status_code=400, detail="Stage is finished, no more payment requests allowed")
+            
+            # Initialize payment_requests array if not present
+            if "payment_requests" not in stage:
+                stage["payment_requests"] = []
+            
+            # Calculate already released + pending amounts
+            released = sum(pr.get("approved_amount", 0) for pr in stage["payment_requests"] if pr.get("status") == "approved")
+            pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
+            stage_total = stage.get("amount", 0)
+            balance = stage_total - released - pending
+            
+            if request_amount > balance + 0.01:  # small tolerance
+                raise HTTPException(status_code=400, detail=f"Request amount ₹{request_amount:,.0f} exceeds available balance ₹{balance:,.0f}")
+            
+            import uuid
+            payment_req = {
+                "request_id": f"pr_{uuid.uuid4().hex[:8]}",
+                "amount": request_amount,
+                "status": "requested",
+                "requested_by": user.user_id,
+                "requested_by_name": user.name,
+                "requested_at": now,
+                "notes": data.get("notes", ""),
+                "dlr_summary": data.get("dlr_summary", ""),
+            }
+            stage["payment_requests"].append(payment_req)
+            
+            # Update stage amounts
+            stage["amount_released"] = released
+            stage["amount_pending"] = pending + request_amount
+            
+            # Set stage to in_progress if still pending
+            if stage.get("status") == "pending":
+                stage["status"] = "in_progress"
+                stage["stage_status"] = "in_progress"
+            
             updated = True
             break
     
@@ -3401,19 +3438,56 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         notif = Notification(
             user_id=pm_id,
             title="Payment Request",
-            message=f"Stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
+            message=f"₹{request_amount:,.0f} stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
             link=f"/projects/{project_id}"
         )
         notif_dict = notif.model_dump()
         notif_dict["created_at"] = notif_dict["created_at"].isoformat()
         await db.notifications.insert_one(notif_dict)
     
-    return {"message": "Payment requested successfully"}
+    return {"message": "Payment requested successfully", "request_id": payment_req["request_id"]}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/finish")
+async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Site Engineer marks a stage as finished with remarks"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can finish stages")
+    
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    updated = False
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            # Check for pending payment requests
+            pending_prs = [pr for pr in stage.get("payment_requests", []) if pr.get("status") in ["requested", "pm_approved", "planning_approved"]]
+            if pending_prs:
+                raise HTTPException(status_code=400, detail=f"Cannot finish stage — {len(pending_prs)} payment request(s) still pending")
+            
+            stage["stage_status"] = "finished"
+            stage["status"] = "completed"
+            stage["finished_at"] = now
+            stage["finished_remarks"] = data.get("remarks", "")
+            stage["finished_by"] = user.user_id
+            updated = True
+            break
+    
+    if not updated:
+        raise HTTPException(status_code=404, detail="Stage not found")
+    
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+    return {"message": "Stage finished"}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/approve")
 async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
-    """4-level approval: SE Request -> PM Approve -> Planning Approve -> Accountant Process"""
+    """4-level approval for a specific payment request within a stage: SE Request -> PM Approve -> Planning Approve -> Accountant Process"""
     allowed = [UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -3423,54 +3497,115 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
         raise HTTPException(status_code=404, detail="Work order not found")
     
     now = datetime.now(timezone.utc).isoformat()
-    action = data.get("action", "approve")  # approve or reject
+    action = data.get("action", "approve")
+    request_id = data.get("request_id")  # specific payment request to approve
     
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
-            current = stage["status"]
-            
-            if action == "reject":
-                stage["status"] = "rejected"
-                stage["rejection_reason"] = data.get("notes", f"Rejected by {user.role}")
-                stage["rejected_by"] = user.user_id
-                stage["rejected_at"] = now
-                break
-            
-            if action == "approve":
-                if user.role == UserRole.PROJECT_MANAGER and current == "requested":
-                    stage["status"] = "pm_approved"
-                    stage["pm_approved_by"] = user.user_id
-                    stage["pm_approved_at"] = now
-                    stage["pm_notes"] = data.get("notes", "")
-                elif user.role == UserRole.PLANNING and current == "pm_approved":
-                    stage["status"] = "planning_approved"
-                    stage["planning_approved_by"] = user.user_id
-                    stage["planning_approved_at"] = now
-                    stage["planning_notes"] = data.get("notes", "")
-                elif user.role == UserRole.ACCOUNTANT and current == "planning_approved":
-                    approved_amount = data.get("approved_amount", stage.get("amount", 0))
-                    stage["status"] = "approved"
-                    stage["approved_amount"] = approved_amount
-                    stage["accountant_approved_by"] = user.user_id
-                    stage["accountant_approved_at"] = now
-                    stage["accountant_notes"] = data.get("notes", "")
-                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
-                elif user.role == UserRole.SUPER_ADMIN:
-                    approved_amount = data.get("approved_amount", stage.get("amount", 0))
-                    stage["status"] = "approved"
-                    stage["approved_amount"] = approved_amount
-                    stage["accountant_approved_by"] = user.user_id
-                    stage["accountant_approved_at"] = now
-                    wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+            # New system: work with payment_requests array
+            if stage.get("payment_requests"):
+                target_pr = None
+                if request_id:
+                    target_pr = next((pr for pr in stage["payment_requests"] if pr.get("request_id") == request_id), None)
                 else:
-                    raise HTTPException(status_code=400, detail=f"Cannot {action} stage in '{current}' status with role '{user.role}'")
-            break
+                    # Find the first request in the appropriate status for this approver
+                    status_map = {
+                        UserRole.PROJECT_MANAGER: "requested",
+                        UserRole.PLANNING: "pm_approved",
+                        UserRole.ACCOUNTANT: "planning_approved",
+                    }
+                    target_status = status_map.get(user.role)
+                    if target_status:
+                        target_pr = next((pr for pr in stage["payment_requests"] if pr.get("status") == target_status), None)
+                    elif user.role == UserRole.SUPER_ADMIN:
+                        target_pr = next((pr for pr in stage["payment_requests"] if pr.get("status") not in ["approved", "rejected"]), None)
+                
+                if not target_pr:
+                    raise HTTPException(status_code=400, detail="No matching payment request found for your role")
+                
+                if action == "reject":
+                    target_pr["status"] = "rejected"
+                    target_pr["rejection_reason"] = data.get("notes", f"Rejected by {user.role}")
+                    target_pr["rejected_by"] = user.user_id
+                    target_pr["rejected_at"] = now
+                elif action == "approve":
+                    current = target_pr["status"]
+                    if user.role == UserRole.PROJECT_MANAGER and current == "requested":
+                        target_pr["status"] = "pm_approved"
+                        target_pr["pm_approved_by"] = user.user_id
+                        target_pr["pm_approved_at"] = now
+                        target_pr["pm_notes"] = data.get("notes", "")
+                    elif user.role == UserRole.PLANNING and current == "pm_approved":
+                        target_pr["status"] = "planning_approved"
+                        target_pr["planning_approved_by"] = user.user_id
+                        target_pr["planning_approved_at"] = now
+                        target_pr["planning_notes"] = data.get("notes", "")
+                    elif user.role == UserRole.ACCOUNTANT and current == "planning_approved":
+                        approved_amount = data.get("approved_amount", target_pr.get("amount", 0))
+                        target_pr["status"] = "approved"
+                        target_pr["approved_amount"] = approved_amount
+                        target_pr["accountant_approved_by"] = user.user_id
+                        target_pr["accountant_approved_at"] = now
+                        target_pr["accountant_notes"] = data.get("notes", "")
+                        wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                        # Update stage released amount
+                        stage["amount_released"] = sum(pr.get("approved_amount", 0) for pr in stage["payment_requests"] if pr.get("status") == "approved")
+                    elif user.role == UserRole.SUPER_ADMIN:
+                        approved_amount = data.get("approved_amount", target_pr.get("amount", 0))
+                        target_pr["status"] = "approved"
+                        target_pr["approved_amount"] = approved_amount
+                        target_pr["accountant_approved_by"] = user.user_id
+                        target_pr["accountant_approved_at"] = now
+                        wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                        stage["amount_released"] = sum(pr.get("approved_amount", 0) for pr in stage["payment_requests"] if pr.get("status") == "approved")
+                    else:
+                        raise HTTPException(status_code=400, detail=f"Cannot {action} request in '{current}' status with role '{user.role}'")
+                
+                # Recalc pending
+                stage["amount_pending"] = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
+                break
+            else:
+                # Legacy: single stage status (backward compatible)
+                current = stage["status"]
+                if action == "reject":
+                    stage["status"] = "rejected"
+                    stage["rejection_reason"] = data.get("notes", f"Rejected by {user.role}")
+                    stage["rejected_by"] = user.user_id
+                    stage["rejected_at"] = now
+                    break
+                if action == "approve":
+                    if user.role == UserRole.PROJECT_MANAGER and current == "requested":
+                        stage["status"] = "pm_approved"
+                        stage["pm_approved_by"] = user.user_id
+                        stage["pm_approved_at"] = now
+                        stage["pm_notes"] = data.get("notes", "")
+                    elif user.role == UserRole.PLANNING and current == "pm_approved":
+                        stage["status"] = "planning_approved"
+                        stage["planning_approved_by"] = user.user_id
+                        stage["planning_approved_at"] = now
+                        stage["planning_notes"] = data.get("notes", "")
+                    elif user.role == UserRole.ACCOUNTANT and current == "planning_approved":
+                        approved_amount = data.get("approved_amount", stage.get("amount", 0))
+                        stage["status"] = "approved"
+                        stage["approved_amount"] = approved_amount
+                        stage["accountant_approved_by"] = user.user_id
+                        stage["accountant_approved_at"] = now
+                        stage["accountant_notes"] = data.get("notes", "")
+                        wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                    elif user.role == UserRole.SUPER_ADMIN:
+                        approved_amount = data.get("approved_amount", stage.get("amount", 0))
+                        stage["status"] = "approved"
+                        stage["approved_amount"] = approved_amount
+                        wo["paid_amount"] = wo.get("paid_amount", 0) + approved_amount
+                    else:
+                        raise HTTPException(status_code=400, detail=f"Cannot {action} stage in '{current}' status with role '{user.role}'")
+                break
     
     await db.project_work_orders.update_one(
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"stages": wo["stages"], "paid_amount": wo.get("paid_amount", 0), "updated_at": now}}
     )
-    return {"message": f"Stage {action}d successfully"}
+    return {"message": f"Stage payment request {action}d successfully"}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/revert")
