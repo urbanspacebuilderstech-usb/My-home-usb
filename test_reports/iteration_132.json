@@ -1,0 +1,59 @@
+{
+  "summary": "Curing Video dialog visibility fix verified. The fix (max-h-[85vh] overflow-y-auto added to DialogContent) successfully ensures all dialog elements are visible and accessible within the viewport.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/frontend/src/components/ui/dialog.jsx"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "N/A (frontend only test)",
+    "frontend": "100%"
+  },
+  "test_credentials": "Site Engineer: engineer@constructionos.com (via Demo Access button)",
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Dialog visibility fix verified. The max-h-[85vh] overflow-y-auto CSS classes added to DialogContent component ensure dialogs don't exceed viewport height and are scrollable if needed.",
+  "features_tested": {
+    "curing_video_dialog": {
+      "title_visible": true,
+      "project_dropdown_visible": true,
+      "date_time_visible": true,
+      "curing_done_toggle_visible": true,
+      "toggle_switch_visible": true,
+      "cancel_button_visible": true,
+      "save_send_button_visible": true,
+      "dialog_fits_viewport": true,
+      "dialog_position": {
+        "top": 326,
+        "height": 428,
+        "bottom_edge": 754,
+        "viewport_height": 1080
+      }
+    },
+    "attendance_login_dialog": {
+      "dialog_visible": true,
+      "title_visible": true,
+      "login_button_visible": true
+    },
+    "curing_video_tab": {
+      "history_table_visible": true
+    }
+  },
+  "bug_fix_verification": {
+    "original_issue": "Curing Video dialog was cut off at the bottom - toggle switch and Save/Cancel buttons were not visible",
+    "fix_applied": "Added max-h-[85vh] overflow-y-auto to base DialogContent component in dialog.jsx line 32",
+    "fix_verified": true,
+    "all_elements_now_visible": true
+  }
+}
