@@ -3142,3 +3142,74 @@ async def get_live_se_locations(user: User = Depends(get_current_user)):
         "total_active": len(live_ses),
     }
 
+
+
+# ============ CURING VIDEO MANAGEMENT ============
+
+@router.post("/site-engineer/curing-video")
+async def create_curing_video_record(request: Request, user: User = Depends(get_current_user)):
+    """Create a curing video record for a project"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can record curing videos")
+
+    data = await request.json()
+    project_id = data.get("project_id")
+    curing_done = data.get("curing_done", False)
+
+    if not project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1, "client_name": 1, "client_phone": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    from datetime import datetime, timezone
+    record_id = f"cur_{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+
+    record = {
+        "record_id": record_id,
+        "project_id": project_id,
+        "project_name": project.get("name", ""),
+        "client_name": project.get("client_name", ""),
+        "client_phone": project.get("client_phone", ""),
+        "engineer_id": user.user_id,
+        "engineer_name": user.name,
+        "curing_done": curing_done,
+        "whatsapp_sent": False,
+        "date_time": now.isoformat(),
+        "created_at": now.isoformat(),
+    }
+
+    await db.curing_video_records.insert_one(record)
+    record.pop("_id", None)
+    return record
+
+
+@router.patch("/site-engineer/curing-video/{record_id}/whatsapp-sent")
+async def mark_whatsapp_sent(record_id: str, user: User = Depends(get_current_user)):
+    """Mark a curing video record's WhatsApp status as sent"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can update curing video records")
+
+    result = await db.curing_video_records.update_one(
+        {"record_id": record_id, "engineer_id": user.user_id},
+        {"$set": {"whatsapp_sent": True}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"status": "ok", "record_id": record_id, "whatsapp_sent": True}
+
+
+@router.get("/site-engineer/curing-video/history")
+async def get_curing_video_history(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get curing video history for the logged-in SE"""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Site Engineers can view curing video history")
+
+    query = {"engineer_id": user.user_id}
+    if project_id:
+        query["project_id"] = project_id
+
+    records = await db.curing_video_records.find(query, {"_id": 0}).sort("date_time", -1).to_list(200)
+    return records

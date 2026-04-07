@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Building2, LogOut, HardHat, MapPin, Package, Users, ChevronRight,
   Clock, Menu, X, ClipboardList, DollarSign, CheckCircle, Play, AlertCircle, Truck,
-  Wallet, Plus, Receipt, Send
+  Wallet, Plus, Receipt, Send, Video, MessageCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -302,6 +302,15 @@ export default function SiteEngineerDashboard() {
   const [gpsPosition, setGpsPosition] = useState(null);
   const [gpsError, setGpsError] = useState(null);
 
+  // Curing Video states
+  const [curingDialog, setCuringDialog] = useState(false);
+  const [curingProject, setCuringProject] = useState('');
+  const [curingDone, setCuringDone] = useState(false);
+  const [curingLoading, setCuringLoading] = useState(false);
+  const [curingHistory, setCuringHistory] = useState([]);
+  const [curingHistoryLoading, setCuringHistoryLoading] = useState(false);
+  const [curingFilterProject, setCuringFilterProject] = useState('');
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -336,6 +345,54 @@ export default function SiteEngineerDashboard() {
     }
   };
   useAutoRefresh(fetchData, 15000);
+
+  // ============ CURING VIDEO FUNCTIONS ============
+  const fetchCuringHistory = async (projFilter) => {
+    setCuringHistoryLoading(true);
+    try {
+      const params = projFilter && projFilter !== 'all' ? `?project_id=${projFilter}` : '';
+      const res = await axios.get(`${API}/site-engineer/curing-video/history${params}`);
+      setCuringHistory(res.data || []);
+    } catch { setCuringHistory([]); }
+    setCuringHistoryLoading(false);
+  };
+
+  const handleCuringSubmit = async () => {
+    if (!curingProject) { toast.error('Please select a project'); return; }
+    setCuringLoading(true);
+    try {
+      const res = await axios.post(`${API}/site-engineer/curing-video`, {
+        project_id: curingProject,
+        curing_done: curingDone,
+      });
+      toast.success('Curing video record saved!');
+      const record = res.data;
+      // If curing is done, open WhatsApp
+      if (curingDone && record.client_phone) {
+        const phone = record.client_phone.replace(/[\s\-\+]/g, '');
+        const msg = encodeURIComponent(`Curing video done for project: ${record.project_name} on ${new Date().toLocaleDateString('en-IN')}. - ${user?.name || 'Site Engineer'}`);
+        window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
+        // Mark whatsapp sent
+        await axios.patch(`${API}/site-engineer/curing-video/${record.record_id}/whatsapp-sent`).catch(() => {});
+      }
+      setCuringDialog(false);
+      setCuringProject('');
+      setCuringDone(false);
+      fetchCuringHistory(curingFilterProject);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to save curing record');
+    }
+    setCuringLoading(false);
+  };
+
+  const handleWhatsAppResend = async (record) => {
+    const phone = (record.client_phone || '').replace(/[\s\-\+]/g, '');
+    if (!phone) { toast.error('No client phone number'); return; }
+    const msg = encodeURIComponent(`Curing video done for project: ${record.project_name} on ${new Date(record.date_time).toLocaleDateString('en-IN')}. - ${user?.name || 'Site Engineer'}`);
+    window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
+    await axios.patch(`${API}/site-engineer/curing-video/${record.record_id}/whatsapp-sent`).catch(() => {});
+    fetchCuringHistory(curingFilterProject);
+  };
   
   // Petty Cash Functions
   const handleRequestPettyCash = async () => {
@@ -630,6 +687,16 @@ export default function SiteEngineerDashboard() {
               <span className="hidden sm:inline">Material Receipt</span>
               <span className="sm:hidden">Receipt</span>
             </Button>
+            <Button 
+              variant="outline" 
+              className="text-white border-white/50 hover:bg-orange-500 h-8 text-xs sm:text-sm"
+              onClick={() => { setCuringDialog(true); setCuringProject(''); setCuringDone(false); }}
+              data-testid="curing-video-btn"
+            >
+              <Video className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">Curing Video</span>
+              <span className="sm:hidden">Curing</span>
+            </Button>
             <div className="text-right hidden sm:block">
               <p className="text-sm font-semibold text-white">{user.name}</p>
               <p className="text-xs text-orange-100">Site Engineer</p>
@@ -695,7 +762,7 @@ export default function SiteEngineerDashboard() {
 
         {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="projects" className="gap-2">
               <Building2 className="h-4 w-4" /> Projects
             </TabsTrigger>
@@ -720,6 +787,9 @@ export default function SiteEngineerDashboard() {
             </TabsTrigger>
             <TabsTrigger value="minicashbook" className="gap-2" data-testid="tab-mini-cashbook">
               <Receipt className="h-4 w-4" /> Mini Cashbook
+            </TabsTrigger>
+            <TabsTrigger value="curingvideo" className="gap-2" data-testid="tab-curing-video" onClick={() => fetchCuringHistory(curingFilterProject)}>
+              <Video className="h-4 w-4" /> Curing Video
             </TabsTrigger>
             <TabsTrigger value="attendance" className="gap-2" data-testid="tab-attendance">
               <Clock className="h-4 w-4" /> Attendance
@@ -1052,6 +1122,98 @@ export default function SiteEngineerDashboard() {
           {/* Mini Cashbook Tab */}
           <TabsContent value="minicashbook" className="mt-4">
             <MiniCashbookSection projects={projects} />
+          </TabsContent>
+
+          {/* CURING VIDEO HISTORY TAB */}
+          <TabsContent value="curingvideo" className="mt-4" data-testid="curing-video-tab">
+            <Card>
+              <CardHeader className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Video className="h-4 w-4 text-purple-600" /> Curing Video History
+                    </CardTitle>
+                    <p className="text-xs text-gray-500 mt-1">Records created via Curing Video popup</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select value={curingFilterProject} onValueChange={(v) => { setCuringFilterProject(v); fetchCuringHistory(v); }}>
+                      <SelectTrigger className="w-[180px] h-8 text-xs" data-testid="curing-filter-project">
+                        <SelectValue placeholder="All Projects" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Projects</SelectItem>
+                        {projects.map(p => (
+                          <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700 h-8 text-xs" onClick={() => { setCuringDialog(true); setCuringProject(''); setCuringDone(false); }} data-testid="curing-add-record-btn">
+                      <Plus className="h-3.5 w-3.5 mr-1" /> New Record
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                {curingHistoryLoading ? (
+                  <div className="flex justify-center py-8"><RefreshCw className="h-5 w-5 animate-spin text-purple-600" /></div>
+                ) : curingHistory.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <Video className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                    <p className="text-sm">No curing video records yet</p>
+                    <p className="text-xs mt-1">Use the "Curing Video" button in the header to add records</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border rounded-lg">
+                    <table className="w-full text-sm" data-testid="curing-history-table">
+                      <thead>
+                        <tr className="bg-gray-50 border-b">
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Date & Time</th>
+                          <th className="px-3 py-2 text-left font-medium text-gray-600">Project</th>
+                          <th className="px-3 py-2 text-center font-medium text-gray-600">Curing Video</th>
+                          <th className="px-3 py-2 text-center font-medium text-gray-600">WhatsApp</th>
+                          <th className="px-3 py-2 text-center font-medium text-gray-600">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {curingHistory.map((r) => (
+                          <tr key={r.record_id} className="border-b hover:bg-gray-50" data-testid={`curing-row-${r.record_id}`}>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <div className="text-sm font-medium">{new Date(r.date_time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                              <div className="text-xs text-gray-400">{new Date(r.date_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-medium text-gray-900">{r.project_name}</div>
+                              <div className="text-xs text-gray-400">{r.client_name}</div>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {r.curing_done ? (
+                                <Badge className="bg-green-100 text-green-700" data-testid={`curing-status-${r.record_id}`}>Done</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-gray-500" data-testid={`curing-status-${r.record_id}`}>Not Done</Badge>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {r.whatsapp_sent ? (
+                                <Badge className="bg-green-100 text-green-700" data-testid={`wa-status-${r.record_id}`}>Sent</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-amber-600" data-testid={`wa-status-${r.record_id}`}>Not Sent</Badge>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {!r.whatsapp_sent && r.curing_done && r.client_phone && (
+                                <Button size="sm" variant="outline" className="h-7 text-xs text-green-700 border-green-300 hover:bg-green-50" onClick={() => handleWhatsAppResend(r)} data-testid={`wa-resend-${r.record_id}`}>
+                                  <MessageCircle className="h-3.5 w-3.5 mr-1" /> Send
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ATTENDANCE TAB */}
@@ -1412,6 +1574,69 @@ export default function SiteEngineerDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Curing Video Dialog */}
+      <Dialog open={curingDialog} onOpenChange={setCuringDialog}>
+        <DialogContent className="max-w-sm" data-testid="curing-video-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Video className="h-4 w-4 text-purple-600" /> Curing Video
+            </DialogTitle>
+            <DialogDescription>Select a project and mark curing status. Date is auto-captured.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs font-medium">Select Project *</Label>
+              <Select value={curingProject} onValueChange={setCuringProject}>
+                <SelectTrigger data-testid="curing-project-select">
+                  <SelectValue placeholder="Choose project..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map(p => (
+                    <SelectItem key={p.project_id} value={p.project_id}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs font-medium">Date & Time</Label>
+              <div className="mt-1 px-3 py-2 bg-gray-100 rounded-md text-sm font-medium text-gray-700" data-testid="curing-datetime">
+                {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} &mdash; {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">Auto-captured (not editable)</p>
+            </div>
+            <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+              <div>
+                <Label className="text-sm font-medium text-purple-800">Curing Video Done</Label>
+                <p className="text-[10px] text-purple-500">Toggle if curing video is completed</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={curingDone}
+                data-testid="curing-done-toggle"
+                onClick={() => setCuringDone(!curingDone)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${curingDone ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${curingDone ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            {curingDone && curingProject && (
+              <div className="p-2 bg-green-50 rounded-md border border-green-200 text-xs text-green-700 flex items-center gap-2">
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp message will open after saving
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCuringDialog(false)}>Cancel</Button>
+            <Button onClick={handleCuringSubmit} className="bg-purple-600 hover:bg-purple-700" disabled={curingLoading} data-testid="curing-submit-btn">
+              {curingLoading ? 'Saving...' : 'Save & Send'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );
