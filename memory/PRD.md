@@ -43,6 +43,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **Assigned Contractors View** - iteration_135 (21/21 backend, 100% frontend)
 - [x] **Petrol Allowance** - iteration_136 (SE -> Accountant direct, Date/Amount/KM)
 - [x] **GPS Mandatory Attendance** - iteration_136 (Login requires GPS ON, auto-logout on GPS loss)
+- [x] **SE Material Request** - iteration_137 (Request materials against project from Planning-approved list, 48hr notice)
 
 ## Prioritized Backlog
 
