@@ -44,6 +44,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **Petrol Allowance** - iteration_136 (SE -> Accountant direct, Date/Amount/KM)
 - [x] **GPS Mandatory Attendance** - iteration_136 (Login requires GPS ON, auto-logout on GPS loss)
 - [x] **SE Material Request** - iteration_137 (Request materials against project from Planning-approved list, 48hr notice)
+- [x] **Procurement Approval Step** - iteration_138 (New step: Planning Approved → Procurement Approves → Vendor Selection. Approval tab with Approve/Reject)
 
 ## Prioritized Backlog
 
