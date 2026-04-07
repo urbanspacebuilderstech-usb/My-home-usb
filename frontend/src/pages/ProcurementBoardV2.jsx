@@ -28,6 +28,7 @@ const API = `${BACKEND_URL}/api`;
 const STATUS_FLOW = [
   { id: 'requested', label: 'Requested', color: 'bg-gray-100 text-gray-700' },
   { id: 'planning_approved', label: 'Planning Approved', color: 'bg-amber-50 text-amber-700' },
+  { id: 'procurement_approved', label: 'Procurement Approved', color: 'bg-blue-100 text-blue-700' },
   { id: 'vendor_selected', label: 'Vendor Selected', color: 'bg-purple-100 text-purple-700' },
   { id: 'waiting_payment', label: 'Waiting Payment', color: 'bg-yellow-100 text-yellow-700' },
   { id: 'accounts_rejected', label: 'Rejected by Accounts', color: 'bg-red-100 text-red-700' },
@@ -52,9 +53,10 @@ const LABOUR_CATEGORIES = [
 export default function ProcurementBoardV2() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState('approval');
   const [dashboard, setDashboard] = useState({});
   const [requests, setRequests] = useState([]);
+  const [approvalRequests, setApprovalRequests] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [transitOrders, setTransitOrders] = useState([]);
   const [creditLedger, setCreditLedger] = useState({ entries: [], total_outstanding: 0 });
@@ -138,6 +140,7 @@ export default function ProcurementBoardV2() {
       setUser(userRes.data);
       setDashboard(dashboardRes.data);
       setVendors(vendorsRes.data);
+      await fetchApprovalRequests();
       await fetchRequests('pending');
       await fetchTransitOrders();
       await fetchCreditLedger();
@@ -149,6 +152,13 @@ export default function ProcurementBoardV2() {
     }
   };
   useAutoRefresh(fetchData, 15000);
+
+  const fetchApprovalRequests = async () => {
+    try {
+      const res = await axios.get(`${API}/procurement/requests?status=pending_approval`);
+      setApprovalRequests(res.data);
+    } catch { setApprovalRequests([]); }
+  };
 
   const fetchRequests = async (status) => {
     try {
@@ -199,7 +209,9 @@ export default function ProcurementBoardV2() {
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
-    if (tab === 'transit') {
+    if (tab === 'approval') {
+      fetchApprovalRequests();
+    } else if (tab === 'transit') {
       fetchTransitOrders();
     } else if (tab === 'credit') {
       fetchCreditLedger();
@@ -217,6 +229,28 @@ export default function ProcurementBoardV2() {
     } catch (error) {
       console.error('Logout failed');
     }
+  };
+
+  // Procurement Approve / Reject
+  const handleProcurementApprove = async (requestId) => {
+    try {
+      await axios.patch(`${API}/procurement/v2/approve/${requestId}`, { action: 'approve' });
+      toast.success('Request approved — ready for vendor selection');
+      fetchApprovalRequests();
+      fetchRequests('pending');
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Approval failed'); }
+  };
+
+  const handleProcurementReject = async (requestId) => {
+    const reason = window.prompt('Rejection reason:');
+    if (reason === null) return;
+    try {
+      await axios.patch(`${API}/procurement/v2/approve/${requestId}`, { action: 'reject', reason });
+      toast.success('Request rejected');
+      fetchApprovalRequests();
+      fetchData(false);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Rejection failed'); }
   };
 
   // Open vendor selection dialog
@@ -387,14 +421,24 @@ export default function ProcurementBoardV2() {
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {/* Dashboard Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100">
             <CardContent className="p-4">
               <div className="flex items-center gap-2 text-amber-600 mb-2">
-                <Clock className="h-5 w-5" />
-                <span className="text-sm font-medium">Pending</span>
+                <AlertCircle className="h-5 w-5" />
+                <span className="text-sm font-medium">Approval</span>
               </div>
-              <p className="text-2xl font-bold text-amber-700">{dashboard.pending_requests || 0}</p>
+              <p className="text-2xl font-bold text-amber-700">{dashboard.pending_approval || 0}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 text-blue-600 mb-2">
+                <Clock className="h-5 w-5" />
+                <span className="text-sm font-medium">Vendor Select</span>
+              </div>
+              <p className="text-2xl font-bold text-blue-700">{dashboard.pending_requests || 0}</p>
             </CardContent>
           </Card>
           
@@ -674,8 +718,11 @@ export default function ProcurementBoardV2() {
         <Card>
           <Tabs value={activeTab} onValueChange={handleTabChange}>
             <CardHeader className="border-b pb-4">
-              <TabsList className="grid grid-cols-7 w-full max-w-4xl">
-                <TabsTrigger value="pending">Pending</TabsTrigger>
+              <TabsList className="grid grid-cols-8 w-full max-w-5xl">
+                <TabsTrigger value="approval" data-testid="tab-approval">
+                  Approval{approvalRequests.length > 0 && <Badge variant="destructive" className="ml-1 text-[9px] h-4 px-1">{approvalRequests.length}</Badge>}
+                </TabsTrigger>
+                <TabsTrigger value="pending">Vendor Select</TabsTrigger>
                 <TabsTrigger value="pricing">Pricing</TabsTrigger>
                 <TabsTrigger value="payment">Payment</TabsTrigger>
                 <TabsTrigger value="purchase_orders" data-testid="tab-purchase-orders">POs{purchaseOrders.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] h-4 px-1">{purchaseOrders.length}</Badge>}</TabsTrigger>
@@ -685,9 +732,52 @@ export default function ProcurementBoardV2() {
               </TabsList>
             </CardHeader>
             
-            {/* Pending Requests Tab */}
+            {/* Procurement Approval Tab */}
+            <TabsContent value="approval" className="p-6">
+              <h3 className="text-lg font-bold mb-1">Planning Approved — Awaiting Procurement Approval</h3>
+              <p className="text-sm text-gray-500 mb-4">Review and approve material requests before vendor selection.</p>
+              {approvalRequests.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <p>No requests pending approval</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {approvalRequests.map((req) => (
+                    <div key={req.request_id} className="border rounded-lg p-4 hover:bg-gray-50" data-testid={`approval-row-${req.request_id}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-1">
+                            <span className="font-mono text-xs text-gray-400">{req.order_id}</span>
+                            {getStatusBadge(req.status)}
+                          </div>
+                          <h4 className="font-semibold">{req.material_name}</h4>
+                          <p className="text-sm text-gray-500">
+                            Qty: {req.quantity} {req.unit} {req.brand ? `• Brand: ${req.brand}` : ''}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            Project: {req.project_name || req.project_id} • SE: {req.site_engineer_name}
+                          </p>
+                          {req.remarks && <p className="text-xs text-gray-400 mt-1">Remarks: {req.remarks}</p>}
+                        </div>
+                        <div className="flex gap-2 flex-shrink-0">
+                          <Button size="sm" className="bg-green-600 hover:bg-green-700 gap-1" onClick={() => handleProcurementApprove(req.request_id)} data-testid={`approve-btn-${req.request_id}`}>
+                            <Check className="h-3.5 w-3.5" /> Approve
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50 gap-1" onClick={() => handleProcurementReject(req.request_id)} data-testid={`reject-btn-${req.request_id}`}>
+                            <XCircle className="h-3.5 w-3.5" /> Reject
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Pending Requests Tab (now shows procurement_approved items) */}
             <TabsContent value="pending" className="p-6">
-              <h3 className="text-lg font-bold mb-4">Planning Approved - Ready for Procurement</h3>
+              <h3 className="text-lg font-bold mb-4">Procurement Approved - Ready for Vendor Selection</h3>
               {requests.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
                   <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />

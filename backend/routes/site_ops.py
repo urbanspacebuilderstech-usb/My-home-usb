@@ -99,6 +99,7 @@ class MaterialRequestStatus(str, Enum):
     REQUESTED = "requested"  # Site Engineer created request
     PM_APPROVED = "pm_approved"  # Project Manager approved
     PLANNING_APPROVED = "planning_approved"  # Planning approved
+    PROCUREMENT_APPROVED = "procurement_approved"  # Procurement approved (ready for vendor selection)
     PENDING_ACCOUNTS_APPROVAL = "pending_accounts_approval"  # Waiting for Accountant
     PROCUREMENT_ASSIGNED = "procurement_assigned"  # Procurement assigned vendor
     VENDOR_SELECTED = "vendor_selected"  # Procurement selected vendor & pricing

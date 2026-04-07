@@ -143,9 +143,14 @@ async def get_procurement_dashboard(user: User = Depends(get_current_user)):
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Count pending (planning approved material requests waiting for procurement)
+    # Count pending approval (planning approved material requests waiting for procurement approval)
+    pending_approval = await db.material_requests.count_documents({
+        "status": "planning_approved"
+    })
+
+    # Count approved by procurement, ready for vendor selection
     pending_requests = await db.material_requests.count_documents({
-        "status": {"$in": ["planning_approved", "accounts_rejected"]}
+        "status": {"$in": ["procurement_approved", "accounts_rejected"]}
     })
     
     # Count pricing in progress
@@ -192,6 +197,7 @@ async def get_procurement_dashboard(user: User = Depends(get_current_user)):
     vendor_spend = await db.procurement_pricing.aggregate(pipeline).to_list(5)
     
     return {
+        "pending_approval": pending_approval,
         "pending_requests": pending_requests,
         "pricing_in_progress": pricing_in_progress,
         "waiting_accounts": waiting_accounts,
@@ -215,15 +221,29 @@ async def get_procurement_requests(
     
     results = []
     
+    if status == "pending_approval" or status is None:
+        # Planning-approved requests waiting for Procurement approval
+        pending_approval = await db.material_requests.find({
+            "status": "planning_approved"
+        }, {"_id": 0}).sort("created_at", -1).to_list(1000)
+        for req in pending_approval:
+            project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+            engineer = await db.users.find_one({"user_id": req.get("site_engineer_id")}, {"_id": 0, "name": 1})
+            req["project_name"] = project.get("name") if project else "Unknown"
+            req["site_engineer_name"] = engineer.get("name") if engineer else "Unknown"
+            req["procurement_status"] = "pending_approval"
+        if status == "pending_approval":
+            return pending_approval
+        results.extend(pending_approval)
+
     if status == "pending" or status is None:
-        # Get planning-approved material requests not yet in procurement_pricing
+        # Procurement-approved requests ready for vendor selection
         existing_pricing_ids = await db.procurement_pricing.distinct("request_id")
         pending_requests = await db.material_requests.find({
-            "status": "planning_approved",
+            "status": {"$in": ["procurement_approved", "accounts_rejected"]},
             "request_id": {"$nin": existing_pricing_ids}
         }, {"_id": 0}).sort("created_at", -1).to_list(1000)
         
-        # Enrich with project and engineer names
         for req in pending_requests:
             project = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
             engineer = await db.users.find_one({"user_id": req.get("site_engineer_id")}, {"_id": 0, "name": 1})
@@ -814,6 +834,55 @@ class ReceiptInput(BaseModel):
     remarks: Optional[str] = None
 
 
+@router.patch("/procurement/v2/approve/{request_id}")
+async def procurement_approve_request(request_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Procurement approves a planning-approved material request"""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement can approve requests")
+
+    req_doc = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req_doc:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    if req_doc.get("status") != "planning_approved":
+        raise HTTPException(status_code=400, detail="Request must be planning-approved first")
+
+    body = await request.json()
+    action = body.get("action", "approve")
+
+    if action == "reject":
+        reason = body.get("reason", "")
+        await db.material_requests.update_one(
+            {"request_id": request_id},
+            {"$set": {
+                "status": "rejected",
+                "rejection_reason": reason,
+                "rejected_by": user.user_id,
+                "procurement_rejected_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        se_id = req_doc.get("site_engineer_id")
+        if se_id:
+            await create_notification(se_id, f"Material request rejected by Procurement: {req_doc.get('material_name')}")
+        return {"message": "Request rejected by Procurement"}
+
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "procurement_approved",
+            "procurement_approved_by": user.user_id,
+            "procurement_approved_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    await create_notification(
+        user.user_id,
+        f"Material request approved: {req_doc.get('material_name')} x {req_doc.get('quantity')} — Ready for vendor selection"
+    )
+
+    return {"message": "Request approved by Procurement", "status": "procurement_approved"}
+
+
 @router.post("/procurement/v2/select-vendor/{request_id}")
 async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: User = Depends(get_current_user)):
     """Procurement selects vendor and pricing for material request"""
@@ -824,8 +893,8 @@ async def select_vendor_v2(request_id: str, data: VendorSelectionInput, user: Us
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
     
-    if request.get("status") not in ["planning_approved", "accounts_rejected"]:
-        raise HTTPException(status_code=400, detail="Request must be planning approved or rejected by accounts")
+    if request.get("status") not in ["procurement_approved", "accounts_rejected"]:
+        raise HTTPException(status_code=400, detail="Request must be procurement-approved or rejected by accounts")
     
     # Get vendor details
     vendor = await db.vendor_master.find_one({"vendor_id": data.vendor_id}, {"_id": 0})
