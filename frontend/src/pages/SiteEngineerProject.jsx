@@ -23,6 +23,7 @@ import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
 import OrderDetailDialog from '../components/OrderDetailDialog';
 import WorkOrderTab from '../components/WorkOrderTab';
+import DLRPanel from '../components/DLRPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -110,6 +111,7 @@ export default function SiteEngineerProject() {
   // Project Work Orders (new system with approval pipeline)
   const [projectWorkOrders, setProjectWorkOrders] = useState([]);
   const [loadingPWO, setLoadingPWO] = useState(false);
+  const [expandedDlr, setExpandedDlr] = useState(null);
 
   // Stock Register state
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
@@ -1067,6 +1069,28 @@ export default function SiteEngineerProject() {
                             );
                           })}
                         </div>
+                        {/* DLR Toggle */}
+                        <div className="border-t px-3 py-2 flex items-center justify-between bg-white">
+                          <Button
+                            variant={expandedDlr === wo.work_order_id ? "default" : "outline"}
+                            size="sm"
+                            className={`h-7 text-xs ${expandedDlr === wo.work_order_id ? 'bg-teal-600 hover:bg-teal-700' : 'border-teal-300 text-teal-700 hover:bg-teal-50'}`}
+                            onClick={() => setExpandedDlr(expandedDlr === wo.work_order_id ? null : wo.work_order_id)}
+                            data-testid={`pwo-dlr-toggle-${wo.work_order_id}`}
+                          >
+                            <ClipboardList className="h-3 w-3 mr-1" />
+                            {expandedDlr === wo.work_order_id ? 'Hide DLR' : 'Daily Labour Report'}
+                          </Button>
+                        </div>
+                        {expandedDlr === wo.work_order_id && (
+                          <div className="border-t p-3 bg-gray-50/50">
+                            <DLRPanel
+                              projectId={projectId}
+                              workOrderId={wo.work_order_id}
+                              canRecord={true}
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}

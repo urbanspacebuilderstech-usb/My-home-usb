@@ -27,6 +27,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
 import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
+import DLRPanel from '../components/DLRPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -4377,6 +4378,7 @@ export default function ProjectDetail() {
                               <TabsTrigger value="scope" className="flex-1 text-xs">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
                               <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
                               <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
+                              <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="wo-dlr-tab">DLR</TabsTrigger>
                             </TabsList>
                             <TabsContent value="scope" className="p-3">
                               {wo.scope_items?.length > 0 ? (
@@ -4458,6 +4460,13 @@ export default function ProjectDetail() {
                                 <tbody className="divide-y">{(wo.additional_work || []).map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
                                 <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
                               ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
+                            </TabsContent>
+                            <TabsContent value="dlr" className="p-3">
+                              <DLRPanel
+                                projectId={projectId}
+                                workOrderId={wo.work_order_id}
+                                canRecord={['site_engineer', 'sr_site_engineer', 'super_admin'].includes(user?.role)}
+                              />
                             </TabsContent>
                           </Tabs>
                         </div>

@@ -231,7 +231,7 @@ async def submit_work_order(work_order_id: str, user: User = Depends(get_current
             user_id=acc["user_id"],
             title="New Work Order",
             message=f"Work order {work_order_id} submitted for approval",
-            link=f"/approvals"
+            link="/approvals"
         )
         notif_dict = notif.model_dump()
         notif_dict["created_at"] = notif_dict["created_at"].isoformat()
@@ -387,7 +387,7 @@ async def get_image(file_id: str):
         contents = await grid_out.read()
         content_type = grid_out.metadata.get("contentType", "image/jpeg") if grid_out.metadata else "image/jpeg"
         return Response(content=contents, media_type=content_type)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404, detail="Image not found")
 
 
@@ -707,7 +707,7 @@ async def get_file(file_id: str):
         contents = await grid_out.read()
         content_type = grid_out.metadata.get("contentType", "application/octet-stream") if grid_out.metadata else "application/octet-stream"
         return Response(content=contents, media_type=content_type)
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404, detail="File not found")
 
 
@@ -851,7 +851,7 @@ async def create_work_order_assignment(assignment_input: WorkOrderAssignmentCrea
             user_id=assignment.assigned_to_user_id,
             title="New Work Order Assignment",
             message=f"You have been assigned work order {assignment.work_order_id}",
-            link=f"/work-orders"
+            link="/work-orders"
         )
         notif_dict = notif.model_dump()
         notif_dict["created_at"] = notif_dict["created_at"].isoformat()
@@ -1201,7 +1201,7 @@ async def link_client_to_project(project_id: str, client_user_id: str, user: Use
     await create_audit_log(user.user_id, "link_client", "project", project_id, {"client_user_id": client_user_id})
     
     # Notify client
-    await create_notification(client_user_id, f"You now have access to view your project in the Client Portal.")
+    await create_notification(client_user_id, "You now have access to view your project in the Client Portal.")
     
     return {"message": "Client linked successfully"}
 
@@ -3723,4 +3723,137 @@ async def wo_freeze_and_reassign(project_id: str, work_order_id: str, data: Free
         "new_work_order_id": new_wo["work_order_id"],
         "new_contractor": new_contractor.get("name", ""),
         "balance_stages": len(stages)
+    }
+
+
+
+# ==================== DAILY LABOUR REPORT (DLR) ====================
+
+class DLREntry(BaseModel):
+    type: str  # skilled, semi_skilled, unskilled
+    count: int = 0
+    day_value: float = 1.0  # 0.5, 1.0, 1.5
+    rate_per_day: float = 0.0
+
+class DLRCreate(BaseModel):
+    date: str  # YYYY-MM-DD
+    entries: List[DLREntry] = []
+    notes: Optional[str] = ""
+
+@router.post("/projects/{project_id}/work-orders/{wo_id}/dlr")
+async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = Depends(get_current_user)):
+    """Site Engineer records daily labour attendance for a work order"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Only site engineers can record DLR")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": wo_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    # Check duplicate for same date + work order
+    existing = await db.daily_labour_reports.find_one({
+        "work_order_id": wo_id, "date": data.date
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail=f"DLR already recorded for {data.date}. Delete the existing entry first.")
+
+    now = datetime.now(timezone.utc).isoformat()
+    entries = []
+    total_workers = 0
+    total_day_units = 0.0
+    total_cost = 0.0
+
+    for e in data.entries:
+        if e.count <= 0:
+            continue
+        cost = round(e.count * e.day_value * e.rate_per_day, 2)
+        day_units = round(e.count * e.day_value, 2)
+        entries.append({
+            "type": e.type,
+            "count": e.count,
+            "day_value": e.day_value,
+            "rate_per_day": e.rate_per_day,
+            "day_units": day_units,
+            "total_cost": cost,
+        })
+        total_workers += e.count
+        total_day_units += day_units
+        total_cost += cost
+
+    if not entries:
+        raise HTTPException(status_code=400, detail="At least one entry with count > 0 is required")
+
+    dlr = {
+        "dlr_id": f"dlr_{uuid.uuid4().hex[:8]}",
+        "project_id": project_id,
+        "work_order_id": wo_id,
+        "contractor_id": wo.get("contractor_id", ""),
+        "contractor_name": wo.get("contractor_name", ""),
+        "date": data.date,
+        "entries": entries,
+        "total_workers": total_workers,
+        "total_day_units": round(total_day_units, 2),
+        "total_cost": round(total_cost, 2),
+        "notes": data.notes or "",
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "created_at": now,
+    }
+    await db.daily_labour_reports.insert_one(dlr)
+    dlr.pop("_id", None)
+    return dlr
+
+
+@router.get("/projects/{project_id}/work-orders/{wo_id}/dlr")
+async def get_wo_dlr(project_id: str, wo_id: str, date: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get DLR entries for a specific work order"""
+    query = {"project_id": project_id, "work_order_id": wo_id}
+    if date:
+        query["date"] = date
+    entries = await db.daily_labour_reports.find(query, {"_id": 0}).sort("date", -1).to_list(500)
+    return entries
+
+
+@router.delete("/projects/{project_id}/work-orders/{wo_id}/dlr/{dlr_id}")
+async def delete_dlr(project_id: str, wo_id: str, dlr_id: str, user: User = Depends(get_current_user)):
+    """Delete a DLR entry"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    result = await db.daily_labour_reports.delete_one({"dlr_id": dlr_id, "project_id": project_id, "work_order_id": wo_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="DLR not found")
+    return {"message": "DLR deleted"}
+
+
+@router.get("/projects/{project_id}/dlr/summary")
+async def get_project_dlr_summary(project_id: str, date: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Get DLR summary for entire project - grouped by contractor and date"""
+    query = {"project_id": project_id}
+    if date:
+        query["date"] = date
+    entries = await db.daily_labour_reports.find(query, {"_id": 0}).sort("date", -1).to_list(1000)
+
+    total_workers = sum(e.get("total_workers", 0) for e in entries)
+    total_cost = sum(e.get("total_cost", 0) for e in entries)
+    total_day_units = sum(e.get("total_day_units", 0) for e in entries)
+
+    by_contractor = {}
+    for e in entries:
+        cname = e.get("contractor_name", "Unknown")
+        if cname not in by_contractor:
+            by_contractor[cname] = {"workers": 0, "cost": 0, "day_units": 0, "days": 0}
+        by_contractor[cname]["workers"] += e.get("total_workers", 0)
+        by_contractor[cname]["cost"] += e.get("total_cost", 0)
+        by_contractor[cname]["day_units"] += e.get("total_day_units", 0)
+        by_contractor[cname]["days"] += 1
+
+    return {
+        "project_id": project_id,
+        "date_filter": date,
+        "total_entries": len(entries),
+        "total_workers": total_workers,
+        "total_day_units": round(total_day_units, 2),
+        "total_cost": round(total_cost, 2),
+        "by_contractor": by_contractor,
+        "entries": entries,
     }

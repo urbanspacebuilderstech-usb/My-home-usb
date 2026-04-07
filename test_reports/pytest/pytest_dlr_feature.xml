@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="15" time="22.552" timestamp="2026-04-07T10:25:01.969866+00:00" hostname="agent-env-3424cef2-2abd-46d6-a745-55245ed282e4"><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_demo_login_site_engineer" time="0.881" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_demo_login_admin" time="0.799" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_success" time="4.252" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_half_day" time="4.245" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_one_and_half_day" time="3.794" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_duplicate_date_rejected" time="0.344"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:225: in test_create_dlr_duplicate_date_rejected
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_get_dlr_list" time="2.254" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_get_dlr_with_date_filter" time="0.340"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:297: in test_get_dlr_with_date_filter
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_delete_dlr_success" time="0.339"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:339: in test_delete_dlr_success
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_delete_dlr_not_found" time="2.271" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_get_project_dlr_summary" time="1.549" /><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_permission_denied_for_planning" time="0.335"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:434: in test_create_dlr_permission_denied_for_planning
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_admin_can_create_dlr" time="0.331"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:460: in test_admin_can_create_dlr
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_empty_entries_rejected" time="0.338"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:490: in test_create_dlr_empty_entries_rejected
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase><testcase classname="backend.tests.test_dlr_feature.TestDLRBackend" name="test_create_dlr_zero_count_entries_rejected" time="0.329"><failure message="assert 429 == 200&#10; +  where 429 = &lt;Response [429]&gt;.status_code">backend/tests/test_dlr_feature.py:517: in test_create_dlr_zero_count_entries_rejected
+    assert login_resp.status_code == 200
+E   assert 429 == 200
+E    +  where 429 = &lt;Response [429]&gt;.status_code</failure></testcase></testsuite></testsuites>
