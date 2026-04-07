@@ -439,7 +439,7 @@ export default function ProjectDetail() {
   const [reRevisions, setReRevisions] = useState([]);
   const [projectFiles, setProjectFiles] = useState([]);
   const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
-  const [teamData, setTeamData] = useState({ project_manager: null, sr_site_engineers: [], site_engineers: [] });
+  const [teamData, setTeamData] = useState({ architect: null, project_manager: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
   const [materialsData, setMaterialsData] = useState({ summary: {}, materials: [] });
   const [laboursData, setLaboursData] = useState({ summary: {}, labours: [] });
   const [vendorAssignments, setVendorAssignments] = useState([]);
@@ -463,9 +463,9 @@ export default function ProjectDetail() {
 
   // Team editing state
   const [teamEditDialog, setTeamEditDialog] = useState(false);
-  const [allTeamMembers, setAllTeamMembers] = useState([]);
-  const [teamAssignSrSE, setTeamAssignSrSE] = useState('');
-  const [teamAssignSE, setTeamAssignSE] = useState('');
+  const [teamRoleUsers, setTeamRoleUsers] = useState({});
+  const [teamDraft, setTeamDraft] = useState({});
+  const [teamSaving, setTeamSaving] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -506,7 +506,7 @@ export default function ProjectDetail() {
       if (templatesRes) setStageTemplates(templatesRes.data);
       if (filesRes) setProjectFiles(filesRes.data);
       if (designRes) setDesignData(designRes.data || { site_plans: [], design_files: [] });
-      if (teamRes) setTeamData(teamRes.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
+      if (teamRes) setTeamData(teamRes.data || { architect: null, project_manager: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
       if (materialsRes) setMaterialsData(materialsRes.data || { summary: {}, materials: [] });
       if (laboursRes) setLaboursData(laboursRes.data || { summary: {}, labours: [] });
       if (vendorAssignRes) setVendorAssignments(vendorAssignRes.data || []);
@@ -571,48 +571,51 @@ export default function ProjectDetail() {
     }
   };
 
+  const TEAM_ROLES = [
+    { key: 'architect', label: 'Architect', dbRole: 'architect', color: 'purple' },
+    { key: 'project_manager', label: 'Project Manager', dbRole: 'project_manager', color: 'indigo' },
+    { key: 'sr_site_engineer', label: 'Sr. Site Engineer', dbRole: 'sr_site_engineer', color: 'amber' },
+    { key: 'site_engineer', label: 'Site Engineer', dbRole: 'site_engineer', color: 'green' },
+    { key: 'cre', label: 'CRE', dbRole: 'cre', color: 'blue' },
+    { key: 'qc', label: 'QC', dbRole: 'qc', color: 'rose' },
+    { key: 'procurement', label: 'Procurement', dbRole: 'procurement', color: 'orange' },
+  ];
+
   const fetchTeamData = async () => {
     try {
       const res = await axios.get(`${API}/projects/${projectId}/team`);
-      setTeamData(res.data || { project_manager: null, sr_site_engineers: [], site_engineers: [] });
+      setTeamData(res.data || { architect: null, project_manager: null, sr_site_engineer: null, site_engineer: null, cre: null, qc: null, procurement: null });
     } catch { /* No team data */ }
   };
 
   const openTeamEditDialog = async () => {
-    try {
-      const res = await axios.get(`${API}/pm/team-members`);
-      setAllTeamMembers(res.data || []);
-    } catch { setAllTeamMembers([]); }
-    setTeamAssignSrSE(''); setTeamAssignSE('');
+    // Build draft from current assignments
+    const draft = {};
+    TEAM_ROLES.forEach(r => { draft[r.key] = teamData[r.key]?.user_id || ''; });
+    setTeamDraft(draft);
+    // Fetch users for each role in parallel
+    const roleMap = {};
+    await Promise.all(TEAM_ROLES.map(async (r) => {
+      try {
+        const res = await axios.get(`${API}/users/by-role/${r.dbRole}`);
+        roleMap[r.key] = res.data || [];
+      } catch { roleMap[r.key] = []; }
+    }));
+    setTeamRoleUsers(roleMap);
     setTeamEditDialog(true);
   };
 
-  const handleTeamAssign = async () => {
-    const toAssign = [teamAssignSrSE, teamAssignSE].filter(Boolean);
-    if (toAssign.length === 0) { toast.error('Select at least one member'); return; }
+  const handleTeamSave = async () => {
+    setTeamSaving(true);
     try {
-      for (const uid of toAssign) {
-        await axios.post(`${API}/pm/assign-team`, { project_id: projectId, user_id: uid });
-      }
-      toast.success(`${toAssign.length} member(s) assigned`);
-      setTeamAssignSrSE(''); setTeamAssignSE('');
+      const payload = {};
+      TEAM_ROLES.forEach(r => { payload[r.key] = (teamDraft[r.key] && teamDraft[r.key] !== '__none__') ? teamDraft[r.key] : null; });
+      await axios.patch(`${API}/projects/${projectId}/team`, payload);
+      toast.success('Team updated successfully');
+      setTeamEditDialog(false);
       fetchTeamData();
-      const res = await axios.get(`${API}/pm/team-members`);
-      setAllTeamMembers(res.data || []);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to assign'); }
-  };
-
-  const handleTeamRemove = async (userId, name) => {
-    if (!window.confirm(`Remove ${name} from this project?`)) return;
-    try {
-      await axios.delete(`${API}/pm/projects/${projectId}/team/${userId}`);
-      toast.success('Removed');
-      fetchTeamData();
-      if (allTeamMembers.length > 0) {
-        const res = await axios.get(`${API}/pm/team-members`);
-        setAllTeamMembers(res.data || []);
-      }
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to remove'); }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update team'); }
+    setTeamSaving(false);
   };
 
   const fetchMaterialsData = async () => {
@@ -3325,112 +3328,66 @@ export default function ProjectDetail() {
                   )}
                 </div>
 
-                {/* Project Manager */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Project Manager</p>
-                  {teamData.project_manager ? (
-                    <div className="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg border border-indigo-200" data-testid="team-pm">
-                      <div className="h-9 w-9 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold">
-                        {teamData.project_manager.name?.charAt(0) || 'P'}
-                      </div>
-                      <div>
-                        <p className="font-medium text-sm">{teamData.project_manager.name}</p>
-                        <p className="text-xs text-gray-500">{teamData.project_manager.phone || teamData.project_manager.email || '-'}</p>
-                      </div>
-                    </div>
-                  ) : <p className="text-sm text-gray-400">Not assigned</p>}
-                </div>
-
-                {/* Sr. Site Engineers */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Sr. Site Engineers ({teamData.sr_site_engineers.length})</p>
-                  {teamData.sr_site_engineers.length === 0 ? (
-                    <p className="text-sm text-gray-400">None assigned</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {teamData.sr_site_engineers.map(m => (
-                        <div key={m.user_id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200" data-testid={`team-sr-se-${m.user_id}`}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {TEAM_ROLES.map(role => {
+                    const member = teamData[role.key];
+                    const bgMap = { purple: 'bg-purple-50 border-purple-200', indigo: 'bg-indigo-50 border-indigo-200', amber: 'bg-amber-50 border-amber-200', green: 'bg-green-50 border-green-200', blue: 'bg-blue-50 border-blue-200', rose: 'bg-rose-50 border-rose-200', orange: 'bg-orange-50 border-orange-200' };
+                    const avatarMap = { purple: 'bg-purple-600', indigo: 'bg-indigo-600', amber: 'bg-amber-600', green: 'bg-green-600', blue: 'bg-blue-600', rose: 'bg-rose-600', orange: 'bg-orange-600' };
+                    return (
+                      <div key={role.key} className={`p-3 rounded-lg border ${member ? bgMap[role.color] : 'bg-gray-50 border-gray-200 border-dashed'}`} data-testid={`team-role-${role.key}`}>
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase mb-2">{role.label}</p>
+                        {member ? (
                           <div className="flex items-center gap-3">
-                            <div className="h-9 w-9 rounded-full bg-amber-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'S'}</div>
-                            <div>
-                              <p className="font-medium text-sm">{m.name}</p>
-                              <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
+                            <div className={`h-9 w-9 rounded-full ${avatarMap[role.color]} text-white flex items-center justify-center text-sm font-bold shrink-0`}>
+                              {member.name?.charAt(0) || '?'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate">{member.name}</p>
+                              <p className="text-xs text-gray-500 truncate">{member.phone || member.email || '-'}</p>
                             </div>
                           </div>
-                          {(user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'planning') && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleTeamRemove(m.user_id, m.name)} data-testid={`remove-sr-se-${m.user_id}`}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Site Engineers */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Site Engineers ({teamData.site_engineers.length})</p>
-                  {teamData.site_engineers.length === 0 ? (
-                    <p className="text-sm text-gray-400">None assigned</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {teamData.site_engineers.map(m => (
-                        <div key={m.user_id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200" data-testid={`team-se-${m.user_id}`}>
-                          <div className="flex items-center gap-3">
-                            <div className="h-9 w-9 rounded-full bg-green-600 text-white flex items-center justify-center text-sm font-bold">{m.name?.charAt(0) || 'E'}</div>
-                            <div>
-                              <p className="font-medium text-sm">{m.name}</p>
-                              <p className="text-xs text-gray-500">{m.phone || m.email || '-'}</p>
-                            </div>
-                          </div>
-                          {(user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'planning') && (
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => handleTeamRemove(m.user_id, m.name)} data-testid={`remove-se-${m.user_id}`}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        ) : (
+                          <p className="text-sm text-gray-400 italic">Not assigned</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* Team Edit Dialog */}
               <Dialog open={teamEditDialog} onOpenChange={setTeamEditDialog}>
-                <DialogContent className="max-w-md">
-                  <DialogHeader><DialogTitle>Assign Team Members</DialogTitle><DialogDescription>Add engineers to this project</DialogDescription></DialogHeader>
+                <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                  <DialogHeader><DialogTitle>Assign Team Members</DialogTitle><DialogDescription>Select a person for each role from the dropdown</DialogDescription></DialogHeader>
                   <div className="py-3 space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-amber-500" />Senior Site Engineer
-                      </Label>
-                      <Select value={teamAssignSrSE} onValueChange={setTeamAssignSrSE}>
-                        <SelectTrigger className="mt-1" data-testid="team-select-sr-se"><SelectValue placeholder="Select Sr. Site Engineer" /></SelectTrigger>
-                        <SelectContent>
-                          {allTeamMembers.filter(m => m.role === 'sr_site_engineer' && m.is_active !== false && !teamData.sr_site_engineers.find(t => t.user_id === m.user_id)).map(m => (
-                            <SelectItem key={m.user_id} value={m.user_id}>{m.name} ({m.active_projects || 0} projects)</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-blue-500" />Site Engineer
-                      </Label>
-                      <Select value={teamAssignSE} onValueChange={setTeamAssignSE}>
-                        <SelectTrigger className="mt-1" data-testid="team-select-se"><SelectValue placeholder="Select Site Engineer" /></SelectTrigger>
-                        <SelectContent>
-                          {allTeamMembers.filter(m => m.role === 'site_engineer' && m.is_active !== false && !teamData.site_engineers.find(t => t.user_id === m.user_id)).map(m => (
-                            <SelectItem key={m.user_id} value={m.user_id}>{m.name} ({m.active_projects || 0} projects)</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {TEAM_ROLES.map(role => {
+                      const users = teamRoleUsers[role.key] || [];
+                      const dotMap = { purple: 'bg-purple-500', indigo: 'bg-indigo-500', amber: 'bg-amber-500', green: 'bg-green-500', blue: 'bg-blue-500', rose: 'bg-rose-500', orange: 'bg-orange-500' };
+                      return (
+                        <div key={role.key}>
+                          <Label className="text-sm font-medium flex items-center gap-1.5">
+                            <span className={`w-2 h-2 rounded-full ${dotMap[role.color]}`} />{role.label}
+                          </Label>
+                          <Select value={teamDraft[role.key] || ''} onValueChange={v => setTeamDraft(prev => ({ ...prev, [role.key]: v }))}>
+                            <SelectTrigger className="mt-1" data-testid={`team-select-${role.key}`}>
+                              <SelectValue placeholder={`Select ${role.label}`} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">-- None --</SelectItem>
+                              {users.map(u => (
+                                <SelectItem key={u.user_id} value={u.user_id}>{u.name}{u.phone ? ` (${u.phone})` : ''}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setTeamEditDialog(false)}>Close</Button>
-                    <Button onClick={handleTeamAssign} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-team-assign">Assign Selected</Button>
+                    <Button variant="outline" onClick={() => setTeamEditDialog(false)}>Cancel</Button>
+                    <Button onClick={handleTeamSave} disabled={teamSaving} className="bg-indigo-600 hover:bg-indigo-700" data-testid="confirm-team-assign">
+                      {teamSaving ? 'Saving...' : 'Save Team'}
+                    </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
