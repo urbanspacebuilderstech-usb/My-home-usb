@@ -76,7 +76,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Planning Board 2-Level Nested Tab Restructuring
 - [x] **Daily Labour Report (DLR)**: Per work order attendance tracking with 3 fixed rows (Skilled/Semi-Skilled/Unskilled), pre-filled rates from Work Order, day fractions 0.5/1/1.5, auto-cost calc.
 - [x] **Inventory Management System**: Enhanced daily stock tracking — Opening/Received/Used/Closing with auto-calc. Current Stock dashboard with LOW alerts (min threshold). Visible in SE "Inventory" tab + ProjectDetail.
-- [x] Testing: iteration_121-126 all passed
+- [x] **SE Daily Attendance**: Multi-project time tracking with GPS verification (5km radius). Login/Logout button in SE header, Attendance tab with today summary + history table (dynamic project columns, Total Hours, Status: Full/Half/Short Day).
+- [x] Testing: iteration_121-127 all passed
 
 ## Prioritized Backlog
 
