@@ -2946,14 +2946,186 @@ async def get_all_attendance(
 
 @router.patch("/projects/{project_id}/set-location")
 async def set_project_location(project_id: str, request: Request, user: User = Depends(get_current_user)):
-    """Set GPS coordinates for a project"""
+    """Set GPS coordinates for a project - supports direct lat/lng or Google Maps URL"""
+    import re as _re
+    body = await request.json()
+    lat = body.get("latitude")
+    lng = body.get("longitude")
+    maps_url = body.get("google_maps_url", "")
+
+    # Parse Google Maps URL if provided
+    if maps_url and (lat is None or lng is None):
+        coords = None
+        # Pattern 1: @lat,lng or ?q=lat,lng
+        m = _re.search(r'@(-?\d+\.?\d*),(-?\d+\.?\d*)', maps_url)
+        if m:
+            coords = (float(m.group(1)), float(m.group(2)))
+        if not coords:
+            m = _re.search(r'[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)', maps_url)
+            if m:
+                coords = (float(m.group(1)), float(m.group(2)))
+        # Pattern 2: /place/.../@lat,lng
+        if not coords:
+            m = _re.search(r'place/[^/]*/@(-?\d+\.?\d*),(-?\d+\.?\d*)', maps_url)
+            if m:
+                coords = (float(m.group(1)), float(m.group(2)))
+        # Pattern 3: ll=lat,lng
+        if not coords:
+            m = _re.search(r'll=(-?\d+\.?\d*),(-?\d+\.?\d*)', maps_url)
+            if m:
+                coords = (float(m.group(1)), float(m.group(2)))
+        if coords:
+            lat, lng = coords
+        else:
+            raise HTTPException(status_code=400, detail="Could not extract coordinates from the Google Maps URL. Try pasting a URL with @lat,lng in it.")
+
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="Provide latitude/longitude or a Google Maps URL")
+
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"latitude": float(lat), "longitude": float(lng), "google_maps_url": maps_url, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    return {"message": "Project location updated", "latitude": float(lat), "longitude": float(lng)}
+
+
+# ==================== SE LIVE LOCATION TRACKING ====================
+
+@router.post("/attendance/track-location")
+async def track_se_location(request: Request, user: User = Depends(get_current_user)):
+    """SE sends GPS every 5 minutes while logged in. Checks geo-fence and auto-logouts if >5km."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only site engineers can track location")
+
     body = await request.json()
     lat = body.get("latitude")
     lng = body.get("longitude")
     if lat is None or lng is None:
-        raise HTTPException(status_code=400, detail="latitude and longitude required")
-    await db.projects.update_one(
-        {"project_id": project_id},
-        {"$set": {"latitude": float(lat), "longitude": float(lng), "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-    return {"message": "Project location updated", "latitude": lat, "longitude": lng}
+        raise HTTPException(status_code=400, detail="GPS coordinates required")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    now_time = datetime.now(timezone.utc).strftime("%H:%M")
+
+    record = await db.se_attendance.find_one({"user_id": user.user_id, "date": today})
+    if not record:
+        return {"status": "no_attendance", "message": "Not logged in today"}
+
+    # Find active entry (logged in but not out)
+    entries = record.get("entries", [])
+    active_entry = None
+    active_idx = None
+    for i, entry in enumerate(entries):
+        if not entry.get("logout_time"):
+            active_entry = entry
+            active_idx = i
+            break
+
+    if not active_entry:
+        return {"status": "not_active", "message": "No active login session"}
+
+    # Store location ping
+    ping = {
+        "latitude": float(lat),
+        "longitude": float(lng),
+        "timestamp": now_iso
+    }
+    await db.se_location_pings.insert_one({
+        "user_id": user.user_id,
+        "user_name": user.name,
+        "project_id": active_entry["project_id"],
+        "project_name": active_entry.get("project_name", ""),
+        "date": today,
+        "latitude": float(lat),
+        "longitude": float(lng),
+        "timestamp": now_iso
+    })
+
+    # Check geo-fence: is SE still within 5km of project?
+    project = await db.projects.find_one({"project_id": active_entry["project_id"]}, {"_id": 0})
+    proj_lat = project.get("latitude") if project else None
+    proj_lng = project.get("longitude") if project else None
+
+    if proj_lat and proj_lng:
+        dist = haversine_km(float(lat), float(lng), float(proj_lat), float(proj_lng))
+        if dist > 5:
+            # AUTO-LOGOUT: SE left the geo-fence
+            entries[active_idx]["logout_time"] = now_time
+            entries[active_idx]["logout_lat"] = float(lat)
+            entries[active_idx]["logout_lng"] = float(lng)
+            entries[active_idx]["auto_logout"] = True
+            entries[active_idx]["auto_logout_reason"] = f"Left geo-fence ({dist:.1f}km away)"
+
+            # Recalculate total hours
+            total_minutes = 0
+            for entry in entries:
+                if entry.get("login_time") and entry.get("logout_time"):
+                    try:
+                        lp = entry["login_time"].split(":")
+                        op = entry["logout_time"].split(":")
+                        total_minutes += max(0, (int(op[0])*60+int(op[1])) - (int(lp[0])*60+int(lp[1])))
+                    except (ValueError, IndexError):
+                        pass
+            total_hours = round(total_minutes / 60, 2)
+            status = "full_day" if total_hours >= 8 else "half_day" if total_hours >= 4 else "short_day"
+
+            await db.se_attendance.update_one(
+                {"_id": record["_id"]},
+                {"$set": {"entries": entries, "total_hours": total_hours, "status": status, "updated_at": now_iso}}
+            )
+            return {
+                "status": "auto_logout",
+                "message": f"Auto-logged out! You are {dist:.1f}km away from {active_entry.get('project_name', 'site')}. Must be within 5km.",
+                "distance_km": round(dist, 1)
+            }
+        else:
+            return {"status": "ok", "message": "Location tracked", "distance_km": round(dist, 1)}
+    else:
+        return {"status": "ok", "message": "Location tracked (project has no GPS set)"}
+
+
+@router.get("/attendance/live-locations")
+async def get_live_se_locations(user: User = Depends(get_current_user)):
+    """PM/Planning: Get latest location of all currently active SEs"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Get all attendance records with active sessions
+    active_records = await db.se_attendance.find({"date": today}, {"_id": 0}).to_list(200)
+
+    live_ses = []
+    for rec in active_records:
+        for entry in rec.get("entries", []):
+            if not entry.get("logout_time"):
+                # This SE is currently active - get latest ping
+                latest_ping = await db.se_location_pings.find_one(
+                    {"user_id": rec["user_id"], "date": today},
+                    {"_id": 0},
+                    sort=[("timestamp", -1)]
+                )
+                live_ses.append({
+                    "user_id": rec["user_id"],
+                    "user_name": rec.get("user_name", ""),
+                    "project_id": entry["project_id"],
+                    "project_name": entry.get("project_name", ""),
+                    "login_time": entry["login_time"],
+                    "latitude": latest_ping.get("latitude") if latest_ping else entry.get("login_lat"),
+                    "longitude": latest_ping.get("longitude") if latest_ping else entry.get("login_lng"),
+                    "last_ping": latest_ping.get("timestamp") if latest_ping else None,
+                })
+                break  # Only one active session per SE
+
+    # Get all projects with GPS for map context
+    projects = await db.projects.find(
+        {"latitude": {"$exists": True, "$ne": None}},
+        {"_id": 0, "project_id": 1, "name": 1, "location": 1, "latitude": 1, "longitude": 1}
+    ).to_list(100)
+
+    return {
+        "active_engineers": live_ses,
+        "projects": projects,
+        "total_active": len(live_ses),
+    }
+

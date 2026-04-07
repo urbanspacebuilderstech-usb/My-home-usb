@@ -6,7 +6,7 @@ import {
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
   ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
-  GitBranch, Lock, Snowflake, Mail
+  GitBranch, Lock, Snowflake, Mail, MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -488,6 +488,9 @@ export default function ProjectDetail() {
   const [showWOForm, setShowWOForm] = useState(false);
   const [invForm, setInvForm] = useState({ material_name: '', unit: '', date: new Date().toISOString().split('T')[0], opening_stock: 0, received: 0, used: 0, notes: '' });
   const [invDashboard, setInvDashboard] = useState(null);
+  const [showLocationSetup, setShowLocationSetup] = useState(false);
+  const [locationUrl, setLocationUrl] = useState('');
+  const [locationSaving, setLocationSaving] = useState(false);
 
   // Team editing state
   const [teamEditDialog, setTeamEditDialog] = useState(false);
@@ -1888,6 +1891,19 @@ export default function ProjectDetail() {
                       <span className="text-gray-600 hidden sm:inline" data-testid="project-client-email"><strong>Email:</strong> {project.client_email}</span>
                     )}
                     <span className="text-gray-600 hidden sm:inline"><strong>Location:</strong> {project.location || '-'}</span>
+                    {project.latitude && project.longitude && (
+                      <span className="text-green-600 text-[10px] bg-green-50 px-1.5 py-0.5 rounded font-medium">GPS Set</span>
+                    )}
+                    {!project.latitude && ['super_admin', 'planning', 'project_manager'].includes(user?.role) && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] text-orange-600 hover:text-orange-700 p-0 px-1" onClick={() => setShowLocationSetup(true)} data-testid="set-gps-btn">
+                        Set GPS
+                      </Button>
+                    )}
+                    {project.latitude && ['super_admin', 'planning', 'project_manager'].includes(user?.role) && (
+                      <Button variant="ghost" size="sm" className="h-5 text-[10px] text-gray-500 hover:text-gray-700 p-0 px-1" onClick={() => setShowLocationSetup(true)} data-testid="update-gps-btn">
+                        Update GPS
+                      </Button>
+                    )}
                     {project.package_id && (
                       <span className="text-gray-600"><strong>Package:</strong> {allPackages.find(p => p.package_id === project.package_id)?.name || project.package_id}</span>
                     )}
@@ -5450,6 +5466,65 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
       <MobileBottomNav user={user} />
+
+      {/* Project Location Setup Dialog */}
+      <Dialog open={showLocationSetup} onOpenChange={setShowLocationSetup}>
+        <DialogContent className="max-w-md" data-testid="location-setup-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MapPin className="h-4 w-4 text-orange-600" /> Set Project GPS Location
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs font-semibold">Paste Google Maps URL</Label>
+              <Input
+                value={locationUrl}
+                onChange={e => setLocationUrl(e.target.value)}
+                placeholder="https://www.google.com/maps/place/.../@13.08,80.27,17z"
+                className="mt-1 text-xs"
+                data-testid="gps-url-input"
+              />
+              <p className="text-[10px] text-gray-400 mt-1">Open Google Maps → Find the location → Copy the URL from address bar → Paste here</p>
+            </div>
+            {project.latitude && project.longitude && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-2.5 text-xs">
+                <p className="font-semibold text-green-700">Current GPS</p>
+                <p className="text-gray-600">{project.latitude?.toFixed(6)}, {project.longitude?.toFixed(6)}</p>
+              </div>
+            )}
+            <div className="bg-gray-50 rounded-lg p-2.5 text-[11px] text-gray-500 space-y-1">
+              <p className="font-medium text-gray-700">Supported URL formats:</p>
+              <p>maps.google.com/?q=13.08,80.27</p>
+              <p>google.com/maps/place/.../@13.08,80.27,17z</p>
+              <p>google.com/maps/@13.08,80.27,15z</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLocationSetup(false)}>Cancel</Button>
+            <Button
+              className="bg-orange-600 hover:bg-orange-700"
+              disabled={locationSaving || !locationUrl.trim()}
+              data-testid="gps-save-btn"
+              onClick={async () => {
+                setLocationSaving(true);
+                try {
+                  const res = await axios.patch(`${API}/projects/${projectId}/set-location`, { google_maps_url: locationUrl });
+                  toast.success(`Location set: ${res.data.latitude?.toFixed(4)}, ${res.data.longitude?.toFixed(4)}`);
+                  setShowLocationSetup(false);
+                  setLocationUrl('');
+                  fetchData();
+                } catch (e) {
+                  toast.error(e.response?.data?.detail || 'Failed to set location');
+                }
+                setLocationSaving(false);
+              }}
+            >
+              {locationSaving ? 'Saving...' : 'Save Location'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -403,6 +403,29 @@ export default function SiteEngineerDashboard() {
 
   const currentlyLoggedProject = todayAttendance?.entries?.find(e => !e.logout_time);
 
+  // Background GPS tracking every 5 minutes when logged in
+  useEffect(() => {
+    if (!currentlyLoggedProject) return;
+    const trackLocation = async () => {
+      try {
+        const pos = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            p => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
+            () => reject(), { enableHighAccuracy: true, timeout: 10000 }
+          );
+        });
+        const res = await axios.post(`${API}/attendance/track-location`, pos);
+        if (res.data.status === 'auto_logout') {
+          toast.error(res.data.message);
+          fetchData(false);
+        }
+      } catch { /* GPS unavailable, skip silently */ }
+    };
+    trackLocation(); // Track immediately
+    const interval = setInterval(trackLocation, 5 * 60 * 1000); // Every 5 min
+    return () => clearInterval(interval);
+  }, [currentlyLoggedProject?.project_id]);
+
   const handleAttLogin = async () => {
     if (!attSelectedProject) { toast.error('Select a project site'); return; }
     setAttLoading(true);

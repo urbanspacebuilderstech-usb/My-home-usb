@@ -13,11 +13,28 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight, MapPin, Radio
 } from 'lucide-react';
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
 import { useNavigate } from 'react-router-dom';
+import { MapContainer, TileLayer, Marker, Popup, Circle } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+
+// Leaflet default marker fix
+const defaultIcon = L.icon({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+});
+L.Marker.prototype.options.icon = defaultIcon;
+const seIcon = L.divIcon({
+  className: '',
+  html: '<div style="background:#22c55e;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.3)"></div>',
+  iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10]
+});
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
@@ -29,6 +46,146 @@ const API = `${BACKEND_URL}/api`;
 const MATERIAL_CATEGORIES = ['cement','sand','steel','bricks','aggregate','tiles','electrical','plumbing','paint','wood','hardware','other'];
 const WORK_TYPES = ['Masonry','Plumbing','Electrical','Carpentry','Painting','Flooring','Roofing','HVAC','Civil','Finishing','Tiling','Waterproofing'];
 
+function LiveMapSection() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const fetchLive = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/attendance/live-locations`);
+      setData(res.data);
+    } catch { setData(null); }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchLive();
+    const interval = setInterval(fetchLive, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, []);
+
+  const allPoints = [];
+  if (data) {
+    (data.projects || []).forEach(p => { if (p.latitude && p.longitude) allPoints.push([p.latitude, p.longitude]); });
+    (data.active_engineers || []).forEach(e => { if (e.latitude && e.longitude) allPoints.push([e.latitude, e.longitude]); });
+  }
+  const center = allPoints.length > 0 ? allPoints[0] : [13.08, 80.27];
+
+  return (
+    <Card data-testid="live-map-card">
+      <CardHeader className="p-4 pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Radio className="h-4 w-4 text-green-500" /> Live Site Engineer Map
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs" data-testid="active-count">
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block mr-1 animate-pulse"></span>
+              {data?.total_active || 0} Active
+            </Badge>
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={fetchLive} disabled={loading}>
+              Refresh
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-2">
+        {loading && !data ? (
+          <div className="text-center py-12 text-gray-400">Loading map...</div>
+        ) : (
+          <div className="space-y-3">
+            {/* Map */}
+            <div className="rounded-lg overflow-hidden border" style={{ height: '400px' }} data-testid="live-map-container">
+              <MapContainer center={center} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom={true}>
+                <TileLayer
+                  attribution='&copy; OpenStreetMap'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                {/* Project markers with 5km radius */}
+                {(data?.projects || []).map(p => (
+                  <React.Fragment key={p.project_id}>
+                    <Marker position={[p.latitude, p.longitude]}>
+                      <Popup>
+                        <div className="text-xs min-w-[140px]">
+                          <p className="font-bold">{p.name}</p>
+                          <p className="text-gray-500">{p.location}</p>
+                          <p className="text-[10px] text-gray-400">5km geo-fence radius</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                    <Circle center={[p.latitude, p.longitude]} radius={5000} pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.05, weight: 1, dashArray: '5,5' }} />
+                  </React.Fragment>
+                ))}
+                {/* Active SE markers */}
+                {(data?.active_engineers || []).filter(e => e.latitude && e.longitude).map(e => (
+                  <Marker key={e.user_id} position={[e.latitude, e.longitude]} icon={seIcon}>
+                    <Popup>
+                      <div className="text-xs min-w-[140px]">
+                        <p className="font-bold text-green-700">{e.user_name}</p>
+                        <p>{e.project_name}</p>
+                        <p className="text-gray-500">Login: {e.login_time}</p>
+                        {e.last_ping && <p className="text-[10px] text-gray-400">Last ping: {new Date(e.last_ping).toLocaleTimeString()}</p>}
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+
+            {/* Active Engineers List */}
+            {(data?.active_engineers || []).length > 0 ? (
+              <div className="border rounded-lg overflow-hidden" data-testid="active-se-list">
+                <div className="bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                  Currently Active Site Engineers
+                </div>
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">Engineer</th>
+                      <th className="px-3 py-2 text-left font-medium">Project Site</th>
+                      <th className="px-3 py-2 text-center font-medium">Login Time</th>
+                      <th className="px-3 py-2 text-center font-medium">Last Ping</th>
+                      <th className="px-3 py-2 text-center font-medium">GPS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {(data?.active_engineers || []).map(e => (
+                      <tr key={e.user_id} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-medium">{e.user_name}</td>
+                        <td className="px-3 py-2">{e.project_name}</td>
+                        <td className="px-3 py-2 text-center">{e.login_time}</td>
+                        <td className="px-3 py-2 text-center text-gray-500">{e.last_ping ? new Date(e.last_ping).toLocaleTimeString() : '-'}</td>
+                        <td className="px-3 py-2 text-center">
+                          {e.latitude && e.longitude ? (
+                            <span className="text-green-600 text-[10px]">{e.latitude?.toFixed(3)}, {e.longitude?.toFixed(3)}</span>
+                          ) : <span className="text-gray-400">-</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-4 text-gray-400 text-xs">
+                No site engineers currently active. They will appear here when they log in to a project site.
+              </div>
+            )}
+
+            {/* Legend */}
+            <div className="flex items-center gap-4 text-[10px] text-gray-500">
+              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-blue-500 rounded-sm opacity-80"></span> Project Location (5km radius)</div>
+              <div className="flex items-center gap-1"><span className="w-3 h-3 bg-green-500 rounded-full"></span> Active Site Engineer</div>
+              <div className="text-gray-400">Auto-refreshes every 30s</div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PlanningBoard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -39,6 +196,8 @@ export default function PlanningBoard() {
 
   // Projects
   const [projects, setProjects] = useState([]);
+  const [liveMapData, setLiveMapData] = useState(null);
+  const [liveMapLoading, setLiveMapLoading] = useState(false);
   const [stages, setStages] = useState([]);
   const [projectSearch, setProjectSearch] = useState('');
   const [stageDialog, setStageDialog] = useState(false);
@@ -666,6 +825,9 @@ export default function PlanningBoard() {
             </TabsTrigger>
             <TabsTrigger value="re_templates" className="text-xs sm:text-sm" data-testid="tab-re-templates">
               <FileText className="h-3 w-3 mr-1" />RE Templates
+            </TabsTrigger>
+            <TabsTrigger value="live_map" className="text-xs sm:text-sm" data-testid="tab-live-map">
+              <Radio className="h-3 w-3 mr-1 text-green-500" />Live Map
             </TabsTrigger>
           </TabsList>
 
@@ -1466,6 +1628,11 @@ export default function PlanningBoard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ==================== LIVE MAP ==================== */}
+          <TabsContent value="live_map">
+            <LiveMapSection />
           </TabsContent>
 
         </Tabs>
