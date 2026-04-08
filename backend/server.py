@@ -57,6 +57,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         
         allowed_origins = os.environ.get('CORS_ORIGINS', '').split(',')
         
+        # Also allow the production domain
+        production_origins = [
+            "https://myhomeusb.com",
+            "https://www.myhomeusb.com",
+            "http://myhomeusb.com",
+            "http://www.myhomeusb.com",
+        ]
+        allowed_origins = allowed_origins + production_origins
         # Check explicit origins
         is_allowed = any(origin.startswith(ao.strip()) for ao in allowed_origins if ao.strip())
         
