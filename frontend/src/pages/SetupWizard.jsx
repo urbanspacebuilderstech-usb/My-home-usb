@@ -64,7 +64,9 @@ export default function SetupWizard() {
       setStep(3);
       setTimeout(() => navigate('/dashboard'), 2000);
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Setup failed. Please try again.');
+      const msg = e.response?.data?.detail || e.message || 'Setup failed. Please try again.';
+      toast.error(msg);
+      console.error('Setup error:', e.response?.status, msg);
     } finally {
       setLoading(false);
     }
