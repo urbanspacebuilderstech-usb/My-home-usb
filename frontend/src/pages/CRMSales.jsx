@@ -1191,10 +1191,28 @@ export default function CRMSales() {
                           <div className="mt-2 p-2 rounded bg-amber-50 border border-amber-200 text-xs">
                             <div className="flex justify-between items-center">
                               <span className="text-amber-700 font-medium">Advance: {formatCurrency(lead.advance_payment.advance_amount)}</span>
-                              {lead.current_stage_id === 'stg_accountant_approval' && (
+                              {lead.current_stage_id === 'stg_accountant_approval' && !lead.advance_payment.verified_at && (
                                 <Badge className="bg-orange-100 text-orange-700 text-xs">Pending Verification</Badge>
                               )}
                             </div>
+                            {lead.current_stage_id === 'stg_accountant_approval' && ['accountant', 'super_admin'].includes(user?.role) && !lead.advance_payment.verified_at && (
+                              <button
+                                data-testid={`verify-payment-${lead.lead_id}`}
+                                className="mt-2 w-full py-1.5 rounded bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await axios.post(`${API}/crm/leads/${lead.lead_id}/accountant-verify`);
+                                    toast.success('Payment verified! Lead moved to Project Onboarded.');
+                                    fetchLeads();
+                                  } catch (err) {
+                                    toast.error(err.response?.data?.detail || 'Verification failed');
+                                  }
+                                }}
+                              >
+                                Verify Payment
+                              </button>
+                            )}
                           </div>
                         )}
                         

@@ -1011,7 +1011,8 @@ async def accountant_verify(lead_id: str, user: User = Depends(get_current_user)
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if lead.get("onboarding_status") != "accountant_pending":
+    # Allow verification if lead is in accountant_approval stage OR has accountant_pending status
+    if lead.get("onboarding_status") != "accountant_pending" and lead.get("current_stage_id") != "stg_accountant_approval":
         raise HTTPException(status_code=400, detail="Not pending accountant verification")
     
     now = datetime.now(timezone.utc)
