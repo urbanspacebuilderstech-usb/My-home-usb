@@ -42,14 +42,16 @@ export default function ProfilePage() {
   const [disableCode, setDisableCode] = useState('');
   const [disableLoading, setDisableLoading] = useState(false);
 
-  // Change Password
+  // Change Password (OTP flow)
   const [showChangePass, setShowChangePass] = useState(false);
-  const [currentPass, setCurrentPass] = useState('');
+  const [passStep, setPassStep] = useState(0); // 0: idle, 1: send OTP, 2: verify OTP + new password
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [changePassLoading, setChangePassLoading] = useState(false);
-  const [showCurrentPass, setShowCurrentPass] = useState(false);
   const [showNewPass, setShowNewPass] = useState(false);
+  const [otpSending, setOtpSending] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -122,16 +124,28 @@ export default function ProfilePage() {
     setDisableLoading(false);
   };
 
+  const handleSendOTP = async () => {
+    setOtpSending(true);
+    try {
+      const res = await axios.post(`${API}/auth/send-password-otp`);
+      setMaskedEmail(res.data.email || '');
+      setPassStep(2);
+      toast.success('OTP sent to your email');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to send OTP'); }
+    setOtpSending(false);
+  };
+
   const handleChangePassword = async () => {
-    if (!currentPass) { toast.error('Enter current password'); return; }
+    if (!otpCode || otpCode.length !== 6) { toast.error('Enter 6-digit OTP'); return; }
     if (!newPass || newPass.length < 6) { toast.error('New password must be at least 6 characters'); return; }
     if (newPass !== confirmPass) { toast.error('Passwords do not match'); return; }
     setChangePassLoading(true);
     try {
-      await axios.post(`${API}/auth/change-password`, { current_password: currentPass, new_password: newPass });
+      await axios.post(`${API}/auth/verify-otp-reset-password`, { otp: otpCode, new_password: newPass });
       toast.success('Password changed successfully');
       setShowChangePass(false);
-      setCurrentPass('');
+      setPassStep(0);
+      setOtpCode('');
       setNewPass('');
       setConfirmPass('');
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to change password'); }
@@ -208,62 +222,87 @@ export default function ProfilePage() {
               </CardHeader>
               <CardContent>
                 {!showChangePass ? (
-                  <Button variant="outline" onClick={() => setShowChangePass(true)} className="w-full" data-testid="change-password-btn">
+                  <Button variant="outline" onClick={() => { setShowChangePass(true); setPassStep(1); }} className="w-full" data-testid="change-password-btn">
                     Change Password
                   </Button>
                 ) : (
                   <div className="space-y-3 border rounded-lg p-4 bg-gray-50">
-                    <div>
-                      <Label className="text-xs">Current Password</Label>
-                      <div className="relative mt-1">
-                        <Input
-                          type={showCurrentPass ? 'text' : 'password'}
-                          value={currentPass}
-                          onChange={e => setCurrentPass(e.target.value)}
-                          placeholder="Enter current password"
-                          data-testid="current-password-input"
-                        />
-                        <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowCurrentPass(!showCurrentPass)}>
-                          {showCurrentPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs">New Password</Label>
-                      <div className="relative mt-1">
-                        <Input
-                          type={showNewPass ? 'text' : 'password'}
-                          value={newPass}
-                          onChange={e => setNewPass(e.target.value)}
-                          placeholder="Enter new password (min 6 characters)"
-                          data-testid="new-password-input"
-                        />
-                        <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowNewPass(!showNewPass)}>
-                          {showNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Confirm New Password</Label>
-                      <Input
-                        type="password"
-                        value={confirmPass}
-                        onChange={e => setConfirmPass(e.target.value)}
-                        placeholder="Re-enter new password"
-                        className="mt-1"
-                        data-testid="confirm-password-input"
-                        onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
-                      />
-                      {confirmPass && newPass !== confirmPass && (
-                        <p className="text-[10px] text-red-500 mt-0.5">Passwords do not match</p>
-                      )}
-                    </div>
-                    <div className="flex gap-2 pt-1">
-                      <Button variant="outline" onClick={() => { setShowChangePass(false); setCurrentPass(''); setNewPass(''); setConfirmPass(''); }}>Cancel</Button>
-                      <Button onClick={handleChangePassword} disabled={changePassLoading} className="flex-1" data-testid="save-password-btn">
-                        {changePassLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Update Password'}
-                      </Button>
-                    </div>
+                    {/* Step 1: Show email and send OTP */}
+                    {passStep === 1 && (
+                      <>
+                        <h4 className="text-sm font-semibold">Step 1: Verify your identity</h4>
+                        <p className="text-xs text-gray-500">We'll send a one-time code to your registered email</p>
+                        <div>
+                          <Label className="text-xs">Email</Label>
+                          <Input value={user?.email || ''} disabled className="mt-1 bg-white" data-testid="otp-email-display" />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button variant="outline" onClick={() => { setShowChangePass(false); setPassStep(0); }}>Cancel</Button>
+                          <Button onClick={handleSendOTP} disabled={otpSending} className="flex-1 bg-amber-600 hover:bg-amber-700" data-testid="send-otp-btn">
+                            {otpSending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Mail className="h-4 w-4 mr-1" />}
+                            {otpSending ? 'Sending...' : 'Send OTP'}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Step 2: Enter OTP + New Password */}
+                    {passStep === 2 && (
+                      <>
+                        <h4 className="text-sm font-semibold">Step 2: Enter OTP and new password</h4>
+                        <p className="text-xs text-gray-500">OTP sent to <span className="font-medium text-amber-700">{maskedEmail}</span>. Expires in 10 minutes.</p>
+                        <div>
+                          <Label className="text-xs">OTP Code</Label>
+                          <Input
+                            value={otpCode}
+                            onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="000000"
+                            maxLength={6}
+                            className="mt-1 text-center text-xl tracking-[0.4em] font-mono"
+                            data-testid="otp-code-input"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">New Password</Label>
+                          <div className="relative mt-1">
+                            <Input
+                              type={showNewPass ? 'text' : 'password'}
+                              value={newPass}
+                              onChange={e => setNewPass(e.target.value)}
+                              placeholder="Min 6 characters"
+                              data-testid="new-password-input"
+                            />
+                            <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowNewPass(!showNewPass)}>
+                              {showNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-xs">Confirm Password</Label>
+                          <Input
+                            type="password"
+                            value={confirmPass}
+                            onChange={e => setConfirmPass(e.target.value)}
+                            placeholder="Re-enter new password"
+                            className="mt-1"
+                            data-testid="confirm-password-input"
+                            onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
+                          />
+                          {confirmPass && newPass !== confirmPass && (
+                            <p className="text-[10px] text-red-500 mt-0.5">Passwords do not match</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" onClick={() => { setShowChangePass(false); setPassStep(0); setOtpCode(''); setNewPass(''); setConfirmPass(''); }}>Cancel</Button>
+                          <Button variant="link" size="sm" onClick={handleSendOTP} disabled={otpSending} className="text-xs text-amber-600 p-0">
+                            Resend OTP
+                          </Button>
+                          <Button onClick={handleChangePassword} disabled={changePassLoading || otpCode.length !== 6} className="flex-1" data-testid="set-password-btn">
+                            {changePassLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Set Password'}
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </CardContent>

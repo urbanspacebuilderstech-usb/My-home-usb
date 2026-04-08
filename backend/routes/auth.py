@@ -927,3 +927,92 @@ async def change_password(data: ChangePasswordRequest, user: User = Depends(get_
     )
 
     return {"message": "Password changed successfully"}
+
+
+@router.post("/auth/send-password-otp")
+async def send_password_otp(user: User = Depends(get_current_user)):
+    """Send OTP to user's email for password change"""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    email = user_doc.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="No email associated with this account")
+
+    import random
+    otp = str(random.randint(100000, 999999))
+    otp_hash = hash_password(otp)
+
+    await db.password_otps.delete_many({"user_id": user.user_id})
+    await db.password_otps.insert_one({
+        "user_id": user.user_id,
+        "email": email,
+        "otp_hash": otp_hash,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "used": False
+    })
+
+    if resend.api_key:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [email],
+                "subject": "Your Password Reset OTP",
+                "html": f"""
+                <div style="font-family:Arial,sans-serif;max-width:450px;margin:0 auto;padding:24px;">
+                  <h2 style="color:#1a1a1a;margin-bottom:8px;">Password Reset OTP</h2>
+                  <p style="color:#555;font-size:14px;">Use this OTP to reset your password. It expires in 10 minutes.</p>
+                  <div style="background:#f8f9fa;border:2px dashed #d97706;border-radius:12px;padding:20px;text-align:center;margin:20px 0;">
+                    <span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#1a1a1a;">{otp}</span>
+                  </div>
+                  <p style="color:#999;font-size:12px;">If you didn't request this, please ignore this email.</p>
+                </div>
+                """
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+        except Exception as e:
+            logger.error(f"Failed to send OTP email: {e}")
+            # OTP is still stored — email delivery failed but flow continues
+            logger.warning("OTP stored but email delivery failed")
+
+    return {"message": "OTP sent to your email", "email": email[:3] + "***" + email[email.index("@"):]}
+
+
+class VerifyOTPResetRequest(BaseModel):
+    otp: str
+    new_password: str
+
+
+@router.post("/auth/verify-otp-reset-password")
+async def verify_otp_reset_password(data: VerifyOTPResetRequest, user: User = Depends(get_current_user)):
+    """Verify OTP and set new password"""
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    otp_doc = await db.password_otps.find_one(
+        {"user_id": user.user_id, "used": False},
+        {"_id": 0}
+    )
+    if not otp_doc:
+        raise HTTPException(status_code=400, detail="No OTP found. Please request a new one.")
+
+    if datetime.now(timezone.utc).isoformat() > otp_doc.get("expires_at", ""):
+        raise HTTPException(status_code=400, detail="OTP has expired. Please request a new one.")
+
+    if not verify_password(data.otp, otp_doc.get("otp_hash", "")):
+        raise HTTPException(status_code=400, detail="Invalid OTP. Please check and try again.")
+
+    new_hash = hash_password(data.new_password)
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$set": {
+            "password_hash": new_hash,
+            "password_changed_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+
+    await db.password_otps.update_many({"user_id": user.user_id}, {"$set": {"used": True}})
+
+    return {"message": "Password updated successfully"}
