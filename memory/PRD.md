@@ -16,7 +16,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 
 ### Project Management (ProjectDetail.jsx)
 - 12 tabs: Estimate, Final Estimate, Stages, Team, Materials, Labours, Work Orders, Payments, Additional, Deduction, Summary, Documents
-- Work Order Stage Payment System with multiple partial payments
+- Work Order Stage Payment System with multi-level approval (SE → PM → Planning → Accountant)
+- Labours tab now has full Work Order functionality (same as Work Orders tab): Scope, Stages, Additional, DLR with approval workflows
 - 4-Level Approval, Freeze & Reassign, DLR, Google Maps Location
 
 ### Site Engineer View (SiteEngineerDashboard.jsx)
@@ -31,23 +32,19 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - DEMO_MODE toggle, Global Rate Limiting, File Type validation
 
 ### Demo Data System
-- Comprehensive seed script (`seed_demo_data.py`) that:
-  - Wipes all project data
-  - Seeds ONE project "Swathi 60L G+2" (₹80L scope, ₹30L paid, ~50% progress)
-  - Populates ALL 12 project detail tabs with realistic data
-  - Populates ALL role-specific dashboards (Sales, SE, Accounts, Planning, Procurement, PM, Super Admin)
-  - Creates 9 CRM leads, 13 scope items, 12 stages, 10 materials, 10 material requests, 8 labour expenses, 3 work orders, 5 income entries, 8 payment stages, 2 additional costs, 3 deductions, 5 design files, 3 site plans, 6 BOQ items, inventory, credit ledger, cheques, attendance, curing videos, etc.
+- Comprehensive seed script (`seed_demo_data.py`) populates ALL tabs and boards
+- Work Orders seeded with proper schema: total_value, paid_amount, scope_total, stages with approval trail
 
-## Completed Tasks (Latest Session - Feb 2026)
-- [x] Comprehensive Demo Data Seed Script - populates ALL tabs and ALL boards
-- [x] Fixed stage field names (stage_name, start_date, target_date, finished/started/yet_to_start)
-- [x] Fixed payment stage fields (stage_name, percentage, workflow_status, is_advance)
-- [x] Verified: Super Admin dashboard, Project Detail (Estimate, Stages, Payments tabs)
+## Latest Changes (Feb 2026)
+- [x] Fixed Work Orders tab ₹0 bug (seed data field name mismatch: total_amount→total_value, completed→approved)
+- [x] Added full Work Order functionality to Labours tab Work Orders sub-tab (list/detail view with Scope, Stages, Additional, DLR)
+- [x] Both Work Orders tab and Labours tab now share same data source (/api/projects/{id}/work-orders)
+- [x] 100% test pass rate (iteration_143)
 
 ## Prioritized Backlog
 
 ### P0 (Critical)
-- Refactor ProjectDetail.jsx (~5400 lines)
+- Refactor ProjectDetail.jsx (~5600 lines)
 - Refactor SiteEngineerDashboard.jsx (~2200+ lines)
 - Refactor AccountsBoard.jsx (~3000 lines)
 
@@ -62,13 +59,10 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 ## Credentials
 - Demo Access buttons on login page for all roles
 - Accountant: accountant@constructionos.com / USB@123.26
-- DEMO_MODE=true in backend/.env (must remain true for preview)
+- DEMO_MODE=true in backend/.env
 
 ## Key Files
-- `/app/backend/seed_demo_data.py` - Demo data generator (34 steps, all collections)
-- `/app/backend/routes/auth.py` - Auth, 2FA, OTP
-- `/app/backend/routes/projects.py` - Project CRUD, stages, team, dashboard
+- `/app/backend/seed_demo_data.py` - Demo data generator
+- `/app/frontend/src/pages/ProjectDetail.jsx` - Project detail (12 tabs, Work Orders + Labours WO)
+- `/app/backend/routes/projects.py` - Project CRUD, work orders API
 - `/app/backend/routes/financial.py` - Full details, payments, scope items
-- `/app/backend/routes/crm.py` - CRM stages, leads, RE projects
-- `/app/frontend/src/pages/ProjectDetail.jsx` - Project detail with 12 tabs
-- `/app/frontend/src/pages/Dashboard.jsx` - Super Admin dashboard
