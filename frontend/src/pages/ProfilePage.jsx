@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
-import { User, Shield, Phone, Mail, Briefcase, Loader2, CheckCircle, XCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { User, Shield, Lock, Phone, Mail, Briefcase, Loader2, CheckCircle, XCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -41,6 +41,15 @@ export default function ProfilePage() {
   const [disablePassword, setDisablePassword] = useState('');
   const [disableCode, setDisableCode] = useState('');
   const [disableLoading, setDisableLoading] = useState(false);
+
+  // Change Password
+  const [showChangePass, setShowChangePass] = useState(false);
+  const [currentPass, setCurrentPass] = useState('');
+  const [newPass, setNewPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
+  const [changePassLoading, setChangePassLoading] = useState(false);
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
 
   useEffect(() => {
     fetchProfile();
@@ -113,6 +122,22 @@ export default function ProfilePage() {
     setDisableLoading(false);
   };
 
+  const handleChangePassword = async () => {
+    if (!currentPass) { toast.error('Enter current password'); return; }
+    if (!newPass || newPass.length < 6) { toast.error('New password must be at least 6 characters'); return; }
+    if (newPass !== confirmPass) { toast.error('Passwords do not match'); return; }
+    setChangePassLoading(true);
+    try {
+      await axios.post(`${API}/auth/change-password`, { current_password: currentPass, new_password: newPass });
+      toast.success('Password changed successfully');
+      setShowChangePass(false);
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmPass('');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to change password'); }
+    setChangePassLoading(false);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
@@ -173,6 +198,78 @@ export default function ProfilePage() {
 
           {/* Security Tab */}
           <TabsContent value="security">
+            {/* Change Password Section */}
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Lock className="h-4 w-4 text-amber-600" /> Change Password
+                </CardTitle>
+                <CardDescription>Update your account password</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {!showChangePass ? (
+                  <Button variant="outline" onClick={() => setShowChangePass(true)} className="w-full" data-testid="change-password-btn">
+                    Change Password
+                  </Button>
+                ) : (
+                  <div className="space-y-3 border rounded-lg p-4 bg-gray-50">
+                    <div>
+                      <Label className="text-xs">Current Password</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          type={showCurrentPass ? 'text' : 'password'}
+                          value={currentPass}
+                          onChange={e => setCurrentPass(e.target.value)}
+                          placeholder="Enter current password"
+                          data-testid="current-password-input"
+                        />
+                        <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowCurrentPass(!showCurrentPass)}>
+                          {showCurrentPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">New Password</Label>
+                      <div className="relative mt-1">
+                        <Input
+                          type={showNewPass ? 'text' : 'password'}
+                          value={newPass}
+                          onChange={e => setNewPass(e.target.value)}
+                          placeholder="Enter new password (min 6 characters)"
+                          data-testid="new-password-input"
+                        />
+                        <button type="button" className="absolute right-2 top-2 text-gray-400" onClick={() => setShowNewPass(!showNewPass)}>
+                          {showNewPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Confirm New Password</Label>
+                      <Input
+                        type="password"
+                        value={confirmPass}
+                        onChange={e => setConfirmPass(e.target.value)}
+                        placeholder="Re-enter new password"
+                        className="mt-1"
+                        data-testid="confirm-password-input"
+                        onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
+                      />
+                      {confirmPass && newPass !== confirmPass && (
+                        <p className="text-[10px] text-red-500 mt-0.5">Passwords do not match</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button variant="outline" onClick={() => { setShowChangePass(false); setCurrentPass(''); setNewPass(''); setConfirmPass(''); }}>Cancel</Button>
+                      <Button onClick={handleChangePassword} disabled={changePassLoading} className="flex-1" data-testid="save-password-btn">
+                        {changePassLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Update Password'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* 2FA Section */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
