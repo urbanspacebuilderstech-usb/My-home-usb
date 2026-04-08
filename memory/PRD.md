@@ -45,6 +45,8 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **GPS Mandatory Attendance** - iteration_136 (Login requires GPS ON, auto-logout on GPS loss)
 - [x] **SE Material Request** - iteration_137 (Request materials against project from Planning-approved list, 48hr notice)
 - [x] **Procurement Approval Step** - iteration_138 (New step: Planning Approved → Procurement Approves → Vendor Selection. Approval tab with Approve/Reject)
+- [x] **Resend Email Config** - Updated sender to noreply@myhomeusb.com, DNS verified (SPF/DKIM/MX)
+- [x] **2FA Google Authenticator** - iteration_139 (My Profile page with Basic Info + Security tabs, TOTP setup/verify/disable, Login 2FA flow)
 
 ## Prioritized Backlog
 
