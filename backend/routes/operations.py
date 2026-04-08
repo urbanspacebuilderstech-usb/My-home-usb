@@ -329,6 +329,9 @@ async def convert_deal_to_project(
         # Flow: pending_payment → payment_received → in_planning → drawing
         "status": "pending_payment",
         "accountant_verified": False,
+        # Planning board visibility
+        "planning_status": "new",
+        "planning_new_date": now.isoformat(),
         # Links
         "re_project_id": lead.get("re_project_id"),
         "lead_id": lead_id,
@@ -554,6 +557,9 @@ async def convert_re_project_to_project(
         # Status - Set to 'pending_payment' for accountant verification
         "status": "pending_payment",
         "accountant_verified": False,
+        # Planning board visibility
+        "planning_status": "new",
+        "planning_new_date": now.isoformat(),
         # Links
         "re_project_id": re_project_id,
         "lead_id": re_project.get("lead_id"),
@@ -996,6 +1002,8 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
         {"project_id": project_id},
         {"$set": {
             "status": "pending_payment",
+            "planning_status": "new",
+            "planning_new_date": datetime.now(timezone.utc).isoformat(),
             "submitted_for_payment_at": datetime.now(timezone.utc).isoformat()
         }}
     )
