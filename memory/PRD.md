@@ -47,7 +47,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **Procurement Approval Step** - iteration_138 (New step: Planning Approved → Procurement Approves → Vendor Selection. Approval tab with Approve/Reject)
 - [x] **Resend Email Config** - Updated sender to noreply@myhomeusb.com, DNS verified (SPF/DKIM/MX)
 - [x] **2FA Google Authenticator** - iteration_139 (My Profile page with Basic Info + Security tabs, TOTP setup/verify/disable, Login 2FA flow)
-- [x] **Change Password** - Added under Profile > Security tab (current password + new password + confirm, full validation)
+- [x] **Change Password** - iteration_140 (Email OTP flow: Send OTP → Enter code + new password → Set Password. 10-min expiry)
 
 ## Prioritized Backlog
 
