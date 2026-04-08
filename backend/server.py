@@ -152,6 +152,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=os.environ.get('CORS_ORIGINS', 'https://crm-onboard-flow.preview.emergentagent.com').split(',') + [
+        "https://myhomeusb.com",
+        "https://www.myhomeusb.com",
+        "http://myhomeusb.com",
+        "http://www.myhomeusb.com",
+    ] + [
         f"https://construction-crm-6.cluster-{i}.preview.emergentcf.cloud" for i in range(10)
     ],
     allow_methods=["*"],
