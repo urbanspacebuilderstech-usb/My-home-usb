@@ -6,7 +6,7 @@ import {
   DollarSign, FileText, TrendingUp, Wallet, MinusCircle, CheckCircle2, Clock,
   AlertTriangle, Check, XCircle, ShieldCheck, Send, Upload, Printer, Download, Folder,
   ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Layers, Users, Package, HardHat, CreditCard,
-  GitBranch, Lock, Snowflake, Mail, MapPin
+  GitBranch, Lock, Snowflake, Mail, MapPin, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -481,6 +481,7 @@ export default function ProjectDetail() {
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
   const [labourSubTab, setLabourSubTab] = useState('requests');
   const [labourWoViewId, setLabourWoViewId] = useState(null);
+  const [expandedWoStages, setExpandedWoStages] = useState({});
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
@@ -4475,19 +4476,30 @@ export default function ProjectDetail() {
                                   {wo.stages.map((st, i) => {
                                     const cfg = getStageStatusConfig(st.status);
                                     const showApprove = canApproveStage(st);
+                                    const isExpanded = expandedWoStages[st.stage_id];
                                     return (
-                                      <div key={st.stage_id || i} className="border rounded-lg p-3" data-testid={`wo-stage-${st.stage_id}`}>
-                                        <div className="flex items-start justify-between gap-2">
-                                          <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                              <span className="font-medium text-sm">{i+1}. {st.name}</span>
-                                              <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
-                                              <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                      <div key={st.stage_id || i} className="border rounded-lg overflow-hidden" data-testid={`wo-stage-${st.stage_id}`}>
+                                        <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
+                                          onClick={() => setExpandedWoStages(prev => ({ ...prev, [st.stage_id]: !prev[st.stage_id] }))}
+                                          data-testid={`wo-stage-toggle-${st.stage_id}`}>
+                                          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                                            <span className="font-medium text-sm">{i+1}. {st.name}</span>
+                                            <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
+                                            <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                          </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
+                                            <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                          </div>
+                                        </div>
+                                        {isExpanded && (
+                                          <div className="border-t bg-gray-50/50 p-3 space-y-3">
+                                            <div className="flex flex-wrap gap-3 text-xs">
+                                              <span className="text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></span>
+                                              {st.approved_amount > 0 && <span className="text-green-600">Paid: <strong>{formatCurrency(st.approved_amount)}</strong></span>}
                                             </div>
-                                            <p className="text-xs text-gray-500 mt-1">Amount: {formatCurrency(st.amount)}{st.approved_amount ? ` | Paid: ${formatCurrency(st.approved_amount)}` : ''}</p>
-                                            {/* Approval trail */}
                                             {st.status !== 'pending' && (
-                                              <div className="mt-2 flex flex-wrap gap-1">
+                                              <div className="flex flex-wrap gap-1">
                                                 {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
                                                 {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
                                                 {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
@@ -4495,36 +4507,35 @@ export default function ProjectDetail() {
                                                 {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
                                               </div>
                                             )}
-                                          </div>
-                                          <div className="flex gap-1 shrink-0">
-                                            {showApprove && (
-                                              <>
-                                                {user?.role === 'accountant' ? (
-                                                  <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`wo-stage-approve-${st.stage_id}`}
-                                                    onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount })}>
-                                                    Process Payment
+                                            <div className="flex gap-1 flex-wrap pt-1">
+                                              {showApprove && (
+                                                <>
+                                                  {user?.role === 'accountant' ? (
+                                                    <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                      onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
+                                                      Process Payment
+                                                    </Button>
+                                                  ) : (
+                                                    <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`wo-stage-approve-${st.stage_id}`}
+                                                      onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
+                                                      Approve
+                                                    </Button>
+                                                  )}
+                                                  <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`wo-stage-reject-${st.stage_id}`}
+                                                    onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
+                                                    Reject
                                                   </Button>
-                                                ) : (
-                                                  <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`wo-stage-approve-${st.stage_id}`}
-                                                    onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve')}>
-                                                    Approve
-                                                  </Button>
-                                                )}
-                                                <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`wo-stage-reject-${st.stage_id}`}
-                                                  onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' })}>
-                                                  Reject
+                                                </>
+                                              )}
+                                              {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                                <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
+                                                  onClick={(e) => { e.stopPropagation(); handleWoStageRequestPayment(wo.work_order_id, st.stage_id); }}>
+                                                  Request Payment
                                                 </Button>
-                                              </>
-                                            )}
-                                            {/* Site Engineer can request payment for pending stages */}
-                                            {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
-                                              <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
-                                                onClick={() => handleWoStageRequestPayment(wo.work_order_id, st.stage_id)}>
-                                                Request Payment
-                                              </Button>
-                                            )}
+                                              )}
+                                            </div>
                                           </div>
-                                        </div>
+                                        )}
                                       </div>
                                     );
                                   })}
@@ -5036,18 +5047,29 @@ export default function ProjectDetail() {
                                       {wo.stages.map((st, i) => {
                                         const cfg = getStageStatusConfig(st.status);
                                         const showApprove = canApproveStage(st);
+                                        const isExp = expandedWoStages[`l_${st.stage_id}`];
                                         return (
-                                          <div key={st.stage_id || i} className="border rounded-lg p-3" data-testid={`labour-wo-stage-${st.stage_id}`}>
-                                            <div className="flex items-start justify-between gap-2">
-                                              <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                  <span className="font-medium text-sm">{i+1}. {st.name}</span>
-                                                  <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
-                                                  <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                          <div key={st.stage_id || i} className="border rounded-lg overflow-hidden" data-testid={`labour-wo-stage-${st.stage_id}`}>
+                                            <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
+                                              onClick={() => setExpandedWoStages(prev => ({ ...prev, [`l_${st.stage_id}`]: !prev[`l_${st.stage_id}`] }))}>
+                                              <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+                                                <span className="font-medium text-sm">{i+1}. {st.name}</span>
+                                                <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
+                                                <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                              </div>
+                                              <div className="flex items-center gap-2 shrink-0">
+                                                <span className="text-sm font-medium text-gray-600">{formatCurrency(st.amount)}</span>
+                                                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isExp ? 'rotate-180' : ''}`} />
+                                              </div>
+                                            </div>
+                                            {isExp && (
+                                              <div className="border-t bg-gray-50/50 p-3 space-y-3">
+                                                <div className="flex flex-wrap gap-3 text-xs">
+                                                  <span className="text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></span>
+                                                  {st.approved_amount > 0 && <span className="text-green-600">Paid: <strong>{formatCurrency(st.approved_amount)}</strong></span>}
                                                 </div>
-                                                <p className="text-xs text-gray-500 mt-1">Amount: {formatCurrency(st.amount)}{st.approved_amount ? ` | Paid: ${formatCurrency(st.approved_amount)}` : ''}</p>
                                                 {st.status !== 'pending' && (
-                                                  <div className="mt-2 flex flex-wrap gap-1">
+                                                  <div className="flex flex-wrap gap-1">
                                                     {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
                                                     {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
                                                     {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
@@ -5055,35 +5077,35 @@ export default function ProjectDetail() {
                                                     {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
                                                   </div>
                                                 )}
-                                              </div>
-                                              <div className="flex gap-1 shrink-0">
-                                                {showApprove && (
-                                                  <>
-                                                    {user?.role === 'accountant' ? (
-                                                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
-                                                        onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount })}>
-                                                        Process Payment
+                                                <div className="flex gap-1 flex-wrap pt-1">
+                                                  {showApprove && (
+                                                    <>
+                                                      {user?.role === 'accountant' ? (
+                                                        <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                          onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount }); }}>
+                                                          Process Payment
+                                                        </Button>
+                                                      ) : (
+                                                        <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                          onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve'); }}>
+                                                          Approve
+                                                        </Button>
+                                                      )}
+                                                      <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`labour-wo-stage-reject-${st.stage_id}`}
+                                                        onClick={(e) => { e.stopPropagation(); handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' }); }}>
+                                                        Reject
                                                       </Button>
-                                                    ) : (
-                                                      <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
-                                                        onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve')}>
-                                                        Approve
-                                                      </Button>
-                                                    )}
-                                                    <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`labour-wo-stage-reject-${st.stage_id}`}
-                                                      onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' })}>
-                                                      Reject
+                                                    </>
+                                                  )}
+                                                  {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                                    <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
+                                                      onClick={(e) => { e.stopPropagation(); handleWoStageRequest(wo.work_order_id, st.stage_id); }}>
+                                                      Request Payment
                                                     </Button>
-                                                  </>
-                                                )}
-                                                {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
-                                                  <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
-                                                    onClick={() => handleWoStageRequest(wo.work_order_id, st.stage_id)}>
-                                                    Request Payment
-                                                  </Button>
-                                                )}
+                                                  )}
+                                                </div>
                                               </div>
-                                            </div>
+                                            )}
                                           </div>
                                         );
                                       })}
