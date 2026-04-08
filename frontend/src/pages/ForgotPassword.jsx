@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, Mail, ArrowLeft, CheckCircle, Copy, Check, ExternalLink } from 'lucide-react';
+import { Building2, Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,32 +14,19 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const [resetLink, setResetLink] = useState('');
-  const [showLink, setShowLink] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email) { toast.error('Please enter your email'); return; }
     setIsLoading(true);
     try {
-      const res = await axios.post(`${API}/auth/forgot-password`, { email });
+      await axios.post(`${API}/auth/forgot-password`, { email });
       setSent(true);
-      if (res.data.reset_link) {
-        setResetLink(res.data.reset_link);
-      }
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Something went wrong');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(resetLink);
-    setCopied(true);
-    toast.success('Reset link copied!');
-    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -64,51 +51,9 @@ export default function ForgotPassword() {
               <p className="text-sm text-muted-foreground">
                 If an account exists with <strong>{email}</strong>, we've sent a password reset link. Check your inbox.
               </p>
-
-              {resetLink && (
-                <div className="mt-4 space-y-3">
-                  {!showLink ? (
-                    <button
-                      onClick={() => setShowLink(true)}
-                      className="text-xs text-amber-600 hover:text-amber-700 hover:underline"
-                      data-testid="show-reset-link-btn"
-                    >
-                      Didn't receive email? Click here to get the reset link
-                    </button>
-                  ) : (
-                    <div className="space-y-2 bg-gray-50 dark:bg-gray-900 border rounded-lg p-3" data-testid="reset-link-box">
-                      <p className="text-xs text-muted-foreground">Share this link with the user to reset their password:</p>
-                      <div className="flex gap-2">
-                        <Input
-                          readOnly
-                          value={resetLink}
-                          className="text-xs h-9 bg-white dark:bg-gray-800"
-                          data-testid="reset-link-input"
-                        />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-9 shrink-0"
-                          onClick={handleCopy}
-                          data-testid="copy-reset-link-btn"
-                        >
-                          {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
-                        </Button>
-                      </div>
-                      <a
-                        href={resetLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                        data-testid="open-reset-link"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Open Reset Page
-                      </a>
-                    </div>
-                  )}
-                </div>
-              )}
-
+              <p className="text-xs text-muted-foreground">
+                Don't see it? Check your spam folder. If you still can't find it, contact your administrator.
+              </p>
               <Link to="/login">
                 <Button variant="outline" className="mt-4" data-testid="back-to-login-btn">
                   <ArrowLeft className="w-4 h-4 mr-2" /> Back to Login

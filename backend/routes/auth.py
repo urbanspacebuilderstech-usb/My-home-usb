@@ -432,7 +432,6 @@ async def forgot_password(req: ForgotPasswordRequest):
 
     return {
         "message": "If an account exists with this email, a reset link has been sent.",
-        "reset_link": reset_link,
         "email_sent": email_sent
     }
 
