@@ -3410,6 +3410,8 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
     updated = False
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
+            if not stage.get("is_open"):
+                raise HTTPException(status_code=400, detail="Stage not opened by Planning yet")
             if stage.get("stage_status") == "finished":
                 raise HTTPException(status_code=400, detail="Stage is finished, no more payment requests allowed")
             
@@ -3511,6 +3513,38 @@ async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, da
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
     return {"message": "Stage finished"}
+
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/open")
+async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Planning opens a stage so Site Engineer can request payment for it."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can open stages")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = False
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            stage["is_open"] = True
+            stage["opened_by"] = user.user_id
+            stage["opened_by_name"] = user.name
+            stage["opened_at"] = now
+            updated = True
+            break
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+    return {"message": "Stage opened for Site Engineer"}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/approve")

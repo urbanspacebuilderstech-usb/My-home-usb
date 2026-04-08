@@ -877,9 +877,20 @@ export default function ProjectDetail() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to request payment'); }
   };
 
-  const getStageStatusConfig = (status) => {
+  const handleOpenStage = async (woId, stageId) => {
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${woId}/stages/${stageId}/open`);
+      toast.success('Stage opened for Site Engineer');
+      fetchWorkOrders();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to open stage'); }
+  };
+
+  const getStageStatusConfig = (status, isOpen) => {
+    if (status === 'pending' && isOpen) {
+      return { label: 'Open', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+    }
     const map = {
-      pending: { label: 'Pending', className: 'bg-gray-100 text-gray-700 border-gray-300' },
+      pending: { label: 'Locked', className: 'bg-gray-100 text-gray-700 border-gray-300' },
       requested: { label: 'Payment Requested', className: 'bg-amber-100 text-amber-800 border-amber-300' },
       pm_approved: { label: 'PM Approved', className: 'bg-blue-100 text-blue-800 border-blue-300' },
       planning_approved: { label: 'Planning Approved', className: 'bg-indigo-100 text-indigo-800 border-indigo-300' },
@@ -4474,11 +4485,12 @@ export default function ProjectDetail() {
                               {wo.stages?.length > 0 ? (
                                 <div className="space-y-2">
                                   {wo.stages.map((st, i) => {
-                                    const cfg = getStageStatusConfig(st.status);
+                                    const cfg = getStageStatusConfig(st.status, st.is_open);
                                     const showApprove = canApproveStage(st);
                                     const isExpanded = expandedWoStages[st.stage_id];
+                                    const isStageOpen = st.is_open === true;
                                     return (
-                                      <div key={st.stage_id || i} className="border rounded-lg overflow-hidden" data-testid={`wo-stage-${st.stage_id}`}>
+                                      <div key={st.stage_id || i} className={`border rounded-lg overflow-hidden ${!isStageOpen && st.status === 'pending' ? 'opacity-70' : ''}`} data-testid={`wo-stage-${st.stage_id}`}>
                                         <div className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition"
                                           onClick={() => setExpandedWoStages(prev => ({ ...prev, [st.stage_id]: !prev[st.stage_id] }))}
                                           data-testid={`wo-stage-toggle-${st.stage_id}`}>
@@ -4507,7 +4519,17 @@ export default function ProjectDetail() {
                                                 {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
                                               </div>
                                             )}
+                                            {isStageOpen && st.opened_by_name && (
+                                              <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">Opened by {st.opened_by_name}</span>
+                                            )}
                                             <div className="flex gap-1 flex-wrap pt-1">
+                                              {/* Planning: Open Stage button for locked stages */}
+                                              {st.status === 'pending' && !isStageOpen && ['planning', 'super_admin'].includes(user?.role) && (
+                                                <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700" data-testid={`wo-stage-open-${st.stage_id}`}
+                                                  onClick={(e) => { e.stopPropagation(); handleOpenStage(wo.work_order_id, st.stage_id); }}>
+                                                  Open Stage
+                                                </Button>
+                                              )}
                                               {showApprove && (
                                                 <>
                                                   {user?.role === 'accountant' ? (
@@ -4527,7 +4549,8 @@ export default function ProjectDetail() {
                                                   </Button>
                                                 </>
                                               )}
-                                              {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                              {/* SE: Request Payment only if stage is opened by Planning */}
+                                              {st.status === 'pending' && isStageOpen && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
                                                 <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`wo-stage-request-${st.stage_id}`}
                                                   onClick={(e) => { e.stopPropagation(); handleWoStageRequestPayment(wo.work_order_id, st.stage_id); }}>
                                                   Request Payment
