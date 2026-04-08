@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="8" skipped="0" tests="9" time="2.439" timestamp="2026-04-08T03:47:48.605766+00:00" hostname="agent-env-3424cef2-2abd-46d6-a745-55245ed282e4"><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_api_health" time="1.037" /><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_projects_list" time="0.179"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:41: in test_projects_list
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_crm_sales_leads" time="0.153"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:58: in test_crm_sales_leads
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_crm_presales_leads" time="0.177"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:71: in test_crm_presales_leads
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_project_stages" time="0.163"><failure message="assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">tests/test_demo_data.py:84: in test_project_stages
+    assert response.status_code == 200
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_project_work_orders" time="0.155"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:100: in test_project_work_orders
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_income_entries" time="0.154"><failure message="assert 404 == 200&#10; +  where 404 = &lt;Response [404]&gt;.status_code">tests/test_demo_data.py:112: in test_income_entries
+    assert response.status_code == 200
+E   assert 404 == 200
+E    +  where 404 = &lt;Response [404]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_payment_stages" time="0.161"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:126: in test_payment_stages
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase><testcase classname="tests.test_demo_data.TestDemoDataVerification" name="test_admin_dashboard" time="0.154"><failure message="assert 401 == 200&#10; +  where 401 = &lt;Response [401]&gt;.status_code">tests/test_demo_data.py:139: in test_admin_dashboard
+    assert response.status_code == 200
+E   assert 401 == 200
+E    +  where 401 = &lt;Response [401]&gt;.status_code</failure></testcase></testsuite></testsuites>

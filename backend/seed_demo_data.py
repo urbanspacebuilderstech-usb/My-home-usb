@@ -6,9 +6,10 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timezone, timedelta
 import uuid
+import os
 
-MONGO_URL = "mongodb+srv://urbanspacebuilderstech_db_user:BwrIZOO1GfTYGIbW@constructioncrm.l86s93a.mongodb.net/?retryWrites=true&w=majority"
-DB_NAME = "construction_crm"
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb+srv://urbanspacebuilderstech_db_user:BwrIZOO1GfTYGIbW@constructioncrm.l86s93a.mongodb.net/?retryWrites=true&w=majority")
+DB_NAME = os.environ.get("DB_NAME", "construction_crm")
 
 def uid():
     return uuid.uuid4().hex[:12]
@@ -36,7 +37,7 @@ async def main():
         "boq_items", "cheques", "cheque_suspense", "suspense_entries",
         "design_files", "expenses", "expenses_labour", "expenses_material",
         "material_expenses", "vendor_service_expenses", "financial_audit_logs",
-        "payment_stages", "notifications",
+        "payment_stages", "notifications", "attendance",
     ]
     for coll in collections_to_clean:
         r = await db[coll].delete_many({})
