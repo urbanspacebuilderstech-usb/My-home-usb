@@ -630,7 +630,13 @@ async def upload_site_photo(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user)
 ):
+    BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else ""
+    if ext in BLOCKED_EXT:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
     contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
     file_id = await fs.upload_from_stream(
         file.filename,
         contents,
@@ -674,7 +680,13 @@ async def upload_document(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user)
 ):
+    BLOCKED_EXT = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll'}
+    ext = file.filename.split(".")[-1].lower() if file.filename and "." in file.filename else ""
+    if ext in BLOCKED_EXT:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed.")
     contents = await file.read()
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB.")
     file_id = await fs.upload_from_stream(
         file.filename,
         contents,

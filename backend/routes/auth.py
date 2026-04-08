@@ -117,7 +117,12 @@ async def _create_session_and_respond(user_doc: dict, request: Request, response
 @router.post("/auth/initial-setup")
 async def initial_setup(data: InitialSetupRequest, request: Request, response: Response):
     """One-time setup to create the first Super Admin and company settings.
-    Creates a new super_admin account."""
+    Blocked after a super_admin already exists."""
+    # Block if any super admin already exists
+    existing_admin = await db.users.find_one({"role": "super_admin"}, {"_id": 0, "user_id": 1})
+    if existing_admin:
+        raise HTTPException(status_code=403, detail="Initial setup already completed. Contact existing administrator.")
+
     # Check if email already exists
     existing = await db.users.find_one({"email": data.admin_email.lower().strip()}, {"_id": 0})
     if existing:

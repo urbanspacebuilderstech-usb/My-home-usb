@@ -16,7 +16,17 @@ from core.storage import put_object, get_object, init_storage, APP_NAME, MIME_TY
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
+ALLOWED_EXTENSIONS = {
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv', 'txt',
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'bmp', 'svg',
+    'mp4', 'mov', 'avi', 'mkv', 'mp3', 'wav',
+    'zip', 'rar', '7z',
+    'dwg', 'dxf',  # CAD files for construction
+}
+
+BLOCKED_EXTENSIONS = {'exe', 'bat', 'cmd', 'sh', 'php', 'py', 'js', 'vbs', 'ps1', 'msi', 'dll', 'com', 'scr'}
 
 
 @router.post("/files/upload")
@@ -28,6 +38,13 @@ async def upload_file(
     user: User = Depends(get_current_user)
 ):
     """Upload a file to object storage"""
+    # File type validation
+    ext = file.filename.split(".")[-1].lower() if "." in file.filename else ""
+    if ext in BLOCKED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not allowed for security reasons.")
+    if ext and ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File type '.{ext}' is not supported. Allowed: images, documents, videos, CAD files.")
+
     data = await file.read()
 
     if len(data) > MAX_FILE_SIZE:

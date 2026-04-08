@@ -108,9 +108,45 @@ async def download_api_report_pdf(user=Depends(get_current_user)):
         return Response(content='{"detail":"PDF not found"}', status_code=404, media_type="application/json")
     return FileResponse(str(pdf_path), media_type="application/pdf", filename="API_Endpoints_Report.pdf")
 
+from collections import defaultdict
+import time as _time
+
+
+# Global rate limiting middleware (100 requests/minute per IP)
+class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_requests: int = 100, window_seconds: int = 60):
+        super().__init__(app)
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = defaultdict(list)  # IP -> list of timestamps
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for static files and health checks
+        path = request.url.path
+        if path.startswith("/static") or path == "/api/health":
+            return await call_next(request)
+
+        client_ip = request.client.host if request.client else "unknown"
+        now = _time.time()
+
+        # Clean old entries
+        self.requests[client_ip] = [t for t in self.requests[client_ip] if now - t < self.window_seconds]
+
+        if len(self.requests[client_ip]) >= self.max_requests:
+            return Response(
+                content='{"detail":"Rate limit exceeded. Please slow down."}',
+                status_code=429,
+                media_type="application/json"
+            )
+
+        self.requests[client_ip].append(now)
+        return await call_next(request)
+
+
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(GlobalRateLimitMiddleware, max_requests=100, window_seconds=60)
 
 app.add_middleware(
     CORSMiddleware,

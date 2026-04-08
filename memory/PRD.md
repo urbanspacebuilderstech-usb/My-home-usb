@@ -48,6 +48,11 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] **Resend Email Config** - Updated sender to noreply@myhomeusb.com, DNS verified (SPF/DKIM/MX)
 - [x] **2FA Google Authenticator** - iteration_139 (My Profile page with Basic Info + Security tabs, TOTP setup/verify/disable, Login 2FA flow)
 - [x] **Change Password** - iteration_140 (Email OTP flow: Send OTP → Enter code + new password → Set Password. 10-min expiry)
+- [x] **Security Audit** - Full report at /app/memory/SECURITY_AUDIT.md (17 vulnerabilities identified)
+- [x] **Security Fix #1** - Demo login toggle via DEMO_MODE env var (true=preview, false=production)
+- [x] **Security Fix #2** - Auth added to 3 unprotected endpoints (file uploads, downloads, cost categories)
+- [x] **Security Fix #3** - Initial setup locked after first Super Admin created
+- [x] **Security Fix #4** - File type validation (blocked: exe/bat/sh/php), 50MB limit, global rate limiting (100 req/min/IP)
 
 ## Prioritized Backlog
 
