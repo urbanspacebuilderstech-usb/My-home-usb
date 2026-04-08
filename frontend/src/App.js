@@ -60,6 +60,7 @@ import PMDashboard from '@/pages/PMDashboard';
 import ArchitectDashboard from '@/pages/ArchitectDashboard';
 import SetupWizard from '@/pages/SetupWizard';
 import PaymentSchedulePage from '@/pages/PaymentSchedulePage';
+import ProfilePage from '@/pages/ProfilePage';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -148,6 +149,7 @@ function AppRouter() {
       <Route path="/pm-dashboard" element={<ProtectedRoute><PMDashboard /></ProtectedRoute>} />
       <Route path="/architect-dashboard" element={<ProtectedRoute><ArchitectDashboard /></ProtectedRoute>} />
       <Route path="/marketing-board" element={<ProtectedRoute><MarketingBoard /></ProtectedRoute>} />
+      <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
     </Routes>
   );

@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Bell, LogOut } from 'lucide-react';
+import { Bell, LogOut, UserCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 
@@ -219,13 +219,16 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             )}
           </nav>
 
-          {/* Right: Notifs + User + Logout */}
+          {/* Right: Notifs + Profile + User + Logout */}
           <div className="flex items-center gap-2 shrink-0">
             <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
               <Bell className="h-4 w-4" />
               {unreadNotifs > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">{unreadNotifs}</span>
               )}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => navigate('/profile')} className="h-9 w-9 text-gray-500 hover:text-amber-600" data-testid="header-profile">
+              <UserCircle className="h-5 w-5" />
             </Button>
             <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">

@@ -231,11 +231,12 @@ async def get_audit_logs(
 class LoginRequest(BaseModel):
     email: str
     password: str
+    totp_code: Optional[str] = None
 
 
 @router.post("/auth/login")
 async def login(login_request: LoginRequest, request: Request, response: Response):
-    """Real login with email + password"""
+    """Real login with email + password + optional 2FA"""
     client_ip = request.client.host if request.client else "unknown"
 
     if not rate_limiter.check_login_rate_limit(client_ip):
@@ -282,6 +283,15 @@ async def login(login_request: LoginRequest, request: Request, response: Respons
         )
         await db.audit_logs.insert_one(audit_entry)
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Check 2FA
+    if user_doc.get("two_factor_enabled") and user_doc.get("totp_secret"):
+        if not login_request.totp_code:
+            return {"requires_2fa": True, "message": "2FA verification required"}
+        import pyotp
+        totp = pyotp.TOTP(user_doc["totp_secret"])
+        if not totp.verify(login_request.totp_code, valid_window=1):
+            raise HTTPException(status_code=401, detail="Invalid 2FA code")
 
     if isinstance(user_doc.get("created_at"), str):
         user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])
@@ -733,3 +743,153 @@ async def logout(request: Request, response: Response):
         await db.user_sessions.delete_one({"session_token": session_token})
     response.delete_cookie("session_token", path="/")
     return {"message": "Logged out"}
+
+
+
+# ==================== PROFILE & 2FA ====================
+
+import pyotp
+import qrcode
+import io
+import base64
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+
+
+@router.get("/auth/profile")
+async def get_profile(user: User = Depends(get_current_user)):
+    """Get current user profile"""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 0, "totp_secret": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    user_doc["two_factor_enabled"] = user_doc.get("two_factor_enabled", False)
+    return user_doc
+
+
+@router.put("/auth/profile")
+async def update_profile(data: UpdateProfileRequest, user: User = Depends(get_current_user)):
+    """Update basic profile info"""
+    updates = {}
+    if data.name and data.name.strip():
+        updates["name"] = data.name.strip()
+    if data.phone is not None:
+        updates["phone"] = data.phone.strip()
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"user_id": user.user_id}, {"$set": updates})
+    return {"message": "Profile updated", **updates}
+
+
+class TwoFactorSetupRequest(BaseModel):
+    password: str
+
+
+@router.post("/auth/2fa/setup")
+async def setup_2fa(data: TwoFactorSetupRequest, user: User = Depends(get_current_user)):
+    """Step 1: Verify password and generate TOTP secret + QR code"""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user_doc.get("two_factor_enabled"):
+        raise HTTPException(status_code=400, detail="2FA is already enabled")
+
+    stored_hash = user_doc.get("password_hash")
+    if not stored_hash or not verify_password(data.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    # Generate TOTP secret
+    secret = pyotp.random_base32()
+    totp = pyotp.TOTP(secret)
+    email = user_doc.get("email", "user")
+    provisioning_uri = totp.provisioning_uri(name=email, issuer_name="My Home USB")
+
+    # Generate QR code as base64
+    qr = qrcode.QRCode(version=1, box_size=6, border=2)
+    qr.add_data(provisioning_uri)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    qr_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    # Store secret temporarily (not yet enabled)
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"totp_secret_pending": secret}}
+    )
+
+    return {
+        "secret": secret,
+        "qr_code": f"data:image/png;base64,{qr_base64}",
+        "provisioning_uri": provisioning_uri
+    }
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+@router.post("/auth/2fa/verify")
+async def verify_and_enable_2fa(data: TwoFactorVerifyRequest, user: User = Depends(get_current_user)):
+    """Step 2: Verify TOTP code and enable 2FA"""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    pending_secret = user_doc.get("totp_secret_pending")
+    if not pending_secret:
+        raise HTTPException(status_code=400, detail="No 2FA setup in progress. Start setup first.")
+
+    totp = pyotp.TOTP(pending_secret)
+    if not totp.verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code. Please try again.")
+
+    # Enable 2FA
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$set": {
+            "totp_secret": pending_secret,
+            "two_factor_enabled": True,
+            "two_factor_enabled_at": datetime.now(timezone.utc).isoformat()
+        }, "$unset": {"totp_secret_pending": ""}}
+    )
+
+    return {"message": "2FA enabled successfully", "two_factor_enabled": True}
+
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str
+    code: str
+
+
+@router.post("/auth/2fa/disable")
+async def disable_2fa(data: TwoFactorDisableRequest, user: User = Depends(get_current_user)):
+    """Disable 2FA — requires password + current TOTP code"""
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user_doc.get("two_factor_enabled"):
+        raise HTTPException(status_code=400, detail="2FA is not enabled")
+
+    stored_hash = user_doc.get("password_hash")
+    if not stored_hash or not verify_password(data.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    secret = user_doc.get("totp_secret")
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"two_factor_enabled": False},
+         "$unset": {"totp_secret": "", "totp_secret_pending": ""}}
+    )
+
+    return {"message": "2FA disabled successfully", "two_factor_enabled": False}

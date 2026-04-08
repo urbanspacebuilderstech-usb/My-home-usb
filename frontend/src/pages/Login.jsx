@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -61,6 +61,8 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
+  const [needs2FA, setNeeds2FA] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
 
   // Check if setup is needed
   useEffect(() => {
@@ -77,13 +79,25 @@ export default function Login() {
       toast.error('Please enter email and password');
       return;
     }
+    if (needs2FA && (!totpCode || totpCode.length !== 6)) {
+      toast.error('Please enter your 6-digit authenticator code');
+      return;
+    }
     setIsLoading(true);
     try {
-      const response = await axios.post(`${API}/auth/login`, { email, password }, { withCredentials: true });
-      const user = response.data;
-      toast.success(`Welcome, ${user.name}!`);
-      // Navigate directly to role-specific page
-      const target = getRoleRedirect(user.role);
+      const payload = { email, password };
+      if (needs2FA) payload.totp_code = totpCode;
+      const response = await axios.post(`${API}/auth/login`, payload, { withCredentials: true });
+      const data = response.data;
+      if (data.requires_2fa) {
+        setNeeds2FA(true);
+        setTotpCode('');
+        toast.info('Enter your Google Authenticator code');
+        setIsLoading(false);
+        return;
+      }
+      toast.success(`Welcome, ${data.name}!`);
+      const target = getRoleRedirect(data.role);
       navigate(target, { replace: true });
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Login failed');
@@ -208,6 +222,27 @@ export default function Login() {
                     </button>
                   </div>
                 </div>
+
+                {/* 2FA Code Field */}
+                {needs2FA && (
+                  <div className="space-y-2" data-testid="2fa-login-section">
+                    <Label className="text-slate-700 text-sm font-medium flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-blue-600" /> Authenticator Code
+                    </Label>
+                    <Input
+                      data-testid="totp-code-input"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="000000"
+                      maxLength={6}
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="h-11 text-center text-xl tracking-[0.4em] font-mono bg-blue-50/50 border-blue-200 focus:border-blue-400 focus:ring-blue-400/20"
+                      autoFocus
+                    />
+                    <p className="text-[10px] text-blue-500 text-center">Enter the 6-digit code from Google Authenticator</p>
+                  </div>
+                )}
 
                 <Button
                   type="submit"
