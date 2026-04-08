@@ -419,53 +419,74 @@ async def main():
     # ========== STEP 11: WORK ORDERS (Work Orders tab) ==========
     print("Creating work orders...")
     contractors_data = [
-        ("Selvam & Co", "Mason Work", "cont_001", [
-            ("Foundation Mason Work", 180000, 180000, "completed", [
-                {"payment_id": f"pay_{uid()}", "amount": 180000, "status": "approved", "requested_at": iso(now - timedelta(days=60)), "approved_at": iso(now - timedelta(days=58))},
+        ("Selvam & Co", "Mason Work", "cont_001", "mason", [
+            ("Foundation Mason Work", 180000, "approved", [
+                {"amount": 180000, "requested_at": iso(now - timedelta(days=60)), "pm_approved_at": iso(now - timedelta(days=59)), "planning_approved_at": iso(now - timedelta(days=58)), "accountant_approved_at": iso(now - timedelta(days=57)), "approved_amount": 180000},
             ]),
-            ("Plinth Mason Work", 120000, 120000, "completed", [
-                {"payment_id": f"pay_{uid()}", "amount": 120000, "status": "approved", "requested_at": iso(now - timedelta(days=45)), "approved_at": iso(now - timedelta(days=43))},
+            ("Plinth Mason Work", 120000, "approved", [
+                {"amount": 120000, "requested_at": iso(now - timedelta(days=45)), "pm_approved_at": iso(now - timedelta(days=44)), "planning_approved_at": iso(now - timedelta(days=43)), "accountant_approved_at": iso(now - timedelta(days=42)), "approved_amount": 120000},
             ]),
-            ("GF Walls & Slab", 250000, 150000, "in_progress", [
-                {"payment_id": f"pay_{uid()}", "amount": 100000, "status": "approved", "requested_at": iso(now - timedelta(days=20)), "approved_at": iso(now - timedelta(days=18))},
-                {"payment_id": f"pay_{uid()}", "amount": 50000, "status": "approved", "requested_at": iso(now - timedelta(days=5)), "approved_at": iso(now - timedelta(days=3))},
+            ("GF Walls & Slab", 250000, "pm_approved", [
+                {"amount": 250000, "requested_at": iso(now - timedelta(days=15)), "pm_approved_at": iso(now - timedelta(days=13))},
             ]),
-            ("FF Walls", 200000, 0, "pending", []),
+            ("FF Walls", 200000, "pending", []),
         ]),
-        ("Kumar Electricals", "Electrical", "cont_002", [
-            ("GF Electrical Conduit", 80000, 80000, "completed", [
-                {"payment_id": f"pay_{uid()}", "amount": 80000, "status": "approved", "requested_at": iso(now - timedelta(days=25)), "approved_at": iso(now - timedelta(days=23))},
+        ("Kumar Electricals", "Electrical", "cont_002", "electrical", [
+            ("GF Electrical Conduit", 80000, "approved", [
+                {"amount": 80000, "requested_at": iso(now - timedelta(days=25)), "pm_approved_at": iso(now - timedelta(days=24)), "planning_approved_at": iso(now - timedelta(days=23)), "accountant_approved_at": iso(now - timedelta(days=22)), "approved_amount": 80000},
             ]),
-            ("FF Electrical Conduit", 80000, 0, "pending", []),
+            ("FF Electrical Conduit", 80000, "pending", []),
         ]),
-        ("Rajesh Plumbing", "Plumbing", "cont_003", [
-            ("Underground Plumbing", 60000, 60000, "completed", [
-                {"payment_id": f"pay_{uid()}", "amount": 60000, "status": "approved", "requested_at": iso(now - timedelta(days=40)), "approved_at": iso(now - timedelta(days=38))},
+        ("Rajesh Plumbing", "Plumbing", "cont_003", "plumbing", [
+            ("Underground Plumbing", 60000, "approved", [
+                {"amount": 60000, "requested_at": iso(now - timedelta(days=40)), "pm_approved_at": iso(now - timedelta(days=39)), "planning_approved_at": iso(now - timedelta(days=38)), "accountant_approved_at": iso(now - timedelta(days=37)), "approved_amount": 60000},
             ]),
-            ("GF Plumbing", 45000, 30000, "in_progress", [
-                {"payment_id": f"pay_{uid()}", "amount": 30000, "status": "approved", "requested_at": iso(now - timedelta(days=10)), "approved_at": iso(now - timedelta(days=8))},
+            ("GF Plumbing", 45000, "requested", [
+                {"amount": 45000, "requested_at": iso(now - timedelta(days=5))},
             ]),
         ]),
     ]
-    for cont_name, category, cont_id, wo_stages in contractors_data:
-        wo_id = f"wo_{uid()}"
-        wo_stage_list = []
-        for s_name, total, released, status, payments in wo_stages:
-            wo_stage_list.append({
-                "stage_id": f"wos_{uid()}", "name": s_name,
-                "amount": total, "amount_released": released,
-                "status": status, "payment_requests": payments,
-                "is_finished": status == "completed",
-            })
+    for cont_name, category, cont_id, cont_type, wo_stages in contractors_data:
+        work_order_id = f"wo_{uid()}"
+        stages_list = []
+        paid_total = 0
+        for s_name, s_amount, s_status, payments in wo_stages:
+            stage = {
+                "stage_id": f"wos_{uid()[:6]}",
+                "name": s_name, "type": "amount", "value": s_amount,
+                "amount": s_amount, "status": s_status,
+                "requested_by": SE if s_status != "pending" else None,
+                "requested_at": payments[0].get("requested_at") if payments else None,
+                "pm_approved_by": PM if s_status in ("pm_approved", "planning_approved", "approved") else None,
+                "pm_approved_at": payments[0].get("pm_approved_at") if payments and s_status in ("pm_approved", "planning_approved", "approved") else None,
+                "planning_approved_by": PLANNING if s_status in ("planning_approved", "approved") else None,
+                "planning_approved_at": payments[0].get("planning_approved_at") if payments and s_status in ("planning_approved", "approved") else None,
+                "accountant_approved_by": ACCOUNTANT if s_status == "approved" else None,
+                "accountant_approved_at": payments[0].get("accountant_approved_at") if payments and s_status == "approved" else None,
+                "approved_amount": payments[0].get("approved_amount") if payments and s_status == "approved" else None,
+                "rejection_reason": None,
+            }
+            stages_list.append(stage)
+            if s_status == "approved":
+                paid_total += s_amount
+
+        scope_total = sum(s["amount"] for s in stages_list)
         await db.project_work_orders.insert_one({
-            "wo_id": wo_id, "project_id": PROJECT_ID,
-            "contractor_name": cont_name, "contractor_id": cont_id,
-            "category": category,
-            "scope_items": [{"name": category, "unit": "Lump Sum", "quantity": 1, "unit_rate": sum(s["amount"] for s in wo_stage_list)}],
-            "stages": wo_stage_list,
-            "total_amount": sum(s["amount"] for s in wo_stage_list),
-            "total_released": sum(s["amount_released"] for s in wo_stage_list),
-            "status": "active", "created_by": SE,
+            "work_order_id": work_order_id, "project_id": PROJECT_ID,
+            "project_name": "Swathi 60L G+2",
+            "contractor_id": cont_id, "contractor_name": cont_name,
+            "contractor_type": cont_type,
+            "scope_items": [{"name": category, "unit": "Lump Sum", "quantity": 1, "unit_rate": scope_total, "total": scope_total}],
+            "scope_total": scope_total,
+            "stages": stages_list,
+            "additional_work": [],
+            "additional_total": 0,
+            "total_value": scope_total,
+            "paid_amount": paid_total,
+            "notes": f"{category} work for Swathi 60L G+2",
+            "labour_rates": {"skilled": 900, "semi_skilled": 600, "unskilled": 400},
+            "status": "active", "is_active": True,
+            "created_by": SE,
             "created_at": iso(project_start + timedelta(days=5)),
             "updated_at": iso(now),
         })

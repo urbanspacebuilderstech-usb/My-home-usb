@@ -480,6 +480,7 @@ export default function ProjectDetail() {
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
   const [labourSubTab, setLabourSubTab] = useState('requests');
+  const [labourWoViewId, setLabourWoViewId] = useState(null);
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
@@ -559,7 +560,7 @@ export default function ProjectDetail() {
       // Load work orders, contractors, attendance, inventory
       try {
         const [woRes, contRes, attRes, invRes, dashRes] = await Promise.all([
-          axios.get(`${API}/labour-work-orders?project_id=${projectId}`).catch(() => null),
+          axios.get(`${API}/projects/${projectId}/work-orders`).catch(() => null),
           axios.get(`${API}/contractors`).catch(() => null),
           axios.get(`${API}/labour-attendance?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null),
@@ -1059,7 +1060,7 @@ export default function ProjectDetail() {
   const fetchWorkOrderData = async () => {
     try {
       const [woRes, cRes, attRes, invRes, dashRes] = await Promise.all([
-        axios.get(`${API}/labour-work-orders?project_id=${projectId}`),
+        axios.get(`${API}/projects/${projectId}/work-orders`),
         axios.get(`${API}/contractors`),
         axios.get(`${API}/labour-attendance?project_id=${projectId}`),
         axios.get(`${API}/material-inventory?project_id=${projectId}`),
@@ -4980,58 +4981,176 @@ export default function ProjectDetail() {
                   <TabsContent value="workorders" className="mt-4">
                     <div className="flex justify-between items-center mb-4">
                       <p className="text-sm text-gray-500">{workOrders.length} work orders</p>
-                      {['super_admin','planning'].includes(user?.role) && (
-                        <Button size="sm" data-testid="create-wo-btn" onClick={() => setShowWOForm(true)}>
-                          <Plus className="h-4 w-4 mr-1" /> Create Work Order
+                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                        <Button size="sm" onClick={() => openWoDialog()} className="bg-violet-600 hover:bg-violet-700" data-testid="labour-create-wo-btn">
+                          <Plus className="h-3.5 w-3.5 mr-1" />Create Work Order
                         </Button>
                       )}
                     </div>
-                    {workOrders.length > 0 ? (
-                      <div className="space-y-4">
-                        {workOrders.map(wo => (
-                          <Card key={wo.work_order_id} data-testid={`wo-card-${wo.work_order_id}`}>
-                            <CardContent className="p-4">
-                              <div className="flex justify-between items-start mb-2">
+
+                    {workOrders.length === 0 ? (
+                      <div className="text-center py-8 text-gray-400"><FileText className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No work orders yet</p></div>
+                    ) : labourWoViewId ? (
+                      (() => {
+                        const wo = workOrders.find(w => w.work_order_id === labourWoViewId);
+                        if (!wo) return null;
+                        return (
+                          <div data-testid="labour-wo-detail-view">
+                            <Button variant="ghost" size="sm" onClick={() => setLabourWoViewId(null)} className="mb-3"><ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to List</Button>
+                            <div className="border rounded-lg overflow-hidden">
+                              <div className={`p-4 border-b flex items-center justify-between ${wo.status === 'frozen' ? 'bg-red-50' : wo.reassigned_from ? 'bg-emerald-50' : 'bg-violet-50'}`}>
                                 <div>
-                                  <p className="font-semibold">{wo.contractor_name}</p>
-                                  <p className="text-xs text-gray-500">{wo.contractor_type} | {wo.work_order_id}</p>
-                                  {wo.description && <p className="text-sm text-gray-600 mt-1">{wo.description}</p>}
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p className="font-bold text-sm">{wo.contractor_name}</p>
+                                    {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]">Frozen</Badge>}
+                                    {wo.reassigned_from && <Badge className="bg-emerald-600 text-white text-[10px]">Reassigned from {wo.reassigned_contractor || wo.reassigned_from}</Badge>}
+                                  </div>
+                                  <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}{wo.paid_amount > 0 ? ` | Paid: ${formatCurrency(wo.paid_amount)}` : ''}</p>
                                 </div>
-                                <div className="text-right">
-                                  <p className="font-bold text-lg">{formatCurrency(wo.total_amount)}</p>
-                                  <p className="text-xs text-green-600">Paid: {formatCurrency(wo.paid_amount || 0)}</p>
+                                <div className="flex gap-1">
+                                  {wo.status !== 'frozen' && (
+                                    <>
+                                      <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="labour-wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
+                                      <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="labour-wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
+                                    </>
+                                  )}
                                 </div>
                               </div>
-                              {wo.payment_stages?.length > 0 && (
-                                <div className="mt-3 border-t pt-3">
-                                  <p className="text-xs font-medium text-gray-500 mb-2">Payment Stages</p>
-                                  <div className="space-y-2">
-                                    {wo.payment_stages.map(s => (
-                                      <div key={s.stage_id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2 text-sm">
-                                        <span className="font-medium">{s.stage_name}</span>
-                                        <div className="flex items-center gap-3">
-                                          <span>{formatCurrency(s.amount)}</span>
-                                          <Badge variant="outline" className={`text-xs capitalize ${
-                                            s.status === 'approved' ? 'border-green-300 text-green-700 bg-green-50' :
-                                            s.status === 'requested' ? 'border-amber-300 text-amber-700 bg-amber-50' :
-                                            'border-gray-300'
-                                          }`}>{s.status}</Badge>
-                                          {s.status === 'pending' && user?.role === 'site_engineer' && (
-                                            <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => handleRequestStagePayment(wo.work_order_id, s.stage_id, s.amount)}>
-                                              Request Payment
-                                            </Button>
-                                          )}
-                                        </div>
+                              <Tabs defaultValue="scope" className="w-full">
+                                <TabsList className="w-full rounded-none border-b bg-white">
+                                  <TabsTrigger value="scope" className="flex-1 text-xs">Scope ({wo.scope_items?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="stages" className="flex-1 text-xs">Stages ({wo.stages?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="additional" className="flex-1 text-xs">Additional ({wo.additional_work?.length || 0})</TabsTrigger>
+                                  <TabsTrigger value="dlr" className="flex-1 text-xs" data-testid="labour-wo-dlr-tab">DLR</TabsTrigger>
+                                </TabsList>
+                                <TabsContent value="scope" className="p-3">
+                                  {wo.scope_items?.length > 0 ? (
+                                    <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                    <tbody className="divide-y">{(wo.scope_items || []).map((s, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{s.name}</td><td className="px-3 py-2">{s.unit}</td><td className="px-3 py-2 text-right">{s.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(s.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(s.total)}</td></tr>))}</tbody>
+                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Scope Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.scope_total)}</td></tr></tfoot></table>
+                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No scope items</p>}
+                                </TabsContent>
+                                <TabsContent value="stages" className="p-3">
+                                  {wo.stages?.length > 0 ? (
+                                    <div className="space-y-2">
+                                      {wo.stages.map((st, i) => {
+                                        const cfg = getStageStatusConfig(st.status);
+                                        const showApprove = canApproveStage(st);
+                                        return (
+                                          <div key={st.stage_id || i} className="border rounded-lg p-3" data-testid={`labour-wo-stage-${st.stage_id}`}>
+                                            <div className="flex items-start justify-between gap-2">
+                                              <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                  <span className="font-medium text-sm">{i+1}. {st.name}</span>
+                                                  <Badge variant="outline" className={`text-[10px] ${cfg.className}`}>{cfg.label}</Badge>
+                                                  <Badge variant="outline" className="text-[10px]">{st.type === 'percentage' ? `${st.value}%` : 'Fixed'}</Badge>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">Amount: {formatCurrency(st.amount)}{st.approved_amount ? ` | Paid: ${formatCurrency(st.approved_amount)}` : ''}</p>
+                                                {st.status !== 'pending' && (
+                                                  <div className="mt-2 flex flex-wrap gap-1">
+                                                    {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}
+                                                    {st.pm_approved_at && <span className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">PM OK</span>}
+                                                    {st.planning_approved_at && <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">Planning OK</span>}
+                                                    {st.accountant_approved_at && <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded">Paid</span>}
+                                                    {st.rejection_reason && <span className="text-[10px] bg-red-50 text-red-700 px-1.5 py-0.5 rounded">{st.rejection_reason}</span>}
+                                                  </div>
+                                                )}
+                                              </div>
+                                              <div className="flex gap-1 shrink-0">
+                                                {showApprove && (
+                                                  <>
+                                                    {user?.role === 'accountant' ? (
+                                                      <Button size="sm" className="h-7 text-xs bg-green-600 hover:bg-green-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                        onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve', { approved_amount: st.amount })}>
+                                                        Process Payment
+                                                      </Button>
+                                                    ) : (
+                                                      <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" data-testid={`labour-wo-stage-approve-${st.stage_id}`}
+                                                        onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'approve')}>
+                                                        Approve
+                                                      </Button>
+                                                    )}
+                                                    <Button size="sm" variant="destructive" className="h-7 text-xs" data-testid={`labour-wo-stage-reject-${st.stage_id}`}
+                                                      onClick={() => handleWoStageApprove(wo.work_order_id, st.stage_id, 'reject', { notes: 'Rejected' })}>
+                                                      Reject
+                                                    </Button>
+                                                  </>
+                                                )}
+                                                {st.status === 'pending' && ['site_engineer', 'sr_site_engineer'].includes(user?.role) && (
+                                                  <Button size="sm" className="h-7 text-xs bg-amber-600 hover:bg-amber-700" data-testid={`labour-wo-stage-request-${st.stage_id}`}
+                                                    onClick={() => handleWoStageRequest(wo.work_order_id, st.stage_id)}>
+                                                    Request Payment
+                                                  </Button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                      <div className="flex justify-between items-center px-3 pt-2 border-t">
+                                        <span className="text-xs font-bold text-gray-500">Stage Total</span>
+                                        <span className="text-sm font-bold">{formatCurrency(wo.stages.reduce((sum, s) => sum + (s.amount || 0), 0))}</span>
                                       </div>
-                                    ))}
-                                  </div>
+                                    </div>
+                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No stages</p>}
+                                </TabsContent>
+                                <TabsContent value="additional" className="p-3">
+                                  {wo.additional_work?.length > 0 ? (
+                                    <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">#</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th><th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unit</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Qty</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Rate</th><th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Total</th></tr></thead>
+                                    <tbody className="divide-y">{(wo.additional_work || []).map((a, i) => (<tr key={i}><td className="px-3 py-2 text-xs text-gray-400">{i+1}</td><td className="px-3 py-2 font-medium">{a.description}</td><td className="px-3 py-2">{a.unit}</td><td className="px-3 py-2 text-right">{a.quantity}</td><td className="px-3 py-2 text-right">{formatCurrency(a.unit_rate)}</td><td className="px-3 py-2 text-right font-medium">{formatCurrency(a.total)}</td></tr>))}</tbody>
+                                    <tfoot className="border-t"><tr><td colSpan="5" className="px-3 py-2 text-right font-bold text-xs">Additional Total:</td><td className="px-3 py-2 text-right font-bold">{formatCurrency(wo.additional_total)}</td></tr></tfoot></table>
+                                  ) : <p className="text-gray-400 text-center py-4 text-sm">No additional work</p>}
+                                </TabsContent>
+                                <TabsContent value="dlr" className="p-3">
+                                  <DLRPanel
+                                    projectId={projectId}
+                                    workOrderId={wo.work_order_id}
+                                    labourRates={wo.labour_rates}
+                                    canRecord={['site_engineer', 'sr_site_engineer', 'super_admin'].includes(user?.role)}
+                                  />
+                                </TabsContent>
+                              </Tabs>
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <div className="space-y-3" data-testid="labour-wo-list">
+                        {workOrders.map(wo => {
+                          const paidStages = (wo.stages || []).filter(s => s.status === 'approved').length;
+                          const totalStages = (wo.stages || []).length;
+                          const pendingRequests = (wo.stages || []).filter(s => ['requested','pm_approved','planning_approved'].includes(s.status)).length;
+                          return (
+                          <div key={wo.work_order_id} className={`border rounded-lg p-4 hover:border-violet-300 cursor-pointer transition ${wo.status === 'frozen' ? 'border-red-200 bg-red-50/30 opacity-75' : ''}`} onClick={() => setLabourWoViewId(wo.work_order_id)} data-testid={`labour-wo-card-${wo.work_order_id}`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <h4 className="font-semibold text-sm">{wo.contractor_name}</h4>
+                                  <Badge variant="outline" className="text-[10px]">{wo.contractor_type}</Badge>
+                                  <Badge className="bg-violet-100 text-violet-700 text-[10px]">{formatCurrency(wo.total_value)}</Badge>
+                                  {wo.paid_amount > 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Paid: {formatCurrency(wo.paid_amount)}</Badge>}
+                                  {pendingRequests > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{pendingRequests} pending approval</Badge>}
+                                  {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]">Frozen</Badge>}
                                 </div>
-                              )}
-                            </CardContent>
-                          </Card>
-                        ))}
+                                <div className="flex gap-4 text-xs text-gray-500">
+                                  <span>{wo.scope_items?.length || 0} scope items</span>
+                                  <span>{paidStages}/{totalStages} stages paid</span>
+                                  <span>{wo.additional_work?.length || 0} additional</span>
+                                </div>
+                              </div>
+                              <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                                {wo.status !== 'frozen' && (
+                                  <>
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openWoDialog(wo)}><Edit className="h-3.5 w-3.5" /></Button>
+                                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteWo(wo)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>);
+                        })}
                       </div>
-                    ) : <div className="text-center py-8 text-gray-400"><FileText className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No work orders</p></div>}
+                    )}
                   </TabsContent>
 
                   {/* ATTENDANCE SUB-TAB */}

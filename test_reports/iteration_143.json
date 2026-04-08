@@ -1,0 +1,67 @@
+{
+  "summary": "Frontend testing of Work Orders tab and Labours tab Work Orders sub-tab - All features working correctly. Work Orders show correct amounts (Selvam ₹7.50L, Kumar ₹1.60L, Rajesh ₹1.05L), detail views with Scope/Stages/Additional/DLR tabs, approval workflow with Approve/Reject buttons, and Back to List functionality.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console", "issues": ["Minor React hydration warning about <div> inside <tbody> in Project Stages table - cosmetic issue, doesn't affect functionality"]}
+    ]
+  },
+  "test_results": {
+    "work_orders_tab": {
+      "status": "PASS",
+      "details": "3 work orders displayed with correct amounts - Selvam & Co (₹7.50L, Paid: ₹3.00L, 2/4 stages paid), Kumar Electricals (₹1.60L, Paid: ₹80,000, 1/2 stages paid), Rajesh Plumbing (₹1.05L, Paid: ₹60,000, 1/2 stages paid)"
+    },
+    "work_orders_detail_view": {
+      "status": "PASS",
+      "details": "Detail view shows Scope (1), Stages (4), Additional (0), DLR tabs. Scope tab shows Mason Work - Lump Sum - ₹7.50L. Scope Total: ₹7.50L. Freeze, Edit, Delete buttons available."
+    },
+    "work_orders_stages_tab": {
+      "status": "PASS",
+      "details": "4 stages displayed with approval trail - Foundation Mason Work (Paid), Plinth Mason Work (Paid), GF Walls & Slab (PM Approved with Approve/Reject buttons), FF Walls (Pending). Approval trail badges: SE Requested → PM OK → Planning OK → Paid"
+    },
+    "labours_tab_work_orders_subtab": {
+      "status": "PASS",
+      "details": "Shows identical 3 work orders as Work Orders tab - Selvam & Co (₹7.50L), Kumar Electricals (₹1.60L), Rajesh Plumbing (₹1.05L). Create Work Order button available."
+    },
+    "labours_wo_detail_view": {
+      "status": "PASS",
+      "details": "Detail view shows Back to List button, Scope (1), Stages (4), Additional (0), DLR tabs. Same functionality as Work Orders tab detail view."
+    },
+    "labours_wo_stages_tab": {
+      "status": "PASS",
+      "details": "4 stages with approval trail - Foundation Mason Work (Paid), Plinth Mason Work (Paid), GF Walls & Slab (PM Approved with Approve/Reject buttons), FF Walls (Pending)"
+    },
+    "back_to_list_button": {
+      "status": "PASS",
+      "details": "Back to List button works correctly - returns to list view showing all 3 work orders"
+    },
+    "data_consistency": {
+      "status": "PASS",
+      "details": "Work Orders tab and Labours tab Work Orders sub-tab show identical data - same 3 work orders with same amounts, stages, and approval status"
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A - frontend only test", "frontend": "100%"},
+  "seed_data_creation": "Seed data correctly populated with 3 work orders: Selvam & Co (₹7.50L total, ₹3.00L paid, 4 stages), Kumar Electricals (₹1.60L total, ₹80K paid, 2 stages), Rajesh Plumbing (₹1.05L total, ₹60K paid, 2 stages)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Work Orders tab and Labours tab Work Orders sub-tab fully functional. Both tabs fetch from same API endpoint (/api/projects/{id}/work-orders) and display identical data. Detail views include Scope, Stages, Additional, DLR tabs with approval workflow. Approve/Reject buttons appear for PM Approved status stages.",
+  "features_tested": [
+    "Work Orders tab - correct amounts displayed (₹7.50L, ₹1.60L, ₹1.05L)",
+    "Work Orders tab detail view - Scope, Stages, Additional, DLR tabs",
+    "Labours tab > Work Orders sub-tab - same 3 work orders with correct amounts",
+    "Labours tab > WO detail view - click Selvam card, see 4 stages with approval trail",
+    "Labours tab > WO detail view > Scope tab shows scope items",
+    "Labours tab > WO detail view > Back to List button works",
+    "Labours tab > WO detail view > Stages show Approve/Reject buttons for PM Approved status",
+    "Work Orders tab and Labours tab Work Orders sub-tab show identical data"
+  ]
+}
