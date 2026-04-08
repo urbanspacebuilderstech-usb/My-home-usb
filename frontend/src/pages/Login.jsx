@@ -63,6 +63,7 @@ export default function Login() {
   const [selectedEmail, setSelectedEmail] = useState('admin@constructionos.com');
   const [needs2FA, setNeeds2FA] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  const [demoMode, setDemoMode] = useState(false);
 
   // Check if setup is needed
   useEffect(() => {
@@ -70,6 +71,7 @@ export default function Login() {
       if (!res.data.setup_complete) {
         navigate('/setup', { replace: true });
       }
+      setDemoMode(res.data.demo_mode || false);
     }).catch(() => {});
   }, [navigate]);
 
@@ -168,9 +170,9 @@ export default function Login() {
         {/* Content */}
         <div className="px-6 pb-8 space-y-4">
           <Tabs value={loginTab} onValueChange={setLoginTab}>
-            <TabsList className="grid w-full grid-cols-2 bg-white/50" data-testid="login-tabs">
+            <TabsList className={`grid w-full ${demoMode ? 'grid-cols-2' : 'grid-cols-1'} bg-white/50`} data-testid="login-tabs">
               <TabsTrigger value="password" data-testid="tab-password">Login</TabsTrigger>
-              <TabsTrigger value="demo" data-testid="tab-demo">Demo Access</TabsTrigger>
+              {demoMode && <TabsTrigger value="demo" data-testid="tab-demo">Demo Access</TabsTrigger>}
             </TabsList>
 
             {/* Password Login Tab */}

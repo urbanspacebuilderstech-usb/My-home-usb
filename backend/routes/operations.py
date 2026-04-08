@@ -4467,7 +4467,7 @@ INDIRECT_COST_CATEGORIES = [
 
 
 @router.get("/financial/indirect-cost-categories")
-async def get_indirect_cost_categories():
+async def get_indirect_cost_categories(user: User = Depends(get_current_user)):
     """Get list of indirect cost categories"""
     return INDIRECT_COST_CATEGORIES
 

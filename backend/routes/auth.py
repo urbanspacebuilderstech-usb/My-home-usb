@@ -64,6 +64,7 @@ async def get_setup_status():
         "admin_count": admin_count,
         "setup_complete": admin_count > 0,
         "company_name": settings.get("company_name", "") if settings else "",
+        "demo_mode": DEMO_MODE,
     }
 
 
@@ -305,9 +306,15 @@ class DemoLoginRequest(BaseModel):
     email: str
 
 
+DEMO_MODE = os.environ.get("DEMO_MODE", "true").lower() == "true"
+
+
 @router.post("/auth/demo-login")
 async def demo_login(login_request: DemoLoginRequest, request: Request, response: Response):
-    """Demo login - email only, no password. For testing/demo purposes."""
+    """Demo login - email only, no password. Disabled when DEMO_MODE=false."""
+    if not DEMO_MODE:
+        raise HTTPException(status_code=403, detail="Demo login is disabled in production.")
+
     client_ip = request.client.host if request.client else "unknown"
 
     if not rate_limiter.check_login_rate_limit(client_ip):

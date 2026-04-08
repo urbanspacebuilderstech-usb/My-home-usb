@@ -380,7 +380,15 @@ async def upload_image(file: UploadFile = File(...), user: User = Depends(get_cu
 
 
 @router.get("/site-receipts/image/{file_id}")
-async def get_image(file_id: str):
+async def get_image(file_id: str, request: Request):
+    # Cookie-based auth (needed for <img> tags)
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
     from bson.objectid import ObjectId
     try:
         grid_out = await fs.open_download_stream(ObjectId(file_id))
@@ -700,7 +708,15 @@ async def get_documents(project_id: str, user: User = Depends(get_current_user))
 
 
 @router.get("/files/{file_id}")
-async def get_file(file_id: str):
+async def get_file(file_id: str, request: Request):
+    # Cookie-based auth (needed for <img> tags and embedded content)
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
     from bson.objectid import ObjectId
     try:
         grid_out = await fs.open_download_stream(ObjectId(file_id))
