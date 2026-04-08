@@ -87,6 +87,8 @@ async def main():
         "building_type": "G+2 Residential",
         "notes": "Client wants G+2 with 3BHK on each floor. Total budget 60L.",
         "stage_id": stage_id,
+        "current_stage_id": stage_id,
+        "stage_type": "sales",
         "assigned_to": SALES,
         "created_by": PRESALES,
         "project_created": True,
@@ -126,7 +128,9 @@ async def main():
             "lead_id": f"lead_{uid()}", "name": el["name"], "phone": el["phone"],
             "source": el["source"], "budget": el["budget"], "sqft": el["sqft"],
             "building_type": "residential", "location": "Chennai",
-            "stage_id": stg_id, "assigned_to": SALES, "created_by": PRESALES,
+            "stage_id": stg_id, "current_stage_id": stg_id,
+            "stage_type": "sales",
+            "assigned_to": SALES, "created_by": PRESALES,
             "project_created": False, "created_at": iso(now - timedelta(days=10)),
             "updated_at": iso(now - timedelta(days=2)),
         })
@@ -183,7 +187,7 @@ async def main():
     await db.site_engineer_assignments.insert_one({
         "assignment_id": f"assign_{uid()}", "project_id": PROJECT_ID,
         "user_id": SE, "role": "site_engineer",
-        "assigned_by": PM, "created_at": iso(project_start),
+        "assigned_by": PM, "is_active": True, "created_at": iso(project_start),
     })
 
     # ========== STEP 5: PROJECT STAGES (50% done) ==========
@@ -509,6 +513,7 @@ async def main():
         await db.payment_stages.insert_one({
             "stage_id": f"ps_{uid()}", "project_id": PROJECT_ID,
             "name": name, "amount": amt, "status": status,
+            "amount_received": amt if status == "paid" else 0,
             "paid_date": iso(now + timedelta(days=days_ago)) if days_ago else None,
             "created_at": iso(project_start),
         })

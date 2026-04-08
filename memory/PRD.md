@@ -7,7 +7,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - **Frontend**: React + Shadcn/UI + Tailwind CSS
 - **Backend**: FastAPI + MongoDB Atlas
 - **Auth**: Cookie-based session auth with RBAC
-- **Roles**: super_admin, sales, pre_sales, cre, planning, project_manager, site_engineer, sr_site_engineer, accountant
+- **Roles**: super_admin, sales, pre_sales, cre, planning, project_manager, site_engineer, sr_site_engineer, accountant, hr, architect, marketing_head, general_manager, client, vendor
 
 ## What's Been Implemented
 
@@ -20,54 +20,69 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - 4-Level Approval, Freeze & Reassign, DLR, Google Maps Location
 
 ### Site Engineer View (SiteEngineerDashboard.jsx)
-- 7 tabs: Projects, Site Visits, **Work Orders (Assigned Contractors)**, Petty Cash, Cashbook, Curing Video, Attendance
-- **Assigned Contractors View (NEW)**: 
-  - Level 1: Grouped contractor list with icon, name, work type badge, active stages count, total amount
-  - Level 2: Drill-down into stages with Released/Pending/Balance breakdown, payment request history
-  - Request Payment & Finish Stage buttons per stage
-  - Back navigation to contractor list
-- **Petty Cash**: Global request, multi-level approval, Record Expense with categories
-- **Curing Video**: Global button, popup, WhatsApp link, history tab
-- **Inventory, GPS Attendance, Background GPS Tracking**
+- 7 tabs: Projects, Site Visits, Work Orders (Assigned Contractors), Petty Cash, Cashbook, Curing Video, Attendance
+- Assigned Contractors View, Petty Cash, Curing Video, Inventory, GPS Attendance
+- SE Material Request from project cards with auto-selected pre-approved materials
 
 ### Planning Board, PM Dashboard, Accounts Board
 - All with respective approval flows for petty cash and work order payments
+- Procurement Approval stage added to material request pipeline
 
-## Completed Tasks (Latest Session - Apr 2026)
-- [x] AppHeader custom navigation - iteration_130
-- [x] Curing Video Management - iteration_131
-- [x] Dialog viewport fix - iteration_132
-- [x] Petty Cash Multi-Level Approval - iteration_133
-- [x] Petty Cash Request made global
-- [x] Work Order Stage Payment System - iteration_134
-- [x] **Assigned Contractors View** - iteration_135 (21/21 backend, 100% frontend)
-- [x] **Petrol Allowance** - iteration_136 (SE -> Accountant direct, Date/Amount/KM)
-- [x] **GPS Mandatory Attendance** - iteration_136 (Login requires GPS ON, auto-logout on GPS loss)
-- [x] **SE Material Request** - iteration_137 (Request materials against project from Planning-approved list, 48hr notice)
-- [x] **Procurement Approval Step** - iteration_138 (New step: Planning Approved → Procurement Approves → Vendor Selection. Approval tab with Approve/Reject)
-- [x] **Resend Email Config** - Updated sender to noreply@myhomeusb.com, DNS verified (SPF/DKIM/MX)
-- [x] **2FA Google Authenticator** - iteration_139 (My Profile page with Basic Info + Security tabs, TOTP setup/verify/disable, Login 2FA flow)
-- [x] **Change Password** - iteration_140 (Email OTP flow: Send OTP → Enter code + new password → Set Password. 10-min expiry)
-- [x] **Security Audit** - Full report at /app/memory/SECURITY_AUDIT.md (17 vulnerabilities identified)
-- [x] **Security Fix #1** - Demo login toggle via DEMO_MODE env var (true=preview, false=production)
-- [x] **Security Fix #2** - Auth added to 3 unprotected endpoints (file uploads, downloads, cost categories)
-- [x] **Security Fix #3** - Initial setup locked after first Super Admin created
-- [x] **Security Fix #4** - File type validation (blocked: exe/bat/sh/php), 50MB limit, global rate limiting (100 req/min/IP)
+### Security Features
+- Google Authenticator 2FA setup/verify flow
+- Email OTP Change Password
+- DEMO_MODE toggle for demo buttons
+- Global Rate Limiting Middleware (100 req/min/IP)
+- File Type validation blocking executables
+- Protected previously open endpoints
+
+## Completed Tasks (Latest Session - Feb 2026)
+- [x] Demo Data Seed Script (`seed_demo_data.py`) - Wipes all project data and seeds comprehensive demo for "Swathi 60L G+2" (60L value, 30L paid, ~50% progress)
+- [x] Data populates all dashboards: Super Admin, Sales CRM, SE, Accounts, Planning, Procurement, Project Detail
+
+## Completed Tasks (Previous Sessions)
+- [x] GPS Mandatory Attendance
+- [x] SE Material Request
+- [x] Procurement Approval Step
+- [x] 2FA Google Authenticator
+- [x] Email OTP Change Password
+- [x] Security Audit & Fixes (Demo Mode, Rate Limiting, File Validation)
+- [x] Resend Email DNS Verified
+- [x] Petrol Allowance
+- [x] Work Order Stage Payment System
+- [x] Assigned Contractors View
+- [x] Petty Cash Multi-Level Approval
+- [x] Curing Video Management
+- [x] AppHeader custom navigation
 
 ## Prioritized Backlog
 
 ### P0 (Critical)
 - Refactor ProjectDetail.jsx (~5400 lines)
-- Refactor PlanningBoard.jsx (~1900 lines)
-- Refactor SiteEngineerDashboard.jsx (~2100+ lines)
+- Refactor SiteEngineerDashboard.jsx (~2200+ lines)
+- Refactor AccountsBoard.jsx (~3000 lines)
 
 ### P1 (High)
-- Pre-Deployment Security: 2FA, rate limiting, disable demo-login
+- Sr. Engineer to Jr. Engineer Assignment Workflow
 
 ### P2 (Medium)
-- Sr. Engineer → Jr. Engineer Assignment
-- Aadhar Document Upload, Cash Denomination (paused), SaaS (paused)
+- Aadhar Document Upload (with encrypted storage)
+- Cash Denomination (paused)
+- SaaS conversion (paused)
 
 ## Credentials
 - Demo Access buttons on login page for all roles
 - Accountant: accountant@constructionos.com / USB@123.26
+- DEMO_MODE=true in backend/.env (must remain true for preview)
+
+## Key Files
+- `/app/backend/seed_demo_data.py` - Demo data generator
+- `/app/backend/routes/auth.py` - Auth, 2FA, OTP
+- `/app/backend/routes/projects.py` - Project CRUD, dashboard summary
+- `/app/backend/routes/crm.py` - CRM stages, leads, follow-ups
+- `/app/backend/routes/site_ops.py` - SE operations, GPS, materials
+- `/app/backend/routes/procurement.py` - Procurement approval flow
+- `/app/frontend/src/pages/Dashboard.jsx` - Super Admin dashboard
+- `/app/frontend/src/pages/CRMSales.jsx` - Sales Kanban
+- `/app/frontend/src/pages/SiteEngineerDashboard.jsx` - SE dashboard
+- `/app/frontend/src/pages/AccountsBoard.jsx` - Accounts dashboard
