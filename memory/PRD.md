@@ -40,6 +40,9 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Added full Work Order functionality to Labours tab Work Orders sub-tab (list/detail view with Scope, Stages, Additional, DLR)
 - [x] Both Work Orders tab and Labours tab now share same data source (/api/projects/{id}/work-orders)
 - [x] 100% test pass rate (iteration_143)
+- [x] Forgot Password: Now returns reset link as fallback when email delivery fails (Copy Link + Open Reset Page)
+- [x] Invitation: Always returns setup_link so admin can share manually
+- [x] Resend-invitation: Always returns setup_link
 
 ## Prioritized Backlog
 

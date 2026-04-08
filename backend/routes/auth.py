@@ -394,6 +394,7 @@ async def forgot_password(req: ForgotPasswordRequest):
 
     reset_link = f"{FRONTEND_URL}/reset-password?token={reset_token}"
 
+    email_sent = False
     if resend.api_key:
         try:
             params = {
@@ -424,11 +425,16 @@ async def forgot_password(req: ForgotPasswordRequest):
                 """
             }
             await asyncio.to_thread(resend.Emails.send, params)
+            email_sent = True
             logger.info(f"Password reset email sent to {email}")
         except Exception as e:
             logger.error(f"Failed to send reset email: {e}")
 
-    return {"message": "If an account exists with this email, a reset link has been sent."}
+    return {
+        "message": "If an account exists with this email, a reset link has been sent.",
+        "reset_link": reset_link,
+        "email_sent": email_sent
+    }
 
 
 @router.post("/auth/reset-password")
@@ -578,8 +584,8 @@ async def invite_user(invite: InviteUserRequest, user: User = Depends(get_curren
         "email": email,
         "role": invite.role,
         "email_sent": email_sent,
-        "setup_link": setup_link if not email_sent else None,
-        "note": "Setup link sent via email" if email_sent else f"Email not configured. Share this setup link manually: {setup_link}"
+        "setup_link": setup_link,
+        "note": "Setup link also sent via email" if email_sent else f"Share this setup link manually: {setup_link}"
     }
 
 
@@ -729,7 +735,7 @@ async def resend_invitation(email: str, user: User = Depends(get_current_user)):
             """
         }
         await asyncio.to_thread(resend.Emails.send, params)
-        return {"message": "Invitation email resent", "email_sent": True}
+        return {"message": "Invitation email resent", "email_sent": True, "setup_link": setup_link}
     except Exception as e:
         logger.error(f"Failed to resend invitation: {e}")
         return {"message": "Failed to send email", "email_sent": False, "setup_link": setup_link}
