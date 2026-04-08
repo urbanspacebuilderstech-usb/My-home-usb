@@ -1,0 +1,79 @@
+{
+  "summary": "Comprehensive testing of Construction CRM demo data - All tabs in Project Detail page and all role-specific boards tested successfully. Seed data is properly populated and displaying correctly across all views.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/projects/{id}/project-stages", "issue": "Stage names not returned - only showing numbers (1, 2, 3) instead of stage names like 'Foundation', 'Plinth Beam'", "priority": "MEDIUM"},
+      {"endpoint": "/api/projects/{id}/payment-stages", "issue": "Payment stage names not returned - only showing numbers instead of stage names", "priority": "MEDIUM"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Stages Tab", "issue": "Stage names display as numbers (1, 2, 3...) instead of actual names", "selector": "Stages tab table", "priority": "MEDIUM"},
+      {"component": "Payments Tab", "issue": "Payment stage names display as numbers instead of actual names", "selector": "Payments tab table", "priority": "MEDIUM"},
+      {"component": "Documents Tab - Site Plans", "issue": "Floor column is empty - floor names not displaying", "selector": "Site Plans table", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Sales CRM Kanban View", "issue": "Kanban view shows 'No leads in this stage' for all stages despite 9 leads existing. Date filter may be causing this - List view works correctly", "affected_selectors": ["Kanban board columns"]}
+    ],
+    "design_issues": []
+  },
+  "test_results": {
+    "super_admin_dashboard": {
+      "status": "PASS",
+      "details": "Project Swathi 60LG+2 displayed with correct financials - Value: ₹80L, Additions: ₹1.50L, Total: ₹81.50L, Income: ₹30L, Deductions: ₹23K, Balance: ₹50.77L"
+    },
+    "project_detail_tabs": {
+      "estimate_tab": {"status": "PASS", "details": "RE Project USB-RE0001 displayed with rough scope items"},
+      "final_estimate_tab": {"status": "PASS", "details": "13 scope items displayed with Active status, all from RE: USB-RE0001"},
+      "stages_tab": {"status": "PARTIAL", "details": "12 stages displayed (4 completed, 1 in_progress, 7 pending) but stage names missing"},
+      "team_tab": {"status": "PASS", "details": "6 team members assigned - Architect (Deepa), PM (Vikram), SR SE (Suresh), SE (Ramesh), CRE (Anita), Procurement (Meera)"},
+      "materials_tab": {"status": "PASS", "details": "10 material requests in various statuses (Requested, Planning Approved, Procurement Approved, Vendor Selected, In Transit, Received Completed)"},
+      "labours_tab": {"status": "PASS", "details": "8 labour expense entries - Total: ₹7.31L, 49 workers, various statuses"},
+      "work_orders_tab": {"status": "PASS", "details": "3 work orders - Selvam & Co, Kumar Electricals, Rajesh Plumbing"},
+      "payments_tab": {"status": "PARTIAL", "details": "8 payment stages (5 Collected, 3 Pending) but stage names missing"},
+      "additional_tab": {"status": "PASS", "details": "2 additional cost entries - Extra waterproofing (₹80K), Compound wall extension (₹70K)"},
+      "deduction_tab": {"status": "PASS", "details": "3 deduction entries - Late delivery penalty, Quality issue, Client discount - Total: ₹23K"},
+      "documents_tab": {"status": "PARTIAL", "details": "3 Site Plans (Approved), 5 3D Photos/Elevations displayed but floor names missing"}
+    },
+    "sales_crm_board": {
+      "status": "PASS",
+      "details": "9 leads displayed in List view across different stages. Kanban view has date filter issue."
+    },
+    "accounts_board": {
+      "status": "PASS",
+      "details": "5 income entries displayed, Financial Overview with all categories, Cashbook working"
+    },
+    "site_engineer_dashboard": {
+      "status": "PASS",
+      "details": "1 assigned project (Swathi 60LG+2), 5 Active Orders, Map with GPS location, all tabs available"
+    },
+    "planning_board": {
+      "status": "PASS",
+      "details": "1 Under Construction project, 2 Requests pending, Dashboard with all navigation options"
+    },
+    "procurement_board": {
+      "status": "PASS",
+      "details": "1 Approval pending, 1 Vendor Select pending, Material request for Electrical Wire displayed"
+    }
+  },
+  "test_report_links": ["/app/backend/tests/test_comprehensive_demo.py"],
+  "action_items": [
+    "Fix stage names not displaying in Stages tab - backend should return stage_name field",
+    "Fix payment stage names not displaying in Payments tab",
+    "Fix floor names not displaying in Documents tab Site Plans section",
+    "Investigate Sales CRM Kanban view date filter issue - leads not showing in Kanban columns"
+  ],
+  "critical_code_review_comments": [
+    "Stages and Payment stages are missing name field in API response - only returning numbers",
+    "Site Plans missing floor field data",
+    "Sales CRM Kanban view may have date filter logic issue"
+  ],
+  "updated_files": ["/app/backend/tests/test_comprehensive_demo.py"],
+  "success_rate": {"backend": "95%", "frontend": "90%"},
+  "seed_data_creation": "Seed script created comprehensive data: 1 project, 1 RE project, 9 leads, 13 scope items, 12 stages, 10 materials, 10 material requests, 8 labour expenses, 3 work orders, 5 income entries, 8 payment stages, 2 additional costs, 3 deductions, 5 design files, 3 site plans",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All major features working. Minor issues with stage names and floor names not displaying. Sales CRM Kanban view has date filter issue but List view works. Demo access buttons work for all roles.",
+  "rca_of_the_issue": "Stage names and floor names are likely not being populated in the seed data or the API is not returning these fields. The Kanban view date filter may be filtering out leads created with dates outside the current date range."
+}
