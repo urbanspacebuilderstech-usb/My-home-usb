@@ -61,7 +61,6 @@ async def get_setup_status():
     settings = await db.app_settings.find_one({"setting_key": "company_info"}, {"_id": 0})
     return {
         "setup_needed": admin_count == 0,
-        "admin_count": admin_count,
         "setup_complete": admin_count > 0,
         "company_name": settings.get("company_name", "") if settings else "",
         "demo_mode": DEMO_MODE,
@@ -430,10 +429,7 @@ async def forgot_password(req: ForgotPasswordRequest):
         except Exception as e:
             logger.error(f"Failed to send reset email: {e}")
 
-    return {
-        "message": "If an account exists with this email, a reset link has been sent.",
-        "email_sent": email_sent
-    }
+    return {"message": "If an account exists with this email, a reset link has been sent."}
 
 
 @router.post("/auth/reset-password")
@@ -583,8 +579,7 @@ async def invite_user(invite: InviteUserRequest, user: User = Depends(get_curren
         "email": email,
         "role": invite.role,
         "email_sent": email_sent,
-        "setup_link": setup_link,
-        "note": "Setup link also sent via email" if email_sent else f"Share this setup link manually: {setup_link}"
+        "note": "Invitation email sent" if email_sent else "Email delivery failed. Please resend or ask user to contact admin."
     }
 
 
@@ -705,7 +700,7 @@ async def resend_invitation(email: str, user: User = Depends(get_current_user)):
     setup_link = f"{FRONTEND_URL}/setup-password?token={new_token}"
 
     if not resend.api_key:
-        return {"message": "Email not configured", "email_sent": False, "setup_link": setup_link}
+        return {"message": "Email service not configured. Contact system administrator.", "email_sent": False}
 
     try:
         user_doc = await db.users.find_one({"email": email}, {"_id": 0})
@@ -734,10 +729,10 @@ async def resend_invitation(email: str, user: User = Depends(get_current_user)):
             """
         }
         await asyncio.to_thread(resend.Emails.send, params)
-        return {"message": "Invitation email resent", "email_sent": True, "setup_link": setup_link}
+        return {"message": "Invitation email resent", "email_sent": True}
     except Exception as e:
         logger.error(f"Failed to resend invitation: {e}")
-        return {"message": "Failed to send email", "email_sent": False, "setup_link": setup_link}
+        return {"message": "Failed to send email. Please try again.", "email_sent": False}
 
 
 # ==================== CURRENT USER & LOGOUT ====================

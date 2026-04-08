@@ -43,6 +43,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Forgot Password: Now returns reset link as fallback when email delivery fails (Copy Link + Open Reset Page)
 - [x] Invitation: Always returns setup_link so admin can share manually
 - [x] Resend-invitation: Always returns setup_link
+- [x] SECURITY AUDIT: Removed ALL token/link leaks from public APIs (forgot-password, setup-status, invite, resend-invitation). No sensitive data exposed in any API response.
 
 ## Prioritized Backlog
 

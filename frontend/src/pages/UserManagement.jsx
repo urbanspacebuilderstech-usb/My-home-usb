@@ -129,15 +129,10 @@ export default function UserManagement() {
           name: formData.name || null,
           role: formData.role
         });
-        if (res.data.setup_link) {
-          toast.success(res.data.email_sent ? 'Invitation email sent! Setup link also copied to clipboard.' : 'User created! Setup link copied to clipboard.', { duration: 8000 });
-          navigator.clipboard.writeText(res.data.setup_link).then(() => {
-            toast.info('Setup link copied to clipboard!', { duration: 5000 });
-          }).catch(() => {
-            toast.info(`Setup link: ${res.data.setup_link}`, { duration: 15000 });
-          });
+        if (res.data.email_sent) {
+          toast.success('Invitation email sent successfully!');
         } else {
-          toast.success('User invited successfully!');
+          toast.warning('User created but email delivery failed. Please resend the invitation.', { duration: 8000 });
         }
       }
       setDialogOpen(false);
