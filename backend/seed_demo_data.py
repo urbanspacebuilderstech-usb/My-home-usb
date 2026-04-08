@@ -309,12 +309,17 @@ async def main():
         ("Flooring", 0, False), ("Painting", 0, False),
     ]
     for idx, (name, pct, done) in enumerate(stage_list):
+        status = "finished" if done else ("started" if pct > 0 else "yet_to_start")
+        start = project_start + timedelta(days=idx * 12) if pct > 0 else None
+        target = project_start + timedelta(days=(idx + 1) * 12 + 5)
         await db.project_stages.insert_one({
-            "stage_id": f"stg_{uid()}", "project_id": PROJECT_ID,
-            "name": name, "order": idx + 1, "progress": pct,
-            "status": "completed" if done else ("in_progress" if pct > 0 else "pending"),
-            "started_at": iso(project_start + timedelta(days=idx * 12)) if pct > 0 else None,
-            "completed_at": iso(project_start + timedelta(days=(idx + 1) * 12)) if done else None,
+            "stage_id": f"pstg_{uid()}", "project_id": PROJECT_ID,
+            "stage_name": name, "order": idx + 1, "progress": pct,
+            "status": status,
+            "start_date": start.strftime("%Y-%m-%d") if start else None,
+            "target_date": target.strftime("%Y-%m-%d"),
+            "remarks": f"{'Completed' if done else 'In progress' if pct > 0 else 'Upcoming'}",
+            "created_by": PM,
             "created_at": iso(project_start),
         })
 
@@ -511,22 +516,27 @@ async def main():
 
     # ========== STEP 14: PAYMENT STAGES (Payments tab) ==========
     print("Creating payment stages...")
+    total_val = 6000000  # project total value
     pay_stages = [
-        ("Advance", 600000, "paid", -85),
-        ("Foundation Complete", 600000, "paid", -60),
-        ("Plinth Complete", 500000, "paid", -45),
-        ("Ground Floor Complete", 700000, "paid", -25),
-        ("First Floor Slab", 600000, "paid", -10),
-        ("Second Floor Complete", 800000, "pending", None),
-        ("Plastering", 600000, "pending", None),
-        ("Final Handover", 600000, "pending", None),
+        ("Advance Collection", 600000, 10.0, "paid", -85, True),
+        ("Foundation Complete", 600000, 10.0, "paid", -60, False),
+        ("Plinth Complete", 500000, 8.33, "paid", -45, False),
+        ("Ground Floor Complete", 700000, 11.67, "paid", -25, False),
+        ("First Floor Slab", 600000, 10.0, "paid", -10, False),
+        ("Second Floor Complete", 800000, 13.33, "pending", None, False),
+        ("Plastering & Finishing", 600000, 10.0, "pending", None, False),
+        ("Final Handover", 600000, 10.0, "pending", None, False),
     ]
-    for name, amt, status, days_ago in pay_stages:
+    for name, amt, pct, status, days_ago, is_adv in pay_stages:
         await db.payment_stages.insert_one({
             "stage_id": f"ps_{uid()}", "project_id": PROJECT_ID,
-            "name": name, "amount": amt, "status": status,
+            "stage_name": name, "amount": amt, "percentage": pct,
+            "status": status,
             "amount_received": amt if status == "paid" else 0,
+            "is_advance": is_adv,
+            "due_date": (now + timedelta(days=days_ago)).strftime("%Y-%m-%d") if days_ago else (now + timedelta(days=30)).strftime("%Y-%m-%d"),
             "paid_date": iso(now + timedelta(days=days_ago)) if days_ago else None,
+            "workflow_status": "approved",
             "created_at": iso(project_start),
         })
 
@@ -586,14 +596,14 @@ async def main():
         })
 
     site_plans = [
-        ("Foundation Layout Plan", "layout"),
-        ("Ground Floor Plan", "floor_plan"),
-        ("First Floor Plan", "floor_plan"),
+        ("Foundation Layout Plan", "layout", "Foundation"),
+        ("Ground Floor Plan", "floor_plan", "Ground Floor"),
+        ("First Floor Plan", "floor_plan", "First Floor"),
     ]
-    for name, plan_type in site_plans:
+    for name, plan_type, floor in site_plans:
         await db.site_plans.insert_one({
             "plan_id": f"sp_{uid()}", "project_id": PROJECT_ID,
-            "name": name, "type": plan_type,
+            "name": name, "type": plan_type, "floor": floor,
             "file_url": "", "status": "approved",
             "uploaded_by": ARCHITECT,
             "created_at": iso(project_start + timedelta(days=8)),

@@ -15,45 +15,34 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - 16-stage Kanban board, Follow-ups, Site Visits, Automated onboarding
 
 ### Project Management (ProjectDetail.jsx)
-- Full lifecycle: Estimates, Materials, Labours, Work Orders, Payments, Documents, Summary
+- 12 tabs: Estimate, Final Estimate, Stages, Team, Materials, Labours, Work Orders, Payments, Additional, Deduction, Summary, Documents
 - Work Order Stage Payment System with multiple partial payments
 - 4-Level Approval, Freeze & Reassign, DLR, Google Maps Location
 
 ### Site Engineer View (SiteEngineerDashboard.jsx)
-- 7 tabs: Projects, Site Visits, Work Orders (Assigned Contractors), Petty Cash, Cashbook, Curing Video, Attendance
-- Assigned Contractors View, Petty Cash, Curing Video, Inventory, GPS Attendance
-- SE Material Request from project cards with auto-selected pre-approved materials
+- 7 tabs: Projects, Site Visits, Work Orders, Petty Cash, Cashbook, Curing Video, Attendance
+- GPS Attendance, SE Material Request from project cards
 
-### Planning Board, PM Dashboard, Accounts Board
-- All with respective approval flows for petty cash and work order payments
-- Procurement Approval stage added to material request pipeline
+### Planning Board, PM Dashboard, Accounts Board, Procurement Board
+- All with respective approval flows
 
 ### Security Features
-- Google Authenticator 2FA setup/verify flow
-- Email OTP Change Password
-- DEMO_MODE toggle for demo buttons
-- Global Rate Limiting Middleware (100 req/min/IP)
-- File Type validation blocking executables
-- Protected previously open endpoints
+- Google Authenticator 2FA, Email OTP Change Password
+- DEMO_MODE toggle, Global Rate Limiting, File Type validation
+
+### Demo Data System
+- Comprehensive seed script (`seed_demo_data.py`) that:
+  - Wipes all project data
+  - Seeds ONE project "Swathi 60L G+2" (₹80L scope, ₹30L paid, ~50% progress)
+  - Populates ALL 12 project detail tabs with realistic data
+  - Populates ALL role-specific dashboards (Sales, SE, Accounts, Planning, Procurement, PM, Super Admin)
+  - Creates 9 CRM leads, 13 scope items, 12 stages, 10 materials, 10 material requests, 8 labour expenses, 3 work orders, 5 income entries, 8 payment stages, 2 additional costs, 3 deductions, 5 design files, 3 site plans, 6 BOQ items, inventory, credit ledger, cheques, attendance, curing videos, etc.
 
 ## Completed Tasks (Latest Session - Feb 2026)
-- [x] Demo Data Seed Script (`seed_demo_data.py`) - Wipes all project data and seeds comprehensive demo for "Swathi 60L G+2" (60L value, 30L paid, ~50% progress)
-- [x] Data populates all dashboards: Super Admin, Sales CRM, SE, Accounts, Planning, Procurement, Project Detail
-
-## Completed Tasks (Previous Sessions)
-- [x] GPS Mandatory Attendance
-- [x] SE Material Request
-- [x] Procurement Approval Step
-- [x] 2FA Google Authenticator
-- [x] Email OTP Change Password
-- [x] Security Audit & Fixes (Demo Mode, Rate Limiting, File Validation)
-- [x] Resend Email DNS Verified
-- [x] Petrol Allowance
-- [x] Work Order Stage Payment System
-- [x] Assigned Contractors View
-- [x] Petty Cash Multi-Level Approval
-- [x] Curing Video Management
-- [x] AppHeader custom navigation
+- [x] Comprehensive Demo Data Seed Script - populates ALL tabs and ALL boards
+- [x] Fixed stage field names (stage_name, start_date, target_date, finished/started/yet_to_start)
+- [x] Fixed payment stage fields (stage_name, percentage, workflow_status, is_advance)
+- [x] Verified: Super Admin dashboard, Project Detail (Estimate, Stages, Payments tabs)
 
 ## Prioritized Backlog
 
@@ -76,13 +65,10 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - DEMO_MODE=true in backend/.env (must remain true for preview)
 
 ## Key Files
-- `/app/backend/seed_demo_data.py` - Demo data generator
+- `/app/backend/seed_demo_data.py` - Demo data generator (34 steps, all collections)
 - `/app/backend/routes/auth.py` - Auth, 2FA, OTP
-- `/app/backend/routes/projects.py` - Project CRUD, dashboard summary
-- `/app/backend/routes/crm.py` - CRM stages, leads, follow-ups
-- `/app/backend/routes/site_ops.py` - SE operations, GPS, materials
-- `/app/backend/routes/procurement.py` - Procurement approval flow
+- `/app/backend/routes/projects.py` - Project CRUD, stages, team, dashboard
+- `/app/backend/routes/financial.py` - Full details, payments, scope items
+- `/app/backend/routes/crm.py` - CRM stages, leads, RE projects
+- `/app/frontend/src/pages/ProjectDetail.jsx` - Project detail with 12 tabs
 - `/app/frontend/src/pages/Dashboard.jsx` - Super Admin dashboard
-- `/app/frontend/src/pages/CRMSales.jsx` - Sales Kanban
-- `/app/frontend/src/pages/SiteEngineerDashboard.jsx` - SE dashboard
-- `/app/frontend/src/pages/AccountsBoard.jsx` - Accounts dashboard
