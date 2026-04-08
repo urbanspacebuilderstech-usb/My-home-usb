@@ -1440,13 +1440,19 @@ async def get_planning_projects_filtered(
     date_field = "created_at"
 
     if planning_status:
-        query["planning_status"] = planning_status
-        if planning_status == "active":
-            date_field = "planning_active_date"
-        elif planning_status == "delivered":
-            date_field = "planning_delivered_date"
-        elif planning_status == "new":
-            date_field = "planning_new_date"
+        if planning_status == "new":
+            # Show projects with planning_status "new" OR projects without planning_status (newly created)
+            query["$or"] = [
+                {"planning_status": "new"},
+                {"planning_status": {"$exists": False}},
+            ]
+            date_field = "created_at"
+        else:
+            query["planning_status"] = planning_status
+            if planning_status == "active":
+                date_field = "planning_active_date"
+            elif planning_status == "delivered":
+                date_field = "planning_delivered_date"
 
     logger.info(f"Planning projects filter: query={query}, date_field={date_field}")
 
