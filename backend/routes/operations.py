@@ -3722,8 +3722,8 @@ async def update_user_role(user_id: str, updates: dict, user: User = Depends(get
 @router.post("/hr/users/{user_id}/reset-password")
 async def hr_reset_password(user_id: str, body: dict, user: User = Depends(get_current_user)):
     """HR/Admin resets a user's password"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can reset passwords")
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or HR can reset passwords")
     
     new_password = body.get("new_password")
     if not new_password or len(new_password) < 6:
