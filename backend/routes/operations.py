@@ -3510,6 +3510,26 @@ async def update_staff(staff_id: str, updates: dict, user: User = Depends(get_cu
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     
     await db.staff.update_one({"staff_id": staff_id}, {"$set": updates})
+
+    # Auto-sync email and name to linked user account (Roles & Credentials)
+    new_email = updates.get("email")
+    new_name = updates.get("name")
+    linked_user_id = staff.get("linked_user_id")
+    if linked_user_id and (new_email or new_name):
+        user_updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
+        if new_email:
+            new_email = new_email.lower().strip()
+            existing = await db.users.find_one({"email": new_email, "user_id": {"$ne": linked_user_id}}, {"_id": 0, "user_id": 1})
+            if not existing:
+                user_updates["email"] = new_email
+        if new_name:
+            user_updates["name"] = new_name
+        if len(user_updates) > 1:
+            await db.users.update_one(
+                {"user_id": linked_user_id},
+                {"$set": user_updates}
+            )
+
     return {"message": "Staff updated"}
 
 
