@@ -118,6 +118,7 @@ export default function HRPortal() {
   const [selectedStaff, setSelectedStaff] = useState(null);
   const [staffForm, setStaffForm] = useState(getEmptyForm());
   const [expandedSection, setExpandedSection] = useState('personal');
+  const [empDialogTab, setEmpDialogTab] = useState('personal');
 
   // User Dialogs
   const [roleDialog, setRoleDialog] = useState(false);
@@ -614,15 +615,37 @@ export default function HRPortal() {
       </div>
 
       {/* ==================== ADD/EDIT EMPLOYEE DIALOG ==================== */}
-      <Dialog open={staffDialog} onOpenChange={setStaffDialog}>
+      <Dialog open={staffDialog} onOpenChange={(v) => { setStaffDialog(v); if (v) setEmpDialogTab('personal'); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{selectedStaff ? 'Edit Employee' : 'Add New Employee'}</DialogTitle>
             <DialogDescription>Fill in employee details across all sections below.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            <SectionHeader id="personal" label="Personal Information" icon={Users} />
-            {expandedSection === 'personal' && (
+            {/* Tab Navigation */}
+            <div className="flex flex-wrap gap-1 border-b pb-1">
+              {[
+                { id: 'personal', label: 'Personal', icon: Users },
+                { id: 'employment', label: 'Employment', icon: Briefcase },
+                { id: 'documents', label: 'ID & Docs', icon: FileText },
+                { id: 'address', label: 'Address & Emergency', icon: Phone },
+                { id: 'salary', label: 'Salary & Bank', icon: CreditCard },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setEmpDialogTab(tab.id)}
+                  data-testid={`emp-tab-${tab.id}`}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-md transition-colors ${empDialogTab === tab.id ? 'bg-amber-50 text-amber-700 border border-b-0 border-amber-200' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Personal Information Tab */}
+            {empDialogTab === 'personal' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 bg-white rounded-lg border">
                 <div><Label>Full Name *</Label><Input value={staffForm.name} onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })} data-testid="input-name" /></div>
                 <div><Label>Email</Label><Input value={staffForm.email} onChange={(e) => setStaffForm({ ...staffForm, email: e.target.value })} data-testid="input-email" /></div>
@@ -635,8 +658,9 @@ export default function HRPortal() {
                 <div><Label>Mother's Name</Label><Input value={staffForm.mother_name} onChange={(e) => setStaffForm({ ...staffForm, mother_name: e.target.value })} /></div>
               </div>
             )}
-            <SectionHeader id="employment" label="Employment Details" icon={Briefcase} />
-            {expandedSection === 'employment' && (
+
+            {/* Employment Details Tab */}
+            {empDialogTab === 'employment' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 bg-white rounded-lg border">
                 <div><Label>Department</Label><Select value={staffForm.department} onValueChange={(v) => setStaffForm({ ...staffForm, department: v })}><SelectTrigger data-testid="select-department"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label>Designation</Label><Select value={staffForm.designation} onValueChange={(v) => setStaffForm({ ...staffForm, designation: v })}><SelectTrigger data-testid="select-designation"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{DESIGNATIONS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
@@ -646,8 +670,9 @@ export default function HRPortal() {
                 <div><Label>Previous Employer</Label><Input value={staffForm.previous_employer} onChange={(e) => setStaffForm({ ...staffForm, previous_employer: e.target.value })} /></div>
               </div>
             )}
-            <SectionHeader id="documents" label="ID & Documents" icon={FileText} />
-            {expandedSection === 'documents' && (
+
+            {/* ID & Documents Tab */}
+            {empDialogTab === 'documents' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white rounded-lg border">
                 <div><Label>Aadhar Number</Label><Input value={staffForm.aadhar_number} onChange={(e) => setStaffForm({ ...staffForm, aadhar_number: e.target.value })} placeholder="XXXX XXXX XXXX" /></div>
                 <div><Label>PAN Number</Label><Input value={staffForm.pan_number} onChange={(e) => setStaffForm({ ...staffForm, pan_number: e.target.value })} placeholder="ABCDE1234F" /></div>
@@ -663,8 +688,9 @@ export default function HRPortal() {
                 )}
               </div>
             )}
-            <SectionHeader id="address" label="Address & Emergency Contact" icon={Phone} />
-            {expandedSection === 'address' && (
+
+            {/* Address & Emergency Contact Tab */}
+            {empDialogTab === 'address' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-white rounded-lg border">
                 <div className="col-span-full"><Label>Current Address</Label><Textarea value={staffForm.current_address} onChange={(e) => setStaffForm({ ...staffForm, current_address: e.target.value })} rows={2} /></div>
                 <div className="col-span-full"><Label>Permanent Address</Label><Textarea value={staffForm.permanent_address} onChange={(e) => setStaffForm({ ...staffForm, permanent_address: e.target.value })} rows={2} /></div>
@@ -673,8 +699,9 @@ export default function HRPortal() {
                 <div><Label>Emergency Phone</Label><Input value={staffForm.emergency_contact_phone || staffForm.emergency_contact} onChange={(e) => setStaffForm({ ...staffForm, emergency_contact_phone: e.target.value, emergency_contact: e.target.value })} /></div>
               </div>
             )}
-            <SectionHeader id="salary" label="Salary & Bank Details" icon={CreditCard} />
-            {expandedSection === 'salary' && (
+
+            {/* Salary & Bank Details Tab */}
+            {empDialogTab === 'salary' && (
               <div className="space-y-3 p-3 bg-white rounded-lg border">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div><Label>Basic Salary</Label><NumericInput value={staffForm.basic_salary} onChange={(e) => setStaffForm({ ...staffForm, basic_salary: e.target.value })} data-testid="input-basic" /></div>
@@ -706,6 +733,7 @@ export default function HRPortal() {
                 </div>
               </div>
             )}
+
             <div className="p-3"><Label>Notes</Label><Textarea value={staffForm.notes} onChange={(e) => setStaffForm({ ...staffForm, notes: e.target.value })} rows={2} placeholder="Any additional notes..." /></div>
           </div>
           <DialogFooter>
