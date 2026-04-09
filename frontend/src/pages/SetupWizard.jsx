@@ -35,10 +35,14 @@ export default function SetupWizard() {
 
   const checkSetupStatus = async () => {
     try {
-      await axios.get(`${API}/auth/setup-status`);
-      // Setup page always accessible for creating super admins
+      const res = await axios.get(`${API}/auth/setup-status`);
+      if (res.data.setup_complete) {
+        setSetupLocked(true);
+        toast.error('Setup already completed. Redirecting to login...');
+        setTimeout(() => navigate('/login', { replace: true }), 1500);
+      }
     } catch {
-      // Allow setup regardless
+      // Allow setup if API fails
     } finally {
       setChecking(false);
     }
