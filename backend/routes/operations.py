@@ -3676,7 +3676,7 @@ async def get_all_users_for_hr(user: User = Depends(get_current_user)):
 
 @router.patch("/hr/users/{user_id}/update-role")
 async def update_user_role(user_id: str, updates: dict, user: User = Depends(get_current_user)):
-    """Update a user's role or active status"""
+    """Update a user's role, active status, name, phone, or email"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Only Super Admin can update roles")
     
@@ -3689,13 +3689,32 @@ async def update_user_role(user_id: str, updates: dict, user: User = Depends(get
         allowed["name"] = updates["name"]
     if "phone" in updates:
         allowed["phone"] = updates["phone"]
+    if "email" in updates and updates["email"]:
+        new_email = updates["email"].lower().strip()
+        existing = await db.users.find_one({"email": new_email, "user_id": {"$ne": user_id}}, {"_id": 0, "user_id": 1})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use by another user")
+        allowed["email"] = new_email
     
     if not allowed:
         raise HTTPException(status_code=400, detail="No valid fields")
     
+    allowed["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = await db.users.update_one({"user_id": user_id}, {"$set": allowed})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Auto-sync email and name to linked staff record (Employee Profiles)
+    sync_fields = {}
+    if "email" in allowed:
+        sync_fields["email"] = allowed["email"]
+    if "name" in allowed:
+        sync_fields["name"] = allowed["name"]
+    if "phone" in allowed:
+        sync_fields["phone"] = allowed["phone"]
+    if sync_fields:
+        sync_fields["updated_at"] = allowed["updated_at"]
+        await db.staff.update_one({"linked_user_id": user_id}, {"$set": sync_fields})
     
     return {"message": "User updated"}
 

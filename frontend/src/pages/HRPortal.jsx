@@ -289,11 +289,11 @@ export default function HRPortal() {
   };
 
   // ============ ROLE/CREDENTIALS HANDLERS ============
-  const openRoleDialog = (u) => { setSelectedUser({ ...u, newRole: u.role, newActive: u.is_active, newName: u.name, newPhone: u.phone || '' }); setRoleDialog(true); };
+  const openRoleDialog = (u) => { setSelectedUser({ ...u, newRole: u.role, newActive: u.is_active, newName: u.name, newPhone: u.phone || '', newEmail: u.email }); setRoleDialog(true); };
   const handleUpdateUser = async () => {
     try {
       await axios.patch(`${API}/hr/users/${selectedUser.user_id}/update-role`, {
-        role: selectedUser.newRole, is_active: selectedUser.newActive, name: selectedUser.newName, phone: selectedUser.newPhone
+        role: selectedUser.newRole, is_active: selectedUser.newActive, name: selectedUser.newName, phone: selectedUser.newPhone, email: selectedUser.newEmail
       });
       toast.success('User updated'); setRoleDialog(false); fetchData(false);
     } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update'); }
@@ -799,7 +799,7 @@ export default function HRPortal() {
           {selectedUser && (
             <div className="space-y-4">
               <div><Label>Name</Label><Input value={selectedUser.newName || ''} onChange={(e) => setSelectedUser({ ...selectedUser, newName: e.target.value })} /></div>
-              <div><Label>Email</Label><Input value={selectedUser.email} disabled className="bg-gray-100" /></div>
+              <div><Label>Email</Label><Input value={selectedUser.newEmail || ''} onChange={(e) => setSelectedUser({ ...selectedUser, newEmail: e.target.value })} data-testid="edit-user-email" /></div>
               <div><Label>Phone</Label><Input value={selectedUser.newPhone || ''} onChange={(e) => setSelectedUser({ ...selectedUser, newPhone: e.target.value })} /></div>
               <div><Label>Role</Label><Select value={selectedUser.newRole} onValueChange={(v) => setSelectedUser({ ...selectedUser, newRole: v })}><SelectTrigger data-testid="select-new-role"><SelectValue /></SelectTrigger><SelectContent>{ALL_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent></Select></div>
               <div className="flex items-center gap-3"><Label>Active</Label><Button size="sm" variant={selectedUser.newActive ? 'default' : 'outline'} className={selectedUser.newActive ? 'bg-green-600' : ''} onClick={() => setSelectedUser({ ...selectedUser, newActive: !selectedUser.newActive })}>{selectedUser.newActive ? 'Active' : 'Inactive'}</Button></div>

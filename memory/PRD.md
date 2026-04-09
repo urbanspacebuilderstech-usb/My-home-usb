@@ -45,6 +45,7 @@ Build a comprehensive Construction CRM/ERP system with automated project onboard
 - [x] Resend-invitation: Always returns setup_link
 - [x] SECURITY AUDIT: Removed ALL token/link leaks from public APIs (forgot-password, setup-status, invite, resend-invitation). No sensitive data exposed in any API response.
 - [x] HR Employee Email Sync: Editing email in Employee Directory now auto-updates the linked user's email in Roles & Credentials
+- [x] HR User Email Sync (Reverse): Editing email in Roles & Credentials "Edit User" now auto-updates the linked employee in Employee Profiles. Email field enabled for editing. Bi-directional sync with uniqueness check.
 
 ## Prioritized Backlog
 
