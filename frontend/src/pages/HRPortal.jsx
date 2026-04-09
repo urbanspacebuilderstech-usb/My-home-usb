@@ -16,7 +16,8 @@ import {
   Phone, Mail, CreditCard, FileText, Search, RefreshCw, Upload,
   Shield, Key, UserCheck, ChevronDown, ChevronUp, X, Check,
   Clock, MapPin, CheckCircle2, XCircle, ChevronLeft, ChevronRight,
-  Download, Calculator, Settings, AlertCircle, Timer, TrendingUp
+  Download, Calculator, Settings, AlertCircle, Timer, TrendingUp,
+  UserX, Laptop, RefreshCcw
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -901,78 +902,225 @@ export default function HRPortal() {
 
 // ==================== ATTENDANCE TAB ====================
 function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear, onMarkClick, lateReport }) {
-  const [viewMode, setViewMode] = useState('calendar');
+  const [viewMode, setViewMode] = useState('daily');
+  const [dailyDate, setDailyDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dailyData, setDailyData] = useState(null);
+  const [dailyLoading, setDailyLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+  const fetchDaily = async (date) => {
+    setDailyLoading(true);
+    try {
+      const res = await axios.get(`${API}/hr/attendance/daily?date=${date}`);
+      setDailyData(res.data);
+    } catch (e) { console.error(e); }
+    finally { setDailyLoading(false); }
+  };
+
+  useEffect(() => { if (viewMode === 'daily') fetchDaily(dailyDate); }, [dailyDate, viewMode]);
+
   const prevMonth = () => { if (attMonth === 1) { setAttMonth(12); setAttYear(attYear - 1); } else setAttMonth(attMonth - 1); };
   const nextMonth = () => { if (attMonth === 12) { setAttMonth(1); setAttYear(attYear + 1); } else setAttMonth(attMonth + 1); };
   const getStatusColor = (status) => {
-    const map = { present: 'bg-green-100 text-green-700', wfh: 'bg-purple-100 text-purple-700', half_day: 'bg-yellow-100 text-yellow-800', absent: 'bg-gray-200 text-gray-600', paid_leave: 'bg-blue-100 text-blue-700', sick_leave: 'bg-red-100 text-red-700', casual_leave: 'bg-orange-100 text-orange-700' };
+    const map = { present: 'bg-green-100 text-green-700', wfh: 'bg-purple-100 text-purple-700', half_day: 'bg-yellow-100 text-yellow-800', absent: 'bg-gray-200 text-gray-600', paid_leave: 'bg-blue-100 text-blue-700', sick_leave: 'bg-red-100 text-red-700', casual_leave: 'bg-orange-100 text-orange-700', yet_to_login: 'bg-gray-100 text-gray-500' };
     return map[status] || 'bg-gray-50';
+  };
+  const getStatusLabel = (status) => {
+    const map = { present: 'Present', wfh: 'Work from Home', half_day: 'Half Day', absent: 'Absent', paid_leave: 'Paid Leave', sick_leave: 'Sick Leave', casual_leave: 'Casual Leave', yet_to_login: 'Yet to Login' };
+    return map[status] || status;
   };
   const getStatusShort = (status) => {
     const map = { present: 'P', wfh: 'W', half_day: 'H', absent: 'A', paid_leave: 'PL', sick_leave: 'SL', casual_leave: 'CL' };
     return map[status] || '-';
   };
+
+  const filteredEmployees = dailyData?.employees?.filter(e => statusFilter === 'all' || e.status === statusFilter) || [];
+  const sum = dailyData?.summary || {};
+
   return (
     <div className="space-y-4">
-      <Card><CardContent className="p-4 flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={prevMonth} data-testid="prev-month"><ChevronLeft className="h-4 w-4" /></Button>
-        <h2 className="text-lg font-bold" data-testid="att-month-year">{MONTHS[attMonth - 1]} {attYear}</h2>
-        <div className="flex gap-2">
-          <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('calendar')}>Calendar</Button>
-          <Button variant={viewMode === 'late' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('late')}>Late Report</Button>
-          <Button variant="outline" size="sm" onClick={nextMonth} data-testid="next-month"><ChevronRight className="h-4 w-4" /></Button>
+      {/* View Mode Toggle */}
+      <Card><CardContent className="p-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex gap-1">
+          <Button variant={viewMode === 'daily' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('daily')} data-testid="att-view-daily">Day</Button>
+          <Button variant={viewMode === 'calendar' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('calendar')} data-testid="att-view-calendar">Month</Button>
+          <Button variant={viewMode === 'late' ? 'default' : 'outline'} size="sm" onClick={() => setViewMode('late')} data-testid="att-view-late">Late Report</Button>
         </div>
+        {viewMode === 'daily' && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => { const d = new Date(dailyDate); d.setDate(d.getDate() - 1); setDailyDate(d.toISOString().split('T')[0]); }}><ChevronLeft className="h-4 w-4" /></Button>
+            <Input type="date" value={dailyDate} onChange={(e) => setDailyDate(e.target.value)} className="h-8 w-[160px] text-sm" data-testid="att-daily-date" />
+            <Button variant="outline" size="sm" onClick={() => { const d = new Date(dailyDate); d.setDate(d.getDate() + 1); setDailyDate(d.toISOString().split('T')[0]); }}><ChevronRight className="h-4 w-4" /></Button>
+            <Button variant="outline" size="sm" onClick={() => setDailyDate(new Date().toISOString().split('T')[0])} className="text-xs">Today</Button>
+            <Button variant="outline" size="sm" onClick={() => fetchDaily(dailyDate)} data-testid="att-refresh"><RefreshCcw className="h-3.5 w-3.5" /></Button>
+          </div>
+        )}
+        {viewMode === 'calendar' && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+            <h2 className="text-sm font-bold min-w-[120px] text-center" data-testid="att-month-year">{MONTHS[attMonth - 1]} {attYear}</h2>
+            <Button variant="outline" size="sm" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
+          </div>
+        )}
       </CardContent></Card>
-      <div className="flex flex-wrap gap-2 text-xs">
-        {[['P','Present','bg-green-100 text-green-700'],['PL','Paid Leave','bg-blue-100 text-blue-700'],['SL','Sick Leave','bg-red-100 text-red-700'],['CL','Casual Leave','bg-orange-100 text-orange-700'],['W','WFH','bg-purple-100 text-purple-700'],['H','Half Day','bg-yellow-100 text-yellow-800'],['A','Absent','bg-gray-200 text-gray-600']].map(([c,l,cls]) => (
-          <span key={c} className={`px-2 py-0.5 rounded ${cls}`}>{c} = {l}</span>
-        ))}
-      </div>
-      {viewMode === 'calendar' && monthlyAtt && (
-        <Card><CardContent className="p-0"><div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-gray-50 border-b sticky top-0">
-              <tr>
-                <th className="px-2 py-2 text-left font-semibold text-gray-600 min-w-[140px] sticky left-0 bg-gray-50 z-10">Employee</th>
-                {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => (<th key={i + 1} className="px-1 py-2 text-center font-medium text-gray-500 min-w-[32px]">{i + 1}</th>))}
-                <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">P</th>
-                <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">A</th>
-                <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">L</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {monthlyAtt.staff?.map(s => (
-                <tr key={s.staff_id} className="hover:bg-gray-50/50" data-testid={`att-row-${s.staff_id}`}>
-                  <td className="px-2 py-1.5 sticky left-0 bg-white z-10 border-r"><p className="font-medium text-gray-900 truncate">{s.name}</p><p className="text-gray-400">{s.employee_code}</p></td>
-                  {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => {
-                    const day = s.days[String(i + 1)];
-                    const dateStr = `${attYear}-${String(attMonth).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-                    return (<td key={i + 1} className="px-0.5 py-1 text-center cursor-pointer" onClick={() => onMarkClick(s.staff_id, dateStr)} title={`Mark ${s.name} for ${dateStr}`}>
-                      {day ? (<span className={`inline-block w-6 h-6 leading-6 rounded text-[10px] font-bold ${getStatusColor(day.status)}`} data-testid={`cell-${s.staff_id}-${i+1}`}>{getStatusShort(day.status)}</span>) : <span className="inline-block w-6 h-6 leading-6 rounded bg-gray-50 text-gray-300">-</span>}
-                    </td>);
-                  })}
-                  <td className="px-2 py-1 text-center font-bold text-green-600">{s.summary.present}</td>
-                  <td className="px-2 py-1 text-center font-bold text-red-600">{s.summary.absent}</td>
-                  <td className="px-2 py-1 text-center font-bold text-blue-600">{s.summary.leaves}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div></CardContent></Card>
+
+      {/* ===== DAILY VIEW ===== */}
+      {viewMode === 'daily' && (
+        <>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {[
+              { label: 'Total Employees', value: sum.total || 0, color: 'bg-slate-50 border-slate-200', text: 'text-slate-700', icon: Users },
+              { label: 'Present', value: sum.present || 0, color: 'bg-green-50 border-green-200', text: 'text-green-700', icon: UserCheck },
+              { label: 'Work from Home', value: sum.wfh || 0, color: 'bg-purple-50 border-purple-200', text: 'text-purple-700', icon: Laptop },
+              { label: 'Yet to Login', value: sum.yet_to_login || 0, color: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: Clock },
+              { label: 'Absent / Leave', value: (sum.absent || 0) + (sum.on_leave || 0), color: 'bg-red-50 border-red-200', text: 'text-red-700', icon: UserX },
+              { label: 'Late Arrivals', value: sum.late || 0, color: 'bg-orange-50 border-orange-200', text: 'text-orange-700', icon: Timer },
+            ].map(c => (
+              <Card key={c.label} className={`${c.color} border`}>
+                <CardContent className="p-3 flex flex-col items-center justify-center">
+                  <c.icon className={`h-5 w-5 ${c.text} mb-1`} />
+                  <p className={`text-2xl font-bold ${c.text}`}>{c.value}</p>
+                  <p className="text-[10px] text-gray-500 text-center">{c.label}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex flex-wrap gap-1">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'present', label: 'Present' },
+              { id: 'wfh', label: 'WFH' },
+              { id: 'yet_to_login', label: 'Yet to Login' },
+              { id: 'absent', label: 'Absent' },
+              { id: 'paid_leave', label: 'On Leave' },
+            ].map(f => (
+              <Button key={f.id} variant={statusFilter === f.id ? 'default' : 'outline'} size="sm" className="h-7 text-xs" onClick={() => setStatusFilter(f.id)} data-testid={`att-filter-${f.id}`}>{f.label}</Button>
+            ))}
+          </div>
+
+          {/* Employee Table */}
+          {dailyLoading ? (
+            <Card><CardContent className="p-8 text-center text-gray-400">Loading attendance...</CardContent></Card>
+          ) : (
+            <Card><CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Employee</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Designation</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Status</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Check In</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Check Out</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Worked Hrs</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">Source</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredEmployees.length === 0 ? (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No records for this date</td></tr>
+                  ) : filteredEmployees.map(emp => (
+                    <tr key={emp.staff_id} className="hover:bg-gray-50/50" data-testid={`att-daily-row-${emp.staff_id}`}>
+                      <td className="px-4 py-2.5">
+                        <p className="font-medium text-gray-900">{emp.name}</p>
+                        <p className="text-xs text-gray-400">{emp.employee_code}</p>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-gray-600">{emp.designation || '-'}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(emp.status)}`}>
+                          {emp.is_late && <Timer className="h-3 w-3 text-orange-500" />}
+                          {getStatusLabel(emp.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-center text-xs font-mono">{emp.check_in || '-'}</td>
+                      <td className="px-4 py-2.5 text-center text-xs font-mono">{emp.check_out || '-'}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        {emp.work_hours > 0 ? (
+                          <span className={`text-xs font-bold ${emp.work_hours >= 8 ? 'text-green-600' : emp.work_hours >= 4 ? 'text-amber-600' : 'text-red-600'}`}>{emp.work_hours}h</span>
+                        ) : <span className="text-xs text-gray-300">-</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${emp.source === 'essl' ? 'bg-blue-50 text-blue-600' : emp.source === 'gps' ? 'bg-teal-50 text-teal-600' : 'bg-gray-50 text-gray-400'}`}>
+                          {emp.source === 'essl' ? 'Biometric' : emp.source === 'gps' ? 'GPS' : emp.source || '-'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent></Card>
+          )}
+        </>
       )}
-      {viewMode === 'late' && lateReport && (
-        <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Timer className="h-5 w-5 text-orange-500" />Late Arrivals - {MONTHS[attMonth - 1]} {attYear}</CardTitle></CardHeader>
-          <CardContent>{lateReport.employees?.length === 0 ? <p className="text-gray-500 text-center py-4">No late arrivals this month!</p> : (
-            <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr>
-              <th className="px-4 py-2 text-left text-xs font-semibold">Employee</th>
-              <th className="px-4 py-2 text-center text-xs font-semibold">Late Days</th>
-              <th className="px-4 py-2 text-center text-xs font-semibold">Total Late (mins)</th>
-              <th className="px-4 py-2 text-center text-xs font-semibold">Avg Late (mins)</th>
-            </tr></thead><tbody className="divide-y">{lateReport.employees?.map(e => (
-              <tr key={e.staff_id}><td className="px-4 py-2 font-medium">{e.name}</td><td className="px-4 py-2 text-center"><Badge className="bg-orange-100 text-orange-700">{e.late_days}</Badge></td><td className="px-4 py-2 text-center font-bold text-red-600">{e.total_late_minutes}</td><td className="px-4 py-2 text-center">{e.late_days > 0 ? Math.round(e.total_late_minutes / e.late_days) : 0}</td></tr>
-            ))}</tbody></table>
-          )}</CardContent>
-        </Card>
+
+      {/* ===== MONTHLY CALENDAR VIEW ===== */}
+      {viewMode === 'calendar' && (
+        <>
+          <div className="flex flex-wrap gap-2 text-xs">
+            {[['P','Present','bg-green-100 text-green-700'],['PL','Paid Leave','bg-blue-100 text-blue-700'],['SL','Sick Leave','bg-red-100 text-red-700'],['CL','Casual Leave','bg-orange-100 text-orange-700'],['W','WFH','bg-purple-100 text-purple-700'],['H','Half Day','bg-yellow-100 text-yellow-800'],['A','Absent','bg-gray-200 text-gray-600']].map(([c,l,cls]) => (
+              <span key={c} className={`px-2 py-0.5 rounded ${cls}`}>{c} = {l}</span>
+            ))}
+          </div>
+          {monthlyAtt && (
+            <Card><CardContent className="p-0"><div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b sticky top-0">
+                  <tr>
+                    <th className="px-2 py-2 text-left font-semibold text-gray-600 min-w-[140px] sticky left-0 bg-gray-50 z-10">Employee</th>
+                    {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => (<th key={i + 1} className="px-1 py-2 text-center font-medium text-gray-500 min-w-[32px]">{i + 1}</th>))}
+                    <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">P</th>
+                    <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">A</th>
+                    <th className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[40px]">L</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {monthlyAtt.staff?.map(s => (
+                    <tr key={s.staff_id} className="hover:bg-gray-50/50" data-testid={`att-row-${s.staff_id}`}>
+                      <td className="px-2 py-1.5 sticky left-0 bg-white z-10 border-r"><p className="font-medium text-gray-900 truncate">{s.name}</p><p className="text-gray-400">{s.employee_code}</p></td>
+                      {Array.from({ length: monthlyAtt.days_in_month }, (_, i) => {
+                        const day = s.days[String(i + 1)];
+                        const dateStr = `${attYear}-${String(attMonth).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+                        return (<td key={i + 1} className="px-0.5 py-1 text-center cursor-pointer" onClick={() => onMarkClick(s.staff_id, dateStr)} title={`Mark ${s.name} for ${dateStr}`}>
+                          {day ? (<span className={`inline-block w-6 h-6 leading-6 rounded text-[10px] font-bold ${getStatusColor(day.status)}`} data-testid={`cell-${s.staff_id}-${i+1}`}>{getStatusShort(day.status)}</span>) : <span className="inline-block w-6 h-6 leading-6 rounded bg-gray-50 text-gray-300">-</span>}
+                        </td>);
+                      })}
+                      <td className="px-2 py-1 text-center font-bold text-green-600">{s.summary.present}</td>
+                      <td className="px-2 py-1 text-center font-bold text-red-600">{s.summary.absent}</td>
+                      <td className="px-2 py-1 text-center font-bold text-blue-600">{s.summary.leaves}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div></CardContent></Card>
+          )}
+        </>
+      )}
+
+      {/* ===== LATE REPORT VIEW ===== */}
+      {viewMode === 'late' && (
+        <>
+          <Card><CardContent className="p-3 flex items-center justify-between">
+            <Button variant="outline" size="sm" onClick={prevMonth}><ChevronLeft className="h-4 w-4" /></Button>
+            <h2 className="text-sm font-bold">{MONTHS[attMonth - 1]} {attYear}</h2>
+            <Button variant="outline" size="sm" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
+          </CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Timer className="h-5 w-5 text-orange-500" />Late Arrivals - {MONTHS[attMonth - 1]} {attYear}</CardTitle></CardHeader>
+            <CardContent>{lateReport?.employees?.length === 0 ? <p className="text-gray-500 text-center py-4">No late arrivals this month!</p> : (
+              <table className="w-full text-sm"><thead className="bg-gray-50 border-b"><tr>
+                <th className="px-4 py-2 text-left text-xs font-semibold">Employee</th>
+                <th className="px-4 py-2 text-center text-xs font-semibold">Late Days</th>
+                <th className="px-4 py-2 text-center text-xs font-semibold">Total Late (mins)</th>
+                <th className="px-4 py-2 text-center text-xs font-semibold">Avg Late (mins)</th>
+              </tr></thead><tbody className="divide-y">{lateReport?.employees?.map(e => (
+                <tr key={e.staff_id}><td className="px-4 py-2 font-medium">{e.name}</td><td className="px-4 py-2 text-center"><Badge className="bg-orange-100 text-orange-700">{e.late_days}</Badge></td><td className="px-4 py-2 text-center font-bold text-red-600">{e.total_late_minutes}</td><td className="px-4 py-2 text-center">{e.late_days > 0 ? Math.round(e.total_late_minutes / e.late_days) : 0}</td></tr>
+              ))}</tbody></table>
+            )}</CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

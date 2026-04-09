@@ -428,6 +428,197 @@ async def get_monthly_attendance(month: int, year: int, user: User = Depends(get
     return {"month": month, "year": year, "days_in_month": days_in_month, "staff": result}
 
 
+
+@router.get("/hr/attendance/daily")
+async def get_daily_attendance(date: str = None, user: User = Depends(get_current_user)):
+    """Get daily attendance for all staff with summary cards"""
+    if user.role not in HR_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    if not date:
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    staff_list = await db.staff.find(
+        {"status": "active"},
+        {"_id": 0, "staff_id": 1, "name": 1, "department": 1, "designation": 1, "employee_code": 1, "phone": 1}
+    ).sort("name", 1).to_list(500)
+
+    attendance_records = await db.attendance.find(
+        {"date": date}, {"_id": 0}
+    ).to_list(500)
+
+    att_map = {a["staff_id"]: a for a in attendance_records}
+
+    total = len(staff_list)
+    present = 0
+    wfh = 0
+    absent = 0
+    yet_to_login = 0
+    on_leave = 0
+    late = 0
+
+    employees = []
+    for s in staff_list:
+        att = att_map.get(s["staff_id"])
+        if att:
+            status = att.get("status", "present")
+            check_in = att.get("check_in", "")
+            check_out = att.get("check_out", "")
+            work_hours = att.get("work_hours", 0)
+            is_late = att.get("is_late", False)
+            late_mins = att.get("late_minutes", 0)
+            source = att.get("source", "manual")
+
+            if status == "present":
+                present += 1
+            elif status == "wfh":
+                wfh += 1
+                present += 1
+            elif status in ("paid_leave", "sick_leave", "casual_leave"):
+                on_leave += 1
+            elif status == "absent":
+                absent += 1
+            elif status == "half_day":
+                present += 0.5
+
+            if is_late:
+                late += 1
+
+            # Format check_in/check_out for display
+            check_in_display = ""
+            check_out_display = ""
+            if check_in:
+                try:
+                    dt = datetime.fromisoformat(check_in.replace('Z', '+00:00'))
+                    check_in_display = dt.strftime("%I:%M %p")
+                except:
+                    check_in_display = check_in
+            if check_out:
+                try:
+                    dt = datetime.fromisoformat(check_out.replace('Z', '+00:00'))
+                    check_out_display = dt.strftime("%I:%M %p")
+                except:
+                    check_out_display = check_out
+
+            employees.append({
+                "staff_id": s["staff_id"],
+                "name": s["name"],
+                "employee_code": s.get("employee_code", ""),
+                "department": s.get("department", ""),
+                "designation": s.get("designation", ""),
+                "status": status,
+                "check_in": check_in_display,
+                "check_out": check_out_display,
+                "check_in_raw": check_in,
+                "check_out_raw": check_out,
+                "work_hours": round(work_hours, 1) if work_hours else 0,
+                "is_late": is_late,
+                "late_minutes": late_mins,
+                "source": source,
+                "remarks": att.get("remarks", ""),
+            })
+        else:
+            yet_to_login += 1
+            employees.append({
+                "staff_id": s["staff_id"],
+                "name": s["name"],
+                "employee_code": s.get("employee_code", ""),
+                "department": s.get("department", ""),
+                "designation": s.get("designation", ""),
+                "status": "yet_to_login",
+                "check_in": "",
+                "check_out": "",
+                "check_in_raw": "",
+                "check_out_raw": "",
+                "work_hours": 0,
+                "is_late": False,
+                "late_minutes": 0,
+                "source": "",
+                "remarks": "",
+            })
+
+    return {
+        "date": date,
+        "summary": {
+            "total": total,
+            "present": present,
+            "wfh": wfh,
+            "yet_to_login": yet_to_login,
+            "absent": absent,
+            "on_leave": on_leave,
+            "late": late,
+        },
+        "employees": employees,
+    }
+
+
+@router.post("/hr/attendance/essl-sync")
+async def essl_sync_attendance(data: dict, user: User = Depends(get_current_user)):
+    """Bulk sync attendance from eSSL eTimeTrackLite. Accepts array of records."""
+    if user.role not in HR_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    records = data.get("records", [])
+    if not records:
+        raise HTTPException(status_code=400, detail="No records to sync")
+
+    synced = 0
+    errors = []
+    for rec in records:
+        try:
+            ecode = str(rec.get("employee_code", "")).strip()
+            date = rec.get("date", "").strip()
+            check_in = rec.get("check_in", "")
+            check_out = rec.get("check_out", "")
+            status = rec.get("status", "present")
+
+            if not ecode or not date:
+                errors.append(f"Missing employee_code or date: {rec}")
+                continue
+
+            staff = await db.staff.find_one(
+                {"$or": [{"employee_code": ecode}, {"staff_id": ecode}]},
+                {"_id": 0, "staff_id": 1, "name": 1, "department": 1}
+            )
+            if not staff:
+                errors.append(f"Employee not found: {ecode}")
+                continue
+
+            work_hours = 0
+            if check_in and check_out:
+                try:
+                    ci = datetime.fromisoformat(check_in.replace('Z', '+00:00'))
+                    co = datetime.fromisoformat(check_out.replace('Z', '+00:00'))
+                    work_hours = round((co - ci).total_seconds() / 3600, 2)
+                except:
+                    pass
+
+            att_data = {
+                "staff_id": staff["staff_id"],
+                "staff_name": staff["name"],
+                "department": staff.get("department", ""),
+                "date": date,
+                "check_in": check_in,
+                "check_out": check_out,
+                "status": status,
+                "work_hours": work_hours,
+                "source": "essl",
+                "synced_at": datetime.now(timezone.utc).isoformat(),
+                "synced_by": user.user_id,
+            }
+
+            await db.attendance.update_one(
+                {"staff_id": staff["staff_id"], "date": date},
+                {"$set": att_data},
+                upsert=True
+            )
+            synced += 1
+        except Exception as e:
+            errors.append(f"Error processing {rec}: {str(e)}")
+
+    return {"synced": synced, "errors": errors, "total": len(records)}
+
+
 @router.get("/hr/attendance/late-report")
 async def get_late_report(month: int, year: int, user: User = Depends(get_current_user)):
     """Get late arrival report for a month"""
