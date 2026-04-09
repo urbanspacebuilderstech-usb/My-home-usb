@@ -475,6 +475,47 @@ async def get_pre_sales_leads(
     except Exception as e:
         logger.error(f"RNR auto-redistribution error: {e}")
     
+    # Auto-move leads with due follow-ups to the Follow-up stage
+    try:
+        tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+        followup_query = {
+            "stage_type": "pre_sales",
+            "current_stage_id": {"$ne": "stg_follow_up"},
+            "follow_ups": {
+                "$elemMatch": {
+                    "scheduled_date": {"$lt": tomorrow_str},
+                    "completed": False
+                }
+            }
+        }
+        if user.role == "pre_sales":
+            followup_query["assigned_to"] = user.user_id
+        
+        due_leads = await db.leads.find(followup_query, {"_id": 0, "lead_id": 1, "current_stage_id": 1}).to_list(500)
+        if due_leads:
+            now = datetime.now(timezone.utc)
+            for lead in due_leads:
+                await db.leads.update_one(
+                    {"lead_id": lead["lead_id"]},
+                    {"$set": {
+                        "previous_stage_id": lead["current_stage_id"],
+                        "current_stage_id": "stg_follow_up",
+                        "updated_at": now
+                    },
+                    "$push": {
+                        "stage_history": {
+                            "stage_id": "stg_follow_up",
+                            "from_stage_id": lead["current_stage_id"],
+                            "moved_at": now.isoformat(),
+                            "moved_by": "system",
+                            "action": "auto_followup_due"
+                        }
+                    }}
+                )
+            logger.info(f"Pre-Sales follow-up auto-move: {len(due_leads)} leads moved to Follow-up stage")
+    except Exception as e:
+        logger.error(f"Pre-Sales follow-up auto-move error: {e}")
+    
     query = {"stage_type": "pre_sales"}
     
     # Filter by assigned_to for Pre-Sales users (not for Super Admin/CRE)

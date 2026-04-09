@@ -15,7 +15,7 @@ import {
   Users, LogOut, Plus, Search, Upload, Phone, Mail, MapPin, Calendar, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
-  LayoutGrid, List, MoreVertical
+  LayoutGrid, List, MoreVertical, Bell
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -65,6 +65,7 @@ export default function CRMPreSales() {
   // Date filter
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
   const [dateFilterEnd, setDateFilterEnd] = useState('');
+  const [followUpFilter, setFollowUpFilter] = useState(false);
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);
   const [editLeadDialog, setEditLeadDialog] = useState(false);
   const [selectedLead, setSelectedLead] = useState(null);
@@ -512,6 +513,14 @@ export default function CRMPreSales() {
       lead.phone?.includes(searchQuery);
     const matchesSource = !selectedSource || selectedSource === 'all' || lead.source === selectedSource;
     
+    // Follow-up filter: show only leads with today's follow-up
+    if (followUpFilter) {
+      const today = new Date().toISOString().split('T')[0];
+      const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
+      const hasToday = pendingFollowups.some(f => f.scheduled_date === today) || lead.next_followup_date === today;
+      if (!hasToday) return false;
+    }
+    
     // Date filter
     let matchesDate = true;
     if (dateFilter) {
@@ -653,6 +662,19 @@ export default function CRMPreSales() {
               <X className="h-3 w-3" />
             </Button>
           </div>
+          
+          {/* Daily Follow-up Filter */}
+          <Button
+            variant={followUpFilter ? "default" : "outline"}
+            size="sm"
+            className={followUpFilter ? "bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs" : "border-amber-300 text-amber-700 hover:bg-amber-50 h-8 text-xs"}
+            onClick={() => setFollowUpFilter(!followUpFilter)}
+            data-testid="presales-followup-filter-btn"
+          >
+            <Bell className="h-3.5 w-3.5 mr-1" />
+            Daily Follow-up
+            {followUpFilter && ` (${filteredLeads.length})`}
+          </Button>
           
           <Select value={selectedSource} onValueChange={setSelectedSource}>
             <SelectTrigger className="w-[150px]">
