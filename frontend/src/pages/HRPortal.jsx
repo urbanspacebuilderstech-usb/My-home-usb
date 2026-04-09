@@ -612,7 +612,7 @@ export default function HRPortal() {
 
           {/* ===== SETTINGS TAB ===== */}
           <TabsContent value="settings">
-            <SettingsTab settings={hrSettings} setSettings={setHrSettings} onSave={handleSaveSettings} />
+            <SettingsTab settings={hrSettings} setSettings={setHrSettings} onSave={handleSaveSettings} user={user} />
           </TabsContent>
         </Tabs>
       </div>
@@ -1284,7 +1284,11 @@ function PayslipView({ data }) {
 }
 
 // ==================== SETTINGS TAB ====================
-function SettingsTab({ settings, setSettings, onSave }) {
+function SettingsTab({ settings, setSettings, onSave, user }) {
+  const [syncKeyLoading, setSyncKeyLoading] = useState(false);
+  const [generatedKey, setGeneratedKey] = useState(null);
+  const [keyCopied, setKeyCopied] = useState(false);
+
   if (!settings) return <div className="text-center py-8 text-gray-500">Loading settings...</div>;
   const updateTiming = (dept, field, value) => {
     setSettings(prev => ({ ...prev, department_timings: { ...prev.department_timings, [dept]: { ...prev.department_timings[dept], [field]: field === 'grace_minutes' ? Number(value) : value } } }));
@@ -1292,6 +1296,39 @@ function SettingsTab({ settings, setSettings, onSave }) {
   const updateLeave = (type, field, value) => {
     setSettings(prev => ({ ...prev, leave_limits: { ...prev.leave_limits, [type]: { ...prev.leave_limits[type], [field]: field === 'annual_limit' ? Number(value) : value } } }));
   };
+
+  const handleGenerateSyncKey = async () => {
+    setSyncKeyLoading(true);
+    try {
+      const res = await axios.post(`${API}/hr/attendance/generate-sync-key`);
+      setGeneratedKey(res.data.sync_key);
+      setKeyCopied(false);
+      toast.success('Sync key generated! Copy it now — it won\'t be shown again.');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to generate sync key');
+    } finally { setSyncKeyLoading(false); }
+  };
+
+  const handleRevokeSyncKey = async () => {
+    if (!window.confirm('Revoke the current sync key? The eSSL sync script will stop working until a new key is generated.')) return;
+    setSyncKeyLoading(true);
+    try {
+      await axios.delete(`${API}/hr/attendance/revoke-sync-key`);
+      setGeneratedKey(null);
+      toast.success('Sync key revoked.');
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to revoke sync key');
+    } finally { setSyncKeyLoading(false); }
+  };
+
+  const copyKey = () => {
+    if (generatedKey) {
+      navigator.clipboard.writeText(generatedKey);
+      setKeyCopied(true);
+      toast.success('Key copied to clipboard!');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card><CardHeader><CardTitle className="text-base">Company Information</CardTitle></CardHeader>
@@ -1300,6 +1337,52 @@ function SettingsTab({ settings, setSettings, onSave }) {
           <div><Label>Company Address</Label><Input value={settings.company_address || ''} onChange={e => setSettings(p => ({ ...p, company_address: e.target.value }))} data-testid="company-address-input" /></div>
         </CardContent>
       </Card>
+
+      {user?.role === 'super_admin' && (
+        <Card className="border-blue-200">
+          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Key className="h-5 w-5 text-blue-600" />Biometric Sync Key (eSSL)</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">Generate a secure API key for the eSSL eTimeTrackLite auto-sync script. This key allows the office PC to push biometric attendance data to the CRM without needing a user password.</p>
+            {generatedKey ? (
+              <div className="space-y-3">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-xs text-green-700 font-semibold mb-2">New Sync Key Generated — Copy it now! It will NOT be shown again.</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-white border rounded px-3 py-2 text-sm font-mono break-all select-all" data-testid="sync-key-value">{generatedKey}</code>
+                    <Button size="sm" variant={keyCopied ? 'default' : 'outline'} onClick={copyKey} data-testid="copy-sync-key-btn" className={keyCopied ? 'bg-green-600 hover:bg-green-700 text-white' : ''}>
+                      {keyCopied ? <><Check className="h-4 w-4 mr-1" />Copied</> : <>Copy</>}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Paste this key in the <code className="bg-gray-100 px-1 rounded">essl_sync.py</code> script's <code className="bg-gray-100 px-1 rounded">SYNC_KEY</code> field.</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Button onClick={handleGenerateSyncKey} disabled={syncKeyLoading} className="bg-blue-600 hover:bg-blue-700" data-testid="generate-sync-key-btn">
+                  {syncKeyLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Key className="h-4 w-4 mr-2" />}
+                  Generate Sync Key
+                </Button>
+                <Button variant="destructive" size="sm" onClick={handleRevokeSyncKey} disabled={syncKeyLoading} data-testid="revoke-sync-key-btn">
+                  <Trash2 className="h-4 w-4 mr-1" />Revoke Existing Key
+                </Button>
+              </div>
+            )}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
+              <p className="text-xs font-semibold text-amber-800 mb-1">Setup Instructions:</p>
+              <ol className="text-xs text-amber-700 space-y-1 list-decimal list-inside">
+                <li>Install Python on your office PC: <code className="bg-white px-1 rounded">pip install pyodbc requests</code></li>
+                <li>Download the <code className="bg-white px-1 rounded">essl_sync.py</code> script</li>
+                <li>Click "Generate Sync Key" above and copy the key</li>
+                <li>Paste the key in the script's CONFIG section</li>
+                <li>Set your eTimeTrackLite DB_SERVER and DB_NAME</li>
+                <li>Test: <code className="bg-white px-1 rounded">python essl_sync.py --test</code></li>
+                <li>Schedule daily run via Windows Task Scheduler</li>
+              </ol>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card><CardHeader><CardTitle className="text-base flex items-center gap-2"><Clock className="h-5 w-5" />Department Timings</CardTitle></CardHeader>
         <CardContent><div className="space-y-3">{Object.entries(settings.department_timings || {}).map(([dept, timing]) => (
           <div key={dept} className="grid grid-cols-4 gap-3 items-center">
