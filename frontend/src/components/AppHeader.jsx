@@ -89,6 +89,8 @@ const ROLE_SUB_MENUS = {
       { label: 'Approvals', path: '/approvals' },
       { label: 'Expenses', path: '/expenses' },
       { label: 'Indirect Costs', path: '/indirect-costs' },
+    ],
+    '/hr-portal': [
       { label: 'HR Portal', path: '/hr-portal' },
     ],
     '/planning-board': [{ label: 'Planning Board', path: '/planning-board' }],
