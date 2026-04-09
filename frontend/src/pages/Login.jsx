@@ -71,7 +71,7 @@ export default function Login() {
       if (!res.data.setup_complete) {
         navigate('/setup', { replace: true });
       }
-      setDemoMode(res.data.demo_mode || false);
+      setDemoMode(res.data.demo_mode && !window.location.hostname.includes('myhomeusb.com'));
     }).catch(() => {});
   }, [navigate]);
 
