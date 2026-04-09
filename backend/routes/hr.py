@@ -553,8 +553,8 @@ async def get_daily_attendance(date: str = None, user: User = Depends(get_curren
 
 
 @router.post("/hr/attendance/essl-sync")
-async def essl_sync_attendance(data: dict, user: User = Depends(get_current_user)):
-    """Bulk sync attendance from eSSL eTimeTrackLite. Accepts array of records."""
+async def essl_sync_attendance(data: dict, request: Request, user: User = Depends(get_current_user)):
+    """Bulk sync attendance from eSSL eTimeTrackLite. Requires authenticated HR/Admin user."""
     if user.role not in HR_ROLES:
         raise HTTPException(status_code=403, detail="Permission denied")
 
@@ -562,6 +562,72 @@ async def essl_sync_attendance(data: dict, user: User = Depends(get_current_user
     if not records:
         raise HTTPException(status_code=400, detail="No records to sync")
 
+    return await _process_essl_records(records, user.user_id)
+
+
+@router.post("/hr/attendance/essl-sync-key")
+async def essl_sync_with_key(data: dict, request: Request):
+    """Secure API-key-based sync endpoint for the eSSL auto-sync script.
+    No login required - uses a generated sync key stored in DB settings."""
+    api_key = request.headers.get("X-Sync-Key", "")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing X-Sync-Key header")
+
+    settings = await db.settings.find_one({"type": "attendance_sync"}, {"_id": 0})
+    if not settings or not settings.get("sync_key_hash"):
+        raise HTTPException(status_code=403, detail="Sync key not configured. Generate one from HR Portal > Settings.")
+
+    import hashlib
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    if key_hash != settings.get("sync_key_hash"):
+        raise HTTPException(status_code=403, detail="Invalid sync key")
+
+    records = data.get("records", [])
+    if not records:
+        raise HTTPException(status_code=400, detail="No records to sync")
+
+    return await _process_essl_records(records, "essl_sync_script")
+
+
+@router.post("/hr/attendance/generate-sync-key")
+async def generate_sync_key(user: User = Depends(get_current_user)):
+    """Generate a new secure sync key for eSSL auto-sync script. Super Admin only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can generate sync keys")
+
+    import secrets, hashlib
+    raw_key = secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+
+    await db.settings.update_one(
+        {"type": "attendance_sync"},
+        {"$set": {
+            "type": "attendance_sync",
+            "sync_key_hash": key_hash,
+            "generated_by": user.user_id,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True
+    )
+
+    return {
+        "sync_key": raw_key,
+        "message": "Copy this key now. It will NOT be shown again. Paste it in your essl_sync.py CONFIG."
+    }
+
+
+@router.delete("/hr/attendance/revoke-sync-key")
+async def revoke_sync_key(user: User = Depends(get_current_user)):
+    """Revoke the current sync key. Super Admin only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can revoke sync keys")
+
+    await db.settings.delete_one({"type": "attendance_sync"})
+    return {"message": "Sync key revoked. The script will stop working until a new key is generated."}
+
+
+async def _process_essl_records(records, synced_by):
+    """Process eSSL attendance records (shared logic)."""
     synced = 0
     errors = []
     for rec in records:
@@ -604,7 +670,7 @@ async def essl_sync_attendance(data: dict, user: User = Depends(get_current_user
                 "work_hours": work_hours,
                 "source": "essl",
                 "synced_at": datetime.now(timezone.utc).isoformat(),
-                "synced_by": user.user_id,
+                "synced_by": synced_by,
             }
 
             await db.attendance.update_one(
