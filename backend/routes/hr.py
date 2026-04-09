@@ -12,7 +12,7 @@ import uuid
 import calendar
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from pydantic import BaseModel, Field
 from core.database import db
 from core.deps import get_current_user
@@ -617,6 +617,112 @@ async def essl_sync_attendance(data: dict, user: User = Depends(get_current_user
             errors.append(f"Error processing {rec}: {str(e)}")
 
     return {"synced": synced, "errors": errors, "total": len(records)}
+
+
+@router.post("/hr/attendance/csv-upload")
+async def csv_upload_attendance(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+    """Upload attendance from CSV exported from eTimeTrackLite.
+    Expected columns: EmployeeCode, Date, InTime, OutTime, Status
+    """
+    import csv
+    import io
+
+    if user.role not in HR_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    content = await file.read()
+    text = content.decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+
+    records = []
+    for row in reader:
+        # Flexible column name mapping
+        ecode = (row.get("EmployeeCode") or row.get("E.Code") or row.get("EmpCode") or row.get("employee_code") or "").strip()
+        date_val = (row.get("Date") or row.get("AttDate") or row.get("date") or "").strip()
+        in_time = (row.get("InTime") or row.get("CheckIn") or row.get("check_in") or row.get("In Time") or "").strip()
+        out_time = (row.get("OutTime") or row.get("CheckOut") or row.get("check_out") or row.get("Out Time") or "").strip()
+        status = (row.get("Status") or row.get("status") or "present").strip().lower()
+
+        if ecode and date_val:
+            records.append({
+                "employee_code": ecode,
+                "date": date_val,
+                "check_in": in_time,
+                "check_out": out_time,
+                "status": status if status in ("present", "absent", "half_day", "wfh", "paid_leave", "sick_leave", "casual_leave") else "present",
+            })
+
+    if not records:
+        raise HTTPException(status_code=400, detail="No valid records found in CSV")
+
+    synced = 0
+    errors = []
+    for rec in records:
+        try:
+            staff = await db.staff.find_one(
+                {"$or": [{"employee_code": rec["employee_code"]}, {"staff_id": rec["employee_code"]}]},
+                {"_id": 0, "staff_id": 1, "name": 1}
+            )
+            if not staff:
+                errors.append(f"Employee not found: {rec['employee_code']}")
+                continue
+
+            work_hours = 0
+            check_in_iso = ""
+            check_out_iso = ""
+
+            if rec["check_in"]:
+                try:
+                    ci = datetime.strptime(f"{rec['date']} {rec['check_in']}", "%Y-%m-%d %I:%M %p")
+                    check_in_iso = ci.isoformat()
+                except:
+                    try:
+                        ci = datetime.strptime(f"{rec['date']} {rec['check_in']}", "%Y-%m-%d %H:%M")
+                        check_in_iso = ci.isoformat()
+                    except:
+                        check_in_iso = rec["check_in"]
+
+            if rec["check_out"]:
+                try:
+                    co = datetime.strptime(f"{rec['date']} {rec['check_out']}", "%Y-%m-%d %I:%M %p")
+                    check_out_iso = co.isoformat()
+                except:
+                    try:
+                        co = datetime.strptime(f"{rec['date']} {rec['check_out']}", "%Y-%m-%d %H:%M")
+                        check_out_iso = co.isoformat()
+                    except:
+                        check_out_iso = rec["check_out"]
+
+            if check_in_iso and check_out_iso:
+                try:
+                    ci_dt = datetime.fromisoformat(check_in_iso)
+                    co_dt = datetime.fromisoformat(check_out_iso)
+                    work_hours = round((co_dt - ci_dt).total_seconds() / 3600, 2)
+                except:
+                    pass
+
+            await db.attendance.update_one(
+                {"staff_id": staff["staff_id"], "date": rec["date"]},
+                {"$set": {
+                    "staff_id": staff["staff_id"],
+                    "staff_name": staff["name"],
+                    "date": rec["date"],
+                    "check_in": check_in_iso,
+                    "check_out": check_out_iso,
+                    "status": rec["status"],
+                    "work_hours": work_hours,
+                    "source": "csv",
+                    "synced_at": datetime.now(timezone.utc).isoformat(),
+                    "synced_by": user.user_id,
+                }},
+                upsert=True
+            )
+            synced += 1
+        except Exception as e:
+            errors.append(str(e))
+
+    return {"synced": synced, "errors": errors, "total": len(records)}
+
 
 
 @router.get("/hr/attendance/late-report")

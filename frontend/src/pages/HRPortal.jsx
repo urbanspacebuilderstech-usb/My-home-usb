@@ -907,6 +907,7 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
   const [dailyData, setDailyData] = useState(null);
   const [dailyLoading, setDailyLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [uploading, setUploading] = useState(false);
 
   const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -920,6 +921,20 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
   };
 
   useEffect(() => { if (viewMode === 'daily') fetchDaily(dailyDate); }, [dailyDate, viewMode]);
+
+  const handleCsvUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const res = await axios.post(`${API}/hr/attendance/csv-upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success(`Synced ${res.data.synced} records. ${res.data.errors?.length || 0} errors.`);
+      fetchDaily(dailyDate);
+    } catch (err) { toast.error(err.response?.data?.detail || 'Upload failed'); }
+    finally { setUploading(false); e.target.value = ''; }
+  };
 
   const prevMonth = () => { if (attMonth === 1) { setAttMonth(12); setAttYear(attYear - 1); } else setAttMonth(attMonth - 1); };
   const nextMonth = () => { if (attMonth === 12) { setAttMonth(1); setAttYear(attYear + 1); } else setAttMonth(attMonth + 1); };
@@ -955,6 +970,12 @@ function AttendanceTab({ monthlyAtt, attMonth, attYear, setAttMonth, setAttYear,
             <Button variant="outline" size="sm" onClick={() => { const d = new Date(dailyDate); d.setDate(d.getDate() + 1); setDailyDate(d.toISOString().split('T')[0]); }}><ChevronRight className="h-4 w-4" /></Button>
             <Button variant="outline" size="sm" onClick={() => setDailyDate(new Date().toISOString().split('T')[0])} className="text-xs">Today</Button>
             <Button variant="outline" size="sm" onClick={() => fetchDaily(dailyDate)} data-testid="att-refresh"><RefreshCcw className="h-3.5 w-3.5" /></Button>
+            <label className="cursor-pointer">
+              <input type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" data-testid="att-csv-input" />
+              <span className={`inline-flex items-center gap-1 px-3 h-8 text-xs border rounded-md hover:bg-gray-50 ${uploading ? 'opacity-50' : ''}`}>
+                <Upload className="h-3.5 w-3.5" />{uploading ? 'Uploading...' : 'CSV Upload'}
+              </span>
+            </label>
           </div>
         )}
         {viewMode === 'calendar' && (
