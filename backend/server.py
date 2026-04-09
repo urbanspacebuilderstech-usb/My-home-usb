@@ -192,7 +192,7 @@ async def startup_init():
         from passlib.context import CryptContext
         from datetime import datetime, timezone
 
-        demo_mode = os.environ.get("DEMO_MODE", "true").lower() == "true"
+        demo_mode = os.environ.get("DEMO_MODE", "false").lower() == "true"
         pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
         existing = await startup_db.users.count_documents({})
 

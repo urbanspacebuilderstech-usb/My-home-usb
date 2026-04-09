@@ -304,7 +304,7 @@ class DemoLoginRequest(BaseModel):
     email: str
 
 
-DEMO_MODE = os.environ.get("DEMO_MODE", "true").lower() == "true"
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
 
 
 @router.post("/auth/demo-login")
