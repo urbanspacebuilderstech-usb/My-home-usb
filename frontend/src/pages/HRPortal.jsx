@@ -477,6 +477,7 @@ export default function HRPortal() {
                       <tr>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EMPLOYEE</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DEPARTMENT</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESIGNATION</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">CONTACT</th>
                         <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">JOINING DATE</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">NET SALARY</th>
@@ -486,16 +487,17 @@ export default function HRPortal() {
                     </thead>
                     <tbody className="divide-y">
                       {filteredStaff.length === 0 ? (
-                        <tr><td colSpan="7" className="px-4 py-8 text-center text-gray-500">No employees found. Click "Add Employee" to get started.</td></tr>
+                        <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No employees found. Click "Add Employee" to get started.</td></tr>
                       ) : filteredStaff.map(s => (
                         <tr key={s.staff_id} className="hover:bg-gray-50/80 cursor-pointer" data-testid={`employee-row-${s.staff_id}`} onClick={() => openViewEmployee(s)}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm">{s.name?.charAt(0)?.toUpperCase()}</div>
-                              <div><p className="font-medium text-gray-900">{s.name}</p><p className="text-xs text-gray-500">{s.employee_code} {s.designation ? `| ${s.designation}` : ''}</p></div>
+                              <div><p className="font-medium text-gray-900">{s.name}</p><p className="text-xs text-gray-500">{s.employee_code}</p></div>
                             </div>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-600">{s.department || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{s.designation || '-'}</td>
                           <td className="px-4 py-3"><div className="text-sm">{s.email && <p className="text-gray-600 flex items-center gap-1"><Mail className="h-3 w-3" />{s.email}</p>}{s.phone && <p className="text-gray-500 flex items-center gap-1"><Phone className="h-3 w-3" />{s.phone}</p>}</div></td>
                           <td className="px-4 py-3 text-sm text-gray-600">{s.date_of_joining ? new Date(s.date_of_joining).toLocaleDateString('en-IN') : '-'}</td>
                           <td className="px-4 py-3 text-right font-semibold text-green-700">{fmt(s.net_salary)}</td>
