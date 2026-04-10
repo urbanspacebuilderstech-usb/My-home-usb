@@ -107,6 +107,8 @@ export default function HRPortal() {
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [empSortBy, setEmpSortBy] = useState('name_asc');
+  const [leftSortBy, setLeftSortBy] = useState('name_asc');
+  const [userSortBy, setUserSortBy] = useState('name_asc');
 
   // Users data (Roles & Credentials)
   const [allUsers, setAllUsers] = useState([]);
@@ -391,6 +393,14 @@ export default function HRPortal() {
     const matchSearch = !userSearch || u.name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase());
     const matchRole = !roleFilter || u.role === roleFilter;
     return matchSearch && matchRole;
+  }).sort((a, b) => {
+    switch (userSortBy) {
+      case 'name_asc': return (a.name || '').localeCompare(b.name || '');
+      case 'name_desc': return (b.name || '').localeCompare(a.name || '');
+      case 'role_asc': return (a.role || '').localeCompare(b.role || '');
+      case 'role_desc': return (b.role || '').localeCompare(a.role || '');
+      default: return 0;
+    }
   });
   const salary = (() => {
     const gross = ['basic_salary', 'hra', 'da', 'ta', 'other_allowances'].reduce((s, k) => s + (parseFloat(staffForm[k]) || 0), 0);
@@ -574,7 +584,20 @@ export default function HRPortal() {
             /* ===== LEFT EMPLOYEES HISTORY ===== */
             <Card>
               <CardHeader className="border-b">
-                <CardTitle className="text-lg text-red-700" data-testid="left-employees-title">Left / Terminated Employees History</CardTitle>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <CardTitle className="text-lg text-red-700" data-testid="left-employees-title">Left / Terminated Employees History</CardTitle>
+                  <Select value={leftSortBy} onValueChange={setLeftSortBy}>
+                    <SelectTrigger className="w-44" data-testid="sort-left-employees"><SelectValue placeholder="Sort By" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="name_asc">Name (A to Z)</SelectItem>
+                      <SelectItem value="name_desc">Name (Z to A)</SelectItem>
+                      <SelectItem value="salary_high">Salary (High to Low)</SelectItem>
+                      <SelectItem value="salary_low">Salary (Low to High)</SelectItem>
+                      <SelectItem value="service_old">Service (Oldest First)</SelectItem>
+                      <SelectItem value="service_new">Service (Newest First)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -594,7 +617,17 @@ export default function HRPortal() {
                     <tbody className="divide-y">
                       {terminatedStaff.length === 0 ? (
                         <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
-                      ) : terminatedStaff.map(s => (
+                      ) : [...terminatedStaff].sort((a, b) => {
+                        switch (leftSortBy) {
+                          case 'name_asc': return (a.name || '').localeCompare(b.name || '');
+                          case 'name_desc': return (b.name || '').localeCompare(a.name || '');
+                          case 'salary_high': return (b.net_salary || 0) - (a.net_salary || 0);
+                          case 'salary_low': return (a.net_salary || 0) - (b.net_salary || 0);
+                          case 'service_old': return (a.date_of_joining || '').localeCompare(b.date_of_joining || '');
+                          case 'service_new': return (b.date_of_joining || '').localeCompare(a.date_of_joining || '');
+                          default: return 0;
+                        }
+                      }).map(s => (
                         <tr key={s.staff_id} className="hover:bg-red-50/50" data-testid={`left-employee-row-${s.staff_id}`}>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-3">
@@ -642,6 +675,15 @@ export default function HRPortal() {
                       <SelectContent>
                         <SelectItem value="all">All Roles</SelectItem>
                         {ALL_ROLES.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={userSortBy} onValueChange={setUserSortBy}>
+                      <SelectTrigger className="w-44" data-testid="sort-users"><SelectValue placeholder="Sort By" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="name_asc">Name (A to Z)</SelectItem>
+                        <SelectItem value="name_desc">Name (Z to A)</SelectItem>
+                        <SelectItem value="role_asc">Role (A to Z)</SelectItem>
+                        <SelectItem value="role_desc">Role (Z to A)</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button onClick={() => setCreateUserDialog(true)} className="bg-blue-600 hover:bg-blue-700" data-testid="create-user-btn">
