@@ -1231,3 +1231,30 @@ async def get_hr_dashboard(user: User = Depends(get_current_user)):
         "department_counts": dept_counts,
         "today": today
     }
+
+
+
+# ==================== LEFT/TERMINATED EMPLOYEES ====================
+
+@router.get("/hr/terminated-staff")
+async def get_terminated_staff(user: User = Depends(get_current_user)):
+    """Get all terminated employees with their leave history"""
+    if user.role not in HR_ROLES:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    terminated = await db.staff.find(
+        {"status": "terminated"},
+        {"_id": 0}
+    ).sort("terminated_at", -1).to_list(500)
+
+    for emp in terminated:
+        leaves = await db.leave_requests.find(
+            {"staff_id": emp["staff_id"]},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(100)
+        emp["leave_history"] = leaves
+
+        att_count = await db.attendance.count_documents({"staff_id": emp["staff_id"]})
+        emp["total_attendance_days"] = att_count
+
+    return terminated

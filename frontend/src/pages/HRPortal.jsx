@@ -154,6 +154,11 @@ export default function HRPortal() {
   const [dashboardData, setDashboardData] = useState(null);
   const [hrSettings, setHrSettings] = useState(null);
 
+  // Left/Terminated Employees
+  const [terminatedStaff, setTerminatedStaff] = useState([]);
+  const [empListView, setEmpListView] = useState('active'); // 'active' or 'left'
+  const [viewLeaveHistory, setViewLeaveHistory] = useState(null);
+
   // ============ DATA FETCHING ============
   const fetchData = async (showLoader = true) => {
     try {
@@ -206,6 +211,7 @@ export default function HRPortal() {
   useEffect(() => { if (activeTab === 'attendance') { fetchMonthlyAttendance(); fetchLateReport(); } }, [activeTab, attMonth, attYear]);
   useEffect(() => { if (activeTab === 'leave') fetchLeaveRequests(); }, [activeTab, leaveFilter]);
   useEffect(() => { if (activeTab === 'payroll') fetchPayroll(); }, [activeTab, payMonth, payYear]);
+  useEffect(() => { if (activeTab === 'employees' && empListView === 'left') fetchTerminatedStaff(); }, [activeTab, empListView]);
 
   // ============ EMPLOYEE HANDLERS ============
   const openAddEmployee = () => { setSelectedStaff(null); setStaffForm(getEmptyForm()); setExpandedSection('personal'); setStaffDialog(true); };
@@ -285,9 +291,21 @@ export default function HRPortal() {
   };
 
   const handleTerminate = async (staffId) => {
-    if (!confirm('Terminate this employee?')) return;
-    try { await axios.delete(`${API}/hr/staff/${staffId}`); toast.success('Employee terminated'); fetchData(false); }
-    catch { toast.error('Failed'); }
+    if (!confirm('Are you sure you want to terminate this employee? They will be moved to "Left Employees" history.')) return;
+    try {
+      await axios.delete(`${API}/hr/staff/${staffId}`);
+      toast.success('Employee terminated and moved to Left Employees');
+      fetchData(false);
+      fetchTerminatedStaff();
+    }
+    catch (err) { toast.error(err.response?.data?.detail || 'Failed to terminate'); }
+  };
+
+  const fetchTerminatedStaff = async () => {
+    try {
+      const res = await axios.get(`${API}/hr/terminated-staff`);
+      setTerminatedStaff(res.data);
+    } catch { /* silent */ }
   };
 
   // ============ ROLE/CREDENTIALS HANDLERS ============
@@ -448,6 +466,17 @@ export default function HRPortal() {
 
           {/* ===== EMPLOYEE PROFILES TAB ===== */}
           <TabsContent value="employees">
+            {/* Active / Left Employees Toggle */}
+            <div className="flex gap-2 mb-4">
+              <Button variant={empListView === 'active' ? 'default' : 'outline'} onClick={() => setEmpListView('active')} data-testid="emp-view-active" className={empListView === 'active' ? 'bg-amber-600 hover:bg-amber-700' : ''}>
+                <Users className="h-4 w-4 mr-1" /> Active Employees ({staff.length})
+              </Button>
+              <Button variant={empListView === 'left' ? 'default' : 'outline'} onClick={() => setEmpListView('left')} data-testid="emp-view-left" className={empListView === 'left' ? 'bg-red-600 hover:bg-red-700' : ''}>
+                <UserX className="h-4 w-4 mr-1" /> Left Employees ({terminatedStaff.length})
+              </Button>
+            </div>
+
+            {empListView === 'active' ? (
             <Card>
               <CardHeader className="border-b">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -518,6 +547,60 @@ export default function HRPortal() {
                 </div>
               </CardContent>
             </Card>
+            ) : (
+            /* ===== LEFT EMPLOYEES HISTORY ===== */
+            <Card>
+              <CardHeader className="border-b">
+                <CardTitle className="text-lg text-red-700" data-testid="left-employees-title">Left / Terminated Employees History</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-red-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">EMPLOYEE</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DEPARTMENT</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">DESIGNATION</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">JOINED</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">TERMINATED</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ATTENDANCE DAYS</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">LEAVES</th>
+                        <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {terminatedStaff.length === 0 ? (
+                        <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-500">No terminated employees found.</td></tr>
+                      ) : terminatedStaff.map(s => (
+                        <tr key={s.staff_id} className="hover:bg-red-50/50" data-testid={`left-employee-row-${s.staff_id}`}>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-red-100 text-red-700 flex items-center justify-center font-bold text-sm">{s.name?.charAt(0)?.toUpperCase()}</div>
+                              <div><p className="font-medium text-gray-900">{s.name}</p><p className="text-xs text-gray-500">{s.employee_code}</p></div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{s.department || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{s.designation || '-'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{s.date_of_joining ? new Date(s.date_of_joining).toLocaleDateString('en-IN') : '-'}</td>
+                          <td className="px-4 py-3 text-sm text-red-600 font-medium">{s.terminated_at ? new Date(s.terminated_at).toLocaleDateString('en-IN') : '-'}</td>
+                          <td className="px-4 py-3 text-center text-sm font-semibold">{s.total_attendance_days || 0}</td>
+                          <td className="px-4 py-3 text-center text-sm font-semibold">{s.leave_history?.length || 0}</td>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openViewEmployee(s)} data-testid={`view-left-${s.staff_id}`}><Eye className="h-4 w-4" /></Button>
+                              <Button size="sm" variant="outline" className="text-blue-600 border-blue-200 h-7 px-2 text-xs" onClick={() => setViewLeaveHistory(s)} data-testid={`leave-history-${s.staff_id}`}>
+                                <FileText className="h-3 w-3 mr-1" />Leave History
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+            )}
           </TabsContent>
 
           {/* ===== ROLES & CREDENTIALS TAB ===== */}
@@ -895,6 +978,72 @@ export default function HRPortal() {
       <Dialog open={payslipDialog} onOpenChange={setPayslipDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           {payslipData && <PayslipView data={payslipData} />}
+        </DialogContent>
+      </Dialog>
+
+      {/* Leave History Dialog for Terminated Employees */}
+      <Dialog open={!!viewLeaveHistory} onOpenChange={() => setViewLeaveHistory(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-600" />
+              Leave History — {viewLeaveHistory?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {viewLeaveHistory?.employee_code} | {viewLeaveHistory?.department || '-'} | {viewLeaveHistory?.designation || '-'}
+              {viewLeaveHistory?.terminated_at && <span className="text-red-600 ml-2">Terminated: {new Date(viewLeaveHistory.terminated_at).toLocaleDateString('en-IN')}</span>}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-blue-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-gray-500">Total Attendance Days</p>
+                <p className="text-xl font-bold text-blue-700">{viewLeaveHistory?.total_attendance_days || 0}</p>
+              </div>
+              <div className="bg-amber-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-gray-500">Total Leave Requests</p>
+                <p className="text-xl font-bold text-amber-700">{viewLeaveHistory?.leave_history?.length || 0}</p>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-gray-500">Approved Leaves</p>
+                <p className="text-xl font-bold text-green-700">{viewLeaveHistory?.leave_history?.filter(l => l.status === 'approved').length || 0}</p>
+              </div>
+            </div>
+            {viewLeaveHistory?.leave_history?.length > 0 ? (
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">TYPE</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">FROM</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">TO</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold">DAYS</th>
+                      <th className="px-3 py-2 text-center text-xs font-semibold">STATUS</th>
+                      <th className="px-3 py-2 text-left text-xs font-semibold">REASON</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {viewLeaveHistory.leave_history.map((l, i) => (
+                      <tr key={l.leave_id || i} className="hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          <Badge className={l.leave_type === 'PL' ? 'bg-blue-100 text-blue-700' : l.leave_type === 'SL' ? 'bg-red-100 text-red-700' : l.leave_type === 'CL' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}>{l.leave_type}</Badge>
+                        </td>
+                        <td className="px-3 py-2">{l.start_date ? new Date(l.start_date).toLocaleDateString('en-IN') : '-'}</td>
+                        <td className="px-3 py-2">{l.end_date ? new Date(l.end_date).toLocaleDateString('en-IN') : '-'}</td>
+                        <td className="px-3 py-2 text-center font-medium">{l.days || '-'}</td>
+                        <td className="px-3 py-2 text-center">
+                          <Badge className={l.status === 'approved' ? 'bg-green-100 text-green-700' : l.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}>{l.status}</Badge>
+                        </td>
+                        <td className="px-3 py-2 text-gray-600 max-w-[200px] truncate">{l.reason || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-400">No leave records found for this employee.</div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

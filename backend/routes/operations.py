@@ -3535,13 +3535,18 @@ async def update_staff(staff_id: str, updates: dict, user: User = Depends(get_cu
 
 @router.delete("/hr/staff/{staff_id}")
 async def delete_staff(staff_id: str, user: User = Depends(get_current_user)):
-    """Delete a staff member (soft delete)"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Only Super Admin can delete staff")
+    """Terminate a staff member (soft delete) - HR and Super Admin"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or HR can terminate staff")
     
     result = await db.staff.update_one(
         {"staff_id": staff_id},
-        {"$set": {"status": "terminated", "updated_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {
+            "status": "terminated",
+            "terminated_by": user.user_id,
+            "terminated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
     )
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Staff not found")
