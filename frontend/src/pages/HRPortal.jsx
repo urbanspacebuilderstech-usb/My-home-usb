@@ -371,6 +371,7 @@ export default function HRPortal() {
 
   // ============ FILTERS & COMPUTED ============
   const filteredStaff = staff.filter(s => {
+    if (s.status !== 'active') return false;
     const matchSearch = !searchTerm || s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.employee_code?.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone?.includes(searchTerm);
     const matchDept = !departmentFilter || s.department === departmentFilter;
     return matchSearch && matchDept;
@@ -469,7 +470,7 @@ export default function HRPortal() {
             {/* Active / Left Employees Toggle */}
             <div className="flex gap-2 mb-4">
               <Button variant={empListView === 'active' ? 'default' : 'outline'} onClick={() => setEmpListView('active')} data-testid="emp-view-active" className={empListView === 'active' ? 'bg-amber-600 hover:bg-amber-700' : ''}>
-                <Users className="h-4 w-4 mr-1" /> Active Employees ({staff.length})
+                <Users className="h-4 w-4 mr-1" /> Active Employees ({staff.filter(s => s.status === 'active').length})
               </Button>
               <Button variant={empListView === 'left' ? 'default' : 'outline'} onClick={() => setEmpListView('left')} data-testid="emp-view-left" className={empListView === 'left' ? 'bg-red-600 hover:bg-red-700' : ''}>
                 <UserX className="h-4 w-4 mr-1" /> Left Employees ({terminatedStaff.length})
