@@ -665,6 +665,7 @@ export default function HRPortal() {
             {/* Employment Details Tab */}
             {empDialogTab === 'employment' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 p-3 bg-white rounded-lg border">
+                <div><Label>Department</Label><Select value={staffForm.department} onValueChange={(v) => setStaffForm({ ...staffForm, department: v })}><SelectTrigger data-testid="select-department"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label>Designation</Label><Select value={staffForm.designation} onValueChange={(v) => setStaffForm({ ...staffForm, designation: v })}><SelectTrigger data-testid="select-designation"><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{DESIGNATIONS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
                 <div><Label>Date of Joining</Label><Input type="date" value={staffForm.date_of_joining} onChange={(e) => setStaffForm({ ...staffForm, date_of_joining: e.target.value })} data-testid="input-doj" /></div>
                 <div><Label>Qualification</Label><Input value={staffForm.qualification} onChange={(e) => setStaffForm({ ...staffForm, qualification: e.target.value })} /></div>
