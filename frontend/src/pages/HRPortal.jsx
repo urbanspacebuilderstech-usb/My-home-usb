@@ -106,6 +106,7 @@ export default function HRPortal() {
   const [staff, setStaff] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [empSortBy, setEmpSortBy] = useState('name_asc');
 
   // Users data (Roles & Credentials)
   const [allUsers, setAllUsers] = useState([]);
@@ -375,6 +376,16 @@ export default function HRPortal() {
     const matchSearch = !searchTerm || s.name?.toLowerCase().includes(searchTerm.toLowerCase()) || s.employee_code?.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone?.includes(searchTerm);
     const matchDept = !departmentFilter || s.department === departmentFilter;
     return matchSearch && matchDept;
+  }).sort((a, b) => {
+    switch (empSortBy) {
+      case 'name_asc': return (a.name || '').localeCompare(b.name || '');
+      case 'name_desc': return (b.name || '').localeCompare(a.name || '');
+      case 'salary_high': return (b.net_salary || 0) - (a.net_salary || 0);
+      case 'salary_low': return (a.net_salary || 0) - (b.net_salary || 0);
+      case 'service_old': return (a.date_of_joining || '').localeCompare(b.date_of_joining || '');
+      case 'service_new': return (b.date_of_joining || '').localeCompare(a.date_of_joining || '');
+      default: return 0;
+    }
   });
   const filteredUsers = allUsers.filter(u => {
     const matchSearch = !userSearch || u.name?.toLowerCase().includes(userSearch.toLowerCase()) || u.email?.toLowerCase().includes(userSearch.toLowerCase());
@@ -492,6 +503,17 @@ export default function HRPortal() {
                       <SelectContent>
                         <SelectItem value="all">All Departments</SelectItem>
                         {DEPARTMENTS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Select value={empSortBy} onValueChange={setEmpSortBy}>
+                      <SelectTrigger className="w-44" data-testid="sort-employees"><SelectValue placeholder="Sort By" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="name_asc">Name (A to Z)</SelectItem>
+                        <SelectItem value="name_desc">Name (Z to A)</SelectItem>
+                        <SelectItem value="salary_high">Salary (High to Low)</SelectItem>
+                        <SelectItem value="salary_low">Salary (Low to High)</SelectItem>
+                        <SelectItem value="service_old">Service (Oldest First)</SelectItem>
+                        <SelectItem value="service_new">Service (Newest First)</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button onClick={openAddEmployee} className="bg-amber-600 hover:bg-amber-700" data-testid="add-employee-btn">
