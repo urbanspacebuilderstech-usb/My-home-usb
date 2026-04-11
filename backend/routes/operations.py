@@ -3554,6 +3554,26 @@ async def delete_staff(staff_id: str, user: User = Depends(get_current_user)):
     return {"message": "Staff terminated"}
 
 
+@router.delete("/hr/staff/{staff_id}/permanent")
+async def permanently_delete_staff(staff_id: str, user: User = Depends(get_current_user)):
+    """Permanently delete a terminated staff member and all related records"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Only Super Admin or HR can permanently delete staff")
+    
+    staff = await db.staff.find_one({"staff_id": staff_id}, {"_id": 0, "status": 1, "linked_user_id": 1})
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    if staff.get("status") != "terminated":
+        raise HTTPException(status_code=400, detail="Only terminated employees can be permanently deleted")
+    
+    await db.staff.delete_one({"staff_id": staff_id})
+    await db.attendance.delete_many({"staff_id": staff_id})
+    await db.leave_requests.delete_many({"staff_id": staff_id})
+    
+    return {"message": "Staff permanently deleted"}
+
+
+
 # ==================== HR EMPLOYEE PROFILE ENDPOINTS ====================
 
 @router.patch("/hr/staff/{staff_id}/profile")

@@ -311,6 +311,15 @@ export default function HRPortal() {
     } catch { /* silent */ }
   };
 
+  const handlePermanentDelete = async (staffId, name) => {
+    if (!confirm(`PERMANENTLY DELETE "${name}"? This will remove all their records (attendance, leave history) and CANNOT be undone.`)) return;
+    try {
+      await axios.delete(`${API}/hr/staff/${staffId}/permanent`);
+      toast.success(`${name} permanently deleted`);
+      fetchTerminatedStaff();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Failed to delete'); }
+  };
+
   // ============ ROLE/CREDENTIALS HANDLERS ============
   const openRoleDialog = (u) => { setSelectedUser({ ...u, newRole: u.role, newActive: u.is_active, newName: u.name, newPhone: u.phone || '', newEmail: u.email }); setRoleDialog(true); };
   const handleUpdateUser = async () => {
@@ -646,6 +655,9 @@ export default function HRPortal() {
                               <Button size="sm" variant="ghost" onClick={() => openViewEmployee(s)} data-testid={`view-left-${s.staff_id}`}><Eye className="h-4 w-4" /></Button>
                               <Button size="sm" variant="outline" className="text-blue-600 border-blue-200 h-7 px-2 text-xs" onClick={() => setViewLeaveHistory(s)} data-testid={`leave-history-${s.staff_id}`}>
                                 <FileText className="h-3 w-3 mr-1" />Leave History
+                              </Button>
+                              <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-800 hover:bg-red-50" onClick={() => handlePermanentDelete(s.staff_id, s.name)} data-testid={`perm-delete-${s.staff_id}`} title="Permanently Delete">
+                                <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>
                           </td>
