@@ -592,23 +592,6 @@ export default function CRMPreSales() {
               </CardContent>
             </Card>
           ))}
-          
-          {/* Appointment Booked Card */}
-          <Card 
-            className="cursor-pointer hover:shadow-md transition-shadow bg-green-50 border-green-300"
-            onClick={() => setActiveStage(stages.find(s => s.name === 'Appointment Booked')?.stage_id || 'stg_appointment')}
-            data-testid="appointment-booked-card"
-          >
-            <CardContent className="p-4">
-              <div className="flex items-center gap-1.5 mb-1">
-                <Calendar className="h-4 w-4 text-green-600" />
-                <p className="text-xs text-green-600 font-medium">Appointment Booked</p>
-              </div>
-              <p className="text-2xl font-bold text-green-700">
-                {dashboard?.stages?.find(s => s.name === 'Appointment Booked')?.lead_count || 0}
-              </p>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Search & Filters + View Toggle */}
