@@ -279,10 +279,10 @@ class GoogleOAuthToken(BaseModel):
 # ==================== CRM HELPER FUNCTIONS ====================
 
 async def get_default_pre_sales_stages():
-    """Get or create default Pre-Sales stages"""
+    """Get or create default Pre-Sales stages - also fills missing stages"""
     stages = await db.lead_stages.find({"stage_type": "pre_sales"}, {"_id": 0}).sort("order", 1).to_list(100)
     if not stages:
-        # Create default stages
+        # Create all default stages
         default_stages = [
             {"stage_id": "stg_new_lead", "name": "New Lead", "stage_type": "pre_sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_contacted", "name": "Contacted", "stage_type": "pre_sales", "order": 2, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
@@ -296,6 +296,18 @@ async def get_default_pre_sales_stages():
             stage["created_at"] = datetime.now(timezone.utc)
             await db.lead_stages.insert_one(stage)
         stages = default_stages
+    else:
+        # Check for missing stages and add them
+        existing_ids = {s["stage_id"] for s in stages}
+        missing = [
+            {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "stage_type": "pre_sales", "order": 4, "color": "#dc2626", "is_final": False, "is_active": True, "created_by": "system"},
+        ]
+        for m in missing:
+            if m["stage_id"] not in existing_ids:
+                m["created_at"] = datetime.now(timezone.utc)
+                await db.lead_stages.insert_one(m)
+                stages.append(m)
+        stages.sort(key=lambda x: x.get("order", 99))
     return stages
 
 
@@ -346,6 +358,45 @@ async def get_default_custom_fields():
             await db.custom_fields.insert_one(field)
         fields = default_fields
     return fields
+
+
+
+@router.post("/crm/migrate-stages")
+async def migrate_stages(user: User = Depends(get_current_user)):
+    """Safely add missing stages to existing databases - idempotent, safe to run multiple times"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    added = []
+    
+    # Define all expected pre_sales stages
+    expected_pre_sales = [
+        {"stage_id": "stg_new_lead", "name": "New Lead", "order": 1, "color": "#6366f1", "is_final": False},
+        {"stage_id": "stg_contacted", "name": "Contacted", "order": 2, "color": "#3b82f6", "is_final": False},
+        {"stage_id": "stg_rnr", "name": "RNR", "order": 3, "color": "#ef4444", "is_final": False},
+        {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "order": 4, "color": "#dc2626", "is_final": False},
+        {"stage_id": "stg_proposal", "name": "Portfolio sent", "order": 5, "color": "#10b981", "is_final": False},
+        {"stage_id": "stg_follow_up", "name": "Follow-up", "order": 6, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_appointment", "name": "Appointment Booked", "order": 7, "color": "#22c55e", "is_final": True},
+    ]
+    
+    for stage in expected_pre_sales:
+        existing = await db.lead_stages.find_one({"stage_id": stage["stage_id"]})
+        if not existing:
+            stage["stage_type"] = "pre_sales"
+            stage["is_active"] = True
+            stage["created_by"] = "migration"
+            stage["created_at"] = datetime.now(timezone.utc)
+            await db.lead_stages.insert_one(stage)
+            added.append(stage["name"])
+        else:
+            # Update order to ensure correct positioning
+            await db.lead_stages.update_one(
+                {"stage_id": stage["stage_id"]},
+                {"$set": {"order": stage["order"]}}
+            )
+    
+    return {"message": f"Migration complete. Added: {added if added else 'No new stages needed'}", "added": added}
 
 
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================
