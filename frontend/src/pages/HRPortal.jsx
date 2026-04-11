@@ -26,7 +26,7 @@ import { NumericInput } from '../components/NumericInput';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-const DEPARTMENTS = ['Accounts', 'Engineering', 'HR', 'Admin', 'Sales', 'Operations', 'Planning', 'Procurement', 'CRM', 'Design'];
+const DEPARTMENTS = ['Sales', 'HR', 'Operations', 'Planning', 'Quality', 'Architecture', 'Purchase', 'Accounts', 'Marketing'];
 const DESIGNATIONS = [
   'Presales Executive', 'Sales Executive', 'Senior Sales Executive', 'Sales Head',
   'Business Development Manager', 'CRM Executive', 'CRE (Customer Relationship Executive)',
