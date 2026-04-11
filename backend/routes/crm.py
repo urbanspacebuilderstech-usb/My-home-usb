@@ -4215,17 +4215,26 @@ async def get_auto_sync_config(user: User = Depends(get_current_user)):
 @router.post("/sheets/auto-sync/run")
 async def run_auto_sync(user: User = Depends(get_current_user)):
     """Sync all connected sheets — discovers NEW tabs and imports NEW rows"""
-    if user.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(status_code=403, detail="Super Admin access required")
+    if user.role not in [UserRole.SUPER_ADMIN, "pre_sales", "sales", UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Access required")
     
-    creds = await get_sheets_credentials(user.user_id)
+    # For non-admins, use admin's connected sheets and credentials
+    sync_user_id = user.user_id
+    if user.role != UserRole.SUPER_ADMIN:
+        admin_config = await db.connected_sheets.find_one({}, {"_id": 0, "user_id": 1})
+        if admin_config:
+            sync_user_id = admin_config["user_id"]
+        else:
+            raise HTTPException(status_code=400, detail="No sheets connected. Ask admin to connect a sheet from Marketing Board.")
+    
+    creds = await get_sheets_credentials(sync_user_id)
     if not creds:
-        raise HTTPException(status_code=401, detail="Google Sheets not connected")
+        raise HTTPException(status_code=401, detail="Google Sheets not connected. Ask admin to connect Google account.")
     
     # Get all connected sheets
-    connected = await db.connected_sheets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    connected = await db.connected_sheets.find({"user_id": sync_user_id}, {"_id": 0}).to_list(50)
     if not connected:
-        raise HTTPException(status_code=400, detail="No sheets connected. Import a sheet first.")
+        raise HTTPException(status_code=400, detail="No sheets connected. Ask admin to import a sheet first.")
     
     service = build('sheets', 'v4', credentials=creds)
     settings = await get_distribution_settings()

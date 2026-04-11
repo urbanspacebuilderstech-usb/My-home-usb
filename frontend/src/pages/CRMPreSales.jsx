@@ -577,7 +577,7 @@ export default function CRMPreSales() {
             </CardContent>
           </Card>
           
-          {stages.slice(0, 6).map(stage => (
+          {stages.map(stage => (
             <Card 
               key={stage.stage_id} 
               className={`cursor-pointer hover:shadow-md transition-shadow ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border-red-300' : ''}`}
