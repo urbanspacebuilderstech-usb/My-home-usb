@@ -28,10 +28,17 @@ const API = `${BACKEND_URL}/api`;
 
 const DEPARTMENTS = ['Accounts', 'Engineering', 'HR', 'Admin', 'Sales', 'Operations', 'Planning', 'Procurement', 'CRM', 'Design'];
 const DESIGNATIONS = [
-  'General Manager', 'Project Manager', 'Associate Project Manager', 'Senior Site Engineer',
-  'Site Engineer', 'Architect', 'Accountant', 'HR Manager', 'HR Executive',
-  'Planning Engineer', 'Procurement Officer', 'Sales Executive', 'Pre-Sales Executive',
-  'CRE Executive', 'Marketing Head', 'Admin Executive', 'Office Assistant', 'Driver', 'Helper'
+  'Presales Executive', 'Sales Executive', 'Senior Sales Executive', 'Sales Head',
+  'Business Development Manager', 'CRM Executive', 'CRE (Customer Relationship Executive)',
+  'General Manager', 'Project Manager', 'Assistant Project Manager',
+  'Zone Incharge', 'Senior Site Engineer', 'Site Engineer', 'Junior Site Engineer', 'Site Supervisor',
+  'Designing Manager', 'Architect Incharge', 'Senior Architect', 'Junior Architect', 'Draftsman',
+  'Junior Quantity Surveyor', 'Senior Quantity Surveyor',
+  'Planning Incharge', 'Planning Manager',
+  'Accounts Manager', 'Senior Accountant', 'Accountant', 'Junior Accountant',
+  'Purchase Manager', 'Purchase Executive', 'Assistant Purchase Executive', 'Procurement Officer',
+  'Quality Manager', 'Quality Checking Incharge', 'Quality Checking Engineer',
+  'HR Manager', 'HR Executive', 'HR Junior Executive'
 ];
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
 const GENDERS = ['Male', 'Female', 'Other'];
