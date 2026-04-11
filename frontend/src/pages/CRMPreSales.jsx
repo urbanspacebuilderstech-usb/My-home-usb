@@ -63,7 +63,7 @@ export default function CRMPreSales() {
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
   
   // Date filter
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFilter, setDateFilter] = useState('');
   const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [followUpFilter, setFollowUpFilter] = useState(false);
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);

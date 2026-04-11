@@ -572,12 +572,16 @@ async def create_pre_sales_lead(data: LeadCreate, user: User = Depends(get_curre
     stages = await get_default_pre_sales_stages()
     first_stage = stages[0] if stages else {"stage_id": "stg_new_lead"}
     
-    # Auto-assign using round-robin
-    assigned_user_id = await assign_lead_to_next_user("pre_sales")
-    assigned_user_name = None
-    if assigned_user_id:
-        assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
-        assigned_user_name = assigned_user.get("name") if assigned_user else None
+    # Auto-assign: Pre-Sales user's own leads go to themselves, otherwise round-robin
+    if user.role == "pre_sales":
+        assigned_user_id = user.user_id
+        assigned_user_name = user.name
+    else:
+        assigned_user_id = await assign_lead_to_next_user("pre_sales")
+        assigned_user_name = None
+        if assigned_user_id:
+            assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
+            assigned_user_name = assigned_user.get("name") if assigned_user else None
     
     lead = Lead(
         name=data.name,
@@ -646,11 +650,16 @@ async def create_lead_admin(data: AdminLeadCreate, user: User = Depends(get_curr
     assigned_user_name = None
     
     if not assigned_user_id:
-        # Auto-assign using round-robin
-        team_type = "pre_sales" if stage_type == LeadStageType.PRE_SALES else "sales"
-        assigned_user_id = await assign_lead_to_next_user(team_type)
+        # Pre-sales/sales users creating leads get them assigned to themselves
+        if user.role in ["pre_sales", "sales"]:
+            assigned_user_id = user.user_id
+            assigned_user_name = user.name
+        else:
+            # Admin/CRE: Auto-assign using round-robin
+            team_type = "pre_sales" if stage_type == LeadStageType.PRE_SALES else "sales"
+            assigned_user_id = await assign_lead_to_next_user(team_type)
     
-    if assigned_user_id:
+    if assigned_user_id and not assigned_user_name:
         assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
         assigned_user_name = assigned_user.get("name") if assigned_user else None
     
