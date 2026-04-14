@@ -338,6 +338,18 @@ async def get_default_sales_stages():
             stage["created_at"] = datetime.now(timezone.utc)
             await db.lead_stages.insert_one(stage)
         stages = default_stages
+    else:
+        # Ensure "New Appointment" stage exists for Pre-Sales → Sales transfer
+        existing_ids = {s["stage_id"] for s in stages}
+        if "stg_new_appt" not in existing_ids:
+            new_appt = {"stage_id": "stg_new_appt", "name": "New Appointment", "stage_type": "sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system", "created_at": datetime.now(timezone.utc)}
+            await db.lead_stages.insert_one(new_appt)
+            stages.insert(0, new_appt)
+        # Ensure "Appointment Booked" in pre_sales has is_final=True
+        await db.lead_stages.update_one(
+            {"stage_id": "stg_appointment", "stage_type": "pre_sales"},
+            {"$set": {"is_final": True}}
+        )
     return stages
 
 
@@ -368,6 +380,7 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     added = []
+    fixed = []
     
     # Define all expected pre_sales stages
     expected_pre_sales = [
@@ -380,23 +393,48 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         {"stage_id": "stg_appointment", "name": "Appointment Booked", "order": 7, "color": "#22c55e", "is_final": True},
     ]
     
-    for stage in expected_pre_sales:
-        existing = await db.lead_stages.find_one({"stage_id": stage["stage_id"]})
-        if not existing:
-            stage["stage_type"] = "pre_sales"
-            stage["is_active"] = True
-            stage["created_by"] = "migration"
-            stage["created_at"] = datetime.now(timezone.utc)
-            await db.lead_stages.insert_one(stage)
-            added.append(stage["name"])
-        else:
-            # Update order to ensure correct positioning
-            await db.lead_stages.update_one(
-                {"stage_id": stage["stage_id"]},
-                {"$set": {"order": stage["order"]}}
-            )
+    # Define all expected sales stages
+    expected_sales = [
+        {"stage_id": "stg_new_appt", "name": "New Appointment", "order": 1, "color": "#6366f1", "is_final": False},
+        {"stage_id": "stg_sales_followup", "name": "Follow-up", "order": 2, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_discussion", "name": "Discussion", "order": 3, "color": "#3b82f6", "is_final": False},
+        {"stage_id": "stg_site_visit", "name": "Site Visit", "order": 4, "color": "#8b5cf6", "is_final": False},
+        {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "order": 5, "color": "#a855f7", "is_final": False},
+        {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "order": 6, "color": "#7c3aed", "is_final": False},
+        {"stage_id": "stg_sv_done", "name": "Site Visit Done", "order": 7, "color": "#059669", "is_final": False},
+        {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "order": 8, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_re_from_planning", "name": "RE - From Planning", "order": 9, "color": "#10b981", "is_final": False},
+        {"stage_id": "stg_re_to_client", "name": "RE - To Client", "order": 10, "color": "#84cc16", "is_final": False},
+        {"stage_id": "stg_negotiation", "name": "Negotiation", "order": 11, "color": "#ec4899", "is_final": False},
+        {"stage_id": "stg_deal_closed", "name": "Deal Closed", "order": 12, "color": "#22c55e", "is_final": False},
+        {"stage_id": "stg_payment_collect", "name": "Payment Collect", "order": 13, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "order": 14, "color": "#f97316", "is_final": False},
+        {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "order": 15, "color": "#059669", "is_final": True},
+        {"stage_id": "stg_lost", "name": "Lost", "order": 16, "color": "#ef4444", "is_final": True},
+    ]
     
-    return {"message": f"Migration complete. Added: {added if added else 'No new stages needed'}", "added": added}
+    for stage_type, stages_list in [("pre_sales", expected_pre_sales), ("sales", expected_sales)]:
+        for stage in stages_list:
+            existing = await db.lead_stages.find_one({"stage_id": stage["stage_id"]})
+            if not existing:
+                stage["stage_type"] = stage_type
+                stage["is_active"] = True
+                stage["created_by"] = "migration"
+                stage["created_at"] = datetime.now(timezone.utc)
+                await db.lead_stages.insert_one(stage)
+                added.append(f"{stage_type}: {stage['name']}")
+            else:
+                # Fix is_final and order
+                updates = {}
+                if existing.get("is_final") != stage["is_final"]:
+                    updates["is_final"] = stage["is_final"]
+                if existing.get("order") != stage["order"]:
+                    updates["order"] = stage["order"]
+                if updates:
+                    await db.lead_stages.update_one({"stage_id": stage["stage_id"]}, {"$set": updates})
+                    fixed.append(f"{stage['name']}: {updates}")
+    
+    return {"message": "Migration complete", "added": added, "fixed": fixed}
 
 
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================
