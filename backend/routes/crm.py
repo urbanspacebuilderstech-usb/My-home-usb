@@ -2890,24 +2890,41 @@ async def assign_lead_to_next_user(stage_type: str) -> Optional[str]:
         index_field = "sales_current_index"
         role_name = "sales"
     
-    # Auto-detect team members from users collection if team is empty
+    # Validate team members actually exist and are active in the DB
+    if team:
+        valid_users = await db.users.find(
+            {"user_id": {"$in": team}, "role": role_name, "is_active": {"$ne": False}},
+            {"_id": 0, "user_id": 1}
+        ).to_list(100)
+        valid_ids = [u["user_id"] for u in valid_users]
+        if len(valid_ids) != len(team):
+            logger.info(f"Round-robin {role_name}: stale team detected ({len(team)} saved, {len(valid_ids)} valid). Auto-refreshing.")
+            team = valid_ids
+    
+    # Auto-detect team members from users collection if team is empty or all stale
     if not team:
         users = await db.users.find({"role": role_name, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(100)
         team = [u["user_id"] for u in users]
-        if team:
-            # Save discovered team to settings
-            team_field = f"{stage_type}_team"
-            await db.lead_distribution_settings.update_one(
-                {},
-                {"$set": {team_field: team, "updated_at": datetime.now(timezone.utc).isoformat()}},
-                upsert=True
-            )
+        logger.info(f"Round-robin {role_name}: auto-detected {len(team)} team members from users collection")
+    
+    # Save refreshed team to settings
+    if team:
+        team_field = f"{stage_type}_team"
+        await db.lead_distribution_settings.update_one(
+            {},
+            {"$set": {team_field: team, "updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True
+        )
     
     if not team:
+        logger.warning(f"Round-robin {role_name}: no team members found, cannot assign")
         return None
     
+    # Ensure index is within bounds
+    current_idx = current_idx % len(team)
+    
     # Get next user (round-robin)
-    assigned_user_id = team[current_idx % len(team)]
+    assigned_user_id = team[current_idx]
     next_idx = (current_idx + 1) % len(team)
     
     # Update index
@@ -2916,6 +2933,7 @@ async def assign_lead_to_next_user(stage_type: str) -> Optional[str]:
         {"$set": {index_field: next_idx, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
+    logger.info(f"Round-robin {role_name}: assigned to {assigned_user_id} (index {current_idx} -> {next_idx})")
     return assigned_user_id
 
 
@@ -3008,11 +3026,70 @@ async def refresh_distribution_teams(user: User = Depends(get_current_user)):
 
 
 
+@router.post("/crm/fix-unassigned-sales-leads")
+async def fix_unassigned_sales_leads(user: User = Depends(get_current_user)):
+    """Fix existing unassigned sales leads by assigning them via round-robin - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Find all unassigned sales leads
+    unassigned = await db.leads.find({
+        "stage_type": "sales",
+        "$or": [
+            {"assigned_to": None},
+            {"assigned_to": {"$exists": False}},
+            {"assigned_to": ""}
+        ]
+    }, {"_id": 0, "lead_id": 1, "name": 1}).to_list(1000)
+    
+    if not unassigned:
+        return {"message": "No unassigned sales leads found", "fixed": 0}
+    
+    fixed = 0
+    for lead in unassigned:
+        assigned_user_id = await assign_lead_to_next_user("sales")
+        if assigned_user_id:
+            assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0, "name": 1})
+            assigned_name = assigned_user.get("name") if assigned_user else None
+            await db.leads.update_one(
+                {"lead_id": lead["lead_id"]},
+                {"$set": {
+                    "assigned_to": assigned_user_id,
+                    "assigned_to_name": assigned_name,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+            fixed += 1
+    
+    return {"message": f"Fixed {fixed} unassigned sales leads", "fixed": fixed, "total_unassigned": len(unassigned)}
+
+
+
 @router.get("/marketing/dashboard")
 async def get_marketing_dashboard(user: User = Depends(get_current_user)):
     """Get Marketing Board dashboard - Super Admin can see all team performance"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    # Auto-refresh distribution settings to ensure team lists are up-to-date
+    pre_sales_users_all = await db.users.find({"role": "pre_sales", "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(100)
+    sales_users_all = await db.users.find({"role": "sales", "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(100)
+    current_settings = await get_distribution_settings()
+    saved_ps = set(current_settings.get("pre_sales_team", []))
+    saved_sales = set(current_settings.get("sales_team", []))
+    actual_ps = set(u["user_id"] for u in pre_sales_users_all)
+    actual_sales = set(u["user_id"] for u in sales_users_all)
+    if saved_ps != actual_ps or saved_sales != actual_sales:
+        await db.lead_distribution_settings.update_one(
+            {},
+            {"$set": {
+                "pre_sales_team": list(actual_ps),
+                "sales_team": list(actual_sales),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }},
+            upsert=True
+        )
+        logger.info(f"Marketing dashboard: auto-refreshed distribution teams (PS: {len(actual_ps)}, Sales: {len(actual_sales)})")
     
     # Get all pre-sales and sales team members
     pre_sales_users = await db.users.find({"role": "pre_sales"}, {"_id": 0}).to_list(100)
