@@ -455,12 +455,7 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     # Build query - filter by assigned_to for Pre-Sales users (not for Super Admin)
     base_query = {"stage_type": "pre_sales"}
     if user.role == "pre_sales":
-        base_query["$or"] = [
-            {"assigned_to": user.user_id},
-            {"assigned_to": None},
-            {"assigned_to": {"$exists": False}},
-            {"assigned_to": ""}
-        ]
+        base_query["assigned_to"] = user.user_id
     
     # Get lead counts per stage
     pipeline = [
@@ -617,25 +612,21 @@ async def get_pre_sales_leads(
     
     query = {"stage_type": "pre_sales"}
     
-    # Filter by assigned_to for Pre-Sales users — show own leads + unassigned leads
+    # Filter by assigned_to for Pre-Sales users — show ONLY their own leads
     if user.role == "pre_sales":
-        query["$or"] = [
-            {"assigned_to": user.user_id},
-            {"assigned_to": None},
-            {"assigned_to": {"$exists": False}},
-            {"assigned_to": ""}
-        ]
+        query["assigned_to"] = user.user_id
     
     if stage_id:
         query["current_stage_id"] = stage_id
     if source:
         query["source"] = source
     if search:
-        query["$or"] = [
+        search_conditions = [
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
             {"phone": {"$regex": search, "$options": "i"}}
         ]
+        query = {"$and": [query, {"$or": search_conditions}]}
     if date_from:
         query["created_at"] = {"$gte": datetime.fromisoformat(date_from.replace('Z', '+00:00'))}
     if date_to:
@@ -1846,12 +1837,7 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
     # Build query - filter by assigned_to for Sales users (not for Super Admin)
     base_query = {"stage_type": "sales"}
     if user.role == "sales":
-        base_query["$or"] = [
-            {"assigned_to": user.user_id},
-            {"assigned_to": None},
-            {"assigned_to": {"$exists": False}},
-            {"assigned_to": ""}
-        ]
+        base_query["assigned_to"] = user.user_id
     
     pipeline = [
         {"$match": base_query},
@@ -1940,23 +1926,20 @@ async def get_sales_leads(
     
     query = {"stage_type": "sales"}
     
-    # Filter by assigned_to for Sales users — show own leads + unassigned leads
+    # Filter by assigned_to for Sales users — show ONLY their own leads
     if user.role == "sales":
-        query["$or"] = [
-            {"assigned_to": user.user_id},
-            {"assigned_to": None},
-            {"assigned_to": {"$exists": False}},
-            {"assigned_to": ""}
-        ]
+        query["assigned_to"] = user.user_id
     
     if stage_id:
         query["current_stage_id"] = stage_id
     if search:
-        query["$or"] = [
+        search_conditions = [
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
             {"phone": {"$regex": search, "$options": "i"}}
         ]
+        # Use $and to combine with existing filters
+        query = {"$and": [query, {"$or": search_conditions}]}
     if has_re_project is not None:
         if has_re_project:
             query["re_project_id"] = {"$ne": None}
@@ -3028,25 +3011,24 @@ async def refresh_distribution_teams(user: User = Depends(get_current_user)):
 
 @router.post("/crm/fix-unassigned-sales-leads")
 async def fix_unassigned_sales_leads(user: User = Depends(get_current_user)):
-    """Fix existing unassigned sales leads by assigning them via round-robin - Super Admin only"""
+    """Fix existing unassigned leads by assigning them via round-robin - Super Admin only"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    # Find all unassigned sales leads
-    unassigned = await db.leads.find({
-        "stage_type": "sales",
-        "$or": [
-            {"assigned_to": None},
-            {"assigned_to": {"$exists": False}},
-            {"assigned_to": ""}
-        ]
-    }, {"_id": 0, "lead_id": 1, "name": 1}).to_list(1000)
+    unassigned_query = {"$or": [
+        {"assigned_to": None},
+        {"assigned_to": {"$exists": False}},
+        {"assigned_to": ""}
+    ]}
     
-    if not unassigned:
-        return {"message": "No unassigned sales leads found", "fixed": 0}
+    # Fix unassigned SALES leads
+    sales_unassigned = await db.leads.find(
+        {**unassigned_query, "stage_type": "sales"},
+        {"_id": 0, "lead_id": 1, "name": 1}
+    ).to_list(1000)
     
-    fixed = 0
-    for lead in unassigned:
+    sales_fixed = 0
+    for lead in sales_unassigned:
         assigned_user_id = await assign_lead_to_next_user("sales")
         if assigned_user_id:
             assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0, "name": 1})
@@ -3059,9 +3041,37 @@ async def fix_unassigned_sales_leads(user: User = Depends(get_current_user)):
                     "updated_at": datetime.now(timezone.utc)
                 }}
             )
-            fixed += 1
+            sales_fixed += 1
     
-    return {"message": f"Fixed {fixed} unassigned sales leads", "fixed": fixed, "total_unassigned": len(unassigned)}
+    # Fix unassigned PRE-SALES leads
+    presales_unassigned = await db.leads.find(
+        {**unassigned_query, "stage_type": "pre_sales"},
+        {"_id": 0, "lead_id": 1, "name": 1}
+    ).to_list(5000)
+    
+    presales_fixed = 0
+    for lead in presales_unassigned:
+        assigned_user_id = await assign_lead_to_next_user("pre_sales")
+        if assigned_user_id:
+            assigned_user = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0, "name": 1})
+            assigned_name = assigned_user.get("name") if assigned_user else None
+            await db.leads.update_one(
+                {"lead_id": lead["lead_id"]},
+                {"$set": {
+                    "assigned_to": assigned_user_id,
+                    "assigned_to_name": assigned_name,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
+            presales_fixed += 1
+    
+    return {
+        "message": f"Fixed {sales_fixed} sales + {presales_fixed} pre-sales unassigned leads",
+        "sales_fixed": sales_fixed,
+        "presales_fixed": presales_fixed,
+        "total_sales_unassigned": len(sales_unassigned),
+        "total_presales_unassigned": len(presales_unassigned)
+    }
 
 
 

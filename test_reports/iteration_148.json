@@ -1,0 +1,75 @@
+{
+  "summary": "Completed testing of Round-Robin lead visibility fix. All 29 backend tests passed (100%). The fix ensures Sales/Pre-Sales users ONLY see their own assigned leads, while Super Admin sees all leads. The fix-unassigned endpoint now handles both sales AND pre-sales leads.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Marketing Board",
+        "issues": ["Shows 'No Pre-Sales team members yet' and 'No Sales team members yet' even though team members exist in the system. Lead Distribution Engine shows 'Disabled'."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lead_visibility_fix.py",
+    "/app/backend/tests/test_round_robin_assignment.py",
+    "/app/test_reports/pytest/pytest_lead_visibility_fix.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "The lead visibility fix correctly implements strict assigned_to filtering for sales/pre-sales users",
+    "Search now uses $and to combine filters instead of overwriting the assigned_to filter",
+    "Fix-unassigned endpoint handles both sales and pre-sales leads"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lead_visibility_fix.py",
+    "/app/backend/tests/test_round_robin_assignment.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "100%"
+  },
+  "test_credentials": "admin@constructionos.com / Demo@1234",
+  "seed_data_creation": "Created test leads with prefix TEST_VIS_ and TEST_RR_ for visibility and round-robin testing",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Lead visibility fix verified. Key changes: 1) Sales/Pre-Sales users now see ONLY their own assigned leads (strict assigned_to filter), 2) Super Admin sees ALL leads (no filter), 3) Search uses $and to combine filters, 4) Fix-unassigned endpoint handles both sales AND pre-sales leads. Tests: test_lead_visibility_fix.py (18 tests) and test_round_robin_assignment.py (11 tests) all pass.",
+  "tests_passed": {
+    "backend": [
+      "test_01_admin_login - Login with admin credentials",
+      "test_02_get_sales_and_presales_users - Get list of sales and pre-sales users",
+      "test_03_admin_sees_all_sales_leads - Super Admin sees ALL sales leads",
+      "test_04_admin_sees_all_presales_leads - Super Admin sees ALL pre-sales leads",
+      "test_05_create_test_sales_leads_for_specific_users - Create test leads for specific users",
+      "test_06_sales_dashboard_filtered_by_user - Sales dashboard is_filtered=false for admin",
+      "test_07_presales_dashboard_filtered_by_user - Pre-Sales dashboard is_filtered=false for admin",
+      "test_08_fix_unassigned_endpoint_handles_both_types - Fix endpoint handles sales AND pre-sales",
+      "test_09_marketing_dashboard_shows_team_stats - Marketing dashboard returns team stats",
+      "test_10_search_respects_user_filter - Search works with user filter",
+      "test_11_verify_round_robin_on_new_sales_lead - New sales lead auto-assigned via round-robin",
+      "test_12_verify_distribution_settings - Distribution settings have valid team members",
+      "test_13_verify_leads_have_assigned_to - Sales leads have assigned_to populated",
+      "test_14_verify_presales_leads_have_assigned_to - Pre-Sales leads have assigned_to populated",
+      "test_round_robin_assignment tests (11 tests) - All passed"
+    ],
+    "frontend": [
+      "Login page loads correctly with Demo Access tab",
+      "Dashboard loads after demo login",
+      "Marketing Board loads with Lead Distribution Engine",
+      "Pre-Sales CRM loads with Kanban board and stage columns",
+      "Sales CRM tab navigation works"
+    ]
+  },
+  "verified_fixes": [
+    "Sales users see ONLY their own assigned leads (strict assigned_to filter)",
+    "Pre-Sales users see ONLY their own assigned leads (strict assigned_to filter)",
+    "Super Admin sees ALL leads (no assigned_to filter)",
+    "Search uses $and to combine filters (doesn't overwrite assigned_to)",
+    "Fix-unassigned endpoint handles both sales AND pre-sales leads",
+    "Round-robin auto-assigns new leads correctly"
+  ]
+}

@@ -232,13 +232,17 @@ class TestRoundRobinAssignment:
         data = response.json()
         
         assert "message" in data, "Missing message in response"
-        assert "fixed" in data, "Missing fixed count in response"
+        assert "sales_fixed" in data, "Missing sales_fixed count in response"
+        assert "presales_fixed" in data, "Missing presales_fixed count in response"
         
         print(f"Fix unassigned leads result: {data.get('message')}")
-        print(f"Fixed: {data.get('fixed')} leads")
+        print(f"Sales fixed: {data.get('sales_fixed')} leads")
+        print(f"Pre-Sales fixed: {data.get('presales_fixed')} leads")
         
-        if data.get("total_unassigned"):
-            print(f"Total unassigned found: {data.get('total_unassigned')}")
+        if data.get("total_sales_unassigned"):
+            print(f"Total sales unassigned found: {data.get('total_sales_unassigned')}")
+        if data.get("total_presales_unassigned"):
+            print(f"Total pre-sales unassigned found: {data.get('total_presales_unassigned')}")
     
     def test_08_marketing_dashboard_auto_refresh(self):
         """Test GET /api/marketing/dashboard auto-refreshes distribution settings and returns team stats"""
