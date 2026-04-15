@@ -3433,12 +3433,15 @@ async def sheets_oauth_login(request: Request, user: User = Depends(get_current_
     if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
         raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Please add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env")
     
-    # Build redirect_uri dynamically from the request origin
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
-    scheme = request.headers.get("x-forwarded-proto") or "https"
-    dynamic_redirect_uri = f"{scheme}://{host}/api/oauth/sheets/callback"
-    # Fallback to .env if host detection fails
-    redirect_uri = dynamic_redirect_uri if host else GOOGLE_SHEETS_REDIRECT_URI
+    # Build redirect_uri from FRONTEND_URL (which is set per environment)
+    frontend_url = os.environ.get('FRONTEND_URL', '')
+    if frontend_url:
+        redirect_uri = f"{frontend_url}/api/oauth/sheets/callback"
+    else:
+        # Fallback: try dynamic detection from request headers
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        scheme = request.headers.get("x-forwarded-proto") or "https"
+        redirect_uri = f"{scheme}://{host}/api/oauth/sheets/callback" if host else GOOGLE_SHEETS_REDIRECT_URI
     logger.info(f"Sheets OAuth login: using redirect_uri={redirect_uri}")
     
     flow = Flow.from_client_config({
