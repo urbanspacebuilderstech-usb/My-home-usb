@@ -455,7 +455,12 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
     # Build query - filter by assigned_to for Pre-Sales users (not for Super Admin)
     base_query = {"stage_type": "pre_sales"}
     if user.role == "pre_sales":
-        base_query["assigned_to"] = user.user_id
+        base_query["$or"] = [
+            {"assigned_to": user.user_id},
+            {"assigned_to": None},
+            {"assigned_to": {"$exists": False}},
+            {"assigned_to": ""}
+        ]
     
     # Get lead counts per stage
     pipeline = [
@@ -612,9 +617,14 @@ async def get_pre_sales_leads(
     
     query = {"stage_type": "pre_sales"}
     
-    # Filter by assigned_to for Pre-Sales users (not for Super Admin/CRE)
+    # Filter by assigned_to for Pre-Sales users — show own leads + unassigned leads
     if user.role == "pre_sales":
-        query["assigned_to"] = user.user_id
+        query["$or"] = [
+            {"assigned_to": user.user_id},
+            {"assigned_to": None},
+            {"assigned_to": {"$exists": False}},
+            {"assigned_to": ""}
+        ]
     
     if stage_id:
         query["current_stage_id"] = stage_id
@@ -1824,7 +1834,12 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
     # Build query - filter by assigned_to for Sales users (not for Super Admin)
     base_query = {"stage_type": "sales"}
     if user.role == "sales":
-        base_query["assigned_to"] = user.user_id
+        base_query["$or"] = [
+            {"assigned_to": user.user_id},
+            {"assigned_to": None},
+            {"assigned_to": {"$exists": False}},
+            {"assigned_to": ""}
+        ]
     
     pipeline = [
         {"$match": base_query},
@@ -1913,9 +1928,14 @@ async def get_sales_leads(
     
     query = {"stage_type": "sales"}
     
-    # Filter by assigned_to for Sales users (not for Super Admin/CRE)
+    # Filter by assigned_to for Sales users — show own leads + unassigned leads
     if user.role == "sales":
-        query["assigned_to"] = user.user_id
+        query["$or"] = [
+            {"assigned_to": user.user_id},
+            {"assigned_to": None},
+            {"assigned_to": {"$exists": False}},
+            {"assigned_to": ""}
+        ]
     
     if stage_id:
         query["current_stage_id"] = stage_id

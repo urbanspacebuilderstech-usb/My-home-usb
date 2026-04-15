@@ -1,0 +1,97 @@
+{
+  "summary": "Comprehensive testing of CRM Pre-Sales to Sales transfer workflow, dashboard features, date filters, and HR Portal features. All core features working correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "presales_to_sales_transfer": {
+      "status": "PASS",
+      "details": "Created Pre-Sales lead 'TEST_Transfer_Lead_abc123', moved to 'Appointment Booked' stage, successfully transferred to Sales 'New Appointment' stage (lead_be608c48b9ec). Transfer includes appointment details and 'From Pre-Sales' badge."
+    },
+    "presales_dashboard": {
+      "status": "PASS",
+      "details": "Pre-Sales dashboard shows 913 total leads with correct stage counts: New Lead (904), Contacted (0), RNR (0), New RNR Leads (0), Portfolio sent (0), Follow-up (2), Appointment Booked (7)"
+    },
+    "sales_dashboard": {
+      "status": "PASS",
+      "details": "Sales dashboard shows 17 total leads with stages: New Appointment (6), Follow-up (2), Discussion (1), Site Visit (0), Site Visit Client Land (1), Site Visit Our Projects (0)"
+    },
+    "presales_date_filter": {
+      "status": "PASS",
+      "details": "Pre-Sales date filter shows 'mm/dd/yyyy' placeholder (empty) - NOT defaulting to today. All leads visible without date filter."
+    },
+    "sales_date_filter": {
+      "status": "PASS",
+      "details": "Sales date filter shows 'mm/dd/yyyy' placeholder (empty) - NOT defaulting to today. All leads visible without date filter."
+    },
+    "presales_leads_unassigned": {
+      "status": "PASS",
+      "details": "Pre-Sales leads endpoint returns 500 leads including unassigned leads (verified via API)"
+    },
+    "sales_leads_unassigned": {
+      "status": "PASS",
+      "details": "Sales leads endpoint returns leads including unassigned leads (verified via API)"
+    },
+    "migrate_stages_endpoint": {
+      "status": "PASS",
+      "details": "POST /api/crm/migrate-stages endpoint works correctly - adds missing stages and fixes is_final flag"
+    },
+    "hr_portal_employees_tab": {
+      "status": "PASS",
+      "details": "HR Portal Employees tab shows 'Active Employees (0)' and 'Left Employees (0)' toggle buttons with sort filter 'Name (A to Z)'"
+    },
+    "hr_portal_add_employee_dialog": {
+      "status": "PASS",
+      "details": "Add Employee dialog has tabs: Personal, Employment, ID & Docs, Address & Emergency, Salary & Bank. Department and Designation dropdowns available in Employment tab."
+    },
+    "hr_portal_settings_sync_key": {
+      "status": "PASS",
+      "details": "HR Portal Settings tab shows 'Biometric Sync Key (eSSL)' section with 'Generate Sync Key' and 'Revoke Existing Key' buttons, plus 7-step setup instructions"
+    },
+    "crm_stages_configuration": {
+      "status": "PASS",
+      "details": "Pre-Sales stages include: New Lead, Contacted, RNR, New RNR Leads, Portfolio sent, Follow-up, Appointment Booked (is_final=true). Sales stages include: New Appointment, Follow-up, Discussion, Site Visit, etc."
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_crm_presales_sales_transfer.py",
+    "/app/test_reports/pytest/pytest_presales_sales_transfer.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_crm_presales_sales_transfer.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 tests passed for core features)",
+    "frontend": "100% (all UI features verified)"
+  },
+  "test_credentials": {
+    "presales": "presales@constructionos.com / Demo@1234",
+    "sales": "sales@constructionos.com / Demo@1234",
+    "admin": "admin@constructionos.com / Demo@1234",
+    "hr": "hr@constructionos.com / Demo@1234"
+  },
+  "seed_data_creation": "Created test lead 'TEST_Transfer_Lead_abc123' which was transferred to Sales as 'lead_be608c48b9ec'",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All CRM Pre-Sales to Sales transfer features working correctly. Date filters no longer default to today. Unassigned leads are visible in both Pre-Sales and Sales dashboards. HR Portal has Active/Left Employees toggle, Department/Designation dropdowns, and Biometric Sync Key section for Super Admin.",
+  "features_tested": [
+    "Pre-Sales → Sales transfer: Create lead, move to 'Appointment Booked', verify in Sales 'New Appointment' stage",
+    "Pre-Sales dashboard shows correct stage counts including unassigned leads",
+    "Sales dashboard shows correct stage counts including unassigned leads",
+    "Sales leads endpoint returns leads for sales user including unassigned",
+    "Pre-Sales leads endpoint returns leads for pre_sales user including unassigned",
+    "Date filter NOT defaulting to today (empty by default)",
+    "HR Portal: Employees tab shows 'Active Employees' and 'Left Employees' toggle with sort filters",
+    "HR Portal: Add Employee dialog has Department dropdown (9 items) and Designation dropdown",
+    "HR Portal: Settings tab shows 'Biometric Sync Key' section for Super Admin",
+    "Migration endpoint POST /api/crm/migrate-stages adds missing stages"
+  ]
+}
