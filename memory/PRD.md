@@ -42,6 +42,7 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 - 🔴 [P0] PaySprint escrow integration (waiting for API credentials)
 - 🔴 [P0] Unified Attendance (SE GPS + Biometric + Manual Punch + Leave CL/SL)
 - 🔴 [P0] Automated Payroll
+- 🔴 [P0] RNR Count Tracker & Appointment Date Filter (in progress)
 - 🟡 [P1] Refactor bloated files (ProjectDetail.jsx 5600+, CRMSales.jsx 2400+, HRPortal.jsx 1600+)
 - 🔵 [P2] Sr. Engineer → Jr. Engineer assignment
 - 🔵 [P2] Aadhar Document Upload
@@ -50,10 +51,15 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## Key API Endpoints
 - POST /api/crm/migrate-stages — Fix missing stages in production
+- POST /api/crm/fix-unassigned-sales-leads — Fix unassigned sales leads via round-robin
 - POST /api/hr/attendance/essl-sync — Biometric sync
 - GET /api/hr/terminated-staff — Left employees with leave history
 - DELETE /api/hr/staff/{id}/permanent — Permanent delete
 - POST /api/hr/attendance/generate-sync-key — Generate eSSL sync key
+- GET /api/marketing/dashboard — Marketing overview (auto-refreshes distribution)
+- POST /api/marketing/distribution-settings/refresh — Refresh team members
 
 ## Test Reports
 - /app/test_reports/iteration_144.json (100% pass rate)
+- /app/test_reports/iteration_146.json (100% pass rate)
+- /app/test_reports/iteration_147.json (100% pass rate)
