@@ -308,6 +308,11 @@ async def get_default_pre_sales_stages():
                 await db.lead_stages.insert_one(m)
                 stages.append(m)
         stages.sort(key=lambda x: x.get("order", 99))
+    # Ensure Appointment Booked has is_final=True (critical for Pre-Sales → Sales transfer)
+    await db.lead_stages.update_one(
+        {"stage_id": "stg_appointment", "stage_type": "pre_sales"},
+        {"$set": {"is_final": True}}
+    )
     return stages
 
 
@@ -880,7 +885,9 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     result = {"message": "Lead stage updated", "new_stage": stage["name"]}
     
     # TRIGGER: Pre-Sales final stage -> Transfer to Sales CRM
-    if lead["stage_type"] == "pre_sales" and stage.get("is_final") and not lead.get("transferred_to_lead_id"):
+    # Check by stage_id OR is_final flag for robustness
+    is_presales_final = lead["stage_type"] == "pre_sales" and (stage.get("is_final") or data.stage_id == "stg_appointment")
+    if is_presales_final and not lead.get("transferred_to_lead_id"):
         # Auto-transfer to Sales
         sales_stages = await get_default_sales_stages()
         first_sales_stage = sales_stages[0] if sales_stages else {"stage_id": "stg_new_appt"}

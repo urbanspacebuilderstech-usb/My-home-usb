@@ -113,7 +113,7 @@ export default function CRMSales() {
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
   
   // Follow-up date filter
-  const [followupDateFilter, setFollowupDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [followupDateFilter, setFollowupDateFilter] = useState('');
   const [followupDateEnd, setFollowupDateEnd] = useState('');
   const [followupDialog, setFollowupDialog] = useState(false);
   const [followupLeadId, setFollowupLeadId] = useState(null);
