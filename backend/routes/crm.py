@@ -3425,13 +3425,21 @@ async def get_sheets_config(user: User = Depends(get_current_user)):
 
 
 @router.get("/sheets/oauth/login")
-async def sheets_oauth_login(user: User = Depends(get_current_user)):
+async def sheets_oauth_login(request: Request, user: User = Depends(get_current_user)):
     """Start Google Sheets OAuth flow"""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
         raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Please add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env")
+    
+    # Build redirect_uri dynamically from the request origin
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    scheme = request.headers.get("x-forwarded-proto") or "https"
+    dynamic_redirect_uri = f"{scheme}://{host}/api/oauth/sheets/callback"
+    # Fallback to .env if host detection fails
+    redirect_uri = dynamic_redirect_uri if host else GOOGLE_SHEETS_REDIRECT_URI
+    logger.info(f"Sheets OAuth login: using redirect_uri={redirect_uri}")
     
     flow = Flow.from_client_config({
         "web": {
@@ -3440,17 +3448,18 @@ async def sheets_oauth_login(user: User = Depends(get_current_user)):
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
-    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=GOOGLE_SHEETS_REDIRECT_URI)
+    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
     
     url, state = flow.authorization_url(
         access_type='offline',
         prompt='consent'
     )
     
-    # Save state with user_id for callback
+    # Save state with user_id and redirect_uri for callback
     await db.oauth_states.insert_one({
         "state": state,
         "user_id": user.user_id,
+        "redirect_uri": redirect_uri,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     })
@@ -3467,6 +3476,8 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     
     user_id = state_doc["user_id"]
+    # Use the same redirect_uri that was used during login
+    redirect_uri = state_doc.get("redirect_uri", GOOGLE_SHEETS_REDIRECT_URI)
     await db.oauth_states.delete_one({"state": state})
     
     if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
@@ -3476,6 +3487,8 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
     import os as _os
     _os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
     
+    logger.info(f"Sheets OAuth callback: using redirect_uri={redirect_uri}")
+    
     flow = Flow.from_client_config({
         "web": {
             "client_id": GOOGLE_SHEETS_CLIENT_ID,
@@ -3483,7 +3496,7 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
-    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=GOOGLE_SHEETS_REDIRECT_URI)
+    }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
     
     try:
         flow.fetch_token(code=code)
@@ -3518,8 +3531,10 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         upsert=True
     )
     
-    # Redirect back to marketing board
-    frontend_url = os.environ.get('FRONTEND_URL', request.base_url.scheme + '://' + request.base_url.netloc.replace(':8001', ':3000'))
+    # Redirect back to marketing board - use the request origin for dynamic redirect
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    scheme = request.headers.get("x-forwarded-proto") or "https"
+    frontend_url = f"{scheme}://{host}" if host else os.environ.get('FRONTEND_URL', '')
     return RedirectResponse(f"{frontend_url}/marketing-board?sheets_connected=true")
 
 
