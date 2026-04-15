@@ -889,6 +889,18 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         update["lost_at"] = datetime.now(timezone.utc)
         update["lost_by"] = user.user_id
     
+    # RNR: Auto-increment rnr_count when moved to RNR or New RNR Leads
+    if data.stage_id in ["stg_rnr", "stg_new_rnr"]:
+        rnr_count = lead.get("rnr_count", 0) + 1
+        update["rnr_count"] = rnr_count
+    
+    # Appointment Booked: store appointment date
+    if data.stage_id == "stg_appointment":
+        if data.appointment_date:
+            update["appointment_date"] = data.appointment_date
+        if data.appointment_time:
+            update["appointment_time"] = data.appointment_time
+    
     await db.leads.update_one({"lead_id": lead_id}, {"$set": update})
     
     # Check for special stage triggers

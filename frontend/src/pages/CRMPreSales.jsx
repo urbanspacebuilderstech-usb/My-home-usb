@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { 
-  Users, LogOut, Plus, Search, Upload, Phone, Mail, MapPin, Calendar, 
+  Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
   LayoutGrid, List, MoreVertical, Bell
@@ -921,8 +921,13 @@ export default function CRMPreSales() {
                         )}
                         
                         {/* Show if has remarks or follow-ups */}
-                        {(lead.remarks?.length > 0 || lead.follow_ups?.length > 0) && (
-                          <div className="flex gap-1 mt-2">
+                        {(lead.remarks?.length > 0 || lead.follow_ups?.length > 0 || lead.rnr_count > 0) && (
+                          <div className="flex gap-1 mt-2 flex-wrap">
+                            {lead.rnr_count > 0 && (
+                              <Badge variant="outline" className="text-xs text-red-600 border-red-300 bg-red-50" data-testid={`rnr-count-${lead.lead_id}`}>
+                                <PhoneOff className="h-3 w-3 mr-1" /> RNR: {lead.rnr_count}
+                              </Badge>
+                            )}
                             {lead.remarks?.length > 0 && (
                               <Badge variant="outline" className="text-xs">
                                 <MessageSquare className="h-3 w-3 mr-1" /> {lead.remarks.length}
