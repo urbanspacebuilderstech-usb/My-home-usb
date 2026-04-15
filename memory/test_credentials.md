@@ -2,7 +2,10 @@
 
 ## Super Admin
 - Email: admin@constructionos.com
-- Password: Demo@1234
+- Password: USB@123.26 (production) / Demo@1234 (demo access)
+
+## Demo Access
+- Available via "Demo Access" tab on login page
 
 ## App URL
 - Frontend: https://crm-onboard-flow.preview.emergentagent.com
