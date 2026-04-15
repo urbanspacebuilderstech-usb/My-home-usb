@@ -1,0 +1,91 @@
+{
+  "summary": "Comprehensive testing of round-robin lead assignment and Pre-Sales → Sales transfer flow. All 11 tests passed (100% success rate).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "refresh_distribution_teams": {
+      "status": "PASS",
+      "details": "POST /api/marketing/distribution-settings/refresh successfully refreshes team lists. Pre-Sales: Kavitha Nair, Karthik Reddy. Sales: Ravi Sales, Divya Pillai."
+    },
+    "get_distribution_settings": {
+      "status": "PASS",
+      "details": "GET /api/marketing/distribution-settings returns current settings with team details, current indices, and enabled status."
+    },
+    "round_robin_presales_assignment": {
+      "status": "PASS",
+      "details": "CRE creates 4 leads - leads alternate correctly: Lead 1 → Kavitha Nair, Lead 2 → Karthik Reddy, Lead 3 → Kavitha Nair, Lead 4 → Karthik Reddy."
+    },
+    "presales_to_sales_transfer": {
+      "status": "PASS",
+      "details": "Pre-Sales lead moved to 'Appointment Booked' stage triggers automatic transfer to Sales CRM. New Sales lead created in 'New Appointment' stage with round-robin assignment to sales team."
+    },
+    "sales_user_sees_leads": {
+      "status": "PASS",
+      "details": "Sales user (sales@constructionos.com) can see 25 leads including assigned leads. Endpoint correctly filters by assigned_to OR unassigned."
+    },
+    "sales_dashboard_counts": {
+      "status": "PASS",
+      "details": "Sales dashboard shows 25 total leads with correct stage counts: New Appointment (14), Follow-up (2), Discussion (1), Site Visit Client Land (1), RE-From Planning (1), Negotiation (1), Project Onboarded (2)."
+    },
+    "presales_user_sees_leads": {
+      "status": "PASS",
+      "details": "Pre-Sales user can see 500 leads (own + unassigned). Endpoint correctly filters by assigned_to OR unassigned."
+    },
+    "presales_dashboard_all_stages": {
+      "status": "PASS",
+      "details": "Pre-Sales dashboard shows all 7 stages: New Lead (913), Contacted (0), RNR (0), New RNR Leads (0), Portfolio sent (0), Follow-up (2), Appointment Booked (18)."
+    },
+    "multiple_transfers_round_robin": {
+      "status": "PASS",
+      "details": "4 Pre-Sales leads transferred to Sales with round-robin: Transfer 1 → Divya Pillai, Transfer 2 → Ravi Sales, Transfer 3 → Divya Pillai, Transfer 4 → Ravi Sales."
+    },
+    "access_control_refresh": {
+      "status": "PASS",
+      "details": "Non-admin users (CRE) correctly denied access to POST /api/marketing/distribution-settings/refresh (403 Forbidden)."
+    },
+    "access_control_get_settings": {
+      "status": "PASS",
+      "details": "Non-admin users (CRE) correctly denied access to GET /api/marketing/distribution-settings (403 Forbidden)."
+    }
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_round_robin_assignment.py",
+    "/app/test_reports/pytest/pytest_round_robin_assignment.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [
+    "/app/backend/tests/test_round_robin_assignment.py"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 tests passed)"
+  },
+  "test_credentials": {
+    "admin": "admin@constructionos.com / Demo@1234",
+    "cre": "cre@constructionos.com / Demo@1234",
+    "presales": "presales@constructionos.com / Demo@1234",
+    "sales": "sales@constructionos.com / Demo@1234"
+  },
+  "seed_data_creation": "Created test leads with prefix TEST_RR_Lead_, TEST_Transfer_, TEST_MultiTransfer_ for round-robin testing",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Round-robin lead assignment working correctly. Pre-Sales team: Kavitha Nair, Karthik Reddy. Sales team: Ravi Sales, Divya Pillai. Pre-Sales → Sales transfer creates new lead in 'New Appointment' stage with round-robin assignment. Both Pre-Sales and Sales users can see their assigned leads + unassigned leads. All 7 Pre-Sales stages visible including 'New RNR Leads'.",
+  "features_tested": [
+    "POST /api/marketing/distribution-settings/refresh - Refreshes team lists from users collection",
+    "GET /api/marketing/distribution-settings - Returns current distribution settings with team details",
+    "Round-robin Pre-Sales assignment: CRE creates leads, leads alternate between pre_sales team members",
+    "Round-robin Sales transfer: Pre-Sales lead moved to 'Appointment Booked' creates Sales lead with round-robin assignment",
+    "Sales user visibility: GET /api/crm/sales/leads returns assigned + unassigned leads",
+    "Sales dashboard: GET /api/crm/sales/dashboard includes all leads for sales users",
+    "Pre-Sales user visibility: GET /api/crm/pre-sales/leads returns own + unassigned leads",
+    "Pre-Sales dashboard: GET /api/crm/pre-sales/dashboard shows all stages including 'New RNR Leads'",
+    "Access control: Non-admin users denied access to distribution settings endpoints"
+  ]
+}

@@ -2871,10 +2871,25 @@ async def assign_lead_to_next_user(stage_type: str) -> Optional[str]:
         team = settings.get("pre_sales_team", [])
         current_idx = settings.get("pre_sales_current_index", 0)
         index_field = "pre_sales_current_index"
+        role_name = "pre_sales"
     else:
         team = settings.get("sales_team", [])
         current_idx = settings.get("sales_current_index", 0)
         index_field = "sales_current_index"
+        role_name = "sales"
+    
+    # Auto-detect team members from users collection if team is empty
+    if not team:
+        users = await db.users.find({"role": role_name, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(100)
+        team = [u["user_id"] for u in users]
+        if team:
+            # Save discovered team to settings
+            team_field = f"{stage_type}_team"
+            await db.lead_distribution_settings.update_one(
+                {},
+                {"$set": {team_field: team, "updated_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True
+            )
     
     if not team:
         return None
@@ -2947,6 +2962,38 @@ async def update_distribution_settings(data: UpdateDistributionSettings, user: U
     await db.lead_distribution_settings.update_one({}, {"$set": update_dict})
     
     return {"message": "Distribution settings updated"}
+
+
+@router.post("/marketing/distribution-settings/refresh")
+async def refresh_distribution_teams(user: User = Depends(get_current_user)):
+    """Auto-detect and refresh team members from users collection"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    pre_sales_users = await db.users.find({"role": "pre_sales", "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(100)
+    sales_users = await db.users.find({"role": "sales", "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1, "name": 1}).to_list(100)
+    
+    pre_sales_team = [u["user_id"] for u in pre_sales_users]
+    sales_team = [u["user_id"] for u in sales_users]
+    
+    await db.lead_distribution_settings.update_one(
+        {},
+        {"$set": {
+            "pre_sales_team": pre_sales_team,
+            "sales_team": sales_team,
+            "pre_sales_current_index": 0,
+            "sales_current_index": 0,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }},
+        upsert=True
+    )
+    
+    return {
+        "message": "Teams refreshed",
+        "pre_sales_team": [{"user_id": u["user_id"], "name": u["name"]} for u in pre_sales_users],
+        "sales_team": [{"user_id": u["user_id"], "name": u["name"]} for u in sales_users]
+    }
+
 
 
 @router.get("/marketing/dashboard")
