@@ -38,7 +38,8 @@ const DESIGNATIONS = [
   'Accounts Manager', 'Senior Accountant', 'Accountant', 'Junior Accountant',
   'Purchase Manager', 'Purchase Executive', 'Assistant Purchase Executive', 'Procurement Officer',
   'Quality Manager', 'Quality Checking Incharge', 'Quality Checking Engineer',
-  'HR Manager', 'HR Executive', 'HR Junior Executive'
+  'HR Manager', 'HR Executive', 'HR Junior Executive',
+  'Driver'
 ];
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
 const GENDERS = ['Male', 'Female', 'Other'];
