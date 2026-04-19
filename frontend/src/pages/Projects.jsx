@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Plus, Building2, LogOut, ArrowLeft } from 'lucide-react';
+import { Plus, Building2, LogOut, ArrowLeft, Calendar, Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +29,57 @@ export default function Projects() {
     expected_completion: '',
     status: 'planning'
   });
+
+  // Date Filters
+  const [filterMonth, setFilterMonth] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const MONTHS = [
+    { value: '0', label: 'January' }, { value: '1', label: 'February' },
+    { value: '2', label: 'March' }, { value: '3', label: 'April' },
+    { value: '4', label: 'May' }, { value: '5', label: 'June' },
+    { value: '6', label: 'July' }, { value: '7', label: 'August' },
+    { value: '8', label: 'September' }, { value: '9', label: 'October' },
+    { value: '10', label: 'November' }, { value: '11', label: 'December' }
+  ];
+
+  const currentYear = new Date().getFullYear();
+  const YEARS = Array.from({ length: 10 }, (_, i) => String(currentYear - 5 + i));
+
+  const hasActiveFilters = filterMonth || filterYear || filterDateFrom || filterDateTo || filterStatus;
+
+  const clearFilters = () => {
+    setFilterMonth('');
+    setFilterYear('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setFilterStatus('');
+  };
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter(p => {
+      const startDate = p.start_date ? new Date(p.start_date) : null;
+      
+      if (filterMonth && startDate) {
+        if (startDate.getMonth() !== parseInt(filterMonth)) return false;
+      }
+      if (filterYear && startDate) {
+        if (startDate.getFullYear() !== parseInt(filterYear)) return false;
+      }
+      if (filterDateFrom && startDate) {
+        if (startDate < new Date(filterDateFrom)) return false;
+      }
+      if (filterDateTo && startDate) {
+        if (startDate > new Date(filterDateTo + 'T23:59:59')) return false;
+      }
+      if (filterStatus && p.status !== filterStatus) return false;
+      
+      return true;
+    });
+  }, [projects, filterMonth, filterYear, filterDateFrom, filterDateTo, filterStatus]);
 
   useEffect(() => {
     fetchUser();
@@ -238,17 +289,104 @@ export default function Projects() {
           )}
         </div>
 
+        {/* Date Filters */}
+        <div className="mb-4 sm:mb-6" data-testid="project-filters">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5 text-sm text-gray-600">
+              <Filter className="h-4 w-4" />
+              <span className="font-medium hidden sm:inline">Filters:</span>
+            </div>
+            
+            {/* Month Filter */}
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger data-testid="filter-month" className="w-[120px] sm:w-[140px] h-9 text-sm">
+                <SelectValue placeholder="Month" />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTHS.map(m => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Year Filter */}
+            <Select value={filterYear} onValueChange={setFilterYear}>
+              <SelectTrigger data-testid="filter-year" className="w-[100px] sm:w-[110px] h-9 text-sm">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {YEARS.map(y => (
+                  <SelectItem key={y} value={y}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Date Range */}
+            <div className="flex items-center gap-1.5">
+              <Input
+                data-testid="filter-date-from"
+                type="date"
+                value={filterDateFrom}
+                onChange={(e) => setFilterDateFrom(e.target.value)}
+                className="w-[130px] sm:w-[150px] h-9 text-sm"
+                placeholder="From"
+              />
+              <span className="text-gray-400 text-sm">to</span>
+              <Input
+                data-testid="filter-date-to"
+                type="date"
+                value={filterDateTo}
+                onChange={(e) => setFilterDateTo(e.target.value)}
+                className="w-[130px] sm:w-[150px] h-9 text-sm"
+                placeholder="To"
+              />
+            </div>
+
+            {/* Status Filter */}
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger data-testid="filter-status" className="w-[120px] sm:w-[130px] h-9 text-sm">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="planning">Planning</SelectItem>
+                <SelectItem value="in_planning">In Planning</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Clear Filters */}
+            {hasActiveFilters && (
+              <Button
+                data-testid="clear-filters-btn"
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="h-9 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 gap-1"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </Button>
+            )}
+
+            {/* Results Count */}
+            <span className="text-xs text-gray-500 ml-auto">
+              {filteredProjects.length} of {projects.length} projects
+            </span>
+          </div>
+        </div>
+
         <Card>
           <CardContent className="p-0">
             {/* Mobile Card View */}
             <div className="block sm:hidden divide-y divide-gray-200">
-              {projects.length === 0 ? (
+              {filteredProjects.length === 0 ? (
                 <div className="px-4 py-8 text-center text-gray-500">
-                  <p className="font-semibold mb-2">No projects yet</p>
-                  <p className="text-sm">Create your first project to get started</p>
+                  <p className="font-semibold mb-2">{hasActiveFilters ? 'No projects match filters' : 'No projects yet'}</p>
+                  <p className="text-sm">{hasActiveFilters ? 'Try adjusting your filters' : 'Create your first project to get started'}</p>
                 </div>
               ) : (
-                projects.map((project) => (
+                filteredProjects.map((project) => (
                   <div
                     key={project.project_id}
                     data-testid={`project-card-mobile-${project.project_id}`}
@@ -301,17 +439,17 @@ export default function Projects() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {projects.length === 0 ? (
+                  {filteredProjects.length === 0 ? (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center">
                         <div className="text-gray-500">
-                          <p className="text-lg font-semibold mb-2">No projects yet</p>
-                          <p className="text-sm">Create your first project to get started</p>
+                          <p className="text-lg font-semibold mb-2">{hasActiveFilters ? 'No projects match filters' : 'No projects yet'}</p>
+                          <p className="text-sm">{hasActiveFilters ? 'Try adjusting your filters' : 'Create your first project to get started'}</p>
                         </div>
                       </td>
                     </tr>
                   ) : (
-                    projects.map((project) => (
+                    filteredProjects.map((project) => (
                       <tr
                         key={project.project_id}
                         data-testid={`project-row-${project.project_id}`}
