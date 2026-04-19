@@ -142,6 +142,11 @@ export default function HRPortal() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  // CSV Import
+  const [importDialog, setImportDialog] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importing, setImporting] = useState(false);
+
   // Attendance state
   const [attMonth, setAttMonth] = useState(new Date().getMonth() + 1);
   const [attYear, setAttYear] = useState(new Date().getFullYear());
@@ -226,6 +231,57 @@ export default function HRPortal() {
 
   // ============ EMPLOYEE HANDLERS ============
   const openAddEmployee = () => { setSelectedStaff(null); setStaffForm(getEmptyForm()); setExpandedSection('personal'); setStaffDialog(true); };
+  
+  // CSV Import handlers
+  const handleCSVUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) { toast.error('CSV file is empty or has no data rows'); return; }
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        const row = {};
+        headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+        if (row.name) rows.push(row);
+      }
+      setImportData(rows);
+      toast.success(`Parsed ${rows.length} employees from CSV`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBulkImport = async () => {
+    if (!importData.length) return;
+    setImporting(true);
+    try {
+      const res = await axios.post(`${API}/hr/staff/bulk-import`, { employees: importData });
+      toast.success(`Imported ${res.data.imported} employees`);
+      if (res.data.errors?.length) {
+        res.data.errors.forEach(err => toast.error(err));
+      }
+      setImportDialog(false);
+      setImportData([]);
+      fetchStaff();
+    } catch (err) {
+      toast.error('Import failed: ' + (err.response?.data?.detail || err.message));
+    }
+    setImporting(false);
+  };
+
+  const downloadTemplate = () => {
+    const headers = 'name,email,phone,department,designation,date_of_joining,date_of_birth,gender,marital_status,blood_group,father_name,mother_name,address,aadhar_number,pan_number,basic_salary,hra,da,ta,other_allowances,pf,esi,professional_tax,tds,other_deductions,bank_name,account_number,ifsc_code,payment_method,notes';
+    const sample = 'John Doe,john@company.com,9876543210,Sales,Sales Executive,2026-01-15,1995-05-20,Male,Single,O+,Father Name,Mother Name,123 Street City,123456789012,ABCDE1234F,25000,5000,2000,1500,1000,1800,750,200,0,0,SBI,1234567890,SBIN0001234,bank_transfer,New employee';
+    const blob = new Blob([headers + '\n' + sample], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'employee_import_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
   const openEditEmployee = (s) => {
     setSelectedStaff(s);
     setStaffForm({
@@ -545,6 +601,9 @@ export default function HRPortal() {
                     </Select>
                     <Button onClick={openAddEmployee} className="bg-amber-600 hover:bg-amber-700" data-testid="add-employee-btn">
                       <UserPlus className="h-4 w-4 mr-1" /> Add Employee
+                    </Button>
+                    <Button onClick={() => setImportDialog(true)} variant="outline" className="border-amber-600 text-amber-600 hover:bg-amber-50" data-testid="import-employees-btn">
+                      <Upload className="h-4 w-4 mr-1" /> Import CSV
                     </Button>
                   </div>
                 </div>
@@ -1128,6 +1187,67 @@ export default function HRPortal() {
             ) : (
               <div className="text-center py-8 text-gray-400">No leave records found for this employee.</div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* CSV Import Dialog */}
+      <Dialog open={importDialog} onOpenChange={setImportDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Employees from CSV</DialogTitle>
+            <DialogDescription>Upload a CSV file with employee details to bulk import.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={downloadTemplate} data-testid="download-template-btn">
+                <FileText className="h-4 w-4 mr-1" /> Download Template
+              </Button>
+            </div>
+            <div>
+              <Label>Upload CSV File</Label>
+              <Input type="file" accept=".csv" onChange={handleCSVUpload} data-testid="csv-file-input" className="mt-1" />
+            </div>
+            {importData.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-green-600 mb-2">{importData.length} employees ready to import</p>
+                <div className="max-h-48 overflow-y-auto border rounded">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-1 text-left">#</th>
+                        <th className="px-2 py-1 text-left">Name</th>
+                        <th className="px-2 py-1 text-left">Department</th>
+                        <th className="px-2 py-1 text-left">Designation</th>
+                        <th className="px-2 py-1 text-left">Phone</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importData.map((emp, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-2 py-1">{i+1}</td>
+                          <td className="px-2 py-1">{emp.name}</td>
+                          <td className="px-2 py-1">{emp.department}</td>
+                          <td className="px-2 py-1">{emp.designation}</td>
+                          <td className="px-2 py-1">{emp.phone}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setImportDialog(false); setImportData([]); }}>Cancel</Button>
+              <Button 
+                onClick={handleBulkImport} 
+                disabled={!importData.length || importing}
+                className="bg-amber-600 hover:bg-amber-700"
+                data-testid="confirm-import-btn"
+              >
+                {importing ? 'Importing...' : `Import ${importData.length} Employees`}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

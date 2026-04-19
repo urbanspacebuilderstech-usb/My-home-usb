@@ -3472,6 +3472,102 @@ async def create_staff(staff_data: StaffCreate, user: User = Depends(get_current
     return staff
 
 
+
+@router.post("/hr/staff/bulk-import")
+async def bulk_import_staff(request: Request, user: User = Depends(get_current_user)):
+    """Bulk import staff from CSV/JSON data"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    data = await request.json()
+    employees = data.get("employees", [])
+    
+    if not employees:
+        raise HTTPException(status_code=400, detail="No employee data provided")
+    
+    imported = 0
+    errors = []
+    
+    for idx, emp in enumerate(employees):
+        try:
+            if not emp.get("name"):
+                errors.append(f"Row {idx+1}: Name is required")
+                continue
+            
+            # Generate employee code
+            count = await db.staff.count_documents({})
+            employee_code = f"EMP{str(count + 1).zfill(4)}"
+            
+            # Parse salary fields
+            basic = float(emp.get("basic_salary") or 0)
+            hra = float(emp.get("hra") or 0)
+            da = float(emp.get("da") or 0)
+            ta = float(emp.get("ta") or 0)
+            other_allow = float(emp.get("other_allowances") or 0)
+            pf = float(emp.get("pf") or 0)
+            esi = float(emp.get("esi") or 0)
+            pt = float(emp.get("professional_tax") or 0)
+            tds = float(emp.get("tds") or 0)
+            other_ded = float(emp.get("other_deductions") or 0)
+            
+            gross = basic + hra + da + ta + other_allow
+            deductions = pf + esi + pt + tds + other_ded
+            net = gross - deductions
+            
+            staff_dict = {
+                "staff_id": f"staff_{uuid.uuid4().hex[:12]}",
+                "employee_code": employee_code,
+                "name": emp.get("name", "").strip(),
+                "email": emp.get("email", "").strip(),
+                "phone": emp.get("phone", "").strip(),
+                "department": emp.get("department", "").strip(),
+                "designation": emp.get("designation", "").strip(),
+                "date_of_joining": emp.get("date_of_joining"),
+                "date_of_birth": emp.get("date_of_birth"),
+                "gender": emp.get("gender", ""),
+                "marital_status": emp.get("marital_status", ""),
+                "blood_group": emp.get("blood_group", ""),
+                "father_name": emp.get("father_name", ""),
+                "mother_name": emp.get("mother_name", ""),
+                "address": emp.get("address", ""),
+                "permanent_address": emp.get("permanent_address", ""),
+                "current_address": emp.get("current_address", ""),
+                "aadhar_number": emp.get("aadhar_number", ""),
+                "pan_number": emp.get("pan_number", ""),
+                "uan_number": emp.get("uan_number", ""),
+                "esi_number": emp.get("esi_number", ""),
+                "emergency_contact": emp.get("emergency_contact", ""),
+                "emergency_contact_name": emp.get("emergency_contact_name", ""),
+                "emergency_contact_relation": emp.get("emergency_contact_relation", ""),
+                "emergency_contact_phone": emp.get("emergency_contact_phone", ""),
+                "qualification": emp.get("qualification", ""),
+                "experience_years": float(emp.get("experience_years") or 0),
+                "previous_employer": emp.get("previous_employer", ""),
+                "basic_salary": basic, "hra": hra, "da": da, "ta": ta,
+                "other_allowances": other_allow, "gross_salary": gross,
+                "pf": pf, "esi": esi, "professional_tax": pt, "tds": tds,
+                "other_deductions": other_ded, "total_deductions": deductions,
+                "net_salary": net,
+                "bank_name": emp.get("bank_name", ""),
+                "account_number": emp.get("account_number", ""),
+                "ifsc_code": emp.get("ifsc_code", ""),
+                "payment_method": emp.get("payment_method", "bank_transfer"),
+                "notes": emp.get("notes", ""),
+                "status": "active",
+                "created_by": user.user_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }
+            
+            await db.staff.insert_one(staff_dict)
+            imported += 1
+        except Exception as e:
+            errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
+    
+    return {"imported": imported, "errors": errors, "total": len(employees)}
+
+
+
 @router.get("/hr/staff/{staff_id}")
 async def get_staff(staff_id: str, user: User = Depends(get_current_user)):
     """Get a specific staff member"""
