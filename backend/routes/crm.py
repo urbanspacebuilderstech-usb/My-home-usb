@@ -3458,14 +3458,18 @@ async def sheets_oauth_login(request: Request, user: User = Depends(get_current_
         prompt='consent'
     )
     
-    # Save state with user_id and redirect_uri for callback
-    await db.oauth_states.insert_one({
+    # Save state with user_id, redirect_uri, and code_verifier for callback
+    state_doc = {
         "state": state,
         "user_id": user.user_id,
         "redirect_uri": redirect_uri,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    })
+    }
+    # Save code_verifier if PKCE is used (newer google-auth-oauthlib)
+    if hasattr(flow, 'code_verifier') and flow.code_verifier:
+        state_doc["code_verifier"] = flow.code_verifier
+    await db.oauth_states.insert_one(state_doc)
     
     return {"auth_url": url}
 
@@ -3481,6 +3485,7 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
     user_id = state_doc["user_id"]
     # Use the same redirect_uri that was used during login
     redirect_uri = state_doc.get("redirect_uri", GOOGLE_SHEETS_REDIRECT_URI)
+    code_verifier = state_doc.get("code_verifier")
     await db.oauth_states.delete_one({"state": state})
     
     if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
@@ -3490,7 +3495,7 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
     import os as _os
     _os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
     
-    logger.info(f"Sheets OAuth callback: using redirect_uri={redirect_uri}")
+    logger.info(f"Sheets OAuth callback: using redirect_uri={redirect_uri}, has_code_verifier={bool(code_verifier)}")
     
     flow = Flow.from_client_config({
         "web": {
@@ -3500,6 +3505,10 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
             "token_uri": "https://oauth2.googleapis.com/token"
         }
     }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
+    
+    # Restore code_verifier for PKCE
+    if code_verifier:
+        flow.code_verifier = code_verifier
     
     try:
         flow.fetch_token(code=code)
