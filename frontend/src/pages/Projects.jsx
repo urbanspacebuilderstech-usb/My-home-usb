@@ -183,7 +183,7 @@ export default function Projects() {
           {canCreate && (
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button data-testid="create-project-btn" className="gap-2 bg-secondary hover:bg-secondary/90 w-full sm:w-auto">
+                <Button data-testid="create-project-btn" className="gap-2 bg-amber-500 hover:bg-amber-600 text-white w-full sm:w-auto">
                   <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
                   New Project
                 </Button>
