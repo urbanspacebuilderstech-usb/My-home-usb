@@ -139,7 +139,7 @@ class Lead(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
-    source: LeadSource = LeadSource.OTHER
+    source: str = "other"
     source_detail: Optional[str] = None  # e.g., Sheet tab name, campaign name
     
     # Stage Info
