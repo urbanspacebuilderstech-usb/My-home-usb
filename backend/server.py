@@ -396,6 +396,14 @@ async def startup_init():
                                         if existing:
                                             continue
                                     
+                                    # Auto-assign via round-robin
+                                    from routes.crm import assign_lead_to_next_user
+                                    rr_user_id = await assign_lead_to_next_user("pre_sales")
+                                    if rr_user_id:
+                                        rr_user = await sync_db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
+                                        lead_data["assigned_to"] = rr_user_id
+                                        lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
+                                    
                                     await sync_db.leads.insert_one(lead_data)
                                     new_leads_total += 1
                             
