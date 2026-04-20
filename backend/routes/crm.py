@@ -4494,11 +4494,16 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
     # For non-admins, use admin's connected sheets and credentials
     sync_user_id = user.user_id
     if user.role != UserRole.SUPER_ADMIN:
-        admin_config = await db.connected_sheets.find_one({}, {"_id": 0, "user_id": 1})
-        if admin_config:
-            sync_user_id = admin_config["user_id"]
+        # Find the actual super admin user first
+        admin_user = await db.users.find_one({"role": "super_admin"}, {"_id": 0, "user_id": 1})
+        if admin_user:
+            sync_user_id = admin_user["user_id"]
         else:
-            raise HTTPException(status_code=400, detail="No sheets connected. Ask admin to connect a sheet from Marketing Board.")
+            admin_config = await db.connected_sheets.find_one({}, {"_id": 0, "user_id": 1})
+            if admin_config:
+                sync_user_id = admin_config["user_id"]
+            else:
+                raise HTTPException(status_code=400, detail="No sheets connected. Ask admin to connect a sheet from Marketing Board.")
     
     creds = await get_sheets_credentials(sync_user_id)
     if not creds:
