@@ -4159,23 +4159,15 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
                     skipped_count += 1
                     continue
             
-            # Assign using round-robin if distribution is enabled
-            if settings.get("enabled") and pre_sales_team:
-                assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
-                assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
-                lead_data["assigned_to"] = assigned_user_id
-                lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
-                current_index = (current_index + 1) % len(pre_sales_team)
+            # Assign using round-robin
+            rr_user_id = await assign_lead_to_next_user("pre_sales")
+            if rr_user_id:
+                rr_user = await db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
+                lead_data["assigned_to"] = rr_user_id
+                lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
             
             await db.leads.insert_one(lead_data)
             imported_count += 1
-        
-        # Update distribution index
-        if settings.get("enabled") and pre_sales_team:
-            await db.lead_distribution_settings.update_one(
-                {},
-                {"$set": {"pre_sales_current_index": current_index}}
-            )
         
         # Update last synced timestamp
         await db.google_sheets_config.update_one(
@@ -4307,13 +4299,12 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
                         sheet_skipped += 1
                         continue
                 
-                # Assign using round-robin if distribution is enabled
-                if settings.get("enabled") and pre_sales_team:
-                    assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
-                    assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
-                    lead_data["assigned_to"] = assigned_user_id
-                    lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
-                    current_index = (current_index + 1) % len(pre_sales_team)
+                # Assign using round-robin
+                rr_user_id = await assign_lead_to_next_user("pre_sales")
+                if rr_user_id:
+                    rr_user = await db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
+                    lead_data["assigned_to"] = rr_user_id
+                    lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
                 
                 await db.leads.insert_one(lead_data)
                 sheet_imported += 1
@@ -4327,13 +4318,6 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
             
             total_imported += sheet_imported
             total_skipped += sheet_skipped
-        
-        # Update distribution index
-        if settings.get("enabled") and pre_sales_team:
-            await db.lead_distribution_settings.update_one(
-                {},
-                {"$set": {"pre_sales_current_index": current_index}}
-            )
         
         return {
             "message": f"Import complete from {len(sources_imported)} sheets",
@@ -4678,12 +4662,12 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
                         tab_skipped += 1
                         continue
                 
-                if settings.get("enabled") and pre_sales_team:
-                    assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
-                    assignee = await db.users.find_one({"user_id": assigned_user_id}, {"_id": 0})
-                    lead_data["assigned_to"] = assigned_user_id
-                    lead_data["assigned_to_name"] = assignee.get("name") if assignee else None
-                    current_index = (current_index + 1) % len(pre_sales_team)
+                # Assign using round-robin
+                rr_user_id = await assign_lead_to_next_user("pre_sales")
+                if rr_user_id:
+                    rr_user = await db.users.find_one({"user_id": rr_user_id}, {"_id": 0})
+                    lead_data["assigned_to"] = rr_user_id
+                    lead_data["assigned_to_name"] = rr_user.get("name") if rr_user else None
                 
                 await db.leads.insert_one(lead_data)
                 tab_new += 1
