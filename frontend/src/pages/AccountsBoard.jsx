@@ -2576,21 +2576,42 @@ function ApprovalsTab() {
         </Card>
       </div>
 
-      {/* Approval Tabs */}
+      {/* Top-level Approval Category Tabs */}
+      <Tabs value={['materials','labour','vendor'].includes(activeTab) ? 'expense' : 'income'} onValueChange={(v) => setActiveTab(v === 'income' ? 'income' : 'materials')}>
+        <TabsList className="w-full grid grid-cols-2 mb-3" data-testid="approval-main-tabs">
+          <TabsTrigger value="income" className="text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1" data-testid="approval-income-tab">
+            <ArrowDownRight className="h-3.5 w-3.5" /> Income Approvals ({s.income_count || 0})
+          </TabsTrigger>
+          <TabsTrigger value="expense" className="text-xs sm:text-sm data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1" data-testid="approval-expense-tab">
+            <ArrowUpRight className="h-3.5 w-3.5" /> Expense Approvals ({(s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0)})
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {/* Expense sub-tabs */}
+      {['materials','labour','vendor'].includes(activeTab) && (
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full grid grid-cols-3 mb-3" data-testid="approval-expense-sub-tabs">
+            <TabsTrigger value="materials" className="text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 gap-1">
+              <Building2 className="h-3.5 w-3.5" /> Materials ({s.material_count || 0})
+            </TabsTrigger>
+            <TabsTrigger value="labour" className="text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800 gap-1">
+              <Wallet className="h-3.5 w-3.5" /> Labour Work Order ({s.labour_count || 0})
+            </TabsTrigger>
+            <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
+              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({s.vendor_count || 0})
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      )}
+
+      {/* Content panel */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full grid grid-cols-4 mb-3" data-testid="approval-sub-tabs">
-          <TabsTrigger value="income" className="text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1">
-            <ArrowDownRight className="h-3.5 w-3.5" /> Income ({s.income_count || 0})
-          </TabsTrigger>
-          <TabsTrigger value="materials" className="text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 gap-1">
-            <Building2 className="h-3.5 w-3.5" /> Material ({s.material_count || 0})
-          </TabsTrigger>
-          <TabsTrigger value="labour" className="text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800 gap-1">
-            <Wallet className="h-3.5 w-3.5" /> Labour ({s.labour_count || 0})
-          </TabsTrigger>
-          <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
-            <CreditCard className="h-3.5 w-3.5" /> Supplier ({s.vendor_count || 0})
-          </TabsTrigger>
+        <TabsList className="hidden">
+          <TabsTrigger value="income"></TabsTrigger>
+          <TabsTrigger value="materials"></TabsTrigger>
+          <TabsTrigger value="labour"></TabsTrigger>
+          <TabsTrigger value="vendor"></TabsTrigger>
         </TabsList>
 
         {/* Income Approvals */}
