@@ -565,7 +565,7 @@ export default function CRMPreSales() {
   const handleQuickFollowup = async () => {
     if (!quickFollowupForm.date) { toast.error('Please select a date'); return; }
     try {
-      await axios.post(`${API}/crm/leads/${quickFollowupLeadId}/follow-up`, {
+      await axios.post(`${API}/crm/leads/${quickFollowupLeadId}/follow-ups`, {
         scheduled_date: quickFollowupForm.date,
         scheduled_time: quickFollowupForm.time,
         note: quickFollowupForm.remarks
@@ -1790,20 +1790,59 @@ export default function CRMPreSales() {
                     </Card>
                   ) : (
                     selectedLead.follow_ups.map((fu, idx) => (
-                      <Card key={idx} className={fu.completed ? 'bg-green-50' : 'bg-orange-50'}>
+                      <Card key={idx} className={fu.completed ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}>
                         <CardContent className="p-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Calendar className={`h-4 w-4 ${fu.completed ? 'text-green-600' : 'text-orange-600'}`} />
-                              <span className="font-medium">
-                                {new Date(fu.scheduled_date).toLocaleString()}
+                              <span className="font-medium text-sm">
+                                {new Date(fu.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}
+                                {fu.scheduled_time && ` at ${fu.scheduled_time}`}
                               </span>
                             </div>
                             <Badge className={fu.completed ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}>
-                              {fu.completed ? 'Completed' : 'Pending'}
+                              {fu.completed ? 'Closed' : 'Pending'}
                             </Badge>
                           </div>
-                          {fu.note && <p className="text-sm mt-2 text-gray-600">{fu.note}</p>}
+                          {fu.note && <p className="text-xs mt-1.5 text-gray-600">{fu.note}</p>}
+                          {fu.closing_remark && (
+                            <div className="mt-1.5 bg-green-100 rounded px-2 py-1">
+                              <p className="text-[10px] text-green-800 font-medium">Closing Remark:</p>
+                              <p className="text-xs text-green-700">{fu.closing_remark}</p>
+                            </div>
+                          )}
+                          {!fu.completed && (
+                            <div className="mt-2">
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="Add closing remark..."
+                                  className="text-xs h-8 flex-1"
+                                  data-testid={`close-remark-input-${idx}`}
+                                  id={`close-remark-${idx}`}
+                                />
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs bg-green-600 hover:bg-green-700"
+                                  data-testid={`close-followup-btn-${idx}`}
+                                  onClick={async () => {
+                                    const remark = document.getElementById(`close-remark-${idx}`)?.value;
+                                    if (!remark?.trim()) { toast.error('Please add a closing remark'); return; }
+                                    try {
+                                      await axios.patch(`${API}/crm/leads/${selectedLead.lead_id}/follow-up/${idx}/close`, { closing_remark: remark });
+                                      toast.success('Follow-up closed');
+                                      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+                                      setSelectedLead(res.data);
+                                      fetchData(false);
+                                    } catch (err) {
+                                      toast.error(err.response?.data?.detail || 'Failed to close follow-up');
+                                    }
+                                  }}
+                                >
+                                  Close
+                                </Button>
+                              </div>
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     ))

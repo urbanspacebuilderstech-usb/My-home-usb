@@ -1934,6 +1934,35 @@ async def complete_follow_up(lead_id: str, follow_up_id: str, user: User = Depen
     return {"message": "Follow-up marked as completed"}
 
 
+class FollowUpCloseInput(BaseModel):
+    closing_remark: str
+
+@router.patch("/crm/leads/{lead_id}/follow-up/{index}/close")
+async def close_follow_up_by_index(lead_id: str, index: int, data: FollowUpCloseInput, user: User = Depends(get_current_user)):
+    """Close a follow-up by index with a closing remark"""
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    follow_ups = lead.get("follow_ups", [])
+    if index < 0 or index >= len(follow_ups):
+        raise HTTPException(status_code=404, detail="Follow-up not found")
+    
+    follow_ups[index]["completed"] = True
+    follow_ups[index]["completed_at"] = datetime.now(timezone.utc).isoformat()
+    follow_ups[index]["closing_remark"] = data.closing_remark
+    follow_ups[index]["closed_by"] = user.user_id
+    follow_ups[index]["closed_by_name"] = user.name
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {"follow_ups": follow_ups, "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    return {"message": "Follow-up closed with remark"}
+
+
+
 # ==================== CRM B (SALES) ENDPOINTS ====================
 
 @router.get("/crm/sales/dashboard")
