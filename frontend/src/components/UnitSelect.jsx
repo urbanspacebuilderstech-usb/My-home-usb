@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { Popover, PopoverTrigger, PopoverContent } from './ui/popover';
 
 // Comprehensive list of units used in construction industry
 export const CONSTRUCTION_UNITS = [
@@ -134,58 +134,19 @@ export function getUnitLabel(value) {
   return found ? found.label : value;
 }
 
-// Searchable Unit Select component
+// Searchable Unit Select component (Radix Popover - Dialog-aware)
 export function UnitSelect({ value, onChange, placeholder = 'Select unit', className = '', disabled = false, 'data-testid': testId }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
-  const ref = useRef(null);
-  const btnRef = useRef(null);
-  const dropdownRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target) && dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setOpen(false);
-      }
+    if (open) {
+      setTimeout(() => inputRef.current?.focus(), 50);
+    } else {
+      setSearch('');
     }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
-  useEffect(() => {
-    if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
-
-  // Close on scroll/resize to avoid stale positioning
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener('resize', close);
-    // Capture phase so we catch scrolls from any ancestor (including dialog content)
-    window.addEventListener('scroll', close, true);
-    return () => {
-      window.removeEventListener('resize', close);
-      window.removeEventListener('scroll', close, true);
-    };
-  }, [open]);
-
-  const openDropdown = () => {
-    if (btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const dropdownHeight = 340;
-      const showAbove = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
-      setDropdownPos({
-        top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
-        left: rect.left,
-        width: Math.max(rect.width, 220),
-      });
-    }
-    setOpen(true);
-    setSearch('');
-  };
 
   const filtered = CONSTRUCTION_UNITS.filter(u =>
     !search || u.label.toLowerCase().includes(search.toLowerCase()) ||
@@ -193,7 +154,6 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
     u.category.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Group by category
   const grouped = {};
   filtered.forEach(u => {
     if (!grouped[u.category]) grouped[u.category] = [];
@@ -201,84 +161,68 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
   });
 
   const displayValue = value ? (CONSTRUCTION_UNITS.find(u => u.value === value.toLowerCase())?.label || value) : '';
-  const shortDisplay = value ? (CONSTRUCTION_UNITS.find(u => u.value === value.toLowerCase())?.value?.toUpperCase() || value) : '';
 
   return (
-    <div ref={ref} className={`relative ${className}`}>
-      <button
-        ref={btnRef}
-        type="button"
-        disabled={disabled}
-        onClick={() => { if (open) { setOpen(false); } else { openDropdown(); } }}
-        className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-        data-testid={testId || 'unit-select'}
-      >
-        <span className={`truncate ${displayValue ? 'text-foreground' : 'text-muted-foreground'}`}>
-          {displayValue || placeholder}
-        </span>
-        <svg className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-      </button>
-
-      {open && createPortal(
-        <div
-          ref={dropdownRef}
-          className="fixed z-[9999] rounded-md border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95"
-          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, pointerEvents: 'auto' }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className={`flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${className}`}
+          data-testid={testId || 'unit-select'}
         >
-          {/* Search input */}
-          <div className="p-2 border-b">
-            <input
-              ref={inputRef}
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') { setOpen(false); }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onFocus={(e) => e.stopPropagation()}
-              placeholder="Search units..."
-              className="w-full px-2 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-              data-testid="unit-search-input"
-              autoComplete="off"
-            />
-          </div>
-
-          {/* Options */}
-          <div className="max-h-[280px] overflow-y-auto p-1">
-            {Object.keys(grouped).length === 0 ? (
-              <div className="px-3 py-2 text-sm text-muted-foreground text-center">No units found</div>
-            ) : (
-              Object.entries(grouped).map(([category, units]) => (
-                <div key={category}>
-                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{category}</div>
-                  {units.map(u => (
-                    <button
-                      key={u.value}
-                      type="button"
-                      onClick={() => { onChange(u.value); setOpen(false); setSearch(''); }}
-                      className={`w-full flex items-center justify-between px-3 py-1.5 text-sm rounded-sm cursor-pointer transition-colors ${
-                        value === u.value ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-accent/50'
-                      }`}
-                      data-testid={`unit-option-${u.value}`}
-                    >
-                      <span>{u.label}</span>
-                      {value === u.value && (
-                        <svg className="h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6 9 17l-5-5"/></svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
+          <span className={`truncate ${displayValue ? 'text-foreground' : 'text-muted-foreground'}`}>
+            {displayValue || placeholder}
+          </span>
+          <svg className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="p-0 w-[260px] max-h-[360px] overflow-hidden"
+        align="start"
+        sideOffset={4}
+        onOpenAutoFocus={(e) => { e.preventDefault(); inputRef.current?.focus(); }}
+      >
+        <div className="p-2 border-b">
+          <input
+            ref={inputRef}
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search units..."
+            className="w-full px-2 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            data-testid="unit-search-input"
+            autoComplete="off"
+          />
+        </div>
+        <div className="max-h-[280px] overflow-y-auto p-1">
+          {Object.keys(grouped).length === 0 ? (
+            <div className="px-3 py-2 text-sm text-muted-foreground text-center">No units found</div>
+          ) : (
+            Object.entries(grouped).map(([category, units]) => (
+              <div key={category}>
+                <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{category}</div>
+                {units.map(u => (
+                  <button
+                    key={u.value}
+                    type="button"
+                    onClick={() => { onChange(u.value); setOpen(false); }}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 text-sm rounded-sm cursor-pointer transition-colors ${
+                      value === u.value ? 'bg-accent text-accent-foreground font-medium' : 'hover:bg-accent/50'
+                    }`}
+                    data-testid={`unit-option-${u.value}`}
+                  >
+                    <span>{u.label}</span>
+                    {value === u.value && (
+                      <svg className="h-4 w-4 text-primary" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6 9 17l-5-5"/></svg>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
