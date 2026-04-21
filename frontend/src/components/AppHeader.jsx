@@ -30,6 +30,7 @@ const ROLE_NAV = {
   general_manager: [
     { label: 'Command Center', path: '/gm-dashboard' },
     { label: 'Projects', path: '/projects' },
+    { label: 'Planning Board', path: '/planning-board' },
     { label: 'Financial', path: '/financial-overview' },
     { label: 'Approvals', path: '/approvals' },
     { label: 'Procurement', path: '/procurement-board-v2' },

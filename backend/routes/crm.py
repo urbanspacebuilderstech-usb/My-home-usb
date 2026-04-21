@@ -2632,7 +2632,7 @@ async def get_re_change_logs(re_project_id: str, user: User = Depends(get_curren
 @router.post("/crm/re-projects/{re_project_id}/submit-for-approval")
 async def submit_re_for_approval(re_project_id: str, user: User = Depends(get_current_user)):
     """Submit RE project for GM approval"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -2885,7 +2885,7 @@ async def request_re_revision(re_project_id: str, data: RevisionRequest = Revisi
 @router.post("/crm/re-projects/{re_project_id}/create-revision")
 async def create_re_revision(re_project_id: str, user: User = Depends(get_current_user)):
     """Planning creates a new revision (RE1, RE2...) by duplicating the current RE"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
@@ -2965,7 +2965,7 @@ async def create_re_revision(re_project_id: str, user: User = Depends(get_curren
 @router.get("/crm/planning/re-dashboard")
 async def get_planning_re_dashboard(user: User = Depends(get_current_user)):
     """Get Planning Department RE dashboard"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Planning access required")
     
     # Get RE project counts by status

@@ -2565,7 +2565,7 @@ async def get_work_order(work_order_id: str, user: User = Depends(get_current_us
 @router.post("/work-orders/labour")
 async def create_labour_work_order(wo_input: LabourWorkOrderInput, user: User = Depends(get_current_user)):
     """Create a labour work order (Planning only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can create work orders")
     
     # Get project details
@@ -2645,7 +2645,7 @@ async def create_labour_work_order(wo_input: LabourWorkOrderInput, user: User = 
 @router.post("/work-orders/material")
 async def create_material_work_order(wo_input: MaterialWorkOrderInput, user: User = Depends(get_current_user)):
     """Create a material work order (Planning only)"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can create work orders")
     
     # Get project details
@@ -2714,7 +2714,7 @@ async def create_material_work_order(wo_input: MaterialWorkOrderInput, user: Use
 @router.patch("/work-orders/{work_order_id}/assign")
 async def assign_work_order(work_order_id: str, site_engineer_id: str, user: User = Depends(get_current_user)):
     """Assign work order to site engineer"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can assign work orders")
     
     # Get site engineer details
@@ -2831,7 +2831,7 @@ async def request_stage_payment(work_order_id: str, stage_id: str, remarks: Opti
 @router.patch("/work-orders/{work_order_id}/stages/{stage_id}/approve-payment")
 async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning approves stage payment"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can approve payments")
     
     wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
@@ -2875,7 +2875,7 @@ async def approve_stage_payment(work_order_id: str, stage_id: str, user: User = 
 @router.patch("/work-orders/{work_order_id}/stages/{stage_id}/reject-payment")
 async def reject_stage_payment(work_order_id: str, stage_id: str, reason: str, user: User = Depends(get_current_user)):
     """Planning rejects stage payment"""
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning can reject payments")
     
     wo = await db.work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
