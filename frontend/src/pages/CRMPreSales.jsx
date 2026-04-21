@@ -669,7 +669,7 @@ export default function CRMPreSales() {
                   ) : (
                     new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
                   )
-                ) : 'Date Filter'}
+                ) : new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}
                 {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
@@ -739,19 +739,7 @@ export default function CRMPreSales() {
             </PopoverContent>
           </Popover>
           
-          {/* Daily Follow-up Filter */}
-          <Button
-            variant={followUpFilter ? "default" : "outline"}
-            size="sm"
-            className={followUpFilter ? "bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs" : "border-amber-300 text-amber-700 hover:bg-amber-50 h-8 text-xs"}
-            onClick={() => setFollowUpFilter(!followUpFilter)}
-            data-testid="presales-followup-filter-btn"
-          >
-            <Bell className="h-3.5 w-3.5 mr-1" />
-            Daily Follow-up
-            {followUpFilter && ` (${filteredLeads.length})`}
-          </Button>
-          
+          {/* Source Filter */}
           <Select value={selectedSource} onValueChange={setSelectedSource}>
             <SelectTrigger className="w-[150px]">
               <SelectValue placeholder="All Sources" />
