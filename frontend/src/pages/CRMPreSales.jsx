@@ -593,23 +593,22 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Compact Stats - Wrap on mobile, scroll on desktop */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-3">
-          <div className="flex items-center gap-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded px-2 py-1">
-            <span className="text-[9px] font-medium opacity-80">Total</span>
-            <span className="text-sm font-bold">{dashboard?.total_leads || 0}</span>
+        {/* Stats - Grid on mobile, flex row on desktop */}
+        <div className="grid grid-cols-5 gap-1 mb-3 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+          <div className="col-span-5 flex items-center justify-center gap-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded px-2 py-1.5 sm:px-3 sm:py-1.5 sm:col-span-1">
+            <span className="text-[10px] font-medium opacity-80">Total</span>
+            <span className="text-lg font-bold">{dashboard?.total_leads || 0}</span>
           </div>
           {stages.map(stage => {
             const count = dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0;
             return (
             <div 
               key={stage.stage_id}
-              className={`flex items-center gap-1 rounded px-1.5 py-1 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
+              className={`flex flex-col items-center justify-center rounded px-1 py-1.5 sm:flex-row sm:gap-1.5 sm:px-2 sm:py-1.5 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
               data-testid={`stage-count-${stage.stage_id}`}
             >
-              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stage.color }}></div>
-              <span className="text-[9px] text-gray-600 whitespace-nowrap">{stage.name}</span>
-              <span className="text-xs font-bold" style={{ color: stage.color }}>{count}</span>
+              <span className="text-[8px] sm:text-[10px] text-gray-500 text-center leading-tight">{stage.name}</span>
+              <span className="text-sm font-bold" style={{ color: stage.color }}>{count}</span>
             </div>
             );
           })}
