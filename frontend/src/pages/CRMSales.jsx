@@ -1483,9 +1483,8 @@ export default function CRMSales() {
                     <Badge className="bg-purple-100 text-purple-700 cursor-pointer" onClick={() => { handleViewREProject(selectedLead.re_project_id); setViewLeadDialog(false); }}><FileText className="h-3 w-3 mr-1" /> View RE Project</Badge>
                   )}
                   
-                  <div className="border-t pt-3">
-                    <Label className="text-xs text-gray-500 mb-2 block">Move to Stage</Label>
-                    {['stg_payment_collect', 'stg_accountant_approval'].includes(selectedLead.current_stage_id) ? (
+                  {['stg_payment_collect', 'stg_accountant_approval'].includes(selectedLead.current_stage_id) && (
+                    <div className="border-t pt-3">
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
                         {selectedLead.current_stage_id === 'stg_payment_collect' && 'This lead is in Payment Collect stage. It will move automatically after advance is collected.'}
                         {selectedLead.current_stage_id === 'stg_accountant_approval' && 'Waiting for Accountant verification. Lead will move to Project Onboarded automatically after approval.'}
@@ -1496,24 +1495,8 @@ export default function CRMSales() {
                           </div>
                         )}
                       </div>
-                    ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {stages.filter(s => !['stg_accountant_approval'].includes(s.stage_id)).map(stage => (
-                        <Button key={stage.stage_id} variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'} size="sm" className="text-xs"
-                          onClick={() => {
-                            const interceptStages = ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning'];
-                            if (!interceptStages.includes(stage.stage_id) && stage.name !== 'Rough Estimate Requested') {
-                              setViewLeadDialog(false);
-                            }
-                            handleStageChange(selectedLead.lead_id, stage.stage_id);
-                          }}
-                          style={selectedLead.current_stage_id === stage.stage_id ? { backgroundColor: stage.color } : { borderColor: stage.color, color: stage.color }}>
-                          {stage.name}
-                        </Button>
-                      ))}
                     </div>
-                    )}
-                  </div>
+                  )}
                 </TabsContent>
                 
 
@@ -1709,15 +1692,18 @@ export default function CRMSales() {
               <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {stages.map(stage => (
+              {stages.filter(s => !['stg_accountant_approval'].includes(s.stage_id)).map(stage => (
                 <Button
                   key={stage.stage_id}
                   variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() => {
+                    const interceptStages = ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning'];
+                    if (!interceptStages.includes(stage.stage_id) && stage.name !== 'Rough Estimate Requested') {
+                      setViewLeadDialog(false);
+                    }
                     handleStageChange(selectedLead.lead_id, stage.stage_id);
-                    setViewLeadDialog(false);
                   }}
                   style={selectedLead.current_stage_id === stage.stage_id 
                     ? { backgroundColor: stage.color } 
