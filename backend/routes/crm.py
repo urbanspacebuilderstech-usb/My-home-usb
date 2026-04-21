@@ -322,39 +322,68 @@ async def get_default_pre_sales_stages():
 
 async def get_default_sales_stages():
     """Get or create default Sales stages"""
-    # Auto-deactivate removed stages and migrate their leads
-    removed_stage_id = "stg_site_visit"
-    existing_removed = await db.lead_stages.find_one({"stage_id": removed_stage_id, "stage_type": "sales"})
-    if existing_removed and existing_removed.get("is_active") is not False:
-        # Migrate any leads in this stage to stg_discussion
+    now = datetime.now(timezone.utc)
+
+    # Migrate leads from removed stages to their new target stage
+    stage_migrations = {
+        "stg_site_visit": "stg_discussion_legacy",  # placeholder — will cascade next
+        "stg_discussion": "stg_sales_followup",
+        "stg_sv_done": "stg_re_requested",
+        "stg_deal_closed": "stg_payment_collect",
+    }
+    # Fix the placeholder (site_visit should go to followup too now that discussion is removed)
+    stage_migrations["stg_site_visit"] = "stg_sales_followup"
+
+    for removed_id, target_id in stage_migrations.items():
         await db.leads.update_many(
-            {"current_stage_id": removed_stage_id},
-            {"$set": {"current_stage_id": "stg_discussion", "updated_at": datetime.now(timezone.utc)}}
+            {"current_stage_id": removed_id},
+            {"$set": {"current_stage_id": target_id, "updated_at": now}}
         )
         await db.lead_stages.update_one(
-            {"stage_id": removed_stage_id, "stage_type": "sales"},
+            {"stage_id": removed_id, "stage_type": "sales"},
             {"$set": {"is_active": False}}
         )
+
+    # Rename + re-order surviving stages
+    stage_updates = [
+        ("stg_new_appt",           "New Appointment",    1,  "#6366f1", False),
+        ("stg_sales_office_visit", "Office Visit",       2,  "#0ea5e9", False),
+        ("stg_sales_followup",     "Followup",           3,  "#f59e0b", False),
+        ("stg_sv_client_land",     "Client Land Visit",  4,  "#a855f7", False),
+        ("stg_sv_our_projects",    "Our Projects Visit", 5,  "#7c3aed", False),
+        ("stg_re_requested",       "RE - Request",       6,  "#f59e0b", False),
+        ("stg_re_from_planning",   "RE - Planning",      7,  "#10b981", False),
+        ("stg_re_to_client",       "RE - Client",        8,  "#84cc16", False),
+        ("stg_negotiation",        "Negotiation",        9,  "#ec4899", False),
+        ("stg_payment_collect",    "Deal Close",         10, "#22c55e", False),
+        ("stg_accountant_approval","Accountant Approval",11, "#f97316", False),  # hidden in UI
+        ("stg_project_onboarded",  "Project Onboarded",  12, "#059669", True),
+        ("stg_lost",               "Lost",               13, "#ef4444", True),
+    ]
+    for sid, name, order, color, is_final in stage_updates:
+        await db.lead_stages.update_one(
+            {"stage_id": sid, "stage_type": "sales"},
+            {"$set": {"name": name, "order": order, "color": color, "is_final": is_final, "is_active": True}},
+            upsert=True,
+        )
+
     stages = await db.lead_stages.find({"stage_type": "sales", "is_active": {"$ne": False}}, {"_id": 0}).sort("order", 1).to_list(100)
     if not stages:
         # Create default stages
         default_stages = [
             {"stage_id": "stg_new_appt", "name": "New Appointment", "stage_type": "sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "stage_type": "sales", "order": 2, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 4, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "stage_type": "sales", "order": 6, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "stage_type": "sales", "order": 7, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_sv_done", "name": "Site Visit Done", "stage_type": "sales", "order": 8, "color": "#059669", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "stage_type": "sales", "order": 9, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_from_planning", "name": "RE - From Planning", "stage_type": "sales", "order": 10, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_re_to_client", "name": "RE - To Client", "stage_type": "sales", "order": 11, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 12, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_deal_closed", "name": "Deal Closed", "stage_type": "sales", "order": 13, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_payment_collect", "name": "Payment Collect", "stage_type": "sales", "order": 14, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 15, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 16, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 17, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sales_followup", "name": "Followup", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_client_land", "name": "Client Land Visit", "stage_type": "sales", "order": 4, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_sv_our_projects", "name": "Our Projects Visit", "stage_type": "sales", "order": 5, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_requested", "name": "RE - Request", "stage_type": "sales", "order": 6, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "stage_type": "sales", "order": 7, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_re_to_client", "name": "RE - Client", "stage_type": "sales", "order": 8, "color": "#84cc16", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_negotiation", "name": "Negotiation", "stage_type": "sales", "order": 9, "color": "#ec4899", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_payment_collect", "name": "Deal Close", "stage_type": "sales", "order": 10, "color": "#22c55e", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "stage_type": "sales", "order": 11, "color": "#f97316", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "stage_type": "sales", "order": 12, "color": "#059669", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_lost", "name": "Lost", "stage_type": "sales", "order": 13, "color": "#ef4444", "is_final": True, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -420,20 +449,17 @@ async def migrate_stages(user: User = Depends(get_current_user)):
     expected_sales = [
         {"stage_id": "stg_new_appt", "name": "New Appointment", "order": 1, "color": "#6366f1", "is_final": False},
         {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "order": 2, "color": "#0ea5e9", "is_final": False},
-        {"stage_id": "stg_sales_followup", "name": "Follow-up", "order": 3, "color": "#f59e0b", "is_final": False},
-        {"stage_id": "stg_discussion", "name": "Discussion", "order": 4, "color": "#3b82f6", "is_final": False},
-        {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "order": 6, "color": "#a855f7", "is_final": False},
-        {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "order": 7, "color": "#7c3aed", "is_final": False},
-        {"stage_id": "stg_sv_done", "name": "Site Visit Done", "order": 8, "color": "#059669", "is_final": False},
-        {"stage_id": "stg_re_requested", "name": "Rough Estimate Requested", "order": 9, "color": "#f59e0b", "is_final": False},
-        {"stage_id": "stg_re_from_planning", "name": "RE - From Planning", "order": 10, "color": "#10b981", "is_final": False},
-        {"stage_id": "stg_re_to_client", "name": "RE - To Client", "order": 11, "color": "#84cc16", "is_final": False},
-        {"stage_id": "stg_negotiation", "name": "Negotiation", "order": 12, "color": "#ec4899", "is_final": False},
-        {"stage_id": "stg_deal_closed", "name": "Deal Closed", "order": 13, "color": "#22c55e", "is_final": False},
-        {"stage_id": "stg_payment_collect", "name": "Payment Collect", "order": 14, "color": "#f59e0b", "is_final": False},
-        {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "order": 15, "color": "#f97316", "is_final": False},
-        {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "order": 16, "color": "#059669", "is_final": True},
-        {"stage_id": "stg_lost", "name": "Lost", "order": 17, "color": "#ef4444", "is_final": True},
+        {"stage_id": "stg_sales_followup", "name": "Followup", "order": 3, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_sv_client_land", "name": "Client Land Visit", "order": 4, "color": "#a855f7", "is_final": False},
+        {"stage_id": "stg_sv_our_projects", "name": "Our Projects Visit", "order": 5, "color": "#7c3aed", "is_final": False},
+        {"stage_id": "stg_re_requested", "name": "RE - Request", "order": 6, "color": "#f59e0b", "is_final": False},
+        {"stage_id": "stg_re_from_planning", "name": "RE - Planning", "order": 7, "color": "#10b981", "is_final": False},
+        {"stage_id": "stg_re_to_client", "name": "RE - Client", "order": 8, "color": "#84cc16", "is_final": False},
+        {"stage_id": "stg_negotiation", "name": "Negotiation", "order": 9, "color": "#ec4899", "is_final": False},
+        {"stage_id": "stg_payment_collect", "name": "Deal Close", "order": 10, "color": "#22c55e", "is_final": False},
+        {"stage_id": "stg_accountant_approval", "name": "Accountant Approval", "order": 11, "color": "#f97316", "is_final": False},
+        {"stage_id": "stg_project_onboarded", "name": "Project Onboarded", "order": 12, "color": "#059669", "is_final": True},
+        {"stage_id": "stg_lost", "name": "Lost", "order": 13, "color": "#ef4444", "is_final": True},
     ]
     
     for stage_type, stages_list in [("pre_sales", expected_pre_sales), ("sales", expected_sales)]:
@@ -897,8 +923,8 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         "updated_at": datetime.now(timezone.utc)
     }
     
-    # Store remarks on lead for Discussion, Deal Closed, RE-To Client
-    if data.remark and data.stage_id in ["stg_discussion", "stg_deal_closed", "stg_re_to_client"]:
+    # Store remarks on lead for RE-Client
+    if data.remark and data.stage_id in ["stg_re_to_client"]:
         remarks = lead.get("remarks", [])
         remarks.append({
             "text": data.remark,
@@ -1068,8 +1094,8 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             }
             await db.notifications.insert_one(notification)
     
-    # TRIGGER: Sales "Rough Estimate Requested" -> Create RE Project
-    if lead["stage_type"] == "sales" and stage["name"] == "Rough Estimate Requested":
+    # TRIGGER: Sales "RE - Request" -> Create RE Project
+    if lead["stage_type"] == "sales" and stage["stage_id"] == "stg_re_requested":
         # Generate RE number
         re_number = await get_next_re_number()
         # Create RE Project
@@ -1116,17 +1142,13 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         }
         await db.notifications.insert_one(notification)
     
-    # TRIGGER: Sales "Deal Closed" -> Mark deal as closed (no project creation yet)
-    if lead["stage_type"] == "sales" and stage["name"] == "Deal Closed":
-        result["deal_closed"] = True
-        result["message"] = "Deal closed. Move to 'Payment Collect' to collect advance payment."
-    
-    # TRIGGER: Sales "Payment Collect" -> Advance collection popup handled by frontend
-    if lead["stage_type"] == "sales" and stage["name"] == "Payment Collect":
+    # TRIGGER: Sales "Deal Close" (stg_payment_collect) -> Advance collection popup handled by frontend
+    if lead["stage_type"] == "sales" and stage["stage_id"] == "stg_payment_collect":
         result["payment_collect"] = True
+        result["deal_closed"] = True
     
     # TRIGGER: Sales "Project Onboarded" -> Final stage
-    if lead["stage_type"] == "sales" and stage["name"] == "Project Onboarded":
+    if lead["stage_type"] == "sales" and stage["stage_id"] == "stg_project_onboarded":
         result["project_onboarded"] = True
     
     return result
@@ -1492,9 +1514,9 @@ async def get_sales_overview(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, "sales", "cre"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Count deals at deal_closed or later stages
+    # Count deals at Deal Close (payment_collect) or later stages
     deal_closed_count = await db.leads.count_documents({
-        "current_stage_id": {"$in": ["stg_deal_closed", "stg_payment_collect", "stg_accountant_approval", "stg_project_onboarded"]}
+        "current_stage_id": {"$in": ["stg_payment_collect", "stg_accountant_approval", "stg_project_onboarded"]}
     })
     
     # Total advance collected
@@ -1702,7 +1724,7 @@ async def complete_site_visit(lead_id: str, user: User = Depends(get_current_use
     now = datetime.now(timezone.utc)
     stage_history = lead.get("stage_history", [])
     stage_history.append({
-        "stage_id": "stg_sv_done",
+        "stage_id": "stg_re_requested",
         "from_stage_id": lead.get("current_stage_id"),
         "moved_at": now.isoformat(),
         "moved_by": user.user_id,
@@ -1712,7 +1734,7 @@ async def complete_site_visit(lead_id: str, user: User = Depends(get_current_use
     await db.leads.update_one(
         {"lead_id": lead_id},
         {"$set": {
-            "current_stage_id": "stg_sv_done",
+            "current_stage_id": "stg_re_requested",
             "site_visit_data.visit_status": "completed",
             "site_visit_data.completed_at": now.isoformat(),
             "site_visit_data.completed_by": user.user_id,
@@ -3285,7 +3307,7 @@ async def get_marketing_dashboard(user: User = Depends(get_current_user)):
         closed = await db.leads.count_documents({
             "assigned_to": s_user["user_id"],
             "stage_type": "sales",
-            "current_stage_id": "stg_deal_closed"
+            "current_stage_id": "stg_payment_collect"
         })
         sales_stats.append({
             "user_id": s_user["user_id"],

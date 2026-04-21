@@ -167,10 +167,10 @@ async def get_cre_new_deals(user: User = Depends(get_current_user)):
             "re_project": re  # Include full RE data for reference
         })
     
-    # 2. Get leads with stage "Deal Closed" that haven't been converted to projects yet
-    deal_closed_stage = await db.lead_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
+    # 2. Get leads at "Deal Close" stage (stg_payment_collect) that haven't been converted to projects yet
+    deal_closed_stage = await db.lead_stages.find_one({"stage_id": "stg_payment_collect", "stage_type": "sales"})
     if not deal_closed_stage:
-        deal_closed_stage = await db.crm_stages.find_one({"name": "Deal Closed", "stage_type": "sales"})
+        deal_closed_stage = await db.crm_stages.find_one({"stage_id": "stg_payment_collect", "stage_type": "sales"})
     
     if deal_closed_stage:
         cursor = db.leads.find({

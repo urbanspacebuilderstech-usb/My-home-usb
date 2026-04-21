@@ -239,6 +239,14 @@ async def startup_init():
                     "created_by": "system", "created_at": datetime.now(timezone.utc).isoformat()
                 })
                 logger.info("Added RNR stage to pre-sales pipeline")
+
+        # Sales stage migration: rename/re-order/deactivate obsolete stages
+        try:
+            from routes.crm import get_default_sales_stages
+            await get_default_sales_stages()
+            logger.info("Sales stage migration completed")
+        except Exception as e:
+            logger.warning(f"Sales stage migration failed (non-fatal): {e}")
     except Exception as e:
         logger.warning(f"Auto-seed failed (non-fatal): {e}")
 

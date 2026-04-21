@@ -199,8 +199,8 @@ export default function CRMSales() {
     try {
       const stage = stages.find(s => s.stage_id === newStageId);
       
-      // Intercept: Show rough requirement popup for "Rough Estimate Requested"
-      if (stage?.name === 'Rough Estimate Requested' && !roughRequirement) {
+      // Intercept: Show rough requirement popup for "RE - Request"
+      if (stage?.stage_id === 'stg_re_requested' && !roughRequirement) {
         setRoughEstLeadId(leadId);
         setRoughEstStageId(newStageId);
         setRoughEstForm('');
@@ -216,8 +216,8 @@ export default function CRMSales() {
         return;
       }
       
-      // Intercept: Show CRE-style Convert Deal popup for "Payment Collect"
-      if (stage?.name === 'Payment Collect') {
+      // Intercept: Show CRE-style Convert Deal popup for "Deal Close" (stg_payment_collect)
+      if (stage?.stage_id === 'stg_payment_collect') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
           openConvertDealFromSales(lead);
@@ -253,8 +253,8 @@ export default function CRMSales() {
         }
       }
       
-      // Intercept: Show remarks dialog for Discussion, Deal Closed, RE-To Client
-      if (['stg_discussion', 'stg_deal_closed', 'stg_re_to_client'].includes(stage?.stage_id)) {
+      // Intercept: Show remarks dialog for RE-Client
+      if (['stg_re_to_client'].includes(stage?.stage_id)) {
         setRemarksLeadId(leadId);
         setRemarksStageId(newStageId);
         setRemarksStageName(stage.name);
@@ -294,8 +294,8 @@ export default function CRMSales() {
       
       if (result.data.re_project_created) {
         toast.success('Rough Estimate Project created! Planning team notified.');
-      } else if (stage?.name === 'Deal Closed') {
-        toast.success('Deal Closed! Sent to CRE for project creation.');
+      } else if (stage?.stage_id === 'stg_payment_collect') {
+        toast.success('Deal Close! Sent to CRE for project creation.');
       } else {
         toast.success('Lead stage updated');
       }
@@ -1325,8 +1325,8 @@ export default function CRMSales() {
                           </div>
                         )}
                         
-                        {/* Latest remark (Discussion, Deal Closed, RE-To Client) */}
-                        {lead.remarks?.length > 0 && ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client'].includes(lead.current_stage_id) && (
+                        {/* Latest remark (RE-Client) */}
+                        {lead.remarks?.length > 0 && ['stg_re_to_client'].includes(lead.current_stage_id) && (
                           <div className="mt-1 px-2 py-1 rounded bg-blue-50 border border-blue-200 text-xs text-blue-700">
                             <MessageSquare className="inline h-3 w-3 mr-1" />
                             <span className="font-medium">{lead.remarks[lead.remarks.length - 1].by_name}:</span>{' '}
@@ -1343,7 +1343,7 @@ export default function CRMSales() {
                         )}
                         
                         {/* Site Visit info */}
-                        {lead.site_visit_data && ['stg_site_visit', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_sv_done'].includes(lead.current_stage_id) && (
+                        {lead.site_visit_data && ['stg_sv_client_land', 'stg_sv_our_projects'].includes(lead.current_stage_id) && (
                           <div className="mt-1 p-2 rounded bg-purple-50 border border-purple-200 text-xs">
                             {lead.site_visit_data.sr_engineer_name && (
                               <p className="text-purple-700"><span className="font-medium">Engineer:</span> {lead.site_visit_data.sr_engineer_name}</p>
@@ -1709,8 +1709,8 @@ export default function CRMSales() {
                   size="sm"
                   className="h-7 text-xs"
                   onClick={() => {
-                    const interceptStages = ['stg_discussion', 'stg_deal_closed', 'stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning'];
-                    if (!interceptStages.includes(stage.stage_id) && stage.name !== 'Rough Estimate Requested') {
+                    const interceptStages = ['stg_re_to_client', 'stg_lost', 'stg_sales_followup', 'stg_sv_client_land', 'stg_sv_our_projects', 'stg_payment_collect', 'stg_project_onboarded', 'stg_re_from_planning', 'stg_re_requested'];
+                    if (!interceptStages.includes(stage.stage_id)) {
                       setViewLeadDialog(false);
                     }
                     handleStageChange(selectedLead.lead_id, stage.stage_id);
