@@ -593,22 +593,26 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Stats - Full width grid */}
-        <div className="grid grid-cols-5 gap-1 sm:grid-cols-9 sm:gap-2 mb-3">
-          <div className="col-span-5 sm:col-span-1 flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg px-3 py-2">
-            <span className="text-xs sm:text-sm font-medium opacity-80">Total</span>
-            <span className="text-xl sm:text-2xl font-bold">{dashboard?.total_leads || 0}</span>
+        {/* Stats Cards - Rounded pastel style */}
+        <div className="grid grid-cols-5 gap-1.5 sm:grid-cols-9 sm:gap-3 mb-3">
+          <div className="col-span-5 sm:col-span-1 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-3 py-3 sm:py-5 shadow-sm">
+            <span className="text-[10px] sm:text-xs font-medium opacity-90">Total Leads</span>
+            <span className="text-2xl sm:text-3xl font-bold mt-1">{dashboard?.total_leads || 0}</span>
           </div>
           {stages.map(stage => {
             const count = dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0;
             return (
             <div 
               key={stage.stage_id}
-              className={`flex flex-col items-center justify-center rounded-lg px-1 py-2 sm:py-3 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
+              className="flex flex-col items-center justify-center rounded-2xl px-1 py-3 sm:py-5 shadow-sm border"
+              style={{ 
+                backgroundColor: stage.color + '15',
+                borderColor: stage.color + '30'
+              }}
               data-testid={`stage-count-${stage.stage_id}`}
             >
-              <span className="text-[8px] sm:text-xs text-gray-500 text-center leading-tight truncate w-full px-0.5">{stage.name}</span>
-              <span className="text-base sm:text-xl font-bold mt-0.5" style={{ color: stage.color }}>{count}</span>
+              <span className="text-[7px] sm:text-[11px] font-medium text-center leading-tight px-0.5" style={{ color: stage.color }}>{stage.name}</span>
+              <span className="text-xl sm:text-3xl font-bold mt-1" style={{ color: stage.color }}>{count}</span>
             </div>
             );
           })}
