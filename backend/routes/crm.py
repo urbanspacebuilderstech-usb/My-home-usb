@@ -291,6 +291,8 @@ async def get_default_pre_sales_stages():
             {"stage_id": "stg_proposal", "name": "Portfolio sent", "stage_type": "pre_sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 6, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 7, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_office_visit", "name": "Office Visit", "stage_type": "pre_sales", "order": 8, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 9, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
@@ -301,6 +303,8 @@ async def get_default_pre_sales_stages():
         existing_ids = {s["stage_id"] for s in stages}
         missing = [
             {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "stage_type": "pre_sales", "order": 4, "color": "#dc2626", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_office_visit", "name": "Office Visit", "stage_type": "pre_sales", "order": 8, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 9, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
         ]
         for m in missing:
             if m["stage_id"] not in existing_ids:
@@ -396,6 +400,8 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         {"stage_id": "stg_proposal", "name": "Portfolio sent", "order": 5, "color": "#10b981", "is_final": False},
         {"stage_id": "stg_follow_up", "name": "Follow-up", "order": 6, "color": "#f59e0b", "is_final": False},
         {"stage_id": "stg_appointment", "name": "Appointment Booked", "order": 7, "color": "#22c55e", "is_final": True},
+        {"stage_id": "stg_office_visit", "name": "Office Visit", "order": 8, "color": "#0ea5e9", "is_final": False},
+        {"stage_id": "stg_pre_lost", "name": "Lost", "order": 9, "color": "#6b7280", "is_final": False},
     ]
     
     # Define all expected sales stages
