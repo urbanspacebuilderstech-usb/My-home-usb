@@ -65,7 +65,7 @@ export default function CRMPreSales() {
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
   
   // Date filter
-  const [dateFilter, setDateFilter] = useState('');
+  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
   const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [followUpFilter, setFollowUpFilter] = useState(false);
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);
@@ -550,19 +550,20 @@ export default function CRMPreSales() {
       if (!hasToday) return false;
     }
     
-    // Date filter — matches ONLY against follow-up dates
+    // Date filter — matches follow-up dates AND appointment dates
     let matchesDate = true;
     if (dateFilter) {
       const followupDates = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
       const nextFollowup = lead.next_followup_date || '';
-      const allFollowupDates = [...followupDates, nextFollowup].filter(Boolean);
+      const appointmentDate = lead.appointment_date ? lead.appointment_date.split('T')[0] : '';
+      const allDates = [...followupDates, nextFollowup, appointmentDate].filter(Boolean);
       
-      if (allFollowupDates.length === 0) {
+      if (allDates.length === 0) {
         matchesDate = false;
       } else if (dateFilterEnd) {
-        matchesDate = allFollowupDates.some(d => d >= dateFilter && d <= dateFilterEnd);
+        matchesDate = allDates.some(d => d >= dateFilter && d <= dateFilterEnd);
       } else {
-        matchesDate = allFollowupDates.includes(dateFilter);
+        matchesDate = allDates.includes(dateFilter);
       }
     }
     
@@ -668,7 +669,7 @@ export default function CRMPreSales() {
                   ) : (
                     new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
                   )
-                ) : 'Follow-up Date'}
+                ) : 'Date Filter'}
                 {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
@@ -684,6 +685,7 @@ export default function CRMPreSales() {
                     { label: 'This Month', fn: () => { const now = new Date(); setDateFilter(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateFilterEnd(new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]); } },
                     { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate()-30); setDateFilter(s.toISOString().split('T')[0]); setDateFilterEnd(e.toISOString().split('T')[0]); } },
                     { label: 'Clear', fn: () => { setDateFilter(''); setDateFilterEnd(''); } },
+                    { label: 'All Leads', fn: () => { setDateFilter(''); setDateFilterEnd(''); } },
                   ].map(p => (
                     <button
                       key={p.label}
