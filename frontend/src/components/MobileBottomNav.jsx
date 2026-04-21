@@ -78,6 +78,16 @@ const OTHER_ROLES = {
     { label: 'Alerts', icon: Bell, path: '/notifications' },
     { label: 'Profile', icon: User, path: '/settings' },
   ],
+  pre_sales: [
+    { label: 'Leads', icon: Target, path: '/crm-pre-sales' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/settings' },
+  ],
+  sales: [
+    { label: 'Sales', icon: TrendingUp, path: '/crm-sales' },
+    { label: 'Alerts', icon: Bell, path: '/notifications' },
+    { label: 'Profile', icon: User, path: '/settings' },
+  ],
 };
 
 const ACCOUNTANT_MORE = [
