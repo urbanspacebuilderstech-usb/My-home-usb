@@ -653,48 +653,87 @@ export default function CRMPreSales() {
             />
           </div>
           
-          {/* Date Filter - Calendar Popover */}
+          {/* Date Filter - Meta Ads style */}
           <Popover>
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={`h-8 text-xs gap-1.5 ${dateFilter ? 'bg-amber-50 border-amber-400 text-amber-700' : 'border-gray-300 text-gray-600'}`}
+                className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
                 data-testid="presales-date-filter-btn"
               >
                 <Calendar className="h-3.5 w-3.5" />
                 {dateFilter ? (
-                  dateFilterEnd ? (
+                  dateFilterEnd && dateFilter !== dateFilterEnd ? (
                     `${new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})} - ${new Date(dateFilterEnd).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}`
                   ) : (
                     new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
                   )
                 ) : 'Follow-up Date'}
+                {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="start">
-              <div className="p-2 border-b flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600">Select date or range</span>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-amber-600" onClick={() => { setDateFilter(new Date().toISOString().split('T')[0]); setDateFilterEnd(''); }}>Today</Button>
-                  {dateFilter && <Button variant="ghost" size="sm" className="h-6 text-[10px] text-red-500" onClick={() => { setDateFilter(''); setDateFilterEnd(''); }}><X className="h-3 w-3" /></Button>}
+            <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
+              <div className="flex">
+                {/* Quick Presets - Left sidebar */}
+                <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                  {[
+                    { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFilter(d); setDateFilterEnd(''); } },
+                    { label: 'Tomorrow', fn: () => { const d = new Date(); d.setDate(d.getDate()+1); setDateFilter(d.toISOString().split('T')[0]); setDateFilterEnd(''); } },
+                    { label: 'This Week', fn: () => { const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate()-now.getDay()+1); const sun = new Date(mon); sun.setDate(mon.getDate()+6); setDateFilter(mon.toISOString().split('T')[0]); setDateFilterEnd(sun.toISOString().split('T')[0]); } },
+                    { label: 'Next 7 Days', fn: () => { const d = new Date(); const e = new Date(); e.setDate(d.getDate()+7); setDateFilter(d.toISOString().split('T')[0]); setDateFilterEnd(e.toISOString().split('T')[0]); } },
+                    { label: 'This Month', fn: () => { const now = new Date(); setDateFilter(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateFilterEnd(new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]); } },
+                    { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate()-30); setDateFilter(s.toISOString().split('T')[0]); setDateFilterEnd(e.toISOString().split('T')[0]); } },
+                    { label: 'Clear', fn: () => { setDateFilter(''); setDateFilterEnd(''); } },
+                  ].map(p => (
+                    <button
+                      key={p.label}
+                      onClick={p.fn}
+                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Calendar - Right side */}
+                <div className="p-3">
+                  <DayPicker
+                    mode="range"
+                    selected={dateFilter ? { from: new Date(dateFilter + 'T00:00:00'), to: dateFilterEnd ? new Date(dateFilterEnd + 'T00:00:00') : new Date(dateFilter + 'T00:00:00') } : undefined}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        const from = range.from.toLocaleDateString('en-CA');
+                        const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
+                        setDateFilter(from);
+                        setDateFilterEnd(from === to ? '' : to);
+                      } else {
+                        setDateFilter('');
+                        setDateFilterEnd('');
+                      }
+                    }}
+                    classNames={{
+                      months: 'flex gap-4',
+                      month: 'space-y-3',
+                      caption: 'flex justify-center relative items-center h-8',
+                      caption_label: 'text-sm font-semibold text-gray-800',
+                      nav: 'flex items-center gap-1',
+                      nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
+                      table: 'w-full border-collapse',
+                      head_row: 'flex',
+                      head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
+                      row: 'flex w-full mt-1',
+                      cell: 'relative p-0 text-center text-sm focus-within:relative',
+                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center',
+                      day_selected: 'bg-blue-600 text-white hover:bg-blue-700 font-medium',
+                      day_today: 'bg-gray-100 font-semibold text-blue-600',
+                      day_range_middle: 'bg-blue-50 text-blue-700 rounded-none',
+                      day_range_start: 'bg-blue-600 text-white rounded-l-lg rounded-r-none',
+                      day_range_end: 'bg-blue-600 text-white rounded-r-lg rounded-l-none',
+                      day_outside: 'text-gray-300',
+                      day_disabled: 'text-gray-300',
+                    }}
+                  />
                 </div>
               </div>
-              <DayPicker
-                mode="range"
-                selected={dateFilter ? { from: new Date(dateFilter), to: dateFilterEnd ? new Date(dateFilterEnd) : new Date(dateFilter) } : undefined}
-                onSelect={(range) => {
-                  if (range?.from) {
-                    const from = range.from.toISOString().split('T')[0];
-                    const to = range.to ? range.to.toISOString().split('T')[0] : '';
-                    setDateFilter(from);
-                    setDateFilterEnd(from === to ? '' : to);
-                  } else {
-                    setDateFilter('');
-                    setDateFilterEnd('');
-                  }
-                }}
-                className="p-2"
-              />
             </PopoverContent>
           </Popover>
           
