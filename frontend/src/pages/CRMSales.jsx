@@ -46,7 +46,7 @@ export default function CRMSales() {
   const [leads, setLeads] = useState([]);
   const [stages, setStages] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('kanban'); // 'kanban' or 'list'
+  const [viewMode, setViewMode] = useState('list'); // 'kanban' or 'list'
   const [activeStage, setActiveStage] = useState('all');
   
   // Dialogs
