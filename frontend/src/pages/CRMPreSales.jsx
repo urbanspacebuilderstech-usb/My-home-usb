@@ -831,7 +831,7 @@ export default function CRMPreSales() {
                       </td>
                       <td className="px-2 py-2">
                         <Badge className={`text-[10px] px-1.5 truncate ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>
-                          {lead.source?.replace('_', ' ').substring(0, 10)}
+                          {(lead.source_display || lead.source || 'other').replace('_', ' ').substring(0, 15)}
                         </Badge>
                       </td>
                       <td className="px-2 py-2">
@@ -1448,6 +1448,55 @@ export default function CRMPreSales() {
                   </CardContent>
                 </Card>
                 
+                {/* Source & Meta Ad Info */}
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Lead Source</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-16">Source:</span>
+                        <Badge className="text-xs">{selectedLead.source_display || selectedLead.source || 'Unknown'}</Badge>
+                      </div>
+                      {selectedLead.meta_ad_info && Object.keys(selectedLead.meta_ad_info).length > 0 && (
+                        <>
+                          {selectedLead.meta_ad_info.campaign_name && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16">Campaign:</span>
+                              <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{selectedLead.meta_ad_info.campaign_name}</span>
+                            </div>
+                          )}
+                          {selectedLead.meta_ad_info.adset_name && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16">Ad Set:</span>
+                              <span className="text-xs font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded">{selectedLead.meta_ad_info.adset_name}</span>
+                            </div>
+                          )}
+                          {selectedLead.meta_ad_info.ad_name && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16">Ad Name:</span>
+                              <span className="text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded">{selectedLead.meta_ad_info.ad_name}</span>
+                            </div>
+                          )}
+                          {selectedLead.meta_ad_info.form_name && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16">Form:</span>
+                              <span className="text-xs text-gray-700">{selectedLead.meta_ad_info.form_name}</span>
+                            </div>
+                          )}
+                          {selectedLead.meta_ad_info.platform && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 w-16">Platform:</span>
+                              <span className="text-xs text-gray-700">{selectedLead.meta_ad_info.platform}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* Appointment Info - only for leads in Appointment Booked (final) stage */}
                 {stages.find(s => s.is_final && s.stage_id === selectedLead.current_stage_id) && selectedLead.appointment && Object.keys(selectedLead.appointment).length > 0 && (
                   <Card>

@@ -389,6 +389,19 @@ async def startup_init():
                                             else:
                                                 lead_data["custom_fields"][field_name] = value
                                     
+                                    # Extract Meta ad info
+                                    if source_name.startswith("meta"):
+                                        meta_keys = {"ad_name", "adset_name", "campaign_name", "form_name", "platform", "adset_id", "campaign_id", "created_time"}
+                                        meta_info = {}
+                                        for hi, header in enumerate(headers):
+                                            h_lower = header.strip().lower().replace(" ", "_")
+                                            if h_lower in meta_keys and hi < len(row):
+                                                val = str(row[hi]).strip() if row[hi] else ""
+                                                if val:
+                                                    meta_info[h_lower] = val
+                                        if meta_info:
+                                            lead_data["meta_ad_info"] = meta_info
+
                                     if not lead_data.get("name") and not lead_data.get("phone"):
                                         continue
                                     if lead_data.get("phone"):

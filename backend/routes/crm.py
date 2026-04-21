@@ -3953,6 +3953,22 @@ class ImportAllTabsRequest(BaseModel):
     tab_configs: List[Dict] = []  # [{tab_name, column_mapping, new_custom_fields}]
 
 
+
+def extract_meta_ad_info(headers: list, row: list, source_name: str) -> dict:
+    """Extract Meta ad campaign info if source starts with 'meta'"""
+    if not source_name.startswith("meta"):
+        return {}
+    meta_keys = {"ad_name", "adset_name", "campaign_name", "form_name", "platform", "adset_id", "campaign_id", "created_time"}
+    meta_info = {}
+    for hi, header in enumerate(headers):
+        h_lower = header.strip().lower().replace(" ", "_")
+        if h_lower in meta_keys and hi < len(row):
+            val = str(row[hi]).strip() if row[hi] else ""
+            if val:
+                meta_info[h_lower] = val
+    return meta_info
+
+
 @router.post("/sheets/import-all-tabs")
 async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = Depends(get_current_user)):
     """Import leads from all tabs with per-tab column mapping and custom field creation"""
@@ -4052,6 +4068,10 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
                         else:
                             lead_data["custom_fields"][field_name] = value
                 
+                meta_info = extract_meta_ad_info(headers, row, source_name)
+                if meta_info:
+                    lead_data["meta_ad_info"] = meta_info
+
                 if not lead_data.get("name") and not lead_data.get("phone"):
                     tab_skipped += 1
                     continue
@@ -4287,6 +4307,10 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
                         lead_data["custom_fields"][cf] = row[col_idx]
             
             # Skip if no name or phone
+            meta_info = extract_meta_ad_info(headers, row, source_name)
+            if meta_info:
+                lead_data["meta_ad_info"] = meta_info
+
             if not lead_data.get("name") and not lead_data.get("phone"):
                 skipped_count += 1
                 continue
@@ -4427,6 +4451,10 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
                             lead_data["custom_fields"][field_name] = value
                 
                 # Skip if no name or phone
+                meta_info = extract_meta_ad_info(headers, row, source_name)
+                if meta_info:
+                    lead_data["meta_ad_info"] = meta_info
+
                 if not lead_data.get("name") and not lead_data.get("phone"):
                     sheet_skipped += 1
                     continue
@@ -4796,6 +4824,10 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
                         else:
                             lead_data["custom_fields"][field_name] = value
                 
+                meta_info = extract_meta_ad_info(headers, row, source_name)
+                if meta_info:
+                    lead_data["meta_ad_info"] = meta_info
+
                 if not lead_data.get("name") and not lead_data.get("phone"):
                     tab_skipped += 1
                     continue
