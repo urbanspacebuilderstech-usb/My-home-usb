@@ -1274,8 +1274,8 @@ export default function CRMSales() {
                               )}
                             </>
                           )}
-                          {/* RE-Client stage action buttons */}
-                          {lead.current_stage_id === 'stg_re_to_client' && (
+                          {/* RE-Client / RE-Planning stage action buttons */}
+                          {['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id) && (
                             <>
                               <Button
                                 variant="outline"
@@ -1493,8 +1493,8 @@ export default function CRMSales() {
                           </div>
                         )}
                         
-                        {/* RE-Client stage action buttons (Kanban) */}
-                        {lead.current_stage_id === 'stg_re_to_client' && (
+                        {/* RE-Client / RE-Planning stage action buttons (Kanban) */}
+                        {['stg_re_to_client', 'stg_re_from_planning'].includes(lead.current_stage_id) && (
                           <div className="mt-2 flex gap-1.5">
                             <Button
                               size="sm"
@@ -1600,8 +1600,8 @@ export default function CRMSales() {
                 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-3">
-                  {/* RE-Client stage actions (prominent banner) */}
-                  {selectedLead.current_stage_id === 'stg_re_to_client' && (
+                  {/* RE-Client / RE-Planning stage actions (prominent banner) */}
+                  {['stg_re_to_client', 'stg_re_from_planning'].includes(selectedLead.current_stage_id) && (
                     <div className="bg-gradient-to-r from-green-50 to-orange-50 border-2 border-dashed border-amber-300 rounded-lg p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div>
