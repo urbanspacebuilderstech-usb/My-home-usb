@@ -1411,7 +1411,8 @@ export default function CRMSales() {
                   <div className="grid grid-cols-2 gap-3">
                     {selectedLead.email && (<div><Label className="text-xs text-gray-500">Email</Label><p className="text-sm flex items-center gap-1"><Mail className="h-3 w-3 text-gray-400" /> {selectedLead.email}</p></div>)}
                     {selectedLead.phone && (<div><Label className="text-xs text-gray-500">Phone</Label><p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-gray-400" /> {selectedLead.phone}</p></div>)}
-                    {selectedLead.address && (<div className="col-span-2"><Label className="text-xs text-gray-500">Address</Label><p className="text-sm">{selectedLead.address}{selectedLead.city ? `, ${selectedLead.city}` : ''}</p></div>)}
+                    {selectedLead.address && (<div className="col-span-2"><Label className="text-xs text-gray-500">Address</Label><p className="text-sm">{[selectedLead.address, selectedLead.city, selectedLead.location].filter(Boolean).join(', ')}</p></div>)}
+                    {selectedLead.sqft && (<div><Label className="text-xs text-gray-500">Area</Label><p className="text-sm">{selectedLead.sqft}</p></div>)}
                     {selectedLead.source && (<div><Label className="text-xs text-gray-500">Source</Label><p className="text-sm">{selectedLead.source}</p></div>)}
                     {selectedLead.assigned_to_name && (<div><Label className="text-xs text-gray-500">Assigned To</Label><p className="text-sm">{selectedLead.assigned_to_name}</p></div>)}
                     {selectedLead.pre_sales_person_name && (<div><Label className="text-xs text-gray-500">Pre-Sales</Label><p className="text-sm">{selectedLead.pre_sales_person_name}</p></div>)}

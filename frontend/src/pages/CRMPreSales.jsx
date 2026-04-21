@@ -1481,23 +1481,50 @@ export default function CRMPreSales() {
                     {selectedLead.email && (
                       <div className="flex items-center gap-2">
                         <Mail className="h-4 w-4 text-gray-400" />
-                        <span>{selectedLead.email}</span>
+                        <span className="text-sm">{selectedLead.email}</span>
                       </div>
                     )}
                     {selectedLead.phone && (
                       <div className="flex items-center gap-2">
                         <Phone className="h-4 w-4 text-gray-400" />
-                        <span>{selectedLead.phone}</span>
+                        <span className="text-sm">{selectedLead.phone}</span>
                       </div>
                     )}
-                    {selectedLead.address && (
+                    {(selectedLead.address || selectedLead.city || selectedLead.location) && (
                       <div className="flex items-center gap-2 col-span-2">
                         <MapPin className="h-4 w-4 text-gray-400" />
-                        <span>{[selectedLead.address, selectedLead.city, selectedLead.state].filter(Boolean).join(', ')}</span>
+                        <span className="text-sm">{[selectedLead.address, selectedLead.city, selectedLead.state, selectedLead.location].filter(Boolean).join(', ')}</span>
+                      </div>
+                    )}
+                    {selectedLead.sqft && (
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm">{selectedLead.sqft}</span>
                       </div>
                     )}
                   </CardContent>
                 </Card>
+                
+                {/* Additional Details from custom_fields */}
+                {selectedLead.custom_fields && Object.keys(selectedLead.custom_fields).length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600">Additional Details</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-3">
+                      {Object.entries(selectedLead.custom_fields).map(([key, value]) => (
+                        value && (
+                        <div key={key} className="bg-gray-50 rounded-lg p-2">
+                          <span className="text-[10px] text-gray-500 block">{key.replace(/_/g, ' ')}</span>
+                          <span className="text-sm font-medium text-gray-800">{String(value)}</span>
+                        </div>
+                        )
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+                )}
                 
                 {/* Appointment Info - only for leads in Appointment Booked (final) stage */}
                 {stages.find(s => s.is_final && s.stage_id === selectedLead.current_stage_id) && selectedLead.appointment && Object.keys(selectedLead.appointment).length > 0 && (
