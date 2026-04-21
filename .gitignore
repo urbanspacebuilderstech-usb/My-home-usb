@@ -973,3 +973,12 @@ credentials.json
 .credentials
 frontend/node_modules/.cache/default-development/185.pack
 frontend/node_modules/.cache/default-development/186.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
