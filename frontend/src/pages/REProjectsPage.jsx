@@ -69,6 +69,46 @@ export default function REProjectsPage({ embedded = false }) {
   const [revisionProject, setRevisionProject] = useState(null);
   const [revisionGroup, setRevisionGroup] = useState([]);
 
+  // RE Template picker
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [reTemplates, setReTemplates] = useState([]);
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+
+  const fetchTemplatesList = async () => {
+    try {
+      setTemplatesLoading(true);
+      const res = await axios.get(`${API}/crm/re-templates`);
+      setReTemplates(res.data || []);
+    } catch (err) {
+      toast.error('Failed to load RE templates');
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (templatePickerOpen) fetchTemplatesList();
+  }, [templatePickerOpen]);
+
+  const applyTemplateToRE = (tpl, mode = 'replace') => {
+    const templateItems = (tpl.scope_items || []).map(i => ({
+      name: i.name || '',
+      quantity: Number(i.quantity || 0),
+      unit: i.unit || 'nos',
+      rate: Number(i.rate || 0),
+      total: Number(i.quantity || 0) * Number(i.rate || 0),
+    }));
+    setEditForm(prev => ({
+      ...prev,
+      rough_scope_items: mode === 'append'
+        ? [...prev.rough_scope_items, ...templateItems]
+        : templateItems,
+    }));
+    setTemplatePickerOpen(false);
+    toast.success(`Template "${tpl.name}" applied (${templateItems.length} items)`);
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -560,7 +600,7 @@ export default function REProjectsPage({ embedded = false }) {
 
       {/* Edit RE Project Dialog */}
       <Dialog open={editDialog} onOpenChange={setEditDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh]">
+        <DialogContent className="max-w-5xl max-h-[92vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -700,9 +740,20 @@ export default function REProjectsPage({ embedded = false }) {
                 <div className="flex items-center justify-between mb-2">
                   <Label>Rough Scope of Work</Label>
                   {canEdit && (
-                    <Button variant="outline" size="sm" onClick={addScopeItem}>
-                      <Plus className="h-4 w-4 mr-1" /> Add Item
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTemplatePickerOpen(true)}
+                        className="text-purple-700 border-purple-300 hover:bg-purple-50"
+                        data-testid="use-template-btn"
+                      >
+                        <FileText className="h-4 w-4 mr-1" /> Use Template
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={addScopeItem}>
+                        <Plus className="h-4 w-4 mr-1" /> Add Item
+                      </Button>
+                    </div>
                   )}
                 </div>
                 <div className="border rounded-lg overflow-hidden">
@@ -711,10 +762,10 @@ export default function REProjectsPage({ embedded = false }) {
                       <tr>
                         <th className="px-1 py-2 w-8"></th>
                         <th className="px-3 py-2 text-left">Description</th>
-                        <th className="px-3 py-2 text-center w-20">Qty</th>
-                        <th className="px-3 py-2 text-center w-20">Unit</th>
-                        <th className="px-3 py-2 text-right w-24">Rate</th>
-                        <th className="px-3 py-2 text-right w-24">Total</th>
+                        <th className="px-3 py-2 text-center w-28">Qty</th>
+                        <th className="px-3 py-2 text-center w-28">Unit</th>
+                        <th className="px-3 py-2 text-right w-32">Rate</th>
+                        <th className="px-3 py-2 text-right w-32">Total</th>
                         {canEdit && <th className="px-3 py-2 w-12"></th>}
                       </tr>
                     </thead>
@@ -740,46 +791,47 @@ export default function REProjectsPage({ embedded = false }) {
                             <td className="px-1 py-2 text-center">
                               {canEdit && <DragHandle listeners={listeners} attributes={attributes} />}
                             </td>
-                            <td className="px-3 py-2">
-                              <Input
+                            <td className="px-3 py-2 align-top">
+                              <Textarea
                                 value={item.name}
                                 onChange={(e) => updateScopeItem(idx, 'name', e.target.value)}
-                                placeholder="Item description"
-                                className="h-8"
+                                placeholder="Item description (multi-line supported)"
+                                className="min-h-[38px] resize-y text-sm leading-snug py-1.5"
+                                rows={1}
                                 disabled={!canEdit}
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <NumericInput
                                 
                                 value={item.quantity}
                                 onChange={(e) => updateScopeItem(idx, 'quantity', e.target.value)}
-                                className="h-8 text-center"
+                                className="h-9 text-center w-full"
                                 disabled={!canEdit}
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <UnitSelect
                                 value={item.unit}
                                 onChange={(v) => updateScopeItem(idx, 'unit', v)}
-                                className="h-8"
+                                className="h-9"
                                 disabled={!canEdit}
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-3 py-2 align-top">
                               <NumericInput
                                 
                                 value={item.rate}
                                 onChange={(e) => updateScopeItem(idx, 'rate', e.target.value)}
-                                className="h-8 text-right"
+                                className="h-9 text-right w-full"
                                 disabled={!canEdit}
                               />
                             </td>
-                            <td className="px-3 py-2 text-right font-medium">
+                            <td className="px-3 py-2 text-right font-medium align-top whitespace-nowrap">
                               {formatCurrency(item.total)}
                             </td>
                             {canEdit && (
-                              <td className="px-3 py-2">
+                              <td className="px-3 py-2 align-top">
                                 <Button 
                                   variant="ghost" 
                                   size="sm"
@@ -911,7 +963,95 @@ export default function REProjectsPage({ embedded = false }) {
         </DialogContent>
       </Dialog>
 
-      {/* Approval Dialog */}
+      {/* RE Template Picker Sub-Dialog */}
+      <Dialog open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-purple-600" /> Choose RE Template
+            </DialogTitle>
+            <DialogDescription>
+              Select a template to load its scope items. You can still edit, reorder, and delete them afterwards.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search templates by name..."
+                value={templateSearch}
+                onChange={(e) => setTemplateSearch(e.target.value)}
+                className="pl-10"
+                data-testid="template-search-input"
+              />
+            </div>
+            {templatesLoading ? (
+              <div className="py-8 text-center text-gray-500"><RefreshCw className="h-5 w-5 animate-spin inline mr-2" /> Loading templates...</div>
+            ) : reTemplates.length === 0 ? (
+              <div className="py-8 text-center text-gray-500">
+                <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
+                <p className="font-medium">No RE templates available</p>
+                <p className="text-xs mt-1">Create templates from Planning Board → RE Templates</p>
+              </div>
+            ) : (
+              <div className="grid gap-2 max-h-[50vh] overflow-y-auto pr-1">
+                {reTemplates
+                  .filter(t => !templateSearch || (t.name || '').toLowerCase().includes(templateSearch.toLowerCase()))
+                  .map((tpl) => {
+                    const itemCount = (tpl.scope_items || []).length;
+                    const subtotal = (tpl.scope_items || []).reduce((s, i) => s + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
+                    return (
+                      <div
+                        key={tpl.template_id}
+                        className="border rounded-lg p-3 hover:border-purple-400 hover:shadow-sm transition-all bg-white"
+                        data-testid={`template-option-${tpl.template_id}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-gray-800 truncate">{tpl.name}</p>
+                            <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                              {tpl.sqft && <span>{tpl.sqft} sqft</span>}
+                              <span>{itemCount} scope item{itemCount !== 1 ? 's' : ''}</span>
+                              <span className="font-medium text-purple-700">{formatCurrency(subtotal)}</span>
+                            </div>
+                            {itemCount > 0 && (
+                              <p className="text-[11px] text-gray-400 mt-1 line-clamp-1">
+                                {(tpl.scope_items || []).slice(0, 3).map(i => i.name).filter(Boolean).join(' · ')}
+                                {itemCount > 3 ? ' · ...' : ''}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1.5 shrink-0">
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-purple-600 hover:bg-purple-700"
+                              onClick={() => applyTemplateToRE(tpl, 'replace')}
+                              data-testid={`apply-template-replace-${tpl.template_id}`}
+                            >
+                              Use (Replace)
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs border-purple-300 text-purple-700 hover:bg-purple-50"
+                              onClick={() => applyTemplateToRE(tpl, 'append')}
+                              data-testid={`apply-template-append-${tpl.template_id}`}
+                            >
+                              Append
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplatePickerOpen(false)}>Cancel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={approvalDialog} onOpenChange={setApprovalDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>

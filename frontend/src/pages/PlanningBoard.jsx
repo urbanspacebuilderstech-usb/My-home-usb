@@ -1777,7 +1777,7 @@ export default function PlanningBoard() {
 
       {/* ==================== RE TEMPLATE DIALOG ==================== */}
       <Dialog open={templateDialog} onOpenChange={setTemplateDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2" data-testid="template-dialog-title">
               <FileText className="h-5 w-5 text-purple-600" />
@@ -1824,10 +1824,10 @@ export default function PlanningBoard() {
                     <tr>
                       <th className="px-1 py-2 w-8"></th>
                       <th className="px-3 py-2 text-left">Description</th>
-                      <th className="px-3 py-2 text-center w-20">Qty</th>
-                      <th className="px-3 py-2 text-center w-20">Unit</th>
-                      <th className="px-3 py-2 text-right w-24">Rate</th>
-                      <th className="px-3 py-2 text-right w-24">Total</th>
+                      <th className="px-3 py-2 text-center w-28">Qty</th>
+                      <th className="px-3 py-2 text-center w-28">Unit</th>
+                      <th className="px-3 py-2 text-right w-32">Rate</th>
+                      <th className="px-3 py-2 text-right w-32">Total</th>
                       <th className="px-3 py-2 w-12"></th>
                     </tr>
                   </thead>
@@ -1854,38 +1854,39 @@ export default function PlanningBoard() {
                             <DragHandle listeners={listeners} attributes={attributes} />
                           </td>
                           <td className="px-3 py-2">
-                            <Input
+                            <Textarea
                               value={item.name}
                               onChange={(e) => updateTemplateScopeItem(idx, 'name', e.target.value)}
-                              placeholder="Item description"
-                              className="h-8"
+                              placeholder="Item description (supports multi-line)"
+                              className="min-h-[38px] resize-y text-sm leading-snug py-1.5"
+                              rows={1}
                               data-testid={`scope-item-name-${idx}`}
                             />
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 align-top">
                             <NumericInput
                               value={item.quantity}
                               onChange={(e) => updateTemplateScopeItem(idx, 'quantity', e.target.value)}
-                              className="h-8 text-center"
+                              className="h-9 text-center w-full"
                               data-testid={`scope-item-qty-${idx}`}
                             />
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 align-top">
                             <UnitSelect
                               value={item.unit}
                               onChange={(v) => updateTemplateScopeItem(idx, 'unit', v)}
-                              className="h-8"
+                              className="h-9"
                             />
                           </td>
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 align-top">
                             <NumericInput
                               value={item.rate}
                               onChange={(e) => updateTemplateScopeItem(idx, 'rate', e.target.value)}
-                              className="h-8 text-right"
+                              className="h-9 text-right w-full"
                               data-testid={`scope-item-rate-${idx}`}
                             />
                           </td>
-                          <td className="px-3 py-2 text-right font-medium">
+                          <td className="px-3 py-2 text-right font-medium align-top whitespace-nowrap">
                             {formatCurrency(item.total)}
                           </td>
                           <td className="px-3 py-2">
