@@ -76,6 +76,11 @@ export default function CRMPreSales() {
   const [quickFollowupLeadId, setQuickFollowupLeadId] = useState(null);
   const [quickFollowupForm, setQuickFollowupForm] = useState({ date: '', time: '', remarks: '' });
 
+  // Follow-up Move dialog (when moving to Follow-up stage)
+  const [followupMoveDialog, setFollowupMoveDialog] = useState(false);
+  const [followupMoveLeadId, setFollowupMoveLeadId] = useState(null);
+  const [followupMoveForm, setFollowupMoveForm] = useState({ date: '', time: '', remarks: '' });
+
   const [addFieldDialog, setAddFieldDialog] = useState(false);
   const [manageFieldsDialog, setManageFieldsDialog] = useState(false);
   const [deleteFieldDialog, setDeleteFieldDialog] = useState(false);
@@ -310,7 +315,7 @@ export default function CRMPreSales() {
     }
   };
 
-  const handleStageChange = async (leadId, newStageId, appointmentData = null) => {
+  const handleStageChange = async (leadId, newStageId, appointmentData = null, followupData = null) => {
     try {
       // Check if the target stage is a final stage (triggers transfer)
       const targetStage = stages.find(s => s.stage_id === newStageId);
@@ -322,6 +327,14 @@ export default function CRMPreSales() {
         return;
       }
       
+      // Intercept: Moving to Follow-up stage — ask for date/time first
+      if (newStageId === 'stg_follow_up' && !followupData) {
+        setFollowupMoveLeadId(leadId);
+        setFollowupMoveForm({ date: '', time: '', remarks: '' });
+        setFollowupMoveDialog(true);
+        return;
+      }
+      
       const payload = { stage_id: newStageId };
       if (appointmentData) {
         payload.appointment_date = appointmentData.date;
@@ -330,6 +343,15 @@ export default function CRMPreSales() {
       }
       
       const result = await axios.patch(`${API}/crm/leads/${leadId}/stage`, payload);
+      
+      // If moving to follow-up, also create the follow-up entry
+      if (newStageId === 'stg_follow_up' && followupData) {
+        await axios.post(`${API}/crm/leads/${leadId}/follow-ups`, {
+          scheduled_date: followupData.date,
+          scheduled_time: followupData.time,
+          note: followupData.remarks
+        });
+      }
       
       if (result.data.transferred_to_sales) {
         toast.success('Appointment booked & lead transferred to Sales!');
@@ -2519,6 +2541,48 @@ export default function CRMPreSales() {
             >
               <Calendar className="h-4 w-4 mr-2" />
               Book an Appointment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Follow-up Move Dialog (when moving to Follow-up stage) */}
+      <Dialog open={followupMoveDialog} onOpenChange={setFollowupMoveDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-amber-600" /> Schedule Follow-up
+            </DialogTitle>
+            <DialogDescription>Set follow-up date and time before moving to Follow-up stage</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Follow-up Date *</Label>
+              <Input type="date" value={followupMoveForm.date} onChange={(e) => setFollowupMoveForm({...followupMoveForm, date: e.target.value})} className="mt-1" data-testid="followup-move-date" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Time *</Label>
+              <Input type="time" value={followupMoveForm.time} onChange={(e) => setFollowupMoveForm({...followupMoveForm, time: e.target.value})} className="mt-1" data-testid="followup-move-time" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Remarks</Label>
+              <Input value={followupMoveForm.remarks} onChange={(e) => setFollowupMoveForm({...followupMoveForm, remarks: e.target.value})} placeholder="Notes..." className="mt-1" data-testid="followup-move-remarks" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFollowupMoveDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={() => {
+                if (!followupMoveForm.date) { toast.error('Please select a date'); return; }
+                if (!followupMoveForm.time) { toast.error('Please select a time'); return; }
+                setFollowupMoveDialog(false);
+                handleStageChange(followupMoveLeadId, 'stg_follow_up', null, followupMoveForm);
+              }}
+              disabled={!followupMoveForm.date || !followupMoveForm.time}
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="followup-move-submit"
+            >
+              Move to Follow-up
             </Button>
           </DialogFooter>
         </DialogContent>
