@@ -1819,7 +1819,7 @@ export default function PlanningBoard() {
                 </Button>
               </div>
               <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm table-fixed">
                   <thead className="bg-gray-100">
                     <tr>
                       <th className="px-1 py-2 w-8"></th>
@@ -1853,13 +1853,12 @@ export default function PlanningBoard() {
                           <td className="px-1 py-2 text-center">
                             <DragHandle listeners={listeners} attributes={attributes} />
                           </td>
-                          <td className="px-3 py-2">
-                            <Textarea
+                          <td className="px-3 py-2 align-top">
+                            <Input
                               value={item.name}
                               onChange={(e) => updateTemplateScopeItem(idx, 'name', e.target.value)}
-                              placeholder="Item description (supports multi-line)"
-                              className="min-h-[38px] resize-y text-sm leading-snug py-1.5"
-                              rows={1}
+                              placeholder="Item description"
+                              className="h-9 w-full"
                               data-testid={`scope-item-name-${idx}`}
                             />
                           </td>

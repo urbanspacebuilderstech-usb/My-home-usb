@@ -757,7 +757,7 @@ export default function REProjectsPage({ embedded = false }) {
                   )}
                 </div>
                 <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-sm table-fixed">
                     <thead className="bg-gray-100">
                       <tr>
                         <th className="px-1 py-2 w-8"></th>
@@ -792,12 +792,11 @@ export default function REProjectsPage({ embedded = false }) {
                               {canEdit && <DragHandle listeners={listeners} attributes={attributes} />}
                             </td>
                             <td className="px-3 py-2 align-top">
-                              <Textarea
+                              <Input
                                 value={item.name}
                                 onChange={(e) => updateScopeItem(idx, 'name', e.target.value)}
-                                placeholder="Item description (multi-line supported)"
-                                className="min-h-[38px] resize-y text-sm leading-snug py-1.5"
-                                rows={1}
+                                placeholder="Item description"
+                                className="h-9 w-full"
                                 disabled={!canEdit}
                               />
                             </td>
