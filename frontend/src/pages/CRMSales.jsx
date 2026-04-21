@@ -1400,7 +1400,8 @@ export default function CRMSales() {
       {/* View Lead Dialog */}
       {/* Lead Detail Dialog */}
       <Dialog open={viewLeadDialog} onOpenChange={setViewLeadDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <div className="overflow-y-auto flex-1 px-6 pt-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-3">
 
@@ -1847,8 +1848,7 @@ export default function CRMSales() {
 
       {/* RE Project Dialog */}
       <Dialog open={reProjectDialog} onOpenChange={setReProjectDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <div className="overflow-y-auto flex-1 px-6 pt-6">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
