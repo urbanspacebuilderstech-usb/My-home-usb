@@ -1529,49 +1529,101 @@ export default function CRMSales() {
                       <div className="relative">
                         <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
                         <div className="space-y-3">
-                          <div className="flex items-start gap-3 relative">
-                            <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center z-10 shrink-0"><Plus className="h-3 w-3 text-white" /></div>
-                            <div className="flex-1 bg-indigo-50 rounded-lg p-2">
-                              <p className="text-xs font-semibold text-indigo-700">Lead Created</p>
-                              <p className="text-[10px] text-gray-500">{selectedLead.created_at ? new Date(selectedLead.created_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'N/A'}</p>
-                              {selectedLead.pre_sales_person_name && <p className="text-[10px] text-gray-500">From Pre-Sales: {selectedLead.pre_sales_person_name}</p>}
-                            </div>
-                          </div>
-                          {(selectedLead.stage_history || []).map((entry, i) => {
-                            const stageInfo = stages.find(s => s.stage_id === entry.stage_id);
-                            return (
-                            <div key={i} className="flex items-start gap-3 relative">
-                              <div className="w-6 h-6 rounded-full flex items-center justify-center z-10 shrink-0" style={{ backgroundColor: stageInfo?.color || '#6b7280' }}><ArrowRight className="h-3 w-3 text-white" /></div>
-                              <div className="flex-1 bg-white border rounded-lg p-2">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-xs font-semibold" style={{ color: stageInfo?.color || '#374151' }}>{stageInfo?.name || entry.stage_id}</p>
-                                  {entry.action && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{entry.action}</span>}
-                                </div>
-                                <p className="text-[10px] text-gray-500">{entry.moved_at ? new Date(entry.moved_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{entry.moved_by_name ? ` — ${entry.moved_by_name}` : ''}</p>
-                                {entry.remark && <p className="text-[10px] text-gray-600 mt-0.5 italic">"{entry.remark}"</p>}
-                              </div>
-                            </div>
-                            );
-                          })}
-                          {(selectedLead.follow_ups || []).map((fup, i) => (
-                            <div key={`fup-${i}`} className="flex items-start gap-3 relative">
-                              <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center z-10 shrink-0"><Calendar className="h-3 w-3 text-white" /></div>
-                              <div className={`flex-1 rounded-lg p-2 ${fup.completed ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
-                                <p className="text-xs font-semibold text-amber-700">Follow-up {fup.completed ? '(Done)' : '(Pending)'}</p>
-                                <p className="text-[10px] text-gray-500">{fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : ''}{fup.note ? ` — ${fup.note}` : ''}</p>
-                                {fup.closing_remark && <p className="text-[10px] text-green-700 mt-0.5">Closed: {fup.closing_remark}</p>}
-                              </div>
-                            </div>
-                          ))}
-                          {selectedLead.office_visit && (
-                            <div className="flex items-start gap-3 relative">
-                              <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center z-10 shrink-0"><Building2 className="h-3 w-3 text-white" /></div>
-                              <div className="flex-1 bg-sky-50 border border-sky-200 rounded-lg p-2">
-                                <p className="text-xs font-semibold text-sky-700">Office Visit</p>
-                                <p className="text-[10px] text-gray-500">{selectedLead.office_visit.date} at {selectedLead.office_visit.time} — {selectedLead.office_visit.location}</p>
-                              </div>
-                            </div>
-                          )}
+                          {(() => {
+                            const events = [];
+                            if (selectedLead.created_at) {
+                              events.push({ type: 'created', ts: selectedLead.created_at });
+                            }
+                            (selectedLead.stage_history || []).forEach((entry, i) => {
+                              events.push({ type: 'stage', ts: entry.moved_at || entry.created_at || 0, data: entry, key: `stg-${i}` });
+                            });
+                            (selectedLead.follow_ups || []).forEach((fup, i) => {
+                              events.push({ type: 'followup', ts: fup.created_at || fup.scheduled_date, data: fup, key: `fup-${i}` });
+                            });
+                            (selectedLead.rnr_log || []).forEach((log, i) => {
+                              events.push({ type: 'rnr', ts: log.timestamp || 0, data: log, key: `rnr-${i}` });
+                            });
+                            if (selectedLead.office_visit) {
+                              const ov = selectedLead.office_visit;
+                              const ovTs = ov.created_at || (ov.date ? `${ov.date}T${ov.time || '00:00'}` : 0);
+                              events.push({ type: 'office_visit', ts: ovTs, data: ov });
+                            }
+                            events.sort((a, b) => {
+                              const ta = a.ts ? new Date(a.ts).getTime() : 0;
+                              const tb = b.ts ? new Date(b.ts).getTime() : 0;
+                              return ta - tb;
+                            });
+                            return events.map((ev, idx) => {
+                              const key = ev.key || `${ev.type}-${idx}`;
+                              if (ev.type === 'created') {
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center z-10 shrink-0"><Plus className="h-3 w-3 text-white" /></div>
+                                    <div className="flex-1 bg-indigo-50 rounded-lg p-2">
+                                      <p className="text-xs font-semibold text-indigo-700">Lead Created</p>
+                                      <p className="text-[10px] text-gray-500">{new Date(ev.ts).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
+                                      {selectedLead.pre_sales_person_name && <p className="text-[10px] text-gray-500">From Pre-Sales: {selectedLead.pre_sales_person_name}</p>}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'stage') {
+                                const entry = ev.data;
+                                const stageInfo = stages.find(s => s.stage_id === entry.stage_id);
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full flex items-center justify-center z-10 shrink-0" style={{ backgroundColor: stageInfo?.color || '#6b7280' }}><ArrowRight className="h-3 w-3 text-white" /></div>
+                                    <div className="flex-1 bg-white border rounded-lg p-2">
+                                      <div className="flex items-center justify-between">
+                                        <p className="text-xs font-semibold" style={{ color: stageInfo?.color || '#374151' }}>{stageInfo?.name || entry.stage_id}</p>
+                                        {entry.action && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{entry.action}</span>}
+                                      </div>
+                                      <p className="text-[10px] text-gray-500">{entry.moved_at ? new Date(entry.moved_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{entry.moved_by_name ? ` — ${entry.moved_by_name}` : ''}</p>
+                                      {entry.remark && <p className="text-[10px] text-gray-600 mt-0.5 italic">"{entry.remark}"</p>}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'followup') {
+                                const fup = ev.data;
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center z-10 shrink-0"><Calendar className="h-3 w-3 text-white" /></div>
+                                    <div className={`flex-1 rounded-lg p-2 ${fup.completed ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                                      <p className="text-xs font-semibold text-amber-700">Follow-up {fup.completed ? '(Done)' : '(Pending)'}</p>
+                                      <p className="text-[10px] text-gray-500">{fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : ''}{fup.note ? ` — ${fup.note}` : ''}</p>
+                                      {fup.closing_remark && <p className="text-[10px] text-green-700 mt-0.5">Closed: {fup.closing_remark}</p>}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'rnr') {
+                                const log = ev.data;
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center z-10 shrink-0"><PhoneOff className="h-3 w-3 text-white" /></div>
+                                    <div className="flex-1 bg-red-50 border border-red-200 rounded-lg p-2">
+                                      <p className="text-xs font-semibold text-red-600">RNR #{log.attempt}</p>
+                                      <p className="text-[10px] text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{log.logged_by_name ? ` — ${log.logged_by_name}` : ''}</p>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'office_visit') {
+                                const ov = ev.data;
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center z-10 shrink-0"><Building2 className="h-3 w-3 text-white" /></div>
+                                    <div className="flex-1 bg-sky-50 border border-sky-200 rounded-lg p-2">
+                                      <p className="text-xs font-semibold text-sky-700">Office Visit</p>
+                                      <p className="text-[10px] text-gray-500">{ov.date} at {ov.time} — {ov.location}</p>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            });
+                          })()}
                         </div>
                       </div>
                     </CardContent>

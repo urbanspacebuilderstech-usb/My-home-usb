@@ -13,7 +13,11 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
-### Session — April 2026 (Latest)
+### Session — April 21, 2026 (Latest)
+- **Timeline Ascending Sort Fix**: Lead Timeline in both Pre-Sales & Sales now unifies stage_history, follow_ups, rnr_log, office_visit, and lead creation into a single list sorted strictly ascending by timestamp. Earlier, separate sections caused out-of-order entries (e.g., RNR #1 from 21 Apr appeared after Follow-up scheduled for 22 Apr).
+- **Sales CRM RNR Events**: Added RNR log rendering to Sales CRM timeline for parity with Pre-Sales.
+
+### Session — April 2026
 - **Round-Robin Fix**: Sales/Pre-Sales users see ONLY their assigned leads. Fixed $or overwrite bug in search. Enhanced assign_lead_to_next_user with team validation.
 - **Google Sheets OAuth Fix**: Dynamic redirect_uri from FRONTEND_URL — works on preview and live domains
 - **Hostinger VPS Deployment**: Ubuntu, Node.js 20, Python 3.13, MongoDB 7, Nginx, SSL (Let's Encrypt), PM2, UFW firewall
