@@ -1697,9 +1697,13 @@ export default function CRMPreSales() {
                           (selectedLead.stage_history || []).forEach((entry, i) => {
                             events.push({ type: 'stage', ts: entry.moved_at || entry.created_at || 0, data: entry, key: `stg-${i}` });
                           });
-                          // Follow-ups (use created_at if available else scheduled_date)
+                          // Follow-ups: split into "scheduled" (at created_at) and "closed" (at completed_at) if completed
                           (selectedLead.follow_ups || []).forEach((fup, i) => {
-                            events.push({ type: 'followup', ts: fup.created_at || fup.scheduled_date, data: fup, key: `fup-${i}` });
+                            const scheduleTs = fup.created_at || fup.scheduled_date;
+                            events.push({ type: 'followup_scheduled', ts: scheduleTs, data: fup, key: `fup-sch-${i}` });
+                            if (fup.completed && fup.completed_at) {
+                              events.push({ type: 'followup_closed', ts: fup.completed_at, data: fup, key: `fup-cls-${i}` });
+                            }
                           });
                           // RNR Log
                           (selectedLead.rnr_log || []).forEach((log, i) => {
@@ -1759,22 +1763,40 @@ export default function CRMPreSales() {
                                 </div>
                               );
                             }
-                            if (ev.type === 'followup') {
+                            if (ev.type === 'followup_scheduled') {
                               const fup = ev.data;
                               return (
                                 <div key={key} className="flex items-start gap-3 relative">
                                   <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center z-10 shrink-0">
                                     <Calendar className="h-3 w-3 text-white" />
                                   </div>
-                                  <div className={`flex-1 rounded-lg p-2 ${fup.completed ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                                  <div className="flex-1 bg-amber-50 border border-amber-200 rounded-lg p-2">
                                     <p className="text-xs font-semibold text-amber-700">
-                                      Follow-up {fup.completed ? '(Done)' : '(Pending)'}
+                                      Follow-up Scheduled{fup.completed ? '' : ' (Pending)'}
                                     </p>
                                     <p className="text-[10px] text-gray-500">
-                                      {fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : ''}
-                                      {fup.note ? ` — ${fup.note}` : ''}
+                                      {fup.created_at ? new Date(fup.created_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}
+                                      {' '}— for {fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : 'N/A'}
+                                      {fup.note ? ` · ${fup.note}` : ''}
                                     </p>
-                                    {fup.closing_remark && <p className="text-[10px] text-green-700 mt-0.5">Closed: {fup.closing_remark}</p>}
+                                  </div>
+                                </div>
+                              );
+                            }
+                            if (ev.type === 'followup_closed') {
+                              const fup = ev.data;
+                              return (
+                                <div key={key} className="flex items-start gap-3 relative">
+                                  <div className="w-6 h-6 rounded-full bg-green-500 flex items-center justify-center z-10 shrink-0">
+                                    <CheckCircle className="h-3 w-3 text-white" />
+                                  </div>
+                                  <div className="flex-1 bg-green-50 border border-green-200 rounded-lg p-2">
+                                    <p className="text-xs font-semibold text-green-700">Follow-up Closed</p>
+                                    <p className="text-[10px] text-gray-500">
+                                      {fup.completed_at ? new Date(fup.completed_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}
+                                      {fup.closed_by_name ? ` — ${fup.closed_by_name}` : ''}
+                                    </p>
+                                    {fup.closing_remark && <p className="text-[10px] text-green-700 mt-0.5">Remark: {fup.closing_remark}</p>}
                                   </div>
                                 </div>
                               );
