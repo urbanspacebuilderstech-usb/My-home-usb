@@ -3137,22 +3137,6 @@ export default function AccountsBoard() {
               )
             )}
           </div>
-          <Tabs value={mainTab} onValueChange={setMainTab}>
-            <TabsList className="w-full grid grid-cols-4" data-testid="accounts-main-tabs">
-              <TabsTrigger value="cashbook" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800" data-testid="tab-cashbook">
-                <BookOpen className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cashbook</span><span className="sm:hidden">Cash</span>
-              </TabsTrigger>
-              <TabsTrigger value="approvals" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-purple-100 data-[state=active]:text-purple-800" data-testid="tab-approvals">
-                <ClipboardCheck className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Approvals</span><span className="sm:hidden">Approve</span>
-              </TabsTrigger>
-              <TabsTrigger value="cheques" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800" data-testid="tab-cheques">
-                <FileText className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Cheque Management</span><span className="sm:hidden">Cheques</span>
-              </TabsTrigger>
-              <TabsTrigger value="projects" className="gap-1 text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800" data-testid="tab-projects">
-                <BarChart3 className="h-4 w-4 shrink-0" /> <span className="hidden sm:inline">Project Summary</span><span className="sm:hidden">Projects</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
       </div>
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
