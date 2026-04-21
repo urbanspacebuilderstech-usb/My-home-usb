@@ -1,0 +1,62 @@
+{
+  "summary": "End-to-end test of RE Template CRUD + Use Template sub-popup + UnitSelect. RE Template Create (3 items), Edit (modify desc + add 4th row), Delete all WORK. Use Template sub-popup inside Edit Rough Estimate fully functional: search filters template list, 'Use (Replace)' replaces scope items (toast 'Template X applied (1 items)'), 'Append' adds on top of existing (rows grew 1->2). UnitSelect dropdown opens correctly, option clicks select unit and reflect in button. One concern: UnitSelect search input does NOT accept keyboard text input under Playwright automation (value stays empty, 101 options still shown after type('kg'/'sqft'/'brick')) via page.keyboard.type, press_sequentially, .fill, or native setter + input event. Pre-existing hydration warning (<div> child of <tbody>) from DnD SortableContext still present (cosmetic).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "UnitSelect", "issue": "Search input value does not update when text is typed programmatically (all methods tried: keyboard.type, press_sequentially, fill, native setter+input event). Options list never filters. Could be stopPropagation on onKeyDown/onClick interfering with React synthetic input events, OR the input is inside a React portal that the controlled state isn't receiving updates from in test env. User reports manual typing works, but this is fragile and inconsistent. Investigation suggested.", "selector": "[data-testid=\"unit-search-input\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Edit Rough Estimate / Edit Template dialogs", "issues": ["React hydration warning: '<div> cannot contain a nested tbody' - DnD SortableContext wrapper renders a <div> directly inside <tbody> in scope items table. Functional but noisy console."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(High) Verify UnitSelect search input truly accepts typed characters in browser - consider removing stopPropagation from onKeyDown on the input OR explicitly allowing typing keys; ensure onChange updates state. Automation could not reproduce successful typing across 4 different input strategies.",
+    "(Medium) Fix DnD SortableContext to not render a <div> directly inside <tbody> (use a custom strategy that renders as tbody/fragment)."
+  ],
+  "critical_code_review_comments": [
+    "RE Template CRUD works end-to-end (Create/Edit/Delete) with toasts, backend persistence, and correct totals.",
+    "Use Template sub-popup is well-implemented: search works for template picker, Replace vs Append both function correctly.",
+    "UnitSelect portal dropdown positioning and option click selection confirmed working again.",
+    "Concern: search input inside UnitSelect still shows automation-resistance. If the issue is also present for some users (e.g., keyboards with event interception), it would be a blocker. Please manually verify in a real browser with keyboard."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend only)", "frontend": "88%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (Demo Access > Super Admin)",
+  "seed_data_creation": "Created 1 test RE Template 'TEST_Standard 2BHK' (1200 sqft, 3->4 scope items). It was then edited and deleted during the test. 1 earlier duplicate 'TEST_Standard 2BHK' may remain in DB from the first partial run if auto-cleanup did not run - please check.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login via Demo Access > Super Admin. To reach RE Templates: /planning-board then click top-nav 'RE Templates'. To reach Edit Rough Estimate dialog: /crm/re-projects > click 'Approved' card > click edit icon (data-testid=edit-re-<id>) on a listed RE. Use Template button data-testid='use-template-btn'. Template picker dialog: data-testid='template-search-input', data-testid='template-option-<tid>', data-testid='apply-template-replace-<tid>', data-testid='apply-template-append-<tid>'. UnitSelect: trigger data-testid='unit-select', portal search 'unit-search-input', options 'unit-option-<value>'.",
+  "tests_executed": {
+    "frontend": [
+      "Login via Demo Access > Super Admin - PASS",
+      "Navigate to /planning-board > click 'RE Templates' top nav - PASS (templates table loads)",
+      "Click 'Create Template' - PASS (dialog opens)",
+      "Fill Template Name + Sqft - PASS",
+      "Click 'Add Item' x3, fill description/qty/rate for 3 rows - PASS (total auto-calculates ₹2,52,000)",
+      "UnitSelect dropdown open + click option (kg) - PASS (reflects 'Kg (Kilogram)')",
+      "UnitSelect search: TYPE 'kg'/'sqft'/'brick' via keyboard.type, press_sequentially, .fill, native setter - FAIL (value stays empty, 101 options)",
+      "Save Template - PASS (toast 'Template created', row added)",
+      "Edit Template: load, modify desc, add 4th row, save - PASS (row shows '4 items ₹2,56,500')",
+      "Delete Template: accept confirm dialog - PASS (row removed)",
+      "Navigate to /crm/re-projects > click Approved card - PASS (2 REs shown)",
+      "Open Edit Rough Estimate dialog - PASS",
+      "Click 'Use Template' button - PASS (sub-popup opens)",
+      "Search 'Villa' in template picker - PASS (1 option filtered)",
+      "Click 'Use (Replace)' - PASS (toast 'Template applied (1 items)', 1 unit select in form)",
+      "Re-open picker, click 'Append' - PASS (unit selects grew 1->2)",
+      "Download PDF + Save buttons present - PASS"
+    ]
+  },
+  "verified_fixes": [
+    "Use Template sub-popup with Replace/Append works in RE Edit dialog",
+    "RE Template CRUD (Create/Edit/Delete) fully functional with backend persistence",
+    "UnitSelect portal dropdown opens, options are clickable, selection reflects in trigger button",
+    "Template auto-calculates estimated total from qty*rate"
+  ],
+  "unresolved_observations": [
+    "UnitSelect search input ignores programmatic text input - could be a real bug or automation limitation. Needs manual confirmation.",
+    "Hydration warning (div inside tbody) persists from DnD SortableContext - cosmetic."
+  ]
+}
