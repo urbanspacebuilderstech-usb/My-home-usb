@@ -915,53 +915,6 @@ export default function CRMSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white border-0">
-            <CardContent className="p-4">
-              <p className="text-emerald-100 text-sm">Total Leads</p>
-              <p className="text-3xl font-bold">{dashboard?.total_leads || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-green-50 border-green-200" data-testid="deal-closed-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Target className="h-4 w-4 text-green-600" />
-                <span className="text-xs text-green-600">Deal Closed</span>
-              </div>
-              <p className="text-2xl font-bold text-green-700">{salesOverview?.deal_closed_count || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white border-0" data-testid="advance-collected-card">
-            <CardContent className="p-4">
-              <p className="text-purple-100 text-sm">Advance Collected</p>
-              <p className="text-2xl font-bold">{formatCurrency(salesOverview?.total_advance_collected || 0)}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-amber-50 border-blue-200">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Clock className="h-4 w-4 text-amber-600" />
-                <span className="text-xs text-amber-600">RE Requested</span>
-              </div>
-              <p className="text-2xl font-bold text-amber-700">{dashboard?.re_stats?.requested || 0}</p>
-            </CardContent>
-          </Card>
-          
-          <Card className="bg-teal-50 border-teal-200">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <Building2 className="h-4 w-4 text-teal-600" />
-                <span className="text-xs text-teal-600">Converted</span>
-              </div>
-              <p className="text-2xl font-bold text-teal-700">{dashboard?.re_stats?.converted || 0}</p>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* All Stages Summary — matches Pre-Sales style, wraps to 2 rows */}
         {stages.length > 0 && (
           <div className="mb-6">
