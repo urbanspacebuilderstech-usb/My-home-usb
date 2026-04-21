@@ -2,7 +2,7 @@
 CRM Routes - Pre-Sales, Sales, Leads, Stages, Custom Fields, RE Projects, Marketing, Google Sheets
 Migrated from server.py monolith
 """
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
@@ -13,7 +13,8 @@ import os
 import json
 import re
 
-from core.database import db
+from core.database import db, fs
+from bson import ObjectId as _ObjectId
 from core.deps import get_current_user, create_notification, create_audit_log
 from core.models import UserRole, User
 from core.contact_visibility import filter_contacts_re_projects, filter_contacts_leads, strip_contact_fields, PRIVILEGED_ROLES
@@ -2976,9 +2977,14 @@ async def re_client_revision(lead_id: str, data: SalesRevisionReq = SalesRevisio
         parent_re_number=parent_re_number,
     )
     new_dict = new_re.model_dump()
-    new_dict["previous_client_feedback"] = project.get("client_feedback_notes", "")
+    new_dict["previous_client_feedback"] = data.reason or project.get("client_feedback_notes", "")
+    new_dict["client_feedback_notes"] = data.reason or ""
+    new_dict["client_feedback_by"] = user_name
+    new_dict["client_feedback_at"] = now
     new_dict["revision_reason"] = data.reason or ""
     new_dict["duplicated_from_re_project_id"] = re_project_id
+    # Carry over attachments from previous revision (planning may keep reference files)
+    new_dict["attachments"] = project.get("attachments", [])
     await db.re_projects.insert_one(new_dict)
     stage_history = lead.get("stage_history", [])
     stage_history.append({
@@ -5222,3 +5228,92 @@ async def delete_re_template(template_id: str, user: User = Depends(get_current_
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Template not found")
     return {"message": "Template deleted"}
+
+
+# ========== RE Project File Attachments ==========
+@router.post("/crm/re-projects/{re_project_id}/attachments")
+async def upload_re_attachment(
+    re_project_id: str,
+    file: UploadFile = File(...),
+    label: Optional[str] = Form(None),
+    user: User = Depends(get_current_user),
+):
+    """Upload a file attachment to an RE project (per-revision). Allowed roles: Planning, GM, Sales, CRE, Super Admin."""
+    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER, "sales", "cre"]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE project not found")
+    contents = await file.read()
+    if len(contents) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 25MB)")
+    file_id = await fs.upload_from_stream(
+        file.filename,
+        contents,
+        metadata={
+            "contentType": file.content_type,
+            "uploaded_by": user.user_id,
+            "re_project_id": re_project_id,
+            "label": label or file.filename,
+        },
+    )
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    now = datetime.now(timezone.utc)
+    attachment = {
+        "file_id": str(file_id),
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "size": len(contents),
+        "label": label or file.filename,
+        "uploaded_by": user.user_id,
+        "uploaded_by_name": (user_doc or {}).get("name", "Unknown"),
+        "uploaded_at": now.isoformat(),
+    }
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$push": {"attachments": attachment}, "$set": {"updated_at": now}},
+    )
+    return attachment
+
+
+@router.get("/crm/re-projects/attachments/{file_id}")
+async def download_re_attachment(file_id: str, request: Request):
+    """Download an RE attachment file (cookie-auth for browser links)."""
+    session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            session_token = auth[7:]
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    session = await db.user_sessions.find_one({"session_token": session_token}, {"_id": 0})
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    try:
+        grid_out = await fs.open_download_stream(_ObjectId(file_id))
+        contents = await grid_out.read()
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+    ct = (grid_out.metadata or {}).get("contentType") or "application/octet-stream"
+    filename = grid_out.filename or "attachment"
+    return Response(content=contents, media_type=ct, headers={"Content-Disposition": f'inline; filename="{filename}"'})
+
+
+@router.delete("/crm/re-projects/{re_project_id}/attachments/{file_id}")
+async def delete_re_attachment(re_project_id: str, file_id: str, user: User = Depends(get_current_user)):
+    allowed = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER, "sales", "cre"]
+    if user.role not in allowed:
+        raise HTTPException(status_code=403, detail="Access denied")
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE project not found")
+    try:
+        await fs.delete(_ObjectId(file_id))
+    except Exception:
+        pass
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$pull": {"attachments": {"file_id": file_id}}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"message": "Attachment deleted"}

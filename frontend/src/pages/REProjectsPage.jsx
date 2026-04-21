@@ -14,7 +14,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
-  ArrowLeft, Target, Download, AlertCircle, Search, GitBranch, MessageSquare
+  ArrowLeft, Target, Download, AlertCircle, Search, GitBranch, MessageSquare, Upload
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -667,26 +667,108 @@ export default function REProjectsPage({ embedded = false }) {
                 </Card>
               )}
 
-              {/* Client Feedback (from previous revision) */}
-              {(selectedProject.previous_client_feedback || selectedProject.client_feedback_notes) && (
-                <Card className="bg-orange-50 border-orange-200">
+              {/* Revision Reason / Client Feedback (from previous revision) */}
+              {(selectedProject.revision_reason || selectedProject.previous_client_feedback || selectedProject.client_feedback_notes) && (
+                <Card className="bg-orange-50 border-orange-300 border-2">
                   <CardContent className="p-4">
                     <h4 className="font-semibold mb-2 text-sm text-orange-800 flex items-center gap-1.5">
-                      <MessageSquare className="h-4 w-4" />
-                      Client Feedback
+                      <RefreshCw className="h-4 w-4" />
+                      {selectedProject.revision_reason ? `Revision Requested — RE${selectedProject.revision}` : 'Client Feedback'}
                     </h4>
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                      {selectedProject.previous_client_feedback || selectedProject.client_feedback_notes}
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed bg-white p-2 rounded border border-orange-200">
+                      {selectedProject.revision_reason || selectedProject.previous_client_feedback || selectedProject.client_feedback_notes}
                     </p>
                     {selectedProject.client_feedback_by && (
                       <p className="text-xs text-orange-600 mt-2">
-                        Entered by: {selectedProject.client_feedback_by}
+                        Entered by: <span className="font-medium">{selectedProject.client_feedback_by}</span>
                         {selectedProject.client_feedback_at && ` on ${new Date(selectedProject.client_feedback_at).toLocaleDateString('en-IN')}`}
                       </p>
                     )}
                   </CardContent>
                 </Card>
               )}
+
+              {/* File Attachments */}
+              <Card className="bg-gray-50 border">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-sm flex items-center gap-1.5">
+                      <FileText className="h-4 w-4 text-purple-600" />
+                      Attachments {(selectedProject.attachments || []).length > 0 && <Badge className="bg-purple-100 text-purple-700 text-[10px]">{(selectedProject.attachments || []).length}</Badge>}
+                    </h4>
+                    {canEdit && (
+                      <label className="cursor-pointer inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white">
+                        <Upload className="h-3 w-3" /> Upload File
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const fd = new FormData();
+                            fd.append('file', file);
+                            fd.append('label', file.name);
+                            try {
+                              const res = await axios.post(`${API}/crm/re-projects/${selectedProject.re_project_id}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+                              setSelectedProject(prev => ({ ...prev, attachments: [...(prev.attachments || []), res.data] }));
+                              toast.success('File uploaded');
+                            } catch (err) {
+                              toast.error(err.response?.data?.detail || 'Upload failed');
+                            }
+                            e.target.value = '';
+                          }}
+                          data-testid="re-attachment-upload"
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {(selectedProject.attachments || []).length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-2">No attachments yet. Upload PDFs, drawings, client signoff, reference images etc.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {(selectedProject.attachments || []).map((att) => (
+                        <div key={att.file_id} className="flex items-center justify-between gap-2 bg-white border rounded p-2 text-xs">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <FileText className="h-4 w-4 text-purple-500 shrink-0" />
+                            <a
+                              href={`${API}/crm/re-projects/attachments/${att.file_id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate font-medium text-purple-700 hover:underline"
+                            >
+                              {att.label || att.filename}
+                            </a>
+                            <span className="text-gray-400 whitespace-nowrap">({Math.round((att.size || 0) / 1024)} KB)</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-gray-500 text-[10px]">
+                              {att.uploaded_by_name} · {att.uploaded_at ? new Date(att.uploaded_at).toLocaleDateString('en-IN') : ''}
+                            </span>
+                            {canEdit && (
+                              <button
+                                onClick={async () => {
+                                  if (!window.confirm('Delete this attachment?')) return;
+                                  try {
+                                    await axios.delete(`${API}/crm/re-projects/${selectedProject.re_project_id}/attachments/${att.file_id}`);
+                                    setSelectedProject(prev => ({ ...prev, attachments: (prev.attachments || []).filter(a => a.file_id !== att.file_id) }));
+                                    toast.success('Attachment deleted');
+                                  } catch (err) {
+                                    toast.error('Failed to delete');
+                                  }
+                                }}
+                                className="text-red-500 hover:text-red-700"
+                                data-testid={`delete-attachment-${att.file_id}`}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
               
               {/* Project Details */}
               <div className="grid grid-cols-2 gap-4">
