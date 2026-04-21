@@ -322,7 +322,20 @@ async def get_default_pre_sales_stages():
 
 async def get_default_sales_stages():
     """Get or create default Sales stages"""
-    stages = await db.lead_stages.find({"stage_type": "sales"}, {"_id": 0}).sort("order", 1).to_list(100)
+    # Auto-deactivate removed stages and migrate their leads
+    removed_stage_id = "stg_site_visit"
+    existing_removed = await db.lead_stages.find_one({"stage_id": removed_stage_id, "stage_type": "sales"})
+    if existing_removed and existing_removed.get("is_active") is not False:
+        # Migrate any leads in this stage to stg_discussion
+        await db.leads.update_many(
+            {"current_stage_id": removed_stage_id},
+            {"$set": {"current_stage_id": "stg_discussion", "updated_at": datetime.now(timezone.utc)}}
+        )
+        await db.lead_stages.update_one(
+            {"stage_id": removed_stage_id, "stage_type": "sales"},
+            {"$set": {"is_active": False}}
+        )
+    stages = await db.lead_stages.find({"stage_type": "sales", "is_active": {"$ne": False}}, {"_id": 0}).sort("order", 1).to_list(100)
     if not stages:
         # Create default stages
         default_stages = [
@@ -330,7 +343,6 @@ async def get_default_sales_stages():
             {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "stage_type": "sales", "order": 2, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sales_followup", "name": "Follow-up", "stage_type": "sales", "order": 3, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_discussion", "name": "Discussion", "stage_type": "sales", "order": 4, "color": "#3b82f6", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_site_visit", "name": "Site Visit", "stage_type": "sales", "order": 5, "color": "#8b5cf6", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "stage_type": "sales", "order": 6, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "stage_type": "sales", "order": 7, "color": "#7c3aed", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_sv_done", "name": "Site Visit Done", "stage_type": "sales", "order": 8, "color": "#059669", "is_final": False, "is_active": True, "created_by": "system"},
@@ -410,7 +422,6 @@ async def migrate_stages(user: User = Depends(get_current_user)):
         {"stage_id": "stg_sales_office_visit", "name": "Office Visit", "order": 2, "color": "#0ea5e9", "is_final": False},
         {"stage_id": "stg_sales_followup", "name": "Follow-up", "order": 3, "color": "#f59e0b", "is_final": False},
         {"stage_id": "stg_discussion", "name": "Discussion", "order": 4, "color": "#3b82f6", "is_final": False},
-        {"stage_id": "stg_site_visit", "name": "Site Visit", "order": 5, "color": "#8b5cf6", "is_final": False},
         {"stage_id": "stg_sv_client_land", "name": "Site Visit (Client Land)", "order": 6, "color": "#a855f7", "is_final": False},
         {"stage_id": "stg_sv_our_projects", "name": "Site Visit (Our Projects)", "order": 7, "color": "#7c3aed", "is_final": False},
         {"stage_id": "stg_sv_done", "name": "Site Visit Done", "order": 8, "color": "#059669", "is_final": False},
