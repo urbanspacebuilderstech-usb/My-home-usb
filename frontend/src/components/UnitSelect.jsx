@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 // Comprehensive list of units used in construction industry
 export const CONSTRUCTION_UNITS = [
@@ -85,18 +86,31 @@ export function getUnitLabel(value) {
 export function UnitSelect({ value, onChange, placeholder = 'Select unit', className = '', disabled = false, 'data-testid': testId }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
   const ref = useRef(null);
+  const btnRef = useRef(null);
+  const dropdownRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target) && dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
   useEffect(() => {
+    if (open && btnRef.current) {
+      const rect = btnRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 220),
+      });
+    }
     if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
 
@@ -119,6 +133,7 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
   return (
     <div ref={ref} className={`relative ${className}`}>
       <button
+        ref={btnRef}
         type="button"
         disabled={disabled}
         onClick={() => { setOpen(!open); setSearch(''); }}
@@ -131,8 +146,12 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
         <svg className="h-4 w-4 opacity-50 flex-shrink-0 ml-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
       </button>
 
-      {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[220px] rounded-md border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95">
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[9999] rounded-md border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95"
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+        >
           {/* Search input */}
           <div className="p-2 border-b">
             <input
@@ -174,7 +193,8 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
               ))
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
