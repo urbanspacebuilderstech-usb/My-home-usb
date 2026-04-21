@@ -1493,6 +1493,29 @@ export default function CRMSales() {
                           </div>
                         )}
                         
+                        {/* RE-Client stage action buttons (Kanban) */}
+                        {lead.current_stage_id === 'stg_re_to_client' && (
+                          <div className="mt-2 flex gap-1.5">
+                            <Button
+                              size="sm"
+                              className="h-7 flex-1 text-[11px] bg-green-600 hover:bg-green-700 text-white"
+                              onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
+                              data-testid={`kanban-re-approve-${lead.lead_id}`}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" /> Approved
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 flex-1 text-[11px] text-orange-700 border-orange-400 hover:bg-orange-50"
+                              onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
+                              data-testid={`kanban-re-revision-${lead.lead_id}`}
+                            >
+                              <RefreshCw className="h-3 w-3 mr-1" /> Revision
+                            </Button>
+                          </div>
+                        )}
+                        
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
                           <span className="text-xs text-gray-400">
                             {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
@@ -1577,6 +1600,37 @@ export default function CRMSales() {
                 
                 {/* Overview Tab */}
                 <TabsContent value="overview" className="space-y-4 mt-3">
+                  {/* RE-Client stage actions (prominent banner) */}
+                  {selectedLead.current_stage_id === 'stg_re_to_client' && (
+                    <div className="bg-gradient-to-r from-green-50 to-orange-50 border-2 border-dashed border-amber-300 rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
+                          <p className="text-xs text-gray-600 mt-0.5">Client reviewing the Rough Estimate. Record their response below.</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => openReClientAction(selectedLead, 'approved')}
+                            data-testid="detail-re-approve-btn"
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" /> Approved
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-orange-700 border-orange-400 hover:bg-orange-50"
+                            onClick={() => openReClientAction(selectedLead, 'revision')}
+                            data-testid="detail-re-revision-btn"
+                          >
+                            <RefreshCw className="h-4 w-4 mr-1" /> Revision
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Appointment Section */}
                   {(leadDetail || selectedLead)?.appointment ? (
                     <div className="bg-green-50 rounded-lg p-3 border border-green-200">
