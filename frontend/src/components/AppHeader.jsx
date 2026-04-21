@@ -202,7 +202,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
                   {item.label}
                 </button>
               ))
-            ) : (
+            ) : navItems.length > 1 ? (
               navItems.map((item) => (
                 <button
                   key={item.path}
@@ -217,7 +217,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
                   {item.label}
                 </button>
               ))
-            )}
+            ) : null}
           </nav>
 
           {/* Right: Notifs + Profile + User + Logout */}
