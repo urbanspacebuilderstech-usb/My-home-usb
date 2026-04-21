@@ -65,7 +65,7 @@ export default function CRMPreSales() {
   const [createLeadDialog, setCreateLeadDialog] = useState(false);
   
   // Date filter
-  const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0]);
+  const [dateFilter, setDateFilter] = useState('');
   const [dateFilterEnd, setDateFilterEnd] = useState('');
   const [followUpFilter, setFollowUpFilter] = useState(false);
   const [leadDetailDialog, setLeadDetailDialog] = useState(false);
@@ -550,20 +550,36 @@ export default function CRMPreSales() {
       if (!hasToday) return false;
     }
     
-    // Date filter — matches follow-up dates AND appointment dates
+    // Date filter — Follow-up/Appointment stages use those dates, others use created/moved dates
     let matchesDate = true;
     if (dateFilter) {
-      const followupDates = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
-      const nextFollowup = lead.next_followup_date || '';
-      const appointmentDate = lead.appointment_date ? lead.appointment_date.split('T')[0] : '';
-      const allDates = [...followupDates, nextFollowup, appointmentDate].filter(Boolean);
+      let datesToCheck = [];
       
-      if (allDates.length === 0) {
-        matchesDate = false;
-      } else if (dateFilterEnd) {
-        matchesDate = allDates.some(d => d >= dateFilter && d <= dateFilterEnd);
+      // Follow-up stage: filter by follow-up scheduled dates
+      if (lead.current_stage_id === 'stg_follow_up') {
+        datesToCheck = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
+        if (lead.next_followup_date) datesToCheck.push(lead.next_followup_date);
+      }
+      // Appointment stage: filter by appointment date
+      else if (lead.current_stage_id === 'stg_appointment') {
+        if (lead.appointment_date) datesToCheck.push(lead.appointment_date.split('T')[0]);
+      }
+      // All other stages: filter by created date and last stage move date
+      else {
+        if (lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
+        const lastMove = (lead.stage_history || []).slice(-1)[0];
+        if (lastMove?.moved_at) datesToCheck.push(lastMove.moved_at.split('T')[0]);
+      }
+      
+      if (datesToCheck.length === 0) {
+        // Fallback to created_at
+        if (lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
+      }
+      
+      if (dateFilterEnd) {
+        matchesDate = datesToCheck.some(d => d >= dateFilter && d <= dateFilterEnd);
       } else {
-        matchesDate = allDates.includes(dateFilter);
+        matchesDate = datesToCheck.includes(dateFilter);
       }
     }
     
@@ -669,7 +685,7 @@ export default function CRMPreSales() {
                   ) : (
                     new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
                   )
-                ) : new Date().toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})}
+                ) : 'Date'}
                 {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
               </Button>
             </PopoverTrigger>
