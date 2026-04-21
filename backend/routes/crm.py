@@ -506,14 +506,18 @@ async def get_pre_sales_leads(
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
         raise HTTPException(status_code=403, detail="Pre-Sales access required")
     
-    # Auto-redistribute stale RNR leads (14+ days from creation)
+    # Auto-redistribute stale RNR leads (14+ days from last RNR attempt)
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+        cutoff_str = cutoff.isoformat()
         stale_rnr = await db.leads.find(
             {
                 "stage_type": "pre_sales",
                 "current_stage_id": "stg_rnr",
-                "created_at": {"$lte": cutoff},
+                "$or": [
+                    {"last_rnr_at": {"$lte": cutoff_str}},
+                    {"last_rnr_at": {"$exists": False}, "updated_at": {"$lte": cutoff}}
+                ],
                 "rnr_redistributed": {"$ne": True}
             },
             {"_id": 0}
@@ -842,6 +846,10 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     if data.stage_id == "stg_re_from_planning":
         raise HTTPException(status_code=400, detail="This stage is auto-populated when GM approves the RE.")
     
+    # Block manual moves TO "New RNR Leads" (auto-distributed only after 14 days)
+    if data.stage_id == "stg_new_rnr":
+        raise HTTPException(status_code=400, detail="New RNR Leads stage is auto-distributed only. Leads move here automatically after 14 days in RNR.")
+    
     # Update lead
     stage_history = lead.get("stage_history", [])
     history_entry = {
@@ -880,10 +888,21 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         update["lost_at"] = datetime.now(timezone.utc)
         update["lost_by"] = user.user_id
     
-    # RNR: Auto-increment rnr_count when moved to RNR or New RNR Leads
-    if data.stage_id in ["stg_rnr", "stg_new_rnr"]:
+    # RNR: Auto-increment rnr_count when moved to RNR stage and set last_rnr_at
+    if data.stage_id == "stg_rnr":
         rnr_count = lead.get("rnr_count", 0) + 1
+        rnr_log = lead.get("rnr_log", [])
+        rnr_log.append({
+            "attempt": rnr_count,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "logged_by": user.user_id,
+            "logged_by_name": user.name,
+            "action": "moved_to_rnr"
+        })
         update["rnr_count"] = rnr_count
+        update["rnr_log"] = rnr_log
+        update["last_rnr_at"] = datetime.now(timezone.utc).isoformat()
+        update["rnr_redistributed"] = False
     
     # Appointment Booked: store appointment date
     if data.stage_id == "stg_appointment":
@@ -1084,6 +1103,48 @@ class AdvanceCollectionRequest(BaseModel):
     payment_reference: Optional[str] = None
     cheque_details: Optional[List[Dict[str, Any]]] = None
     remarks: Optional[str] = None
+
+
+@router.post("/crm/leads/{lead_id}/rnr-log")
+async def log_rnr_attempt(lead_id: str, user: User = Depends(get_current_user)):
+    """Log an RNR (Ring Not Responding) attempt for a lead in RNR stage"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "pre_sales"]:
+        raise HTTPException(status_code=403, detail="Pre-Sales access required")
+    
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    if lead.get("current_stage_id") != "stg_rnr":
+        raise HTTPException(status_code=400, detail="Lead must be in RNR stage to log RNR attempts")
+    
+    rnr_count = lead.get("rnr_count", 0) + 1
+    rnr_log = lead.get("rnr_log", [])
+    now = datetime.now(timezone.utc)
+    
+    rnr_log.append({
+        "attempt": rnr_count,
+        "timestamp": now.isoformat(),
+        "logged_by": user.user_id,
+        "logged_by_name": user.name
+    })
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "rnr_count": rnr_count,
+            "rnr_log": rnr_log,
+            "last_rnr_at": now.isoformat(),
+            "updated_at": now
+        }}
+    )
+    
+    return {
+        "message": f"RNR attempt #{rnr_count} logged",
+        "rnr_count": rnr_count,
+        "timestamp": now.isoformat()
+    }
+
 
 @router.post("/crm/leads/{lead_id}/collect-advance")
 async def collect_advance_payment(lead_id: str, data: AdvanceCollectionRequest, user: User = Depends(get_current_user)):

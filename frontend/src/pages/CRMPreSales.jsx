@@ -920,6 +920,40 @@ export default function CRMPreSales() {
                           </p>
                         )}
                         
+                        {/* RNR Button + Log (only in RNR stage) */}
+                        {lead.current_stage_id === 'stg_rnr' && (
+                          <div className="mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full text-xs text-red-600 border-red-300 hover:bg-red-50 mb-1"
+                              data-testid={`rnr-btn-${lead.lead_id}`}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  await axios.post(`${API}/crm/leads/${lead.lead_id}/rnr-log`);
+                                  toast.success(`RNR #${(lead.rnr_count || 0) + 1} logged`);
+                                  fetchData(false);
+                                } catch (err) {
+                                  toast.error(err.response?.data?.detail || 'Failed to log RNR');
+                                }
+                              }}
+                            >
+                              <PhoneOff className="h-3 w-3 mr-1" /> RNR (Ring Again)
+                            </Button>
+                            {lead.rnr_log?.length > 0 && (
+                              <div className="space-y-0.5 max-h-20 overflow-y-auto">
+                                {lead.rnr_log.slice(-5).map((log, i) => (
+                                  <div key={i} className="text-[10px] text-gray-500 flex justify-between px-1">
+                                    <span className="text-red-500 font-medium">RNR {log.attempt}</span>
+                                    <span>{new Date(log.timestamp).toLocaleDateString('en-IN', {day:'2-digit',month:'2-digit'})} {new Date(log.timestamp).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'})}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        
                         {/* Show if has remarks or follow-ups */}
                         {(lead.remarks?.length > 0 || lead.follow_ups?.length > 0 || lead.rnr_count > 0) && (
                           <div className="flex gap-1 mt-2 flex-wrap">
