@@ -593,23 +593,23 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Compact Stats - Single Row */}
-        <div className="flex items-center gap-1.5 sm:gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
-          <div className="flex items-center gap-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg px-3 py-1.5 shrink-0">
-            <span className="text-[10px] font-medium opacity-80">Total</span>
-            <span className="text-lg font-bold">{dashboard?.total_leads || 0}</span>
+        {/* Compact Stats - Wrap on mobile, scroll on desktop */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
+          <div className="flex items-center gap-1 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded px-2 py-1">
+            <span className="text-[9px] font-medium opacity-80">Total</span>
+            <span className="text-sm font-bold">{dashboard?.total_leads || 0}</span>
           </div>
           {stages.map(stage => {
             const count = dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0;
             return (
             <div 
               key={stage.stage_id}
-              className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 shrink-0 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
+              className={`flex items-center gap-1 rounded px-1.5 py-1 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
               data-testid={`stage-count-${stage.stage_id}`}
             >
-              <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }}></div>
-              <span className="text-[10px] text-gray-600 whitespace-nowrap">{stage.name}</span>
-              <span className="text-sm font-bold" style={{ color: stage.color }}>{count}</span>
+              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: stage.color }}></div>
+              <span className="text-[9px] text-gray-600 whitespace-nowrap">{stage.name}</span>
+              <span className="text-xs font-bold" style={{ color: stage.color }}>{count}</span>
             </div>
             );
           })}
