@@ -71,6 +71,11 @@ export default function CRMPreSales() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [createStageDialog, setCreateStageDialog] = useState(false);
   const [importDialog, setImportDialog] = useState(false);
+  // Quick Follow-up dialog
+  const [quickFollowupDialog, setQuickFollowupDialog] = useState(false);
+  const [quickFollowupLeadId, setQuickFollowupLeadId] = useState(null);
+  const [quickFollowupForm, setQuickFollowupForm] = useState({ date: '', time: '', remarks: '' });
+
   const [addFieldDialog, setAddFieldDialog] = useState(false);
   const [manageFieldsDialog, setManageFieldsDialog] = useState(false);
   const [deleteFieldDialog, setDeleteFieldDialog] = useState(false);
@@ -557,6 +562,23 @@ export default function CRMPreSales() {
     return stage?.name || stageId;
   };
 
+  const handleQuickFollowup = async () => {
+    if (!quickFollowupForm.date) { toast.error('Please select a date'); return; }
+    try {
+      await axios.post(`${API}/crm/leads/${quickFollowupLeadId}/follow-up`, {
+        scheduled_date: quickFollowupForm.date,
+        scheduled_time: quickFollowupForm.time,
+        note: quickFollowupForm.remarks
+      });
+      toast.success('Follow-up scheduled');
+      setQuickFollowupDialog(false);
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add follow-up');
+    }
+  };
+
+
   if (loading && !dashboard) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -770,12 +792,13 @@ export default function CRMPreSales() {
               <table className="w-full table-fixed">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Lead</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[22%]">Contact</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Source</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Stage</th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Created</th>
-                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Actions</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Lead</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[16%]">Contact</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[10%]">Source</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Stage</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[18%]">Follow-up</th>
+                    <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-[12%]">Created</th>
+                    <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider w-[14%]">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -821,19 +844,57 @@ export default function CRMPreSales() {
                         </Badge>
                       </td>
                       <td className="px-2 py-2">
+                        {(() => {
+                          const pendingFups = (lead.follow_ups || []).filter(f => !f.completed);
+                          const nextFup = pendingFups.sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
+                          const today = new Date().toISOString().split('T')[0];
+                          const isToday = nextFup?.scheduled_date === today;
+                          const isPast = nextFup?.scheduled_date < today;
+                          return (
+                            <div className="space-y-1">
+                              {nextFup ? (
+                                <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block ${isToday ? 'bg-amber-100 text-amber-700 font-semibold' : isPast ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
+                                  {new Date(nextFup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}
+                                  {nextFup.note && <span className="ml-1 opacity-70">- {nextFup.note.substring(0,15)}</span>}
+                                </div>
+                              ) : (
+                                <span className="text-[10px] text-gray-400">No follow-up</span>
+                              )}
+                              {pendingFups.length > 1 && <span className="text-[9px] text-gray-400 ml-1">+{pendingFups.length - 1} more</span>}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-2 py-2">
                         <span className="text-xs text-gray-500">
-                          {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="h-7 px-2 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                            data-testid={`followup-btn-${lead.lead_id}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setQuickFollowupLeadId(lead.lead_id);
+                              setQuickFollowupForm({ date: new Date().toISOString().split('T')[0], time: '', remarks: '' });
+                              setQuickFollowupDialog(true);
+                            }}
+                          >
+                            <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2337,6 +2398,38 @@ export default function CRMPreSales() {
             >
               <Calendar className="h-4 w-4 mr-2" />
               Book an Appointment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Follow-up Dialog */}
+      <Dialog open={quickFollowupDialog} onOpenChange={setQuickFollowupDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-amber-600" /> Schedule Follow-up
+            </DialogTitle>
+            <DialogDescription>Set date, time and remarks for next follow-up</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Follow-up Date *</Label>
+              <Input type="date" value={quickFollowupForm.date} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, date: e.target.value})} className="mt-1" data-testid="quick-followup-date" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Time</Label>
+              <Input type="time" value={quickFollowupForm.time} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, time: e.target.value})} className="mt-1" data-testid="quick-followup-time" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Remarks</Label>
+              <Input value={quickFollowupForm.remarks} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, remarks: e.target.value})} placeholder="Notes about this follow-up..." className="mt-1" data-testid="quick-followup-remarks" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickFollowupDialog(false)}>Cancel</Button>
+            <Button onClick={handleQuickFollowup} disabled={!quickFollowupForm.date} className="bg-amber-600 hover:bg-amber-700" data-testid="quick-followup-submit">
+              Schedule
             </Button>
           </DialogFooter>
         </DialogContent>
