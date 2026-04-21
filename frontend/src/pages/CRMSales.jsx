@@ -13,13 +13,15 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import { 
-  Target, LogOut, Search, Phone, Mail, MapPin, ArrowRight, RefreshCw, 
+  Target, LogOut, Search, Phone, PhoneOff, Mail, MapPin, ArrowRight, RefreshCw, Plus, X,
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
   MessageSquare, GitBranch, DollarSign, UserCheck
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { DayPicker } from 'react-day-picker';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
@@ -92,6 +94,20 @@ export default function CRMSales() {
   const [projectDescription, setProjectDescription] = useState('');
   const [salesOverview, setSalesOverview] = useState(null);
   
+  // Date Filter
+  const [dateFilter, setDateFilter] = useState('');
+  const [dateFilterEnd, setDateFilterEnd] = useState('');
+  
+  // Follow-up Move dialog (when moving to Follow-up stage)
+  const [followupMoveDialog, setFollowupMoveDialog] = useState(false);
+  const [followupMoveLeadId, setFollowupMoveLeadId] = useState(null);
+  const [followupMoveForm, setFollowupMoveForm] = useState({ date: '', time: '', remarks: '' });
+  
+  // Quick Follow-up dialog
+  const [quickFollowupDialog, setQuickFollowupDialog] = useState(false);
+  const [quickFollowupLeadId, setQuickFollowupLeadId] = useState(null);
+  const [quickFollowupForm, setQuickFollowupForm] = useState({ date: '', time: '', remarks: '' });
+  
   // CRE-style Convert Deal Dialog (triggered on drag to "Project Onboarded")
   const [convertDealDialog, setConvertDealDialog] = useState(false);
   const [convertDeal, setConvertDeal] = useState(null);
@@ -119,8 +135,7 @@ export default function CRMSales() {
   const [onboardingPendingStageId, setOnboardingPendingStageId] = useState(null);
   
   // Follow-up date filter
-  const [followupDateFilter, setFollowupDateFilter] = useState('');
-  const [followupDateEnd, setFollowupDateEnd] = useState('');
+  // (date filter moved to top)
   const [followupDialog, setFollowupDialog] = useState(false);
   const [followupLeadId, setFollowupLeadId] = useState(null);
   const [followupDate, setFollowupDate] = useState('');
@@ -809,31 +824,37 @@ export default function CRMSales() {
       lead.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.phone?.includes(searchQuery);
-    return matchesSearch;
+    
+    // Date filter
+    let matchesDate = true;
+    if (dateFilter) {
+      let datesToCheck = [];
+      if (lead.current_stage_id === 'stg_sales_followup') {
+        datesToCheck = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
+        if (lead.next_followup_date) datesToCheck.push(lead.next_followup_date);
+      } else if (lead.current_stage_id === 'stg_sales_office_visit') {
+        if (lead.office_visit?.date) datesToCheck.push(lead.office_visit.date);
+      } else if (lead.current_stage_id === 'stg_site_visit' || lead.current_stage_id === 'stg_sv_client_land' || lead.current_stage_id === 'stg_sv_our_projects') {
+        if (lead.site_visit_data?.visit_date) datesToCheck.push(lead.site_visit_data.visit_date);
+      } else {
+        if (lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
+        const lastMove = (lead.stage_history || []).slice(-1)[0];
+        if (lastMove?.moved_at) datesToCheck.push(lastMove.moved_at.split('T')[0]);
+      }
+      if (datesToCheck.length === 0 && lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
+      
+      if (dateFilterEnd) {
+        matchesDate = datesToCheck.some(d => d >= dateFilter && d <= dateFilterEnd);
+      } else {
+        matchesDate = datesToCheck.includes(dateFilter);
+      }
+    }
+    
+    return matchesSearch && matchesDate;
   });
 
   const getLeadsByStage = (stageId) => {
     let stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
-    
-    // Date filter applies to ALL stages
-    if (followupDateFilter) {
-      stageLeads = stageLeads.filter(lead => {
-        const leadCreatedDate = lead.created_at ? lead.created_at.split('T')[0] : '';
-        // Follow-up dates
-        const followupDates = (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date);
-        const nextFollowup = lead.next_followup_date || '';
-        // Site visit date
-        const visitDate = lead.site_visit_data?.visit_date || '';
-        
-        if (followupDateEnd) {
-          const inRange = (d) => d && d >= followupDateFilter && d <= followupDateEnd;
-          return inRange(leadCreatedDate) || followupDates.some(d => inRange(d)) || inRange(nextFollowup) || inRange(visitDate);
-        }
-        return leadCreatedDate === followupDateFilter || followupDates.includes(followupDateFilter) || nextFollowup === followupDateFilter || visitDate === followupDateFilter;
-      });
-    }
-    
-    // Sort ascending by relevant date (follow-up > site visit > created_at)
     stageLeads.sort((a, b) => {
       const getDate = (lead) => {
         const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
@@ -929,45 +950,74 @@ export default function CRMSales() {
             />
           </div>
           
-          {/* Date Filter (All Stages) */}
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-            <Calendar className="h-4 w-4 text-amber-600" />
-            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Date:</span>
-            <Input
-              type="date"
-              value={followupDateFilter}
-              onChange={(e) => setFollowupDateFilter(e.target.value)}
-              className="h-7 text-xs w-36 border-amber-300"
-              data-testid="followup-date-filter"
-            />
-            <span className="text-xs text-amber-500">to</span>
-            <Input
-              type="date"
-              value={followupDateEnd}
-              onChange={(e) => setFollowupDateEnd(e.target.value)}
-              className="h-7 text-xs w-36 border-amber-300"
-              placeholder="End date"
-              data-testid="followup-date-end-filter"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100"
-              onClick={() => { setFollowupDateFilter(new Date().toISOString().split('T')[0]); setFollowupDateEnd(''); }}
-              data-testid="followup-today-btn"
-            >
-              Today
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
-              onClick={() => { setFollowupDateFilter(''); setFollowupDateEnd(''); }}
-              data-testid="clear-date-filter-btn"
-            >
-              <XCircle className="h-3 w-3" />
-            </Button>
-          </div>
+          {/* Date Filter - Meta Ads style Calendar */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={`h-8 text-xs gap-1.5 rounded-lg shadow-sm ${dateFilter ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                data-testid="sales-date-filter-btn"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                {dateFilter ? (
+                  dateFilterEnd && dateFilter !== dateFilterEnd ? (
+                    `${new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})} - ${new Date(dateFilterEnd).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}`
+                  ) : (
+                    new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
+                  )
+                ) : 'Date'}
+                {dateFilter && <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFilter(''); setDateFilterEnd(''); }} />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
+              <div className="flex">
+                <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                  {[
+                    { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFilter(d); setDateFilterEnd(''); } },
+                    { label: 'Tomorrow', fn: () => { const d = new Date(); d.setDate(d.getDate()+1); setDateFilter(d.toISOString().split('T')[0]); setDateFilterEnd(''); } },
+                    { label: 'This Week', fn: () => { const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate()-now.getDay()+1); const sun = new Date(mon); sun.setDate(mon.getDate()+6); setDateFilter(mon.toISOString().split('T')[0]); setDateFilterEnd(sun.toISOString().split('T')[0]); } },
+                    { label: 'Next 7 Days', fn: () => { const d = new Date(); const e = new Date(); e.setDate(d.getDate()+7); setDateFilter(d.toISOString().split('T')[0]); setDateFilterEnd(e.toISOString().split('T')[0]); } },
+                    { label: 'This Month', fn: () => { const now = new Date(); setDateFilter(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateFilterEnd(new Date(now.getFullYear(), now.getMonth()+1, 0).toISOString().split('T')[0]); } },
+                    { label: 'All Leads', fn: () => { setDateFilter(''); setDateFilterEnd(''); } },
+                  ].map(p => (
+                    <button key={p.label} onClick={p.fn}
+                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'All Leads' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'}`}
+                    >{p.label}</button>
+                  ))}
+                </div>
+                <div className="p-3">
+                  <DayPicker
+                    mode="range"
+                    selected={dateFilter ? { from: new Date(dateFilter + 'T00:00:00'), to: dateFilterEnd ? new Date(dateFilterEnd + 'T00:00:00') : new Date(dateFilter + 'T00:00:00') } : undefined}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        const from = range.from.toLocaleDateString('en-CA');
+                        const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
+                        setDateFilter(from);
+                        setDateFilterEnd(from === to ? '' : to);
+                      } else { setDateFilter(''); setDateFilterEnd(''); }
+                    }}
+                    classNames={{
+                      months: 'flex gap-4', month: 'space-y-3',
+                      caption: 'flex justify-center relative items-center h-8',
+                      caption_label: 'text-sm font-semibold text-gray-800',
+                      nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
+                      table: 'w-full border-collapse', head_row: 'flex',
+                      head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
+                      row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
+                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-blue-50 transition-colors inline-flex items-center justify-center',
+                      day_selected: 'bg-blue-600 text-white hover:bg-blue-700 font-medium',
+                      day_today: 'bg-gray-100 font-semibold text-blue-600',
+                      day_range_middle: 'bg-blue-50 text-blue-700 rounded-none',
+                      day_range_start: 'bg-blue-600 text-white rounded-l-lg rounded-r-none',
+                      day_range_end: 'bg-blue-600 text-white rounded-r-lg rounded-l-none',
+                      day_outside: 'text-gray-300',
+                    }}
+                  />
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {/* View Toggle */}
           {user?.role === 'super_admin' && (
@@ -1378,8 +1428,9 @@ export default function CRMSales() {
           {selectedLead && (
             <div className="space-y-4">
               <Tabs value={detailTab} onValueChange={setDetailTab}>
-                <TabsList className="w-full grid grid-cols-4">
+                <TabsList className="w-full grid grid-cols-5">
                   <TabsTrigger value="overview" className="text-xs" data-testid="tab-overview">Overview</TabsTrigger>
+                  <TabsTrigger value="timeline" className="text-xs" data-testid="tab-timeline">Timeline</TabsTrigger>
                   <TabsTrigger value="summary" className="text-xs" data-testid="tab-summary">Summary</TabsTrigger>
                   <TabsTrigger value="followups" className="text-xs" data-testid="tab-followups">Follow-ups</TabsTrigger>
                   <TabsTrigger value="remarks" className="text-xs" data-testid="tab-remarks">Remarks</TabsTrigger>
@@ -1464,6 +1515,68 @@ export default function CRMSales() {
                   </div>
                 </TabsContent>
                 
+
+                {/* Timeline Tab */}
+                <TabsContent value="timeline" className="space-y-4 mt-3">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                        <Clock className="h-4 w-4" /> Lead Timeline
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="relative">
+                        <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+                        <div className="space-y-3">
+                          <div className="flex items-start gap-3 relative">
+                            <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center z-10 shrink-0"><Plus className="h-3 w-3 text-white" /></div>
+                            <div className="flex-1 bg-indigo-50 rounded-lg p-2">
+                              <p className="text-xs font-semibold text-indigo-700">Lead Created</p>
+                              <p className="text-[10px] text-gray-500">{selectedLead.created_at ? new Date(selectedLead.created_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'N/A'}</p>
+                              {selectedLead.pre_sales_person_name && <p className="text-[10px] text-gray-500">From Pre-Sales: {selectedLead.pre_sales_person_name}</p>}
+                            </div>
+                          </div>
+                          {(selectedLead.stage_history || []).map((entry, i) => {
+                            const stageInfo = stages.find(s => s.stage_id === entry.stage_id);
+                            return (
+                            <div key={i} className="flex items-start gap-3 relative">
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center z-10 shrink-0" style={{ backgroundColor: stageInfo?.color || '#6b7280' }}><ArrowRight className="h-3 w-3 text-white" /></div>
+                              <div className="flex-1 bg-white border rounded-lg p-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-semibold" style={{ color: stageInfo?.color || '#374151' }}>{stageInfo?.name || entry.stage_id}</p>
+                                  {entry.action && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{entry.action}</span>}
+                                </div>
+                                <p className="text-[10px] text-gray-500">{entry.moved_at ? new Date(entry.moved_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{entry.moved_by_name ? ` — ${entry.moved_by_name}` : ''}</p>
+                                {entry.remark && <p className="text-[10px] text-gray-600 mt-0.5 italic">"{entry.remark}"</p>}
+                              </div>
+                            </div>
+                            );
+                          })}
+                          {(selectedLead.follow_ups || []).map((fup, i) => (
+                            <div key={`fup-${i}`} className="flex items-start gap-3 relative">
+                              <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center z-10 shrink-0"><Calendar className="h-3 w-3 text-white" /></div>
+                              <div className={`flex-1 rounded-lg p-2 ${fup.completed ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                                <p className="text-xs font-semibold text-amber-700">Follow-up {fup.completed ? '(Done)' : '(Pending)'}</p>
+                                <p className="text-[10px] text-gray-500">{fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : ''}{fup.note ? ` — ${fup.note}` : ''}</p>
+                                {fup.closing_remark && <p className="text-[10px] text-green-700 mt-0.5">Closed: {fup.closing_remark}</p>}
+                              </div>
+                            </div>
+                          ))}
+                          {selectedLead.office_visit && (
+                            <div className="flex items-start gap-3 relative">
+                              <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center z-10 shrink-0"><Building2 className="h-3 w-3 text-white" /></div>
+                              <div className="flex-1 bg-sky-50 border border-sky-200 rounded-lg p-2">
+                                <p className="text-xs font-semibold text-sky-700">Office Visit</p>
+                                <p className="text-[10px] text-gray-500">{selectedLead.office_visit.date} at {selectedLead.office_visit.time} — {selectedLead.office_visit.location}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
                 {/* Summary Tab */}
                 <TabsContent value="summary" className="space-y-3 mt-3">
                   <div>
@@ -1513,10 +1626,36 @@ export default function CRMSales() {
               </Tabs>
             </div>
           )}
+          </div>
           
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewLeadDialog(false)}>Close</Button>
-          </DialogFooter>
+          {/* Sticky Footer - Move to Stage */}
+          {selectedLead && (
+          <div className="border-t bg-white px-6 py-3 shrink-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stages.map(stage => (
+                <Button
+                  key={stage.stage_id}
+                  variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    handleStageChange(selectedLead.lead_id, stage.stage_id);
+                    setViewLeadDialog(false);
+                  }}
+                  style={selectedLead.current_stage_id === stage.stage_id 
+                    ? { backgroundColor: stage.color } 
+                    : { borderColor: stage.color, color: stage.color }}
+                >
+                  {stage.name}
+                  {stage.is_final && <ArrowRight className="h-3 w-3 ml-1" />}
+                </Button>
+              ))}
+            </div>
+          </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -1708,7 +1847,8 @@ export default function CRMSales() {
 
       {/* RE Project Dialog */}
       <Dialog open={reProjectDialog} onOpenChange={setReProjectDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <div className="overflow-y-auto flex-1 px-6 pt-6">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-2">
