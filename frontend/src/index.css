@@ -100,3 +100,21 @@ input[inputmode="numeric"]::-webkit-inner-spin-button {
         border-bottom-color: inherit;
     }
 }
+/* Thin scrollbar for CRM stage tabs */
+.crm-scroll-tabs {
+  scrollbar-width: thin;
+  scrollbar-color: #d1d5db transparent;
+}
+.crm-scroll-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+.crm-scroll-tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+.crm-scroll-tabs::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+.crm-scroll-tabs::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}

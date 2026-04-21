@@ -1065,8 +1065,8 @@ export default function CRMSales() {
         {viewMode === 'list' && (
           <div className="bg-white rounded-lg border shadow-sm">
             {/* Stage Tabs */}
-            <div className="border-b overflow-x-auto">
-              <div className="flex">
+            <div className="border-b overflow-x-auto pb-1.5 crm-scroll-tabs">
+              <div className="flex min-w-max">
                 <button
                   className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
                     activeStage === 'all' 
