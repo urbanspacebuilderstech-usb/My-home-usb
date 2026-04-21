@@ -463,17 +463,45 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
     
-    # If this is an advance payment, update project status to payment_verified
+    # If this is an advance payment, update project status to payment_verified + move lead to Project Onboarded
     if result.get("category") == "advance_payment" and result.get("project_id"):
-        await db.projects.update_one(
-            {"project_id": result["project_id"], "status": "pending_payment"},
+        project_upd = await db.projects.find_one_and_update(
+            {"project_id": result["project_id"]},
             {"$set": {
                 "status": "payment_verified",
                 "accountant_verified": True,
                 "accountant_verified_by": user.user_id,
                 "accountant_verified_at": datetime.now(timezone.utc).isoformat()
-            }}
+            }},
+            return_document=False
         )
+
+        # Find the lead linked to this project/income and auto-move to Project Onboarded stage
+        lead_id_to_move = result.get("lead_id") or (project_upd or {}).get("lead_id")
+        if lead_id_to_move:
+            lead_doc = await db.leads.find_one({"lead_id": lead_id_to_move}, {"_id": 0})
+            if lead_doc and lead_doc.get("current_stage_id") != "stg_project_onboarded":
+                user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+                user_name = (user_doc or {}).get("name", "Accountant")
+                stage_history = lead_doc.get("stage_history", [])
+                stage_history.append({
+                    "stage_id": "stg_project_onboarded",
+                    "from_stage_id": lead_doc.get("current_stage_id"),
+                    "moved_at": datetime.now(timezone.utc).isoformat(),
+                    "moved_by": user.user_id,
+                    "moved_by_name": user_name,
+                    "action": "accountant_verified_advance",
+                    "remark": "Advance payment verified by Accountant"
+                })
+                await db.leads.update_one(
+                    {"lead_id": lead_id_to_move},
+                    {"$set": {
+                        "current_stage_id": "stg_project_onboarded",
+                        "stage_history": stage_history,
+                        "onboarding_status": "project_onboarded",
+                        "updated_at": datetime.now(timezone.utc)
+                    }}
+                )
     
     await create_audit_log(user.user_id, "approve", "income", income_id, {"action": "approved"})
     return {"message": "Income approved successfully"}
