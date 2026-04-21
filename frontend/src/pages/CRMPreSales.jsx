@@ -1486,6 +1486,54 @@ export default function CRMPreSales() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* RNR History */}
+                {selectedLead.rnr_log?.length > 0 && (
+                <Card className="border-red-200">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-red-600 flex items-center gap-2">
+                      <PhoneOff className="h-4 w-4" /> RNR History ({selectedLead.rnr_count || 0} attempts)
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {selectedLead.rnr_log.map((log, i) => (
+                        <div key={i} className="flex items-center justify-between py-1.5 px-3 bg-red-50 rounded text-sm border border-red-100">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-red-600">RNR {log.attempt}</span>
+                            <span className="text-gray-500 text-xs">by {log.logged_by_name || 'System'}</span>
+                          </div>
+                          <span className="text-gray-600 text-xs">
+                            {new Date(log.timestamp).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})} {new Date(log.timestamp).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedLead.current_stage_id === 'stg_rnr' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-3 text-red-600 border-red-300 hover:bg-red-50"
+                        data-testid="rnr-log-popup-btn"
+                        onClick={async () => {
+                          try {
+                            await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/rnr-log`);
+                            toast.success(`RNR #${(selectedLead.rnr_count || 0) + 1} logged`);
+                            const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+                            setSelectedLead(res.data);
+                            fetchData(false);
+                          } catch (err) {
+                            toast.error(err.response?.data?.detail || 'Failed to log RNR');
+                          }
+                        }}
+                      >
+                        <PhoneOff className="h-3 w-3 mr-1" /> Log RNR Attempt
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+                )}
+
               </TabsContent>
               
               {/* Remarks Tab */}
