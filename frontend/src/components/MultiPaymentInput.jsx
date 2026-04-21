@@ -131,13 +131,13 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                 <div className="mt-2 pl-6 space-y-1.5 border-l-2 border-blue-200">
                   {(entry.cheque_details || []).map((chq, ci) => (
                     <div key={ci} className="flex items-center gap-1.5 flex-wrap" data-testid={`cheque-detail-${idx}-${ci}`}>
-                      <Input placeholder="Cheque No" className="h-6 w-[100px] text-[10px]"
+                      <Input placeholder="Cheque No" className="h-7 w-[110px] text-[10px]"
                         value={chq.cheque_number} onChange={(e) => updateCheque(idx, ci, 'cheque_number', e.target.value)} />
-                      <Input placeholder="Bank" className="h-6 w-[90px] text-[10px]"
+                      <Input placeholder="Bank" className="h-7 w-[100px] text-[10px]"
                         value={chq.bank_name} onChange={(e) => updateCheque(idx, ci, 'bank_name', e.target.value)} />
-                      <NumericInput placeholder="Amount" className="h-6 w-[80px] text-[10px] font-semibold"
+                      <NumericInput placeholder="Amount" className="h-7 w-[140px] text-[11px] font-semibold"
                         value={chq.amount} onChange={(e) => updateCheque(idx, ci, 'amount', e.target.value)} />
-                      <Input type="date" className="h-6 w-[110px] text-[10px]"
+                      <Input type="date" className="h-7 w-[120px] text-[10px]"
                         value={chq.cheque_date} onChange={(e) => updateCheque(idx, ci, 'cheque_date', e.target.value)} />
                       <Button type="button" size="sm" variant="ghost" className="h-5 w-5 p-0 text-red-400"
                         onClick={() => removeCheque(idx, ci)}>
