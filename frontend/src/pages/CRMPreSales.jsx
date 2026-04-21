@@ -1499,7 +1499,8 @@ export default function CRMPreSales() {
 
       {/* ============ LEAD DETAIL DIALOG ============ */}
       <Dialog open={leadDetailDialog} onOpenChange={setLeadDetailDialog}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+          <div className="overflow-y-auto flex-1 px-6 pt-6">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1664,80 +1665,7 @@ export default function CRMPreSales() {
                   </CardContent>
                 </Card>
                 
-                {/* Stage Change */}
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-gray-600">Move to Stage</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                      {stages.map(stage => (
-                        <Button
-                          key={stage.stage_id}
-                          variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => {
-                            handleStageChange(selectedLead.lead_id, stage.stage_id);
-                            setLeadDetailDialog(false);
-                          }}
-                          style={selectedLead.current_stage_id === stage.stage_id 
-                            ? { backgroundColor: stage.color } 
-                            : { borderColor: stage.color, color: stage.color }}
-                        >
-                          {stage.name}
-                          {stage.is_final && <ArrowRight className="h-3 w-3 ml-1" />}
-                        </Button>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* RNR History */}
-                {selectedLead.rnr_log?.length > 0 && (
-                <Card className="border-red-200">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium text-red-600 flex items-center gap-2">
-                      <PhoneOff className="h-4 w-4" /> RNR History ({selectedLead.rnr_count || 0} attempts)
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2">
-                      {selectedLead.rnr_log.map((log, i) => (
-                        <div key={i} className="flex items-center justify-between py-1.5 px-3 bg-red-50 rounded text-sm border border-red-100">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-red-600">RNR {log.attempt}</span>
-                            <span className="text-gray-500 text-xs">by {log.logged_by_name || 'System'}</span>
-                          </div>
-                          <span className="text-gray-600 text-xs">
-                            {new Date(log.timestamp).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})} {new Date(log.timestamp).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'})}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    {selectedLead.current_stage_id === 'stg_rnr' && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full mt-3 text-red-600 border-red-300 hover:bg-red-50"
-                        data-testid="rnr-log-popup-btn"
-                        onClick={async () => {
-                          try {
-                            await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/rnr-log`);
-                            toast.success(`RNR #${(selectedLead.rnr_count || 0) + 1} logged`);
-                            const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
-                            setSelectedLead(res.data);
-                            fetchData(false);
-                          } catch (err) {
-                            toast.error(err.response?.data?.detail || 'Failed to log RNR');
-                          }
-                        }}
-                      >
-                        <PhoneOff className="h-3 w-3 mr-1" /> Log RNR Attempt
-                      </Button>
-                    )}
-                  </CardContent>
-                </Card>
-                )}
+                {/* Stage Change - MOVED TO FOOTER */}
 
               </TabsContent>
 
@@ -2046,10 +1974,56 @@ export default function CRMPreSales() {
               </TabsContent>
             </Tabs>
           )}
+          </div>
           
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLeadDetailDialog(false)}>Close</Button>
-          </DialogFooter>
+          {/* Sticky Footer - Move to Stage */}
+          {selectedLead && (
+          <div className="border-t bg-white px-6 py-3 shrink-0">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-medium text-gray-500">Move to Stage:</span>
+              {selectedLead.current_stage_id === 'stg_rnr' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-[10px] text-red-600 border-red-300 hover:bg-red-50"
+                  onClick={async () => {
+                    try {
+                      await axios.post(`${API}/crm/leads/${selectedLead.lead_id}/rnr-log`);
+                      toast.success(`RNR #${(selectedLead.rnr_count || 0) + 1} logged`);
+                      const res = await axios.get(`${API}/crm/leads/${selectedLead.lead_id}`);
+                      setSelectedLead(res.data);
+                      fetchData(false);
+                    } catch (err) {
+                      toast.error(err.response?.data?.detail || 'Failed to log RNR');
+                    }
+                  }}
+                >
+                  <PhoneOff className="h-3 w-3 mr-1" /> Log RNR
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stages.map(stage => (
+                <Button
+                  key={stage.stage_id}
+                  variant={selectedLead.current_stage_id === stage.stage_id ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    handleStageChange(selectedLead.lead_id, stage.stage_id);
+                    setLeadDetailDialog(false);
+                  }}
+                  style={selectedLead.current_stage_id === stage.stage_id 
+                    ? { backgroundColor: stage.color } 
+                    : { borderColor: stage.color, color: stage.color }}
+                >
+                  {stage.name}
+                  {stage.is_final && <ArrowRight className="h-3 w-3 ml-1" />}
+                </Button>
+              ))}
+            </div>
+          </div>
+          )}
         </DialogContent>
       </Dialog>
 
