@@ -108,6 +108,11 @@ export default function MarketingBoard() {
   const [leadSources, setLeadSources] = useState([]);
   const [selectedSource, setSelectedSource] = useState('all');
   
+  // Bulk Select & Delete
+  const [selectedLeadIds, setSelectedLeadIds] = useState(new Set());
+  const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
+  
   // Edit Lead
   const [showEditLead, setShowEditLead] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
@@ -805,6 +810,46 @@ export default function MarketingBoard() {
     );
   });
 
+
+  const toggleSelectLead = (leadId) => {
+    setSelectedLeadIds(prev => {
+      const next = new Set(prev);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  };
+  
+  const toggleSelectAll = () => {
+    if (selectedLeadIds.size === filteredLeads.length) {
+      setSelectedLeadIds(new Set());
+    } else {
+      setSelectedLeadIds(new Set(filteredLeads.map(l => l.lead_id)));
+    }
+  };
+  
+  const handleBulkDelete = async () => {
+    if (bulkDeleteConfirm !== 'DELETE') {
+      toast.error('Please type DELETE to confirm');
+      return;
+    }
+    try {
+      let deleted = 0;
+      for (const leadId of selectedLeadIds) {
+        await axios.delete(`${API}/api/marketing/leads/${leadId}`, { withCredentials: true });
+        deleted++;
+      }
+      toast.success(`Deleted ${deleted} leads`);
+      setSelectedLeadIds(new Set());
+      setBulkDeleteDialog(false);
+      setBulkDeleteConfirm('');
+      fetchAllLeads();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to delete leads');
+    }
+  };
+
+
   const openPersonView = (person, type) => {
     setSelectedPerson({ ...person, type });
     setPersonFilter({ date_from: '', date_to: '', source: '', stage: '' });
@@ -1261,19 +1306,52 @@ export default function MarketingBoard() {
                   <table className="w-full text-sm table-fixed">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="px-2 py-2 text-left font-semibold w-[15%]">Lead</th>
-                        <th className="px-2 py-2 text-left font-semibold w-[18%]">Contact</th>
-                        <th className="px-2 py-2 text-left font-semibold w-[8%]">Type</th>
-                        <th className="px-2 py-2 text-left font-semibold w-[10%]">Source</th>
-                        <th className="px-2 py-2 text-left font-semibold w-[15%]">Assigned To</th>
+                        <th className="px-2 py-2 text-center w-[4%]">
+                          <input 
+                            type="checkbox" 
+                            checked={selectedLeadIds.size > 0 && selectedLeadIds.size === filteredLeads.length}
+                            onChange={toggleSelectAll}
+                            className="rounded border-gray-300"
+                            data-testid="select-all-leads"
+                          />
+                        </th>
+                        <th className="px-2 py-2 text-left font-semibold w-[14%]">Lead</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[16%]">Contact</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[7%]">Type</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[9%]">Source</th>
+                        <th className="px-2 py-2 text-left font-semibold w-[14%]">Assigned To</th>
                         <th className="px-2 py-2 text-left font-semibold w-[10%]">Stage</th>
                         <th className="px-2 py-2 text-left font-semibold w-[10%]">Created</th>
-                        <th className="px-2 py-2 text-center font-semibold w-[14%]">Actions</th>
+                        <th className="px-2 py-2 text-center font-semibold w-[12%]">Actions</th>
                       </tr>
+                      {selectedLeadIds.size > 0 && (
+                        <tr className="bg-red-50">
+                          <td colSpan="9" className="px-4 py-2">
+                            <div className="flex items-center gap-3">
+                              <span className="text-sm font-medium text-red-700">{selectedLeadIds.size} lead(s) selected</span>
+                              <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => { setBulkDeleteConfirm(''); setBulkDeleteDialog(true); }} data-testid="bulk-delete-btn">
+                                Delete Selected
+                              </Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedLeadIds(new Set())}>
+                                Clear Selection
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
                     </thead>
                     <tbody className="divide-y">
                       {filteredLeads.map(lead => (
-                        <tr key={lead.lead_id} className="hover:bg-gray-50">
+                        <tr key={lead.lead_id} className={`hover:bg-gray-50 ${selectedLeadIds.has(lead.lead_id) ? 'bg-red-50' : ''}`}>
+                          <td className="px-2 py-2 text-center">
+                            <input 
+                              type="checkbox"
+                              checked={selectedLeadIds.has(lead.lead_id)}
+                              onChange={() => toggleSelectLead(lead.lead_id)}
+                              className="rounded border-gray-300"
+                              data-testid={`select-lead-${lead.lead_id}`}
+                            />
+                          </td>
                           <td className="px-2 py-2">
                             <div className="flex items-center gap-1">
                               <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
@@ -2342,6 +2420,45 @@ export default function MarketingBoard() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete Dialog */}
+      <Dialog open={bulkDeleteDialog} onOpenChange={(open) => { if (!open) { setBulkDeleteDialog(false); setBulkDeleteConfirm(''); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="h-5 w-5" /> Delete {selectedLeadIds.size} Leads
+            </DialogTitle>
+            <DialogDescription>This action cannot be undone. All selected leads will be permanently deleted.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-700 font-medium">{selectedLeadIds.size} leads selected for deletion</p>
+            </div>
+            <div>
+              <Label className="text-red-600">Type DELETE to confirm</Label>
+              <Input
+                value={bulkDeleteConfirm}
+                onChange={(e) => setBulkDeleteConfirm(e.target.value)}
+                placeholder="Type DELETE"
+                className="mt-2 border-red-300 focus:border-red-500"
+                data-testid="bulk-delete-confirm-input"
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => { setBulkDeleteDialog(false); setBulkDeleteConfirm(''); }}>Cancel</Button>
+              <Button 
+                onClick={handleBulkDelete}
+                disabled={bulkDeleteConfirm !== 'DELETE'}
+                className="bg-red-600 hover:bg-red-700 disabled:bg-red-300"
+                data-testid="bulk-delete-confirm-btn"
+              >
+                <Trash2 className="h-4 w-4 mr-2" /> Delete {selectedLeadIds.size} Leads
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Google Sheets Connection Dialog */}
       <Dialog open={showSheetsDialog} onOpenChange={setShowSheetsDialog}>
