@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -3049,6 +3049,7 @@ function ProjectSummaryTab({ overview }) {
 
 // ============ MAIN ACCOUNTS BOARD ============
 export default function AccountsBoard() {
+  const location = useLocation();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [overview, setOverview] = useState(null);
@@ -3056,6 +3057,15 @@ export default function AccountsBoard() {
   const [mainTab, setMainTab] = useState('cashbook');
   const [globalUnmasked, setGlobalUnmasked] = useState(false);
   const [unmaskDialog, setUnmaskDialog] = useState(false);
+
+  // Sync mainTab with URL ?tab= query param (so header nav works)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const t = params.get('tab');
+    if (t && ['cashbook', 'approvals', 'cheques', 'projects'].includes(t)) {
+      setMainTab(t);
+    }
+  }, [location.search]);
 
   useEffect(() => { fetchAll(); }, []);
 

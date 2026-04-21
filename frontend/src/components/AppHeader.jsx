@@ -21,10 +21,11 @@ const ROLE_NAV = {
     { label: 'Settings', path: '/settings' },
   ],
   accountant: [
-    { label: 'Accounts Board', path: '/accounts-board' },
-    { label: 'Approvals', path: '/approvals' },
-    { label: 'Expenses', path: '/expenses' },
-    { label: 'Indirect Costs', path: '/indirect-costs' },
+    { label: 'Cashbook', path: '/accounts-board?tab=cashbook' },
+    { label: 'Approvals', path: '/accounts-board?tab=approvals' },
+    { label: 'Expense', path: '/expenses' },
+    { label: 'Cheque Management', path: '/accounts-board?tab=cheques' },
+    { label: 'Project Wise', path: '/accounts-board?tab=projects' },
     { label: 'HR Portal', path: '/hr-portal' },
   ],
   general_manager: [
@@ -150,6 +151,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   const role = user?.role || 'super_admin';
   const navItems = ROLE_NAV[role] || ROLE_NAV.super_admin;
   const currentPath = location.pathname;
+  const currentSearch = location.search || '';
   const moduleKey = getModuleKey(currentPath, role);
   const subMenus = ROLE_SUB_MENUS[role];
   const subItems = moduleKey && subMenus ? subMenus[moduleKey] : null;
@@ -160,6 +162,13 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
       const mk = getModuleKey(currentPath, role);
       return mk === path;
     }
+    // If path contains query string (e.g. ?tab=cashbook), match full path+search
+    if (path.includes('?')) {
+      return (currentPath + currentSearch) === path;
+    }
+    // If current URL has a query string but nav item doesn't, this nav is NOT active
+    // (prevents e.g. /accounts-board from matching when user is on /accounts-board?tab=approvals)
+    if (currentSearch && path === currentPath) return false;
     if (path === currentPath) return true;
     if (path !== '/' && currentPath.startsWith(path)) return true;
     return false;
