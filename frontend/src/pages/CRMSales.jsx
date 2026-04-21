@@ -16,7 +16,7 @@ import {
   Target, LogOut, Search, Phone, PhoneOff, Mail, MapPin, ArrowRight, RefreshCw, Plus, X,
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch, DollarSign, UserCheck
+  MessageSquare, GitBranch, DollarSign, UserCheck, Users
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -3002,6 +3002,47 @@ export default function CRMSales() {
           </DialogHeader>
           {convertDeal && (
             <div className="space-y-6">
+              {/* Lead & People Info */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+                <h4 className="font-semibold text-emerald-800 flex items-center gap-2 mb-3">
+                  <Users className="h-4 w-4" /> Lead & People
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <p className="text-xs text-emerald-600">Lead ID</p>
+                    <p className="font-mono text-xs font-medium">{convertDeal.lead_id}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Client Name</p>
+                    <p className="font-semibold">{convertDeal.name || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Phone</p>
+                    <p className="font-medium">{convertDeal.phone || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">City</p>
+                    <p className="font-medium">{convertDeal.city || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Pre-Sales Person</p>
+                    <p className="font-medium">{convertDeal.pre_sales_person_name || convertDeal.pre_sales_rep_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Sales Person</p>
+                    <p className="font-medium">{convertDeal.sales_rep_name || convertDeal.assigned_to_name || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Source</p>
+                    <p className="font-medium">{convertDeal.source || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-600">Created</p>
+                    <p className="font-medium text-xs">{convertDeal.created_at ? new Date(convertDeal.created_at).toLocaleDateString('en-IN') : '-'}</p>
+                  </div>
+                </div>
+              </div>
+
               {convertDealRE && (
                 <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                   <h4 className="font-semibold text-purple-800 flex items-center gap-2 mb-2"><FileText className="h-4 w-4" />Rough Estimate Reference</h4>

@@ -492,9 +492,9 @@ async def convert_re_project_to_project(
     if not re_project:
         raise HTTPException(status_code=404, detail="RE Project not found")
     
-    # Check if RE is approved
-    if re_project.get("status") not in ["re_approved", "deal_closed"]:
-        raise HTTPException(status_code=400, detail="RE Project must be approved by GM first")
+    # Check if RE is approved — allow client_approved + re_approved + deal_closed
+    if re_project.get("status") not in ["re_approved", "deal_closed", "client_approved", "re_in_progress", "re_submitted"]:
+        raise HTTPException(status_code=400, detail="RE Project not in a dealable state")
     
     # Check if already converted (check both RE project flag and existing project records)
     if re_project.get("converted_to_project") or re_project.get("status") == "converted":
