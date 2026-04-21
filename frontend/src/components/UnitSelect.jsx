@@ -171,7 +171,9 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
         <div
           ref={dropdownRef}
           className="fixed z-[9999] rounded-md border bg-popover shadow-lg animate-in fade-in-0 zoom-in-95"
-          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
+          style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, pointerEvents: 'auto' }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           {/* Search input */}
           <div className="p-2 border-b">

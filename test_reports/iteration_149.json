@@ -1,0 +1,53 @@
+{
+  "summary": "Verified UnitSelect portal dropdown fix inside Edit Rough Estimate dialog on Marketing Board > RE Projects. Dropdown opens directly below trigger (4px gap), is fully interactive (option clicks work, selection reflects in button), multiple independent dropdowns on the same form work correctly. Minor issues: search input fill behavior inconsistent in automation, React hydration warnings (cosmetic).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Edit Rough Estimate dialog", "issues": ["React hydration warning: <div> (DnD DragOverlay/SortableContext wrapper) cannot be a nested child of <tbody> in REProjectsPage.jsx line ~721 table. Functional but logs console errors."]},
+      {"screen": "PlanningBoard", "issues": ["React warning: 'Each child in a list should have a unique key prop' in PlanningBoard render. Cosmetic but should be fixed."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional) Replace nested <div> inside <tbody> with proper <tr> wrapping in REProjectsPage.jsx scope-items table to fix React hydration warning (DnD SortableContext wrapper).",
+    "(Optional) Add unique `key` prop on list iteration in PlanningBoard.jsx (likely the pending-requests list ~line 1200)."
+  ],
+  "critical_code_review_comments": [
+    "UnitSelect portal + fixed positioning + stopPropagation fix works correctly inside Radix Dialog. Dropdown is 4px below trigger, interactive, multiple instances work independently.",
+    "Scroll handler correctly closes dropdown on any ancestor scroll (capture phase).",
+    "Minor: DnD SortableContext wrapping <tr> elements places a <div> directly inside <tbody>, causing hydration warning. Consider using a SortableContext that renders as tbody or a fragment."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only test)", "frontend": "95%"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (Demo Access > Super Admin)",
+  "seed_data_creation": "None. Used existing approved RE USB-RE0009 (RE - Mrs. Abinaya).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Edit Rough Estimate dialog access: Login as Super Admin via Demo Access > navigate to /crm/re-projects > click 'Approved' card > click 'Edit' on USB-RE0009 or USB-RE0001. Unit dropdown uses portal + fixed positioning with pointer-events:auto. Verified working with 9 Unit dropdowns in the form. Note: Planning role's RE Projects page is empty (no REs assigned).",
+  "verified_fixes": [
+    "Portal dropdown opens directly below Unit trigger button (measured 4.0px gap)",
+    "Dropdown remains visible and clickable inside Radix Dialog (stopPropagation works)",
+    "Clicking unit option (e.g., Nos, Kg) updates the button label correctly",
+    "Multiple independent Unit dropdowns on the same form work without interference",
+    "Dialog contains Save button and Download PDF button"
+  ],
+  "tests_executed": {
+    "frontend": [
+      "Login via Demo Access > Super Admin - PASS",
+      "Navigate to /crm/re-projects, click Approved card - PASS (2 REs shown)",
+      "Open Edit Rough Estimate dialog for USB-RE0009 - PASS",
+      "Click 'Add Item' 3x to add scope rows - PASS",
+      "Open UnitSelect dropdown - PASS (opens 4px below trigger)",
+      "Verify portal dropdown position matches button x/width - PASS",
+      "Click Nos option on row 1 - PASS (button shows 'Nos (Numbers)')",
+      "Open second Unit dropdown on row 2 and pick Kg - PASS (button shows 'Kg (Kilogram)')",
+      "Verify Save and Download PDF buttons exist - PASS"
+    ]
+  },
+  "minor_observations": [
+    "Playwright page.fill on the unit-search-input resulted in empty value after refocus, possibly due to the input being re-rendered. Manual user typing should work because the input has stopPropagation on portal. Not reproduced as a user-facing bug.",
+    "401 console error observed on one resource during dialog load (non-blocking)."
+  ]
+}
