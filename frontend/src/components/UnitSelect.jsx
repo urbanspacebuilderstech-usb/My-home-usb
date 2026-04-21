@@ -103,16 +103,37 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
   }, []);
 
   useEffect(() => {
-    if (open && btnRef.current) {
+    if (open && inputRef.current) inputRef.current.focus();
+  }, [open]);
+
+  // Close on scroll/resize to avoid stale positioning
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('resize', close);
+    // Capture phase so we catch scrolls from any ancestor (including dialog content)
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+
+  const openDropdown = () => {
+    if (btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownHeight = 340;
+      const showAbove = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
       setDropdownPos({
-        top: rect.bottom + 4,
+        top: showAbove ? rect.top - dropdownHeight - 4 : rect.bottom + 4,
         left: rect.left,
         width: Math.max(rect.width, 220),
       });
     }
-    if (open && inputRef.current) inputRef.current.focus();
-  }, [open]);
+    setOpen(true);
+    setSearch('');
+  };
 
   const filtered = CONSTRUCTION_UNITS.filter(u =>
     !search || u.label.toLowerCase().includes(search.toLowerCase()) ||
@@ -136,7 +157,7 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
         ref={btnRef}
         type="button"
         disabled={disabled}
-        onClick={() => { setOpen(!open); setSearch(''); }}
+        onClick={() => { if (open) { setOpen(false); } else { openDropdown(); } }}
         className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
         data-testid={testId || 'unit-select'}
       >
