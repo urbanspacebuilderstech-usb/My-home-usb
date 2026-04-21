@@ -846,21 +846,25 @@ export default function CRMPreSales() {
                       <td className="px-2 py-2">
                         {(() => {
                           const pendingFups = (lead.follow_ups || []).filter(f => !f.completed);
+                          const lastFup = (lead.follow_ups || []).slice(-1)[0];
                           const nextFup = pendingFups.sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
                           const today = new Date().toISOString().split('T')[0];
                           const isToday = nextFup?.scheduled_date === today;
                           const isPast = nextFup?.scheduled_date < today;
                           return (
-                            <div className="space-y-1">
+                            <div className="space-y-0.5">
                               {nextFup ? (
                                 <div className={`text-[10px] px-1.5 py-0.5 rounded inline-block ${isToday ? 'bg-amber-100 text-amber-700 font-semibold' : isPast ? 'bg-red-100 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
                                   {new Date(nextFup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}
-                                  {nextFup.note && <span className="ml-1 opacity-70">- {nextFup.note.substring(0,15)}</span>}
+                                  {nextFup.scheduled_time && ` ${nextFup.scheduled_time}`}
+                                </div>
+                              ) : lastFup?.completed ? (
+                                <div className="text-[10px] px-1.5 py-0.5 rounded inline-block bg-green-50 text-green-600">
+                                  Last: {new Date(lastFup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}
                                 </div>
                               ) : (
-                                <span className="text-[10px] text-gray-400">No follow-up</span>
+                                <span className="text-[10px] text-gray-400">—</span>
                               )}
-                              {pendingFups.length > 1 && <span className="text-[9px] text-gray-400 ml-1">+{pendingFups.length - 1} more</span>}
                             </div>
                           );
                         })()}
@@ -872,20 +876,22 @@ export default function CRMPreSales() {
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            className="h-7 px-2 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
-                            data-testid={`followup-btn-${lead.lead_id}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setQuickFollowupLeadId(lead.lead_id);
-                              setQuickFollowupForm({ date: new Date().toISOString().split('T')[0], time: '', remarks: '' });
-                              setQuickFollowupDialog(true);
-                            }}
-                          >
-                            <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
-                          </Button>
+                          {lead.current_stage_id === 'stg_follow_up' && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="h-7 px-2 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                              data-testid={`followup-btn-${lead.lead_id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setQuickFollowupLeadId(lead.lead_id);
+                                setQuickFollowupForm({ date: new Date().toISOString().split('T')[0], time: '', remarks: '' });
+                                setQuickFollowupDialog(true);
+                              }}
+                            >
+                              <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
+                            </Button>
+                          )}
                           <Button 
                             variant="ghost" 
                             size="sm"
