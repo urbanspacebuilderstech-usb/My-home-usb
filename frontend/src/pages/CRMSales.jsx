@@ -962,6 +962,46 @@ export default function CRMSales() {
           </Card>
         </div>
 
+        {/* All Stages Summary — matches Pre-Sales style, wraps to 2 rows */}
+        {stages.length > 0 && (
+          <div className="mb-6">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-3" data-testid="sales-stages-summary">
+              <button
+                onClick={() => setActiveStage('all')}
+                data-testid="stage-chip-all"
+                className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-500' : ''}`}
+                style={{ backgroundColor: '#10b981', color: '#fff' }}
+              >
+                <span className="text-[9px] sm:text-[11px] font-medium opacity-90">All Leads</span>
+                <span className="text-base sm:text-2xl font-bold mt-0.5">{filteredLeads.length}</span>
+              </button>
+              {stages.map((stage) => {
+                const count = getLeadsByStage(stage.stage_id).length;
+                const isActive = activeStage === stage.stage_id;
+                return (
+                  <button
+                    key={stage.stage_id}
+                    onClick={() => setActiveStage(stage.stage_id)}
+                    data-testid={`stage-chip-${stage.stage_id}`}
+                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    style={{
+                      backgroundColor: isActive ? stage.color : stage.color + '15',
+                      borderColor: stage.color + '30',
+                      color: isActive ? '#ffffff' : stage.color,
+                      '--tw-ring-color': stage.color,
+                    }}
+                  >
+                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                      {stage.name}
+                    </span>
+                    <span className="text-base sm:text-2xl font-bold mt-0.5">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Search + Date Filter + View Toggle */}
         <div className="flex gap-3 mb-6 items-center flex-wrap">
           <div className="relative flex-1 max-w-md">
