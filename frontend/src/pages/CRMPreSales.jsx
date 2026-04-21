@@ -860,17 +860,17 @@ export default function CRMPreSales() {
 
         {/* Kanban Board */}
         {viewMode === 'kanban' && (
-        <div className="overflow-x-auto pb-4">
-          <div className="flex gap-4 min-w-max">
+        <div className="overflow-x-auto pb-4" style={{height: 'calc(100vh - 220px)'}}>
+          <div className="flex gap-4 min-w-max h-full">
             {stages.map(stage => (
               <div 
                 key={stage.stage_id}
-                className="w-80 flex-shrink-0"
+                className="w-80 flex-shrink-0 flex flex-col h-full"
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, stage.stage_id)}
               >
                 <div 
-                  className="rounded-t-lg px-4 py-3 flex items-center justify-between"
+                  className="rounded-t-lg px-4 py-3 flex items-center justify-between sticky top-0 z-10"
                   style={{ backgroundColor: stage.color + '20', borderTop: `3px solid ${stage.color}` }}
                 >
                   <div className="flex items-center gap-2">
@@ -884,7 +884,7 @@ export default function CRMPreSales() {
                   )}
                 </div>
                 
-                <div className="bg-gray-100 rounded-b-lg p-2 min-h-[400px] space-y-2">
+                <div className="bg-gray-100 rounded-b-lg p-2 flex-1 space-y-2 overflow-y-auto">
                   {getLeadsByStage(stage.stage_id).map(lead => (
                     <Card
                       key={lead.lead_id}
