@@ -13,9 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
-### Session — April 21, 2026 (Latest)
-- **Timeline Ascending Sort Fix**: Lead Timeline in both Pre-Sales & Sales now unifies stage_history, follow_ups, rnr_log, office_visit, and lead creation into a single list sorted strictly ascending by timestamp. Earlier, separate sections caused out-of-order entries (e.g., RNR #1 from 21 Apr appeared after Follow-up scheduled for 22 Apr).
-- **Sales CRM RNR Events**: Added RNR log rendering to Sales CRM timeline for parity with Pre-Sales.
+### Session — April 21–22, 2026 (Latest)
+- **Timeline Ascending Sort**: Lead Timeline (Pre-Sales + Sales) unifies & sorts events by actual timestamp; Follow-ups split into "Scheduled" + "Closed" events
+- **Sales Stages Restructured (13 stages)**: New Appointment → Office Visit → Followup → Client Land Visit → Our Projects Visit → RE-Request → RE-Planning → RE-Client → Negotiation → Deal Close (renamed from Payment Collect) → Accountant Approval → Project Onboarded → Lost. Auto-migration for old stages (Discussion→Followup, Deal Closed→Deal Close, Site Visit Done→RE Request)
+- **Sales Header Cleanup**: Removed "Sales CRM" & "RE Projects" text from top nav; added RE Projects button in toolbar
+- **Sales UI Parity with Pre-Sales**: Follow-up dialog with Date+Time+Remarks; Quick Record/New buttons on list view; Colorful 2-row stage summary with counts
+- **Top 5 old stat cards removed** (Total Leads / Deal Closed / Advance Collected / RE Requested / Converted)
+- **Stage tabs scrollbar**: Slim 6px scrollbar no longer overlays tab text
+- **UnitSelect Portal + 110+ Construction Units**: Dropdown renders via createPortal with fixed positioning (smart flip-up near bottom), pointer-events+stopPropagation for Radix Dialog, searchable, 11 categories (Count/Weight/Volume/Area/Length/Packaging/Transport/Construction/Electrical/Work/Misc)
+- **RE Template Dialog upgrades**: max-w-5xl, table-fixed layout, full-width Description Input
+- **RE Edit Dialog upgrades**: max-w-5xl, table-fixed, widened columns
+- **NEW: "Use Template" sub-popup inside RE Edit**: Search templates, apply via Replace or Append mode — then edit/reorder/delete/add manually before submit to GM
+- **Production deploys**: All changes shipped to www.myhomeusb.com via SSH + git pull + yarn build + pm2 restart
 
 ### Session — April 2026
 - **Round-Robin Fix**: Sales/Pre-Sales users see ONLY their assigned leads. Fixed $or overwrite bug in search. Enhanced assign_lead_to_next_user with team validation.
