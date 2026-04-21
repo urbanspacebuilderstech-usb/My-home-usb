@@ -9,6 +9,8 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { DayPicker } from 'react-day-picker';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { 
@@ -651,44 +653,50 @@ export default function CRMPreSales() {
             />
           </div>
           
-          {/* Date Filter */}
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-            <Calendar className="h-4 w-4 text-amber-600" />
-            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Follow-up:</span>
-            <Input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="h-7 text-xs w-36 border-amber-300"
-              data-testid="presales-date-filter"
-            />
-            <span className="text-xs text-amber-500">to</span>
-            <Input
-              type="date"
-              value={dateFilterEnd}
-              onChange={(e) => setDateFilterEnd(e.target.value)}
-              className="h-7 text-xs w-36 border-amber-300"
-              data-testid="presales-date-end-filter"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-100"
-              onClick={() => { setDateFilter(new Date().toISOString().split('T')[0]); setDateFilterEnd(''); }}
-              data-testid="presales-today-btn"
-            >
-              Today
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-gray-500 hover:bg-gray-100"
-              onClick={() => { setDateFilter(''); setDateFilterEnd(''); }}
-              data-testid="presales-clear-date-btn"
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
+          {/* Date Filter - Calendar Popover */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={`h-8 text-xs gap-1.5 ${dateFilter ? 'bg-amber-50 border-amber-400 text-amber-700' : 'border-gray-300 text-gray-600'}`}
+                data-testid="presales-date-filter-btn"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                {dateFilter ? (
+                  dateFilterEnd ? (
+                    `${new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})} - ${new Date(dateFilterEnd).toLocaleDateString('en-IN', {day:'2-digit', month:'short'})}`
+                  ) : (
+                    new Date(dateFilter).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'})
+                  )
+                ) : 'Follow-up Date'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <div className="p-2 border-b flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-600">Select date or range</span>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-amber-600" onClick={() => { setDateFilter(new Date().toISOString().split('T')[0]); setDateFilterEnd(''); }}>Today</Button>
+                  {dateFilter && <Button variant="ghost" size="sm" className="h-6 text-[10px] text-red-500" onClick={() => { setDateFilter(''); setDateFilterEnd(''); }}><X className="h-3 w-3" /></Button>}
+                </div>
+              </div>
+              <DayPicker
+                mode="range"
+                selected={dateFilter ? { from: new Date(dateFilter), to: dateFilterEnd ? new Date(dateFilterEnd) : new Date(dateFilter) } : undefined}
+                onSelect={(range) => {
+                  if (range?.from) {
+                    const from = range.from.toISOString().split('T')[0];
+                    const to = range.to ? range.to.toISOString().split('T')[0] : '';
+                    setDateFilter(from);
+                    setDateFilterEnd(from === to ? '' : to);
+                  } else {
+                    setDateFilter('');
+                    setDateFilterEnd('');
+                  }
+                }}
+                className="p-2"
+              />
+            </PopoverContent>
+          </Popover>
           
           {/* Daily Follow-up Filter */}
           <Button
