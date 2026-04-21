@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { 
-  Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, 
+  Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
   LayoutGrid, List, MoreVertical, Bell
@@ -521,18 +521,21 @@ export default function CRMPreSales() {
       if (!hasToday) return false;
     }
     
-    // Date filter
+    // Date filter — matches against: created_at, stage_history dates, follow-up dates
     let matchesDate = true;
     if (dateFilter) {
       const leadDate = lead.created_at ? lead.created_at.split('T')[0] : '';
       const followupDates = (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date);
       const nextFollowup = lead.next_followup_date || '';
+      // Stage history dates (timeline)
+      const timelineDates = (lead.stage_history || []).map(h => h.moved_at ? h.moved_at.split('T')[0] : '').filter(Boolean);
+      const allDates = [leadDate, nextFollowup, ...followupDates, ...timelineDates];
       
       if (dateFilterEnd) {
         const inRange = (d) => d >= dateFilter && d <= dateFilterEnd;
-        matchesDate = inRange(leadDate) || followupDates.some(d => inRange(d)) || inRange(nextFollowup);
+        matchesDate = allDates.some(d => inRange(d));
       } else {
-        matchesDate = leadDate === dateFilter || followupDates.includes(dateFilter) || nextFollowup === dateFilter;
+        matchesDate = allDates.includes(dateFilter);
       }
     }
     
@@ -567,31 +570,29 @@ export default function CRMPreSales() {
       {/* Navigation */}
       <AppHeader user={user} />
 
-      <div className="max-w-full mx-auto px-4 py-6 sm:px-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3 mb-6">
-          <Card className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white border-0">
-            <CardContent className="p-4">
-              <p className="text-indigo-100 text-sm">Total Leads</p>
-              <p className="text-3xl font-bold">{dashboard?.total_leads || 0}</p>
-            </CardContent>
-          </Card>
-          
-          {stages.map(stage => (
-            <Card 
-              key={stage.stage_id} 
-              className={`cursor-pointer hover:shadow-md transition-shadow ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border-red-300' : ''}`}
-              onClick={() => setActiveStage(stage.stage_id)}
-              style={{ borderLeftColor: stage.color, borderLeftWidth: '4px' }}
+      <div className="max-w-full mx-auto px-4 py-3 sm:px-6">
+        {/* Compact Stats - Single Row */}
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
+          <div className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg px-4 py-2 shrink-0">
+            <span className="text-xs font-medium opacity-80">Total</span>
+            <span className="text-xl font-bold">{dashboard?.total_leads || 0}</span>
+          </div>
+          {stages.map(stage => {
+            const count = dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0;
+            return (
+            <div 
+              key={stage.stage_id}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer hover:shadow-sm transition-shadow shrink-0 ${activeStage === stage.stage_id ? 'ring-2 ring-offset-1' : ''} ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
+              onClick={() => setActiveStage(activeStage === stage.stage_id ? 'all' : stage.stage_id)}
+              style={activeStage === stage.stage_id ? { ringColor: stage.color } : {}}
+              data-testid={`stage-filter-${stage.stage_id}`}
             >
-              <CardContent className="p-4">
-                <p className="text-xs text-gray-500 truncate">{stage.name}</p>
-                <p className="text-2xl font-bold" style={{ color: stage.color }}>
-                  {dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+              <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }}></div>
+              <span className="text-xs text-gray-600 whitespace-nowrap">{stage.name}</span>
+              <span className="text-sm font-bold" style={{ color: stage.color }}>{count}</span>
+            </div>
+            );
+          })}
         </div>
 
         {/* Search & Filters + View Toggle */}
@@ -1354,6 +1355,7 @@ export default function CRMPreSales() {
             <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
               <TabsList className="grid grid-cols-4 w-full">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="remarks">Remarks</TabsTrigger>
                 <TabsTrigger value="followup">Follow-up</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -1534,6 +1536,111 @@ export default function CRMPreSales() {
                 </Card>
                 )}
 
+              </TabsContent>
+
+              {/* Timeline Tab */}
+              <TabsContent value="timeline" className="space-y-4 mt-4">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                      <Clock className="h-4 w-4" /> Lead Timeline
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="relative">
+                      <div className="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+                      <div className="space-y-3">
+                        {/* Created */}
+                        <div className="flex items-start gap-3 relative">
+                          <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center z-10 shrink-0">
+                            <Plus className="h-3 w-3 text-white" />
+                          </div>
+                          <div className="flex-1 bg-indigo-50 rounded-lg p-2">
+                            <p className="text-xs font-semibold text-indigo-700">Lead Created</p>
+                            <p className="text-[10px] text-gray-500">
+                              {selectedLead.created_at ? new Date(selectedLead.created_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Stage History */}
+                        {(selectedLead.stage_history || []).map((entry, i) => {
+                          const stageInfo = stages.find(s => s.stage_id === entry.stage_id);
+                          return (
+                          <div key={i} className="flex items-start gap-3 relative">
+                            <div className="w-6 h-6 rounded-full flex items-center justify-center z-10 shrink-0" style={{ backgroundColor: stageInfo?.color || '#6b7280' }}>
+                              <ArrowRight className="h-3 w-3 text-white" />
+                            </div>
+                            <div className="flex-1 bg-white border rounded-lg p-2">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold" style={{ color: stageInfo?.color || '#374151' }}>
+                                  {stageInfo?.name || entry.stage_id}
+                                </p>
+                                {entry.action && <span className="text-[9px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-500">{entry.action}</span>}
+                              </div>
+                              <p className="text-[10px] text-gray-500">
+                                {entry.moved_at ? new Date(entry.moved_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}
+                                {entry.moved_by_name ? ` — ${entry.moved_by_name}` : ''}
+                              </p>
+                              {entry.remark && <p className="text-[10px] text-gray-600 mt-0.5 italic">"{entry.remark}"</p>}
+                            </div>
+                          </div>
+                          );
+                        })}
+
+                        {/* Follow-up dates */}
+                        {(selectedLead.follow_ups || []).map((fup, i) => (
+                          <div key={`fup-${i}`} className="flex items-start gap-3 relative">
+                            <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center z-10 shrink-0">
+                              <Calendar className="h-3 w-3 text-white" />
+                            </div>
+                            <div className={`flex-1 rounded-lg p-2 ${fup.completed ? 'bg-green-50 border border-green-200' : 'bg-amber-50 border border-amber-200'}`}>
+                              <p className="text-xs font-semibold text-amber-700">
+                                Follow-up {fup.completed ? '(Done)' : '(Pending)'}
+                              </p>
+                              <p className="text-[10px] text-gray-500">
+                                {fup.scheduled_date ? new Date(fup.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'}) : ''}
+                                {fup.note ? ` — ${fup.note}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* RNR Log */}
+                        {(selectedLead.rnr_log || []).map((log, i) => (
+                          <div key={`rnr-${i}`} className="flex items-start gap-3 relative">
+                            <div className="w-6 h-6 rounded-full bg-red-500 flex items-center justify-center z-10 shrink-0">
+                              <PhoneOff className="h-3 w-3 text-white" />
+                            </div>
+                            <div className="flex-1 bg-red-50 border border-red-200 rounded-lg p-2">
+                              <p className="text-xs font-semibold text-red-600">RNR #{log.attempt}</p>
+                              <p className="text-[10px] text-gray-500">
+                                {log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}
+                                {log.logged_by_name ? ` — ${log.logged_by_name}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Office Visit */}
+                        {selectedLead.office_visit && (
+                          <div className="flex items-start gap-3 relative">
+                            <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center z-10 shrink-0">
+                              <Building2 className="h-3 w-3 text-white" />
+                            </div>
+                            <div className="flex-1 bg-sky-50 border border-sky-200 rounded-lg p-2">
+                              <p className="text-xs font-semibold text-sky-700">Office Visit Scheduled</p>
+                              <p className="text-[10px] text-gray-500">
+                                {selectedLead.office_visit.date} at {selectedLead.office_visit.time} — {selectedLead.office_visit.location}
+                              </p>
+                              {selectedLead.office_visit.remarks && <p className="text-[10px] text-gray-600 italic">"{selectedLead.office_visit.remarks}"</p>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </TabsContent>
               
               {/* Remarks Tab */}
