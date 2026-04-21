@@ -2996,6 +2996,7 @@ async def re_client_revision(lead_id: str, data: SalesRevisionReq = SalesRevisio
             "current_stage_id": "stg_re_requested",
             "stage_history": stage_history,
             "re_project_id": new_re.re_project_id,
+            "re_revision_number": next_revision,
             "updated_at": now
         }}
     )

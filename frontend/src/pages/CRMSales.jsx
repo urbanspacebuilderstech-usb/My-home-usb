@@ -919,7 +919,12 @@ export default function CRMSales() {
   });
 
   const getLeadsByStage = (stageId) => {
-    let stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
+    let stageLeads;
+    if (stageId === 'revision') {
+      stageLeads = filteredLeads.filter(lead => (lead.re_revision_number || 0) > 0 && lead.current_stage_id === 'stg_re_requested');
+    } else {
+      stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
+    }
     stageLeads.sort((a, b) => {
       const getDate = (lead) => {
         const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
@@ -991,6 +996,31 @@ export default function CRMSales() {
                   </button>
                 );
               })}
+
+              {/* Revision chip — RE-Requested leads with revision > 0 */}
+              {(() => {
+                const revCount = filteredLeads.filter(l => (l.re_revision_number || 0) > 0 && l.current_stage_id === 'stg_re_requested').length;
+                const isActive = activeStage === 'revision';
+                const color = '#f97316';
+                return (
+                  <button
+                    onClick={() => setActiveStage('revision')}
+                    data-testid="stage-chip-revision"
+                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    style={{
+                      backgroundColor: isActive ? color : color + '15',
+                      borderColor: color + '30',
+                      color: isActive ? '#ffffff' : color,
+                      '--tw-ring-color': color,
+                    }}
+                  >
+                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5 flex items-center gap-0.5 justify-center">
+                      <RefreshCw className="h-3 w-3" /> Revision
+                    </span>
+                    <span className="text-base sm:text-2xl font-bold mt-0.5">{revCount}</span>
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -1153,6 +1183,22 @@ export default function CRMSales() {
                     </span>
                   </button>
                 ))}
+                {/* Revision tab */}
+                <button
+                  className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                    activeStage === 'revision' 
+                      ? 'border-orange-500 text-orange-600 bg-orange-50' 
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                  onClick={() => setActiveStage('revision')}
+                  data-testid="revision-tab"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <RefreshCw className="h-3 w-3" />
+                    Revision
+                    <span className="text-gray-400">({getLeadsByStage('revision').length})</span>
+                  </span>
+                </button>
               </div>
             </div>
 
@@ -1210,12 +1256,19 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2">
                         {lead.re_project_id ? (
-                          <Badge 
-                            className="bg-purple-100 text-purple-700 text-[10px] px-1.5 cursor-pointer"
-                            onClick={(e) => { e.stopPropagation(); handleViewREProject(lead.re_project_id); }}
-                          >
-                            View RE
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge 
+                              className="bg-purple-100 text-purple-700 text-[10px] px-1.5 cursor-pointer"
+                              onClick={(e) => { e.stopPropagation(); handleViewREProject(lead.re_project_id); }}
+                            >
+                              View RE
+                            </Badge>
+                            {(lead.re_revision_number || 0) > 0 && (
+                              <Badge className="bg-orange-100 text-orange-700 text-[10px] px-1.5 border border-orange-300">
+                                RE{lead.re_revision_number}
+                              </Badge>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
                         )}
