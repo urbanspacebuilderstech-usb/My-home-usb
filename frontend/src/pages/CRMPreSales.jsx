@@ -582,10 +582,8 @@ export default function CRMPreSales() {
             return (
             <div 
               key={stage.stage_id}
-              className={`flex items-center gap-2 rounded-lg px-3 py-2 cursor-pointer hover:shadow-sm transition-shadow shrink-0 ${activeStage === stage.stage_id ? 'ring-2 ring-offset-1' : ''} ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
-              onClick={() => setActiveStage(activeStage === stage.stage_id ? 'all' : stage.stage_id)}
-              style={activeStage === stage.stage_id ? { ringColor: stage.color } : {}}
-              data-testid={`stage-filter-${stage.stage_id}`}
+              className={`flex items-center gap-2 rounded-lg px-3 py-2 shrink-0 ${stage.stage_id === 'stg_new_rnr' ? 'bg-red-50 border border-red-200' : 'bg-white border border-gray-200'}`}
+              data-testid={`stage-count-${stage.stage_id}`}
             >
               <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stage.color }}></div>
               <span className="text-xs text-gray-600 whitespace-nowrap">{stage.name}</span>
@@ -675,13 +673,6 @@ export default function CRMPreSales() {
             </SelectContent>
           </Select>
           
-          <Button 
-            variant={activeStage === 'all' ? 'default' : 'outline'} 
-            onClick={() => setActiveStage('all')}
-          >
-            All Stages
-          </Button>
-
           {user?.role === 'super_admin' && (
             <Button variant="outline" size="sm" className="gap-1.5 text-gray-600 hover:text-amber-700"
               onClick={() => window.location.href = '/settings/stages?type=pre_sales'}
