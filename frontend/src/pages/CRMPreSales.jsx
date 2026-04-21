@@ -877,20 +877,54 @@ export default function CRMPreSales() {
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {lead.current_stage_id === 'stg_follow_up' && (
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="h-7 px-2 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
-                              data-testid={`followup-btn-${lead.lead_id}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setQuickFollowupLeadId(lead.lead_id);
-                                setQuickFollowupForm({ date: new Date().toISOString().split('T')[0], time: '', remarks: '' });
-                                setQuickFollowupDialog(true);
-                              }}
-                            >
-                              <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
-                            </Button>
+                            <>
+                              {/* Show Record button if there's a pending follow-up */}
+                              {(lead.follow_ups || []).some(f => !f.completed) ? (
+                                <>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    className="h-7 px-1.5 text-[10px] text-green-600 border-green-300 hover:bg-green-50"
+                                    data-testid={`record-followup-btn-${lead.lead_id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openLeadDetail(lead);
+                                    }}
+                                  >
+                                    Record
+                                  </Button>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                                    data-testid={`new-followup-btn-${lead.lead_id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuickFollowupLeadId(lead.lead_id);
+                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                      setQuickFollowupDialog(true);
+                                    }}
+                                  >
+                                    New
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                                  data-testid={`followup-btn-${lead.lead_id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuickFollowupLeadId(lead.lead_id);
+                                    setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                    setQuickFollowupDialog(true);
+                                  }}
+                                >
+                                  <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
+                                </Button>
+                              )}
+                            </>
                           )}
                           <Button 
                             variant="ghost" 
