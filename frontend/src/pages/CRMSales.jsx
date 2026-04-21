@@ -71,6 +71,12 @@ export default function CRMSales() {
   const [roughEstForm, setRoughEstForm] = useState('');
   const [roughEstLeadId, setRoughEstLeadId] = useState(null);
   const [roughEstStageId, setRoughEstStageId] = useState(null);
+
+  // Office Visit dialog
+  const [officeVisitDialog, setOfficeVisitDialog] = useState(false);
+  const [officeVisitForm, setOfficeVisitForm] = useState({ date: '', time: '', location: 'Office', remarks: '' });
+  const [officeVisitLeadId, setOfficeVisitLeadId] = useState(null);
+
   
   // Client feedback dialog
   const [clientFeedbackDialog, setClientFeedbackDialog] = useState(false);
@@ -187,6 +193,14 @@ export default function CRMSales() {
         return;
       }
       
+      // Intercept: Show Office Visit dialog
+      if (stage?.stage_id === 'stg_sales_office_visit') {
+        setOfficeVisitLeadId(leadId);
+        setOfficeVisitForm({ date: '', time: '', location: 'Office', remarks: '' });
+        setOfficeVisitDialog(true);
+        return;
+      }
+      
       // Intercept: Show CRE-style Convert Deal popup for "Payment Collect"
       if (stage?.name === 'Payment Collect') {
         const lead = leads.find(l => l.lead_id === leadId);
@@ -285,6 +299,26 @@ export default function CRMSales() {
     setRoughEstDialog(false);
     await handleStageChange(roughEstLeadId, roughEstStageId, roughEstForm);
   };
+
+  const handleOfficeVisitSubmit = async () => {
+    if (!officeVisitForm.date) { toast.error('Please select a date'); return; }
+    if (!officeVisitForm.time) { toast.error('Please select a time'); return; }
+    try {
+      await axios.patch(`${API}/crm/leads/${officeVisitLeadId}/stage`, {
+        stage_id: 'stg_sales_office_visit',
+        office_visit_date: officeVisitForm.date,
+        office_visit_time: officeVisitForm.time,
+        office_visit_location: officeVisitForm.location,
+        office_visit_remarks: officeVisitForm.remarks,
+      });
+      toast.success('Office visit scheduled');
+      setOfficeVisitDialog(false);
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to schedule office visit');
+    }
+  };
+
   const handleViewREProject = async (reProjectId) => {
     try {
       const res = await axios.get(`${API}/crm/re-projects/${reProjectId}`);
@@ -1943,6 +1977,44 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
       {/* Rough Estimate Requirement Dialog */}
+      {/* Office Visit Dialog */}
+      <Dialog open={officeVisitDialog} onOpenChange={setOfficeVisitDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-blue-600" />
+              Schedule Office Visit
+            </DialogTitle>
+            <DialogDescription>Enter the date, time, and location for the client's office visit.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Visit Date *</Label>
+              <Input type="date" value={officeVisitForm.date} onChange={(e) => setOfficeVisitForm({...officeVisitForm, date: e.target.value})} className="mt-1" data-testid="office-visit-date" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Visit Time *</Label>
+              <Input type="time" value={officeVisitForm.time} onChange={(e) => setOfficeVisitForm({...officeVisitForm, time: e.target.value})} className="mt-1" data-testid="office-visit-time" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Location</Label>
+              <Input value={officeVisitForm.location} onChange={(e) => setOfficeVisitForm({...officeVisitForm, location: e.target.value})} placeholder="Office / Site / Other" className="mt-1" data-testid="office-visit-location" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Remarks</Label>
+              <Input value={officeVisitForm.remarks} onChange={(e) => setOfficeVisitForm({...officeVisitForm, remarks: e.target.value})} placeholder="Any additional notes..." className="mt-1" data-testid="office-visit-remarks" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOfficeVisitDialog(false)}>Cancel</Button>
+            <Button onClick={handleOfficeVisitSubmit} disabled={!officeVisitForm.date || !officeVisitForm.time} className="bg-blue-600 hover:bg-blue-700" data-testid="office-visit-submit">
+              Schedule Visit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
       <Dialog open={roughEstDialog} onOpenChange={setRoughEstDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
