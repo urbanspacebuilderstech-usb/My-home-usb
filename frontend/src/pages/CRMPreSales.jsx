@@ -1027,8 +1027,22 @@ export default function CRMPreSales() {
                               </Badge>
                             )}
                             {lead.follow_ups?.length > 0 && (
-                              <Badge variant="outline" className="text-xs text-orange-600">
-                                <Calendar className="h-3 w-3 mr-1" /> Follow-up
+                              <Badge variant="outline" className={`text-xs ${
+                                (() => {
+                                  const next = (lead.follow_ups || []).filter(f => !f.completed).sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
+                                  if (!next) return 'text-green-600 border-green-300 bg-green-50';
+                                  const today = new Date().toISOString().split('T')[0];
+                                  if (next.scheduled_date === today) return 'text-amber-700 border-amber-400 bg-amber-50 font-semibold';
+                                  if (next.scheduled_date < today) return 'text-red-600 border-red-300 bg-red-50';
+                                  return 'text-orange-600 border-orange-300';
+                                })()
+                              }`}>
+                                <Calendar className="h-3 w-3 mr-1" />
+                                {(() => {
+                                  const next = (lead.follow_ups || []).filter(f => !f.completed).sort((a,b) => (a.scheduled_date||'').localeCompare(b.scheduled_date||''))[0];
+                                  if (!next) return 'Done';
+                                  return new Date(next.scheduled_date).toLocaleDateString('en-IN', {day:'2-digit', month:'short'});
+                                })()}
                               </Badge>
                             )}
                           </div>
