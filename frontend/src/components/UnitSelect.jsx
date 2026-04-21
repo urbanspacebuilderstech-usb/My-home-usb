@@ -237,7 +237,6 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
-                e.stopPropagation();
                 if (e.key === 'Escape') { setOpen(false); }
               }}
               onClick={(e) => e.stopPropagation()}
