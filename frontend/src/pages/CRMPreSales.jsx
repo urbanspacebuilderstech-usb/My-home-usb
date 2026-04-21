@@ -17,7 +17,7 @@ import {
   Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
-  LayoutGrid, List, MoreVertical, Bell
+  LayoutGrid, List, MoreVertical, Bell, CheckCircle
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
