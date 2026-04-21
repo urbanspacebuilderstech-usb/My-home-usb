@@ -3469,6 +3469,25 @@ async def delete_lead(lead_id: str, user: User = Depends(get_current_user)):
     return {"message": "Lead deleted successfully"}
 
 
+@router.post("/marketing/leads/bulk-delete")
+async def bulk_delete_leads(request: Request, user: User = Depends(get_current_user)):
+    """Bulk delete leads - Super Admin only"""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    
+    data = await request.json()
+    lead_ids = data.get("lead_ids", [])
+    
+    if not lead_ids:
+        raise HTTPException(status_code=400, detail="No lead IDs provided")
+    
+    result = await db.leads.delete_many({"lead_id": {"$in": lead_ids}})
+    await db.sales_leads.delete_many({"lead_id": {"$in": lead_ids}})
+    
+    return {"message": f"Deleted {result.deleted_count} leads", "deleted": result.deleted_count}
+
+
+
 # ==================== END LEAD DISTRIBUTION ENGINE ====================
 
 

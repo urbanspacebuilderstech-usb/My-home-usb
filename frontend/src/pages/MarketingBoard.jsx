@@ -834,12 +834,8 @@ export default function MarketingBoard() {
       return;
     }
     try {
-      let deleted = 0;
-      for (const leadId of selectedLeadIds) {
-        await axios.delete(`${API}/api/marketing/leads/${leadId}`, { withCredentials: true });
-        deleted++;
-      }
-      toast.success(`Deleted ${deleted} leads`);
+      const res = await axios.post(`${API}/api/marketing/leads/bulk-delete`, { lead_ids: Array.from(selectedLeadIds) }, { withCredentials: true });
+      toast.success(`Deleted ${res.data.deleted} leads`);
       setSelectedLeadIds(new Set());
       setBulkDeleteDialog(false);
       setBulkDeleteConfirm('');
