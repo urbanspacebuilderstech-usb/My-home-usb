@@ -1023,20 +1023,11 @@ export default function REProjectsPage({ embedded = false }) {
                           <div className="flex flex-col gap-1.5 shrink-0">
                             <Button
                               size="sm"
-                              className="h-7 text-xs bg-purple-600 hover:bg-purple-700"
+                              className="h-8 text-xs bg-purple-600 hover:bg-purple-700"
                               onClick={() => applyTemplateToRE(tpl, 'replace')}
-                              data-testid={`apply-template-replace-${tpl.template_id}`}
+                              data-testid={`apply-template-${tpl.template_id}`}
                             >
-                              Use (Replace)
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 text-xs border-purple-300 text-purple-700 hover:bg-purple-50"
-                              onClick={() => applyTemplateToRE(tpl, 'append')}
-                              data-testid={`apply-template-append-${tpl.template_id}`}
-                            >
-                              Append
+                              Choose
                             </Button>
                           </div>
                         </div>
