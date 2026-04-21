@@ -1411,7 +1411,7 @@ export default function CRMPreSales() {
           
           {selectedLead && (
             <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
-              <TabsList className="grid grid-cols-4 w-full">
+              <TabsList className="grid grid-cols-5 w-full">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="remarks">Remarks</TabsTrigger>
