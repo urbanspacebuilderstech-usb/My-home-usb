@@ -10,69 +10,121 @@ export const CONSTRUCTION_UNITS = [
   { value: 'pair', label: 'Pair', category: 'Count' },
   { value: 'lot', label: 'Lot', category: 'Count' },
   { value: 'dozen', label: 'Dozen', category: 'Count' },
-  
+  { value: 'gross', label: 'Gross (144 Nos)', category: 'Count' },
+  { value: 'unit', label: 'Unit', category: 'Count' },
+  { value: 'each', label: 'Each (EA)', category: 'Count' },
+
   // Weight
   { value: 'kg', label: 'Kg (Kilogram)', category: 'Weight' },
-  { value: 'ton', label: 'Ton', category: 'Weight' },
-  { value: 'quintal', label: 'Quintal', category: 'Weight' },
   { value: 'gram', label: 'Gram', category: 'Weight' },
-  
+  { value: 'ton', label: 'Ton (Metric)', category: 'Weight' },
+  { value: 'mton', label: 'MT (Metric Tonne)', category: 'Weight' },
+  { value: 'quintal', label: 'Quintal (100 Kg)', category: 'Weight' },
+  { value: 'lbs', label: 'Lbs (Pound)', category: 'Weight' },
+
   // Volume
-  { value: 'litre', label: 'Litre', category: 'Volume' },
   { value: 'cft', label: 'CFT (Cubic Feet)', category: 'Volume' },
   { value: 'cum', label: 'Cum (Cubic Meter)', category: 'Volume' },
+  { value: 'cyd', label: 'Cu.Yd (Cubic Yard)', category: 'Volume' },
+  { value: 'ltr', label: 'Ltr (Litre)', category: 'Volume' },
+  { value: 'ml', label: 'ML (Millilitre)', category: 'Volume' },
   { value: 'gallon', label: 'Gallon', category: 'Volume' },
   { value: 'barrel', label: 'Barrel', category: 'Volume' },
-  
+  { value: 'kl', label: 'KL (Kilolitre)', category: 'Volume' },
+
   // Area
   { value: 'sqft', label: 'Sqft (Square Feet)', category: 'Area' },
   { value: 'sqm', label: 'Sqm (Square Meter)', category: 'Area' },
   { value: 'sqyd', label: 'Sqyd (Square Yard)', category: 'Area' },
-  { value: 'cent', label: 'Cent', category: 'Area' },
-  { value: 'acre', label: 'Acre', category: 'Area' },
-  
+  { value: 'sqin', label: 'Sq.In (Square Inch)', category: 'Area' },
+  { value: 'sqcm', label: 'Sq.Cm (Square Centimeter)', category: 'Area' },
+  { value: 'cent', label: 'Cent (435.6 Sqft)', category: 'Area' },
+  { value: 'ground', label: 'Ground (2400 Sqft)', category: 'Area' },
+  { value: 'acre', label: 'Acre (43560 Sqft)', category: 'Area' },
+  { value: 'hectare', label: 'Hectare (10000 Sqm)', category: 'Area' },
+  { value: 'guntha', label: 'Guntha (1089 Sqft)', category: 'Area' },
+  { value: 'bigha', label: 'Bigha', category: 'Area' },
+
   // Length
   { value: 'rft', label: 'RFT (Running Feet)', category: 'Length' },
-  { value: 'meter', label: 'Meter', category: 'Length' },
-  { value: 'feet', label: 'Feet', category: 'Length' },
-  { value: 'inch', label: 'Inch', category: 'Length' },
+  { value: 'rmt', label: 'RMT (Running Meter)', category: 'Length' },
+  { value: 'meter', label: 'Meter (m)', category: 'Length' },
+  { value: 'feet', label: 'Feet (ft)', category: 'Length' },
+  { value: 'inch', label: 'Inch (in)', category: 'Length' },
   { value: 'cm', label: 'CM (Centimeter)', category: 'Length' },
   { value: 'mm', label: 'MM (Millimeter)', category: 'Length' },
-  { value: 'yard', label: 'Yard', category: 'Length' },
-  
+  { value: 'km', label: 'KM (Kilometer)', category: 'Length' },
+  { value: 'yard', label: 'Yard (yd)', category: 'Length' },
+  { value: 'mile', label: 'Mile', category: 'Length' },
+
   // Packaging / Bulk
-  { value: 'bag', label: 'Bag', category: 'Packaging' },
+  { value: 'bag', label: 'Bag (50 Kg Cement)', category: 'Packaging' },
   { value: 'bundle', label: 'Bundle', category: 'Packaging' },
   { value: 'box', label: 'Box', category: 'Packaging' },
   { value: 'roll', label: 'Roll', category: 'Packaging' },
+  { value: 'coil', label: 'Coil', category: 'Packaging' },
   { value: 'packet', label: 'Packet', category: 'Packaging' },
   { value: 'drum', label: 'Drum', category: 'Packaging' },
   { value: 'can', label: 'Can', category: 'Packaging' },
   { value: 'tin', label: 'Tin', category: 'Packaging' },
   { value: 'pallet', label: 'Pallet', category: 'Packaging' },
   { value: 'carton', label: 'Carton', category: 'Packaging' },
-  
+  { value: 'jar', label: 'Jar', category: 'Packaging' },
+  { value: 'sheet', label: 'Sheet', category: 'Packaging' },
+  { value: 'strip', label: 'Strip', category: 'Packaging' },
+
   // Transport / Load
   { value: 'load', label: 'Load', category: 'Transport' },
   { value: 'trip', label: 'Trip', category: 'Transport' },
   { value: 'truck', label: 'Truck Load', category: 'Transport' },
-  
+  { value: 'tractor', label: 'Tractor Load', category: 'Transport' },
+  { value: 'lorry', label: 'Lorry Load', category: 'Transport' },
+  { value: 'dumper', label: 'Dumper Load', category: 'Transport' },
+
   // Construction Specific
-  { value: 'brass', label: 'Brass (100 CFT)', category: 'Construction' },
-  { value: 'unit', label: 'Unit', category: 'Construction' },
+  { value: 'brass', label: 'Brass (100 CFT Sand/Agg)', category: 'Construction' },
   { value: 'point', label: 'Point (Electrical)', category: 'Construction' },
   { value: 'joint', label: 'Joint', category: 'Construction' },
-  { value: 'coat', label: 'Coat (Paint)', category: 'Construction' },
+  { value: 'coat', label: 'Coat (Paint Layer)', category: 'Construction' },
   { value: 'layer', label: 'Layer', category: 'Construction' },
-  
+  { value: 'brick', label: 'Brick (1000 Nos)', category: 'Construction' },
+  { value: 'tile', label: 'Tile', category: 'Construction' },
+  { value: 'block', label: 'Block (AAC/Concrete)', category: 'Construction' },
+  { value: 'slab', label: 'Slab', category: 'Construction' },
+  { value: 'panel', label: 'Panel', category: 'Construction' },
+  { value: 'window', label: 'Window', category: 'Construction' },
+  { value: 'door', label: 'Door', category: 'Construction' },
+  { value: 'riser', label: 'Riser (Stair)', category: 'Construction' },
+  { value: 'tread', label: 'Tread (Stair)', category: 'Construction' },
+  { value: 'floor', label: 'Floor (Level)', category: 'Construction' },
+  { value: 'room', label: 'Room', category: 'Construction' },
+
+  // Electrical & Plumbing
+  { value: 'mtr_cable', label: 'Mtr (Cable)', category: 'Electrical' },
+  { value: 'switch', label: 'Switch Point', category: 'Electrical' },
+  { value: 'socket', label: 'Socket / Plug Point', category: 'Electrical' },
+  { value: 'fan_point', label: 'Fan Point', category: 'Electrical' },
+  { value: 'light_point', label: 'Light Point', category: 'Electrical' },
+  { value: 'db', label: 'DB (Distribution Board)', category: 'Electrical' },
+  { value: 'plumb_point', label: 'Plumbing Point', category: 'Plumbing' },
+  { value: 'fitting', label: 'Fitting', category: 'Plumbing' },
+
   // Labour / Work
-  { value: 'lumpsum', label: 'Lump Sum', category: 'Work' },
+  { value: 'lumpsum', label: 'Lump Sum (LS)', category: 'Work' },
   { value: 'day', label: 'Day', category: 'Work' },
-  { value: 'hour', label: 'Hour', category: 'Work' },
-  { value: 'shift', label: 'Shift', category: 'Work' },
+  { value: 'hour', label: 'Hour (Hr)', category: 'Work' },
+  { value: 'shift', label: 'Shift (8 Hr)', category: 'Work' },
   { value: 'month', label: 'Month', category: 'Work' },
+  { value: 'week', label: 'Week', category: 'Work' },
   { value: 'job', label: 'Job', category: 'Work' },
-  { value: 'each', label: 'Each', category: 'Work' },
+  { value: 'visit', label: 'Visit', category: 'Work' },
+  { value: 'mandays', label: 'Man Days', category: 'Work' },
+  { value: 'manhours', label: 'Man Hours', category: 'Work' },
+  { value: 'contract', label: 'Contract', category: 'Work' },
+
+  // Percentage / Misc
+  { value: 'percent', label: 'Percent (%)', category: 'Misc' },
+  { value: 'ratio', label: 'Ratio', category: 'Misc' },
 ];
 
 // Get display label for a unit value
@@ -174,6 +226,8 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
           style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width, pointerEvents: 'auto' }}
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
           {/* Search input */}
           <div className="p-2 border-b">
@@ -182,9 +236,16 @@ export function UnitSelect({ value, onChange, placeholder = 'Select unit', class
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Escape') { setOpen(false); }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onFocus={(e) => e.stopPropagation()}
               placeholder="Search units..."
               className="w-full px-2 py-1.5 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring"
               data-testid="unit-search-input"
+              autoComplete="off"
             />
           </div>
 
