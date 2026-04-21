@@ -107,6 +107,12 @@ export default function CRMSales() {
   const [quickFollowupDialog, setQuickFollowupDialog] = useState(false);
   const [quickFollowupLeadId, setQuickFollowupLeadId] = useState(null);
   const [quickFollowupForm, setQuickFollowupForm] = useState({ date: '', time: '', remarks: '' });
+
+  // RE-Client stage actions (Approved / Revision)
+  const [reClientDialog, setReClientDialog] = useState(false);
+  const [reClientAction, setReClientAction] = useState(null); // 'approved' | 'revision'
+  const [reClientLead, setReClientLead] = useState(null);
+  const [reClientRevisionReason, setReClientRevisionReason] = useState('');
   
   // CRE-style Convert Deal Dialog (triggered on drag to "Project Onboarded")
   const [convertDealDialog, setConvertDealDialog] = useState(false);
@@ -533,6 +539,40 @@ export default function CRMSales() {
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
+    }
+  };
+
+  // ----- RE-Client stage actions -----
+  const openReClientAction = (lead, action) => {
+    setReClientLead(lead);
+    setReClientAction(action);
+    setReClientRevisionReason('');
+    setReClientDialog(true);
+  };
+
+  const handleReClientAction = async () => {
+    if (!reClientLead || !reClientAction) return;
+    try {
+      if (reClientAction === 'approved') {
+        await axios.post(`${API}/crm/leads/${reClientLead.lead_id}/re-client-approve`);
+        toast.success('Client approved RE! Lead moved to Negotiation.');
+      } else if (reClientAction === 'revision') {
+        if (!reClientRevisionReason.trim()) {
+          toast.error('Please enter a revision reason');
+          return;
+        }
+        const res = await axios.post(`${API}/crm/leads/${reClientLead.lead_id}/re-client-revision`, {
+          reason: reClientRevisionReason.trim(),
+        });
+        toast.success(res.data.message || 'Revision created. Lead back to RE-Request.');
+      }
+      setReClientDialog(false);
+      setReClientLead(null);
+      setReClientAction(null);
+      setReClientRevisionReason('');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Action failed');
     }
   };
 
@@ -1232,6 +1272,29 @@ export default function CRMSales() {
                                   <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
                                 </Button>
                               )}
+                            </>
+                          )}
+                          {/* RE-Client stage action buttons */}
+                          {lead.current_stage_id === 'stg_re_to_client' && (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-1.5 text-[10px] text-green-700 border-green-400 hover:bg-green-50 font-medium"
+                                data-testid={`re-client-approve-btn-${lead.lead_id}`}
+                                onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'approved'); }}
+                              >
+                                <CheckCircle className="h-3 w-3 mr-0.5" /> Approved
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-1.5 text-[10px] text-orange-700 border-orange-400 hover:bg-orange-50 font-medium"
+                                data-testid={`re-client-revision-btn-${lead.lead_id}`}
+                                onClick={(e) => { e.stopPropagation(); openReClientAction(lead, 'revision'); }}
+                              >
+                                <RefreshCw className="h-3 w-3 mr-0.5" /> Revision
+                              </Button>
                             </>
                           )}
                           {/* Onboarding status indicators */}
@@ -2677,6 +2740,91 @@ export default function CRMSales() {
             <Button onClick={handleQuickFollowup} disabled={!quickFollowupForm.date} className="bg-amber-600 hover:bg-amber-700" data-testid="quick-followup-submit">
               <Calendar className="h-4 w-4 mr-2" /> Schedule
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
+      {/* RE-Client Stage Action Dialog */}
+      <Dialog open={reClientDialog} onOpenChange={setReClientDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            {reClientAction === 'approved' ? (
+              <>
+                <DialogTitle className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-5 w-5" /> Client Approved RE
+                </DialogTitle>
+                <DialogDescription>
+                  Confirm that the client has approved the current RE. The lead will be moved to <strong>Negotiation</strong> stage.
+                </DialogDescription>
+              </>
+            ) : (
+              <>
+                <DialogTitle className="flex items-center gap-2 text-orange-700">
+                  <RefreshCw className="h-5 w-5" /> Request Revision
+                </DialogTitle>
+                <DialogDescription>
+                  A new RE revision will be created (next in sequence) with the current data copied over. Lead will go back to <strong>RE-Request</strong> for Planning to edit.
+                </DialogDescription>
+              </>
+            )}
+          </DialogHeader>
+
+          {reClientLead && (
+            <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1 border">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Client:</span>
+                <span className="font-semibold">{reClientLead.client_name}</span>
+              </div>
+              {reClientLead.project_name && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Project:</span>
+                  <span className="font-medium">{reClientLead.project_name}</span>
+                </div>
+              )}
+              {reClientLead.phone && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Phone:</span>
+                  <span>{reClientLead.phone}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {reClientAction === 'revision' && (
+            <div>
+              <Label className="text-sm font-medium">Revision Reason / Client Feedback *</Label>
+              <Textarea
+                value={reClientRevisionReason}
+                onChange={(e) => setReClientRevisionReason(e.target.value)}
+                placeholder="What changes does the client want? (e.g., reduce cost, change materials, add scope...)"
+                className="mt-1 min-h-[80px]"
+                data-testid="re-revision-reason-input"
+              />
+              <p className="text-xs text-gray-500 mt-1">This will be visible to Planning and attached to the new revision.</p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReClientDialog(false)}>Cancel</Button>
+            {reClientAction === 'approved' ? (
+              <Button
+                onClick={handleReClientAction}
+                className="bg-green-600 hover:bg-green-700"
+                data-testid="confirm-re-approve-btn"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" /> Confirm Approved
+              </Button>
+            ) : (
+              <Button
+                onClick={handleReClientAction}
+                disabled={!reClientRevisionReason.trim()}
+                className="bg-orange-600 hover:bg-orange-700"
+                data-testid="confirm-re-revision-btn"
+              >
+                <RefreshCw className="h-4 w-4 mr-2" /> Create Revision
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

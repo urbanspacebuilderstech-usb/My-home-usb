@@ -2882,6 +2882,140 @@ async def request_re_revision(re_project_id: str, data: RevisionRequest = Revisi
     return {"message": "Revision requested. Planning team has been notified."}
 
 
+# ========== Sales-side RE-Client actions ==========
+class SalesRevisionReq(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/crm/leads/{lead_id}/re-client-approve")
+async def re_client_approve(lead_id: str, user: User = Depends(get_current_user)):
+    """Sales marks the RE-Client stage as APPROVED → moves lead to Negotiation and marks RE client-approved."""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    user_name = (user_doc or {}).get("name", "Unknown")
+    re_project_id = lead.get("re_project_id")
+    if re_project_id:
+        await db.re_projects.update_one(
+            {"re_project_id": re_project_id},
+            {"$set": {
+                "status": "client_approved",
+                "client_approved_by": user_name,
+                "client_approved_at": now,
+                "updated_at": now
+            }}
+        )
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": "stg_negotiation",
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "moved_by_name": user_name,
+        "action": "client_approved_re"
+    })
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {"current_stage_id": "stg_negotiation", "stage_history": stage_history, "updated_at": now}}
+    )
+    return {"message": "Client approved RE. Lead moved to Negotiation."}
+
+
+@router.post("/crm/leads/{lead_id}/re-client-revision")
+async def re_client_revision(lead_id: str, data: SalesRevisionReq = SalesRevisionReq(), user: User = Depends(get_current_user)):
+    """Sales requests REVISION from RE-Client → creates next revision (RE1..) and moves lead back to RE-Request."""
+    if user.role not in [UserRole.SUPER_ADMIN, "sales", "cre"]:
+        raise HTTPException(status_code=403, detail="Sales access required")
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    re_project_id = lead.get("re_project_id")
+    if not re_project_id:
+        raise HTTPException(status_code=400, detail="No RE project linked to this lead")
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+    now = datetime.now(timezone.utc)
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+    user_name = (user_doc or {}).get("name", "Unknown")
+    # Flag revision on current
+    await db.re_projects.update_one(
+        {"re_project_id": re_project_id},
+        {"$set": {
+            "revision_requested": True,
+            "revision_requested_by": user_name,
+            "revision_requested_at": now,
+            "revision_reason": data.reason or "",
+            "updated_at": now,
+        }}
+    )
+    parent_re_number = project.get("parent_re_number") or project.get("re_number")
+    highest = await db.re_projects.find({"parent_re_number": parent_re_number}).sort("revision", -1).limit(1).to_list(1)
+    next_revision = (highest[0]["revision"] + 1) if highest else 1
+    new_re = REProject(
+        lead_id=project["lead_id"],
+        client_name=project["client_name"],
+        client_email=project.get("client_email"),
+        client_phone=project.get("client_phone"),
+        project_name=project.get("project_name"),
+        location=project.get("location"),
+        sqft=project.get("sqft"),
+        building_type=project.get("building_type"),
+        handover_months=project.get("handover_months"),
+        rough_scope_items=project.get("rough_scope_items", []),
+        estimated_total=project.get("estimated_total", 0),
+        planning_notes=project.get("planning_notes", ""),
+        status=REProjectStatus.RE_IN_PROGRESS,
+        created_by=user.user_id,
+        re_number=project.get("re_number"),
+        revision=next_revision,
+        parent_re_number=parent_re_number,
+    )
+    new_dict = new_re.model_dump()
+    new_dict["previous_client_feedback"] = project.get("client_feedback_notes", "")
+    new_dict["revision_reason"] = data.reason or ""
+    new_dict["duplicated_from_re_project_id"] = re_project_id
+    await db.re_projects.insert_one(new_dict)
+    stage_history = lead.get("stage_history", [])
+    stage_history.append({
+        "stage_id": "stg_re_requested",
+        "from_stage_id": lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": user.user_id,
+        "moved_by_name": user_name,
+        "action": f"revision_requested_re{next_revision}",
+        "remark": data.reason or ""
+    })
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "current_stage_id": "stg_re_requested",
+            "stage_history": stage_history,
+            "re_project_id": new_re.re_project_id,
+            "updated_at": now
+        }}
+    )
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_planning",
+        "title": f"Revision Requested — RE{next_revision}",
+        "message": f"Sales requested RE{next_revision} for '{project.get('project_name', project['client_name'])}'. Reason: {data.reason or 'None'}",
+        "type": "re_revision_requested",
+        "reference_id": new_re.re_project_id,
+        "is_read": False,
+        "created_at": now
+    })
+    return {
+        "message": f"Revision RE{next_revision} created; lead moved back to RE-Request",
+        "re_project_id": new_re.re_project_id,
+        "revision": next_revision
+    }
+
+
 @router.post("/crm/re-projects/{re_project_id}/create-revision")
 async def create_re_revision(re_project_id: str, user: User = Depends(get_current_user)):
     """Planning creates a new revision (RE1, RE2...) by duplicating the current RE"""
