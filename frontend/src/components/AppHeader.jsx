@@ -61,10 +61,7 @@ const ROLE_NAV = {
   pre_sales: [
     { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
   ],
-  sales: [
-    { label: 'Sales CRM', path: '/crm-sales' },
-    { label: 'RE Projects', path: '/crm/re-projects' },
-  ],
+  sales: [],
   site_engineer: [
     { label: 'Dashboard', path: '/site-engineer' },
     { label: 'Material Receipt', path: '/site-engineer/material-receipt' },

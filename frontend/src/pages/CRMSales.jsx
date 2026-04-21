@@ -1029,6 +1029,16 @@ export default function CRMSales() {
           )}
           <div className="flex items-center border rounded-lg overflow-hidden bg-white ml-auto">
             <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => window.location.href = '/crm/re-projects'}
+              className="rounded-none px-3 border-r"
+              data-testid="re-projects-btn"
+            >
+              <FileText className="h-4 w-4 mr-1" />
+              <span className="text-xs">RE Projects</span>
+            </Button>
+            <Button
               variant={viewMode === 'kanban' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => setViewMode('kanban')}
