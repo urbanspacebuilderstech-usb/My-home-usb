@@ -139,6 +139,7 @@ export default function CRMSales() {
   const [followupDialog, setFollowupDialog] = useState(false);
   const [followupLeadId, setFollowupLeadId] = useState(null);
   const [followupDate, setFollowupDate] = useState('');
+  const [followupTime, setFollowupTime] = useState('');
   const [followupNote, setFollowupNote] = useState('');
   const [followupPendingStageId, setFollowupPendingStageId] = useState(null);
   
@@ -230,6 +231,7 @@ export default function CRMSales() {
         setFollowupLeadId(leadId);
         setFollowupPendingStageId(newStageId);
         setFollowupDate(new Date().toISOString().split('T')[0]);
+        setFollowupTime('');
         setFollowupNote('');
         setFollowupDialog(true);
         return;
@@ -489,6 +491,7 @@ export default function CRMSales() {
     try {
       await axios.post(`${API}/crm/leads/${followupLeadId}/follow-ups`, {
         scheduled_date: followupDate,
+        scheduled_time: followupTime || null,
         note: followupNote || 'Follow-up scheduled'
       });
       
@@ -503,8 +506,30 @@ export default function CRMSales() {
       setFollowupDialog(false);
       setFollowupLeadId(null);
       setFollowupDate('');
+      setFollowupTime('');
       setFollowupNote('');
       setFollowupPendingStageId(null);
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
+    }
+  };
+
+  const handleQuickFollowup = async () => {
+    if (!quickFollowupLeadId || !quickFollowupForm.date) {
+      toast.error('Please select a date');
+      return;
+    }
+    try {
+      await axios.post(`${API}/crm/leads/${quickFollowupLeadId}/follow-ups`, {
+        scheduled_date: quickFollowupForm.date,
+        scheduled_time: quickFollowupForm.time || null,
+        note: quickFollowupForm.remarks || 'Follow-up scheduled'
+      });
+      toast.success('Follow-up scheduled');
+      setQuickFollowupDialog(false);
+      setQuickFollowupLeadId(null);
+      setQuickFollowupForm({ date: '', time: '', remarks: '' });
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to schedule follow-up');
@@ -1169,6 +1194,53 @@ export default function CRMSales() {
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
+                          {/* Follow-up Record / New buttons */}
+                          {lead.current_stage_id === 'stg_sales_followup' && (
+                            <>
+                              {(lead.follow_ups || []).some(f => !f.completed) ? (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-1.5 text-[10px] text-green-600 border-green-300 hover:bg-green-50"
+                                    data-testid={`record-followup-btn-${lead.lead_id}`}
+                                    onClick={(e) => { e.stopPropagation(); openLeadDetail(lead); }}
+                                  >
+                                    Record
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                                    data-testid={`new-followup-btn-${lead.lead_id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setQuickFollowupLeadId(lead.lead_id);
+                                      setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                      setQuickFollowupDialog(true);
+                                    }}
+                                  >
+                                    New
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-1.5 text-[10px] text-amber-600 border-amber-300 hover:bg-amber-50"
+                                  data-testid={`followup-btn-${lead.lead_id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setQuickFollowupLeadId(lead.lead_id);
+                                    setQuickFollowupForm({ date: '', time: '', remarks: '' });
+                                    setQuickFollowupDialog(true);
+                                  }}
+                                >
+                                  <Calendar className="h-3 w-3 mr-0.5" /> Follow-up
+                                </Button>
+                              )}
+                            </>
+                          )}
                           {/* Onboarding status indicators */}
                           {lead.current_stage_id === 'stg_accountant_approval' && (
                             <Badge className="bg-amber-100 text-amber-700 text-[10px]">Awaiting Accountant</Badge>
@@ -2558,16 +2630,20 @@ export default function CRMSales() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-600"><Calendar className="h-5 w-5" />Schedule Follow-up</DialogTitle>
             {followupPendingStageId && (
-              <DialogDescription>Set a follow-up date before moving the lead</DialogDescription>
+              <DialogDescription>Set follow-up date and time before moving to Follow-up stage</DialogDescription>
             )}
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <Label>Follow-up Date *</Label>
+              <Label className="text-sm font-medium">Follow-up Date *</Label>
               <Input type="date" value={followupDate} onChange={(e) => setFollowupDate(e.target.value)} className="mt-1" min={new Date().toISOString().split('T')[0]} data-testid="followup-date-input" />
             </div>
             <div>
-              <Label>Note</Label>
+              <Label className="text-sm font-medium">Time</Label>
+              <Input type="time" value={followupTime} onChange={(e) => setFollowupTime(e.target.value)} className="mt-1" data-testid="followup-time-input" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Remarks</Label>
               <Input placeholder="Reason for follow-up..." value={followupNote} onChange={(e) => setFollowupNote(e.target.value)} className="mt-1" data-testid="followup-note-input" />
             </div>
           </div>
@@ -2575,6 +2651,38 @@ export default function CRMSales() {
             <Button variant="outline" onClick={() => setFollowupDialog(false)}>Cancel</Button>
             <Button onClick={handleScheduleFollowup} disabled={!followupDate} className="bg-amber-600 hover:bg-amber-700" data-testid="confirm-followup-btn">
               <Calendar className="h-4 w-4 mr-2" />Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Follow-up Dialog (used by Record/New buttons on Follow-up stage leads) */}
+      <Dialog open={quickFollowupDialog} onOpenChange={setQuickFollowupDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-amber-600" /> Schedule Follow-up
+            </DialogTitle>
+            <DialogDescription>Set date, time and remarks for next follow-up</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-sm font-medium">Follow-up Date *</Label>
+              <Input type="date" value={quickFollowupForm.date} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, date: e.target.value})} className="mt-1" data-testid="quick-followup-date" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Time</Label>
+              <Input type="time" value={quickFollowupForm.time} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, time: e.target.value})} className="mt-1" data-testid="quick-followup-time" />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Remarks</Label>
+              <Input value={quickFollowupForm.remarks} onChange={(e) => setQuickFollowupForm({...quickFollowupForm, remarks: e.target.value})} placeholder="Notes about this follow-up..." className="mt-1" data-testid="quick-followup-remarks" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQuickFollowupDialog(false)}>Cancel</Button>
+            <Button onClick={handleQuickFollowup} disabled={!quickFollowupForm.date} className="bg-amber-600 hover:bg-amber-700" data-testid="quick-followup-submit">
+              <Calendar className="h-4 w-4 mr-2" /> Schedule
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1163,6 +1163,7 @@ class LeadRemarkInput(BaseModel):
 
 class LeadFollowUpInput(BaseModel):
     scheduled_date: str
+    scheduled_time: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -1923,6 +1924,7 @@ async def schedule_follow_up(lead_id: str, data: LeadFollowUpInput, user: User =
     follow_up = {
         "follow_up_id": f"fu_{uuid.uuid4().hex[:8]}",
         "scheduled_date": data.scheduled_date,
+        "scheduled_time": data.scheduled_time,
         "note": data.note,
         "completed": False,
         "completed_at": None,
