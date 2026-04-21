@@ -526,21 +526,19 @@ export default function CRMPreSales() {
       if (!hasToday) return false;
     }
     
-    // Date filter — matches against: created_at, stage_history dates, follow-up dates
+    // Date filter — matches ONLY against follow-up dates
     let matchesDate = true;
     if (dateFilter) {
-      const leadDate = lead.created_at ? lead.created_at.split('T')[0] : '';
-      const followupDates = (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date);
+      const followupDates = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
       const nextFollowup = lead.next_followup_date || '';
-      // Stage history dates (timeline)
-      const timelineDates = (lead.stage_history || []).map(h => h.moved_at ? h.moved_at.split('T')[0] : '').filter(Boolean);
-      const allDates = [leadDate, nextFollowup, ...followupDates, ...timelineDates];
+      const allFollowupDates = [...followupDates, nextFollowup].filter(Boolean);
       
-      if (dateFilterEnd) {
-        const inRange = (d) => d >= dateFilter && d <= dateFilterEnd;
-        matchesDate = allDates.some(d => inRange(d));
+      if (allFollowupDates.length === 0) {
+        matchesDate = false;
+      } else if (dateFilterEnd) {
+        matchesDate = allFollowupDates.some(d => d >= dateFilter && d <= dateFilterEnd);
       } else {
-        matchesDate = allDates.includes(dateFilter);
+        matchesDate = allFollowupDates.includes(dateFilter);
       }
     }
     
@@ -634,7 +632,7 @@ export default function CRMPreSales() {
           {/* Date Filter */}
           <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
             <Calendar className="h-4 w-4 text-amber-600" />
-            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Date:</span>
+            <span className="text-xs text-amber-700 font-medium whitespace-nowrap">Follow-up:</span>
             <Input
               type="date"
               value={dateFilter}
