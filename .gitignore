@@ -1120,3 +1120,4 @@ credentials.json
 *.pem
 *.key
 .credentials
+frontend/node_modules/.cache/default-development/214.pack
