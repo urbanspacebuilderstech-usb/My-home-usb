@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { DayPicker } from 'react-day-picker';
-import { CashbookDateFilter } from '../components/CashbookDateFilter';
+import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -1875,6 +1875,13 @@ function ChequeManagementTab({ projects }) {
   const [selectedCheque, setSelectedCheque] = useState(null);
   const [suspenseAlert, setSuspenseAlert] = useState(null);
 
+  // Default to current month/year
+  const _cTody = new Date();
+  const _cStart = `${_cTody.getFullYear()}-${String(_cTody.getMonth() + 1).padStart(2, '0')}-01`;
+  const _cEnd = (() => { const d = new Date(_cTody.getFullYear(), _cTody.getMonth() + 1, 0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [chqDateFrom, setChqDateFrom] = useState(_cStart);
+  const [chqDateTo, setChqDateTo] = useState(_cEnd);
+
   const [chequeForm, setChequeForm] = useState({
     cheque_number: '', bank_name: '', branch_name: '', account_number: '',
     ifsc_code: '', amount: '', cheque_date: '', cheque_type: 'incoming',
@@ -1983,6 +1990,17 @@ function ChequeManagementTab({ projects }) {
       c.cheque_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.party_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.bank_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    // Date range filter (by cheque_date)
+    let withinDate = true;
+    if (chqDateFrom || chqDateTo) {
+      const d = c.cheque_date ? new Date(c.cheque_date).toISOString().slice(0, 10) : '';
+      if (!d) withinDate = false;
+      else {
+        if (chqDateFrom && d < chqDateFrom) withinDate = false;
+        if (chqDateTo && d > chqDateTo) withinDate = false;
+      }
+    }
+    if (!withinDate) return false;
     if (activeTab === 'all') return matchesSearch;
     if (activeTab === 'incoming') return matchesSearch && c.cheque_type === 'incoming';
     if (activeTab === 'outgoing') return matchesSearch && c.cheque_type === 'outgoing';
@@ -1991,17 +2009,43 @@ function ChequeManagementTab({ projects }) {
     return matchesSearch;
   });
 
+  // Stats respect the date range (but ignore activeTab + searchTerm so cards can still navigate)
+  const chequesInRange = cheques.filter(c => {
+    if (!chqDateFrom && !chqDateTo) return true;
+    const d = c.cheque_date ? new Date(c.cheque_date).toISOString().slice(0, 10) : '';
+    if (!d) return false;
+    if (chqDateFrom && d < chqDateFrom) return false;
+    if (chqDateTo && d > chqDateTo) return false;
+    return true;
+  });
+
   const stats = {
-    total: cheques.length, incoming: cheques.filter(c => c.cheque_type === 'incoming').length,
-    outgoing: cheques.filter(c => c.cheque_type === 'outgoing').length,
-    pending: cheques.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).length,
-    bounced: cheques.filter(c => c.status === 'bounced').length,
-    cleared: cheques.filter(c => c.status === 'cleared').length,
+    total: chequesInRange.length, incoming: chequesInRange.filter(c => c.cheque_type === 'incoming').length,
+    outgoing: chequesInRange.filter(c => c.cheque_type === 'outgoing').length,
+    pending: chequesInRange.filter(c => ['issued', 'deposited', 'post_dated'].includes(c.status)).length,
+    bounced: chequesInRange.filter(c => c.status === 'bounced').length,
+    cleared: chequesInRange.filter(c => c.status === 'cleared').length,
   };
-  const unclearedOutgoing = cheques.filter(c => c.cheque_type === 'outgoing' && ['issued', 'post_dated'].includes(c.status));
+  const unclearedOutgoing = chequesInRange.filter(c => c.cheque_type === 'outgoing' && ['issued', 'post_dated'].includes(c.status));
 
   return (
     <div className="space-y-4" data-testid="cheque-management-tab">
+      {/* Unified Date / Month / Year Filter */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CashbookDateFilter
+              dateFrom={chqDateFrom}
+              dateTo={chqDateTo}
+              setDateFrom={setChqDateFrom}
+              setDateTo={setChqDateTo}
+              testIdPrefix="cheque"
+              accent="amber"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {reminders.length > 0 && (
         <Card className="bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200" data-testid="cheque-reminders">
           <CardContent className="p-3">
@@ -2519,7 +2563,24 @@ function ApprovalsTab() {
   };
 
   const s = data.summary || {};
-  const totalPending = (s.income_count || 0) + (s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0);
+  // Apply unified date filter to data arrays (client-side, using created_at)
+  const filteredIncome = filterByDateRange(data.income || [], appDateFrom, appDateTo, r => r.created_at);
+  const filteredMaterials = filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at);
+  const filteredLabour = filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at);
+  const filteredVendor = filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at);
+  const fSummary = {
+    income_count: filteredIncome.length,
+    income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
+    material_count: filteredMaterials.length,
+    material_total: filteredMaterials.reduce((sum, x) => sum + (x.estimated_cost || x.final_amount || 0), 0),
+    labour_count: filteredLabour.length,
+    labour_total: filteredLabour.reduce((sum, x) => sum + (x.total_amount || 0), 0),
+    vendor_count: filteredVendor.length,
+    vendor_total: filteredVendor.reduce((sum, x) => sum + (x.amount || 0), 0),
+  };
+  const totalPending = fSummary.income_count + fSummary.material_count + fSummary.labour_count + fSummary.vendor_count;
+  // Keep s in scope for any downstream usage (e.g., non-filtered pieces)
+  void s;
 
   if (loading && !data.summary) {
     return (
@@ -2531,6 +2592,22 @@ function ApprovalsTab() {
 
   return (
     <div className="space-y-4" data-testid="approvals-tab">
+      {/* Unified Date / Month / Year Filter */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CashbookDateFilter
+              dateFrom={appDateFrom}
+              dateTo={appDateTo}
+              setDateFrom={setAppDateFrom}
+              setDateTo={setAppDateTo}
+              testIdPrefix="approvals"
+              accent="amber"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-purple-500" onClick={() => {}} data-testid="approvals-total-card">
@@ -2548,8 +2625,8 @@ function ApprovalsTab() {
               <DollarSign className="h-3.5 w-3.5 text-green-500" />
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Income</span>
             </div>
-            <p className="text-lg sm:text-xl font-bold text-green-700">{s.income_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-green-600 font-medium"><MaskedValue value={s.income_total} className="text-green-600 text-[10px] sm:text-xs" /></p>
+            <p className="text-lg sm:text-xl font-bold text-green-700">{fSummary.income_count}</p>
+            <p className="text-[10px] sm:text-xs text-green-600 font-medium"><MaskedValue value={fSummary.income_total} className="text-green-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-amber-500" onClick={() => setActiveTab('materials')} data-testid="approvals-material-card">
@@ -2558,8 +2635,8 @@ function ApprovalsTab() {
               <Building2 className="h-3.5 w-3.5 text-amber-500" />
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Materials</span>
             </div>
-            <p className="text-lg sm:text-xl font-bold text-amber-700">{s.material_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-amber-600 font-medium"><MaskedValue value={s.material_total} className="text-amber-600 text-[10px] sm:text-xs" /></p>
+            <p className="text-lg sm:text-xl font-bold text-amber-700">{fSummary.material_count}</p>
+            <p className="text-[10px] sm:text-xs text-amber-600 font-medium"><MaskedValue value={fSummary.material_total} className="text-amber-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-blue-500" onClick={() => setActiveTab('labour')} data-testid="approvals-labour-card">
@@ -2568,8 +2645,8 @@ function ApprovalsTab() {
               <Wallet className="h-3.5 w-3.5 text-blue-500" />
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Labour</span>
             </div>
-            <p className="text-lg sm:text-xl font-bold text-blue-700">{s.labour_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-blue-600 font-medium"><MaskedValue value={s.labour_total} className="text-blue-600 text-[10px] sm:text-xs" /></p>
+            <p className="text-lg sm:text-xl font-bold text-blue-700">{fSummary.labour_count}</p>
+            <p className="text-[10px] sm:text-xs text-blue-600 font-medium"><MaskedValue value={fSummary.labour_total} className="text-blue-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-md transition-shadow border-l-4 border-l-orange-500" onClick={() => setActiveTab('vendor')} data-testid="approvals-vendor-card">
@@ -2578,8 +2655,8 @@ function ApprovalsTab() {
               <CreditCard className="h-3.5 w-3.5 text-orange-500" />
               <span className="text-[10px] sm:text-xs font-semibold text-gray-500">Suppliers</span>
             </div>
-            <p className="text-lg sm:text-xl font-bold text-orange-700">{s.vendor_count || 0}</p>
-            <p className="text-[10px] sm:text-xs text-orange-600 font-medium"><MaskedValue value={s.vendor_total} className="text-orange-600 text-[10px] sm:text-xs" /></p>
+            <p className="text-lg sm:text-xl font-bold text-orange-700">{fSummary.vendor_count}</p>
+            <p className="text-[10px] sm:text-xs text-orange-600 font-medium"><MaskedValue value={fSummary.vendor_total} className="text-orange-600 text-[10px] sm:text-xs" /></p>
           </CardContent>
         </Card>
       </div>
@@ -2588,10 +2665,10 @@ function ApprovalsTab() {
       <Tabs value={['materials','labour','vendor'].includes(activeTab) ? 'expense' : 'income'} onValueChange={(v) => setActiveTab(v === 'income' ? 'income' : 'materials')}>
         <TabsList className="w-full grid grid-cols-2 mb-3" data-testid="approval-main-tabs">
           <TabsTrigger value="income" className="text-xs sm:text-sm data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1" data-testid="approval-income-tab">
-            <ArrowDownRight className="h-3.5 w-3.5" /> Income Approvals ({s.income_count || 0})
+            <ArrowDownRight className="h-3.5 w-3.5" /> Income Approvals ({fSummary.income_count})
           </TabsTrigger>
           <TabsTrigger value="expense" className="text-xs sm:text-sm data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1" data-testid="approval-expense-tab">
-            <ArrowUpRight className="h-3.5 w-3.5" /> Expense Approvals ({(s.material_count || 0) + (s.labour_count || 0) + (s.vendor_count || 0)})
+            <ArrowUpRight className="h-3.5 w-3.5" /> Expense Approvals ({fSummary.material_count + fSummary.labour_count + fSummary.vendor_count})
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -2601,13 +2678,13 @@ function ApprovalsTab() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="w-full grid grid-cols-3 mb-3" data-testid="approval-expense-sub-tabs">
             <TabsTrigger value="materials" className="text-xs sm:text-sm data-[state=active]:bg-amber-100 data-[state=active]:text-amber-800 gap-1">
-              <Building2 className="h-3.5 w-3.5" /> Materials ({s.material_count || 0})
+              <Building2 className="h-3.5 w-3.5" /> Materials ({fSummary.material_count})
             </TabsTrigger>
             <TabsTrigger value="labour" className="text-xs sm:text-sm data-[state=active]:bg-blue-100 data-[state=active]:text-blue-800 gap-1">
-              <Wallet className="h-3.5 w-3.5" /> Labour Work Order ({s.labour_count || 0})
+              <Wallet className="h-3.5 w-3.5" /> Labour Work Order ({fSummary.labour_count})
             </TabsTrigger>
             <TabsTrigger value="vendor" className="text-xs sm:text-sm data-[state=active]:bg-orange-100 data-[state=active]:text-orange-800 gap-1">
-              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({s.vendor_count || 0})
+              <CreditCard className="h-3.5 w-3.5" /> Petty Cash ({fSummary.vendor_count})
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -2624,7 +2701,7 @@ function ApprovalsTab() {
 
         {/* Income Approvals */}
         <TabsContent value="income">
-          {data.income.length === 0 ? (
+          {filteredIncome.length === 0 ? (
             <Card><CardContent className="py-10 text-center text-gray-400">
               <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-300" />No pending income approvals
             </CardContent></Card>
@@ -2646,7 +2723,7 @@ function ApprovalsTab() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.income.map((inc, i) => (
+                      {filteredIncome.map((inc, i) => (
                         <tr key={inc.income_id} className="border-b hover:bg-gray-50" data-testid={`approval-income-row-${inc.income_id}`}>
                           <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{new Date(inc.created_at).toLocaleDateString('en-IN')}</td>
@@ -2682,7 +2759,7 @@ function ApprovalsTab() {
         {/* Material Approvals */}
         <TabsContent value="materials">
           <ApprovalExpenseTable
-            items={data.materials}
+            items={filteredMaterials}
             type="material"
             idField="expense_id"
             amountField="estimated_cost"
@@ -2698,7 +2775,7 @@ function ApprovalsTab() {
         {/* Labour Approvals */}
         <TabsContent value="labour">
           <ApprovalExpenseTable
-            items={data.labour}
+            items={filteredLabour}
             type="labour"
             idField="labour_expense_id"
             amountField="total_amount"
@@ -2713,7 +2790,7 @@ function ApprovalsTab() {
         {/* Vendor/Supplier Approvals */}
         <TabsContent value="vendor">
           <ApprovalExpenseTable
-            items={data.vendor}
+            items={filteredVendor}
             type="vendor-service"
             idField="expense_id"
             amountField="amount"
@@ -2985,11 +3062,80 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
 // ============ PROJECT SUMMARY TAB ============
 function ProjectSummaryTab({ overview }) {
   const navigate = useNavigate();
-  const projects = overview?.project_wise || [];
-  const totals = overview?.totals || {};
+
+  // Default to current month/year
+  const _pToday = new Date();
+  const _pStart = `${_pToday.getFullYear()}-${String(_pToday.getMonth() + 1).padStart(2, '0')}-01`;
+  const _pEnd = (() => { const d = new Date(_pToday.getFullYear(), _pToday.getMonth() + 1, 0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const [projDateFrom, setProjDateFrom] = useState(_pStart);
+  const [projDateTo, setProjDateTo] = useState(_pEnd);
+
+  const [filteredData, setFilteredData] = useState(null);
+  const [fLoading, setFLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchFiltered = async () => {
+      try {
+        setFLoading(true);
+        const params = new URLSearchParams();
+        if (projDateFrom) params.append('start_date', projDateFrom);
+        if (projDateTo) params.append('end_date', projDateTo);
+        const res = await axios.get(`${API}/accountant/cashbook-filtered?${params}`);
+        if (!cancelled) setFilteredData(res.data);
+      } catch {
+        if (!cancelled) setFilteredData(null);
+      } finally {
+        if (!cancelled) setFLoading(false);
+      }
+    };
+    fetchFiltered();
+    return () => { cancelled = true; };
+  }, [projDateFrom, projDateTo]);
+
+  // Compute project-wise breakdown from filtered data, fallback to overview for initial render
+  const projects = (() => {
+    if (!filteredData) return overview?.project_wise || [];
+    const map = {};
+    (filteredData.income_entries || []).forEach(i => {
+      const pid = i.project_id;
+      if (!pid) return;
+      if (!map[pid]) map[pid] = { project_id: pid, project_name: i.project_name || 'Unknown', income: 0, expense: 0 };
+      map[pid].income += i.amount || 0;
+    });
+    (filteredData.expense_entries || []).forEach(e => {
+      const pid = e.project_id;
+      if (!pid) return;
+      if (!map[pid]) map[pid] = { project_id: pid, project_name: e.project_name || 'Unknown', income: 0, expense: 0 };
+      map[pid].expense += e.amount || 0;
+    });
+    Object.values(map).forEach(p => { p.balance = p.income - p.expense; });
+    return Object.values(map).sort((a, b) => b.income - a.income);
+  })();
+
+  const totals = filteredData?.summary
+    ? { total_income: filteredData.summary.total_income, total_expense: filteredData.summary.total_expense, net_balance: filteredData.summary.net_balance }
+    : (overview?.totals || {});
 
   return (
     <div className="space-y-4" data-testid="project-summary-tab">
+      {/* Unified Date / Month / Year Filter */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <CashbookDateFilter
+              dateFrom={projDateFrom}
+              dateTo={projDateTo}
+              setDateFrom={setProjDateFrom}
+              setDateTo={setProjDateTo}
+              testIdPrefix="projsummary"
+              accent="amber"
+            />
+            {fLoading && <RefreshCw className="h-4 w-4 animate-spin text-amber-600" />}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-3 gap-3">
         <Card className="border-l-4 border-l-green-500">
           <CardContent className="p-3">
