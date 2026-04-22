@@ -1211,6 +1211,10 @@ function IndirectExpenseSection({ userRole }) {
 // ============ CASHBOOK TAB ============
 function CashbookTab({ overview, projects, userRole }) {
   const location = useLocation();
+  const expenseOnly = (() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('sub') === 'expense';
+  })();
   const initialSub = (() => {
     const params = new URLSearchParams(location.search);
     const s = params.get('sub');
@@ -1434,6 +1438,8 @@ function CashbookTab({ overview, projects, userRole }) {
 
   return (
     <div className="space-y-4" data-testid="cashbook-tab">
+      {!expenseOnly && (
+      <>
       {/* Financial Overview - Clickable Cards */}
       <Card className="border-l-4 border-l-amber-500">
         <CardHeader className="pb-2 pt-3 px-4">
@@ -1496,6 +1502,8 @@ function CashbookTab({ overview, projects, userRole }) {
           );
         })}
       </div>
+      </>
+      )}
 
       {/* Date / Month / Year Filters — unified */}
       <Card>
@@ -1530,12 +1538,14 @@ function CashbookTab({ overview, projects, userRole }) {
 
       {/* Income / Direct Expense / Indirect Expense Sub-tabs */}
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className="w-full grid grid-cols-3 mb-3">
-          <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="cashbook-income-tab">
-            <ArrowDownRight className="h-4 w-4" /> Income ({incomeEntries.length})
-          </TabsTrigger>
+        <TabsList className={`w-full grid ${expenseOnly ? 'grid-cols-2' : 'grid-cols-3'} mb-3`}>
+          {!expenseOnly && (
+            <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="cashbook-income-tab">
+              <ArrowDownRight className="h-4 w-4" /> Income ({incomeEntries.length})
+            </TabsTrigger>
+          )}
           <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="cashbook-expense-tab">
-            <ArrowUpRight className="h-4 w-4" /> <span className="hidden sm:inline">Direct </span>Expense ({allExpenseEntries.length})
+            <ArrowUpRight className="h-4 w-4" /> Direct{!expenseOnly && <span className="hidden sm:inline"> Expense</span>} ({allExpenseEntries.length})
           </TabsTrigger>
           <TabsTrigger value="indirect" className="data-[state=active]:bg-violet-100 data-[state=active]:text-violet-800 gap-1.5" data-testid="cashbook-indirect-tab">
             <PieChart className="h-4 w-4" /> Indirect
