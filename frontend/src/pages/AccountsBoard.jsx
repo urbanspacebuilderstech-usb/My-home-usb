@@ -21,7 +21,7 @@ import {
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
   AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff,
-  Lock, PieChart, Truck
+  Lock, PieChart, Truck, Check
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -72,6 +72,73 @@ const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
 const MaskContext = React.createContext('accountant');
 // Global unmask context
 const UnmaskContext = React.createContext(false);
+
+// Searchable project selector — replaces plain Select with a wider, search-enabled Popover
+function ProjectSearchSelect({ projects = [], value = '', onChange, placeholder = 'All Projects', testId = 'project-search-select', width = 'w-64' }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const selected = projects.find(p => p.project_id === value);
+  const selectedLabel = selected ? (selected.name || selected.project_name) : placeholder;
+  const filtered = query.trim()
+    ? projects.filter(p => (p.name || p.project_name || '').toLowerCase().includes(query.trim().toLowerCase()))
+    : projects;
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className={`${width} h-9 justify-between text-xs font-normal`}
+          data-testid={testId}
+        >
+          <span className="truncate text-left flex-1">{selectedLabel}</span>
+          <ChevronDown className="h-3.5 w-3.5 opacity-50 ml-2 flex-shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className={`${width} p-0`} align="start">
+        <div className="p-2 border-b">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <Input
+              autoFocus
+              placeholder="Search project..."
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="pl-8 h-8 text-xs"
+              data-testid={`${testId}-input`}
+            />
+          </div>
+        </div>
+        <div className="max-h-64 overflow-auto py-1">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false); setQuery(''); }}
+            className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${!value ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-700'}`}
+            data-testid={`${testId}-all`}
+          >
+            <Check className={`h-3.5 w-3.5 ${!value ? 'opacity-100' : 'opacity-0'}`} />
+            {placeholder}
+          </button>
+          {filtered.length === 0 ? (
+            <p className="px-3 py-3 text-xs text-gray-400 text-center">No projects found</p>
+          ) : filtered.map(p => (
+            <button
+              key={p.project_id}
+              type="button"
+              onClick={() => { onChange(p.project_id); setOpen(false); setQuery(''); }}
+              className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-gray-50 ${value === p.project_id ? 'bg-red-50 text-red-700 font-medium' : 'text-gray-700'}`}
+              data-testid={`${testId}-item-${p.project_id}`}
+            >
+              <Check className={`h-3.5 w-3.5 ${value === p.project_id ? 'opacity-100' : 'opacity-0'}`} />
+              <span className="truncate">{p.name || p.project_name}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 // Masked value component - Super Admin always sees values, Accountant clicks to reveal for 10s
 function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '' }) {
@@ -1521,13 +1588,14 @@ function CashbookTab({ overview, projects, userRole }) {
               testIdPrefix="cashbook"
               accent="amber"
             />
-            <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
-              <SelectTrigger className="w-full sm:w-48 h-9 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Projects</SelectItem>
-                {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <ProjectSearchSelect
+              projects={projectsList}
+              value={filterProject}
+              onChange={setFilterProject}
+              placeholder="All Projects"
+              testId="cashbook-project-filter"
+              width="w-64"
+            />
             <div className="flex items-center gap-2">
               {filterProject && (
                 <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => setFilterProject('')}>
@@ -1573,13 +1641,14 @@ function CashbookTab({ overview, projects, userRole }) {
                   testIdPrefix="exponly"
                   accent="red"
                 />
-                <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
-                  <SelectTrigger className="w-40 h-9 text-xs" data-testid="exponly-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Projects</SelectItem>
-                    {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <ProjectSearchSelect
+                  projects={projectsList}
+                  value={filterProject}
+                  onChange={setFilterProject}
+                  placeholder="All Projects"
+                  testId="exponly-project-filter"
+                  width="w-64"
+                />
                 <Select value={sourceFilter} onValueChange={setSourceFilter}>
                   <SelectTrigger className="w-36 h-9 text-xs" data-testid="exponly-source-filter"><SelectValue placeholder="Source" /></SelectTrigger>
                   <SelectContent>
