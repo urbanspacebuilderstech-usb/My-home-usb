@@ -1400,7 +1400,7 @@ function CashbookTab({ overview, projects, userRole }) {
       @media print{button{display:none}}</style></head><body>
       <h1>My Home USB</h1><p style="text-align:center;color:#666">Payment Receipt</p>
       <div class="amount">${fmtFull(entry.amount)}</div>
-      <div class="row"><span class="label">Date</span><span class="value">${new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN')}</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">${new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleDateString('en-IN')}</span></div>
       <div class="row"><span class="label">Project</span><span class="value">${entry.project_name || 'N/A'}</span></div>
       <div class="row"><span class="label">Mode</span><span class="value">${entry.payment_mode || entry.payment_method || 'Cash'}</span></div>
       <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}<br>My Home USB - Urban Space Builders</div>
@@ -1549,8 +1549,8 @@ function CashbookTab({ overview, projects, userRole }) {
                       <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
                         <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                         <td className="px-3 py-2">
-                          {new Date(entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                          {' '}<span className="text-gray-400">{new Date(entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          {new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          {' '}<span className="text-gray-400">{new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                         </td>
                         <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
                         <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge></td>
@@ -1737,7 +1737,7 @@ function CashbookTab({ overview, projects, userRole }) {
                 {[
                   ['Project', selectedEntry.project_name],
                   ['Description', selectedEntry.stage || selectedEntry.description],
-                  ['Date', new Date(selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
+                  ['Date', new Date(selectedEntry.approved_at || selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
                   ['Mode', selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
                   ['Vendor', selectedEntry.vendor_name],
                 ].filter(([, v]) => v).map(([label, value]) => (
