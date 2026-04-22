@@ -2151,15 +2151,25 @@ async def get_all_stages(stage_type: Optional[str] = None, user: User = Depends(
     query = {"is_active": True}
     if stage_type:
         query["stage_type"] = stage_type
-    
+
+    # Always run idempotent migrations for sales stages (renames/reorders/deactivates legacy ones)
+    # so the frontend reflects the latest 13-stage structure even on existing deployments.
+    if stage_type == "sales":
+        await get_default_sales_stages()
+    elif stage_type == "pre_sales":
+        await get_default_pre_sales_stages()
+    elif stage_type is None:
+        await get_default_pre_sales_stages()
+        await get_default_sales_stages()
+
     stages = await db.lead_stages.find(query, {"_id": 0}).sort("order", 1).to_list(100)
-    
-    # Initialize defaults if empty
+
+    # Fallback safety net
     if not stages or len(stages) == 0:
         await get_default_pre_sales_stages()
         await get_default_sales_stages()
         stages = await db.lead_stages.find(query, {"_id": 0}).sort("order", 1).to_list(100)
-    
+
     return stages
 
 
