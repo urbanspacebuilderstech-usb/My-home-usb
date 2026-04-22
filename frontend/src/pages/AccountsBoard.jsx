@@ -1220,7 +1220,7 @@ function CashbookTab({ overview, projects, userRole }) {
   const [dateFrom, setDateFrom] = useState(_mStart);
   const [dateTo, setDateTo] = useState(_mEnd);
   const [filterProject, setFilterProject] = useState('');
-  const [expenseSubTab, setExpenseSubTab] = useState('all');
+  const [expenseSubTab, setExpenseSubTab] = useState('material');
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
@@ -1279,12 +1279,10 @@ function CashbookTab({ overview, projects, userRole }) {
   ];
 
   const filteredExpenses = allExpenseEntries.filter(e => {
-    if (expenseSubTab === 'all') return true;
     if (expenseSubTab === 'material') return e.expense_type === 'material';
     if (expenseSubTab === 'labour') return e.expense_type === 'labour';
     if (expenseSubTab === 'petty_cash') return e.expense_type === 'petty_cash';
-    if (expenseSubTab === 'other') return !['material', 'labour', 'petty_cash'].includes(e.expense_type);
-    return true;
+    return false;
   });
 
   // Drilldown click handlers
@@ -1582,22 +1580,45 @@ function CashbookTab({ overview, projects, userRole }) {
         </TabsContent>
 
         <TabsContent value="expense">
-          <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3">
-            {['all', 'material', 'labour', 'petty_cash', 'other'].map(tab => (
-              <Button key={tab} size="sm" variant={expenseSubTab === tab ? 'default' : 'outline'}
-                className={`text-[10px] sm:text-xs h-6 sm:h-7 px-2 sm:px-3 ${expenseSubTab === tab ? 'bg-red-600 hover:bg-red-700' : ''}`}
-                onClick={() => setExpenseSubTab(tab)} data-testid={`expense-filter-${tab}`}>
-                {tab === 'all' ? 'All' : tab === 'petty_cash' ? 'Petty Cash' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Button>
-            ))}
-            <div className="ml-auto">
-              <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-6 sm:h-7 text-[10px] sm:text-xs" onClick={() => {
-                if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
-              }} data-testid="add-expense-btn">
-                <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" /> <span className="hidden sm:inline">Add </span>Expense
-              </Button>
-            </div>
-          </div>
+          {(() => {
+            const byCat = {
+              material: allExpenseEntries.filter(e => e.expense_type === 'material'),
+              labour: allExpenseEntries.filter(e => e.expense_type === 'labour'),
+              petty_cash: allExpenseEntries.filter(e => e.expense_type === 'petty_cash'),
+            };
+            const sumAmt = (arr) => arr.reduce((s, e) => s + (e.amount || 0), 0);
+            const tabs = [
+              { key: 'material', label: 'Material', accent: 'bg-blue-600 hover:bg-blue-700', chip: 'bg-blue-50 text-blue-700 border-blue-200', count: byCat.material.length, total: sumAmt(byCat.material) },
+              { key: 'labour', label: 'Labour', accent: 'bg-purple-600 hover:bg-purple-700', chip: 'bg-purple-50 text-purple-700 border-purple-200', count: byCat.labour.length, total: sumAmt(byCat.labour) },
+              { key: 'petty_cash', label: 'Petty Cash', accent: 'bg-amber-600 hover:bg-amber-700', chip: 'bg-amber-50 text-amber-700 border-amber-200', count: byCat.petty_cash.length, total: sumAmt(byCat.petty_cash) },
+            ];
+            return (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {tabs.map(t => (
+                  <Button
+                    key={t.key}
+                    size="sm"
+                    variant={expenseSubTab === t.key ? 'default' : 'outline'}
+                    className={`text-xs h-8 px-3 gap-2 ${expenseSubTab === t.key ? `${t.accent} text-white border-transparent` : ''}`}
+                    onClick={() => setExpenseSubTab(t.key)}
+                    data-testid={`expense-filter-${t.key}`}
+                  >
+                    {t.label}
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${expenseSubTab === t.key ? 'bg-white/20 text-white border-white/30' : t.chip}`}>
+                      {t.count} · <MaskedValue value={t.total} className={expenseSubTab === t.key ? 'text-white' : ''} />
+                    </span>
+                  </Button>
+                ))}
+                <div className="ml-auto">
+                  <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 sm:gap-1.5 h-8 text-xs" onClick={() => {
+                    if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
+                  }} data-testid="add-expense-btn">
+                    <Plus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Add </span>Expense
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
           <Card>
             <CardContent className="px-0">
               <div className="overflow-x-auto">
