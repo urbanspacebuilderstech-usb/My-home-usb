@@ -1210,9 +1210,24 @@ function IndirectExpenseSection({ userRole }) {
 
 // ============ CASHBOOK TAB ============
 function CashbookTab({ overview, projects, userRole }) {
+  const location = useLocation();
+  const initialSub = (() => {
+    const params = new URLSearchParams(location.search);
+    const s = params.get('sub');
+    if (s === 'expense' || s === 'income' || s === 'indirect') return s;
+    return 'income';
+  })();
   const [cashbookData, setCashbookData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [subTab, setSubTab] = useState('income');
+  const [subTab, setSubTab] = useState(initialSub);
+  // Keep subTab in sync with URL (?sub=) — so the "Expense" header link auto-opens Direct Expense
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const s = params.get('sub');
+    if (s === 'expense' || s === 'income' || s === 'indirect') {
+      setSubTab(s);
+    }
+  }, [location.search]);
   // Default to current month/year
   const _today = new Date();
   const _mStart = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}-01`;
