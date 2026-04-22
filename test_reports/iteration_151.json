@@ -1,0 +1,42 @@
+{
+  "summary": "Verification of Accountant → Cashbook → Direct Expense flow. Backend: 5/5 pytest cases pass for /api/accountant/cashbook-filtered and /api/accountant/overview. Frontend: all 3 sub-tabs (Material/Labour/Petty Cash) render with correct data-testids, correct accent colors (blue/purple/amber) when active, and correct live count+total chips. Material is default-active. Table filters correctly per sub-tab. CashbookDateFilter renders ABOVE sub-tabs with Month/Year defaults (Apr/2026 = current), Meta-style popover opens with all 9 presets (Today, Yesterday, This Week, Last 7 Days, This Month, Last Month, Last 30 Days, Last 90 Days, Clear). Changing Month (Apr→Mar) triggers refetch (Material pill changes from '5 · ₹0' to '6 · ₹79,000', back to '5 · ₹0' on Apr). Project filter present above sub-tabs. Add Expense opens inline add row with category/payment/amount/vendor/project fields. Seed data confirmed: 5 material expenses on Swathi 60L G+2 in Apr 2026.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/accountant/cashbook-filtered", "issue": "Approved-material-request expense entries expose 'payment_type' instead of 'payment_method'. UI falls back to 'Cash'. Consider normalising to payment_method in the serialiser for consistency with manually-added expenses."},
+      {"endpoint": "GET /api/accountant/cashbook-filtered", "issue": "The 5 April 2026 material expenses all have amount=0. Not a code bug (stages awaiting priced POs), but end-users may find the chip 'Material 5 · ₹0' confusing. Consider excluding 0-amount entries from the chip total or adding a tooltip."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cashbook_filtered.py",
+    "/app/test_reports/pytest/iter151_results.xml"
+  ],
+  "action_items": [
+    "(Optional/Minor) Normalise expense_entries shape: expose payment_method on approved-material-request entries (currently only payment_type).",
+    "(Optional) Surface a tooltip on pill chip when count>0 but total=0 to clarify amounts are pending."
+  ],
+  "critical_code_review_comments": [
+    "CashbookTab correctly defaults dateFrom/dateTo to current month start/end and useCallback deps are correct ([dateFrom, dateTo, filterProject]).",
+    "filteredExpenses uses strict equality on expense_type === 'material' | 'labour' | 'petty_cash' — matches backend values returned by the endpoint.",
+    "data-testid coverage is excellent on the three sub-tabs, date-picker, month/year selects, project filter, and add-expense button — easy to automate.",
+    "CashbookDateFilter uses correct monthBoundsISO helper; deduceMonthYear correctly reflects current month when ranges align."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cashbook_filtered.py"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (all verification points)"},
+  "test_credentials": "admin@constructionos.com / Demo@1234 (Demo Access > Super Admin tile works; direct email+password login via the form returned 401 in the preview env — Demo Access path used).",
+  "seed_data_creation": "No new data created. Verified existing seed: 5 material expenses on project 'Swathi 60L G+2' in April 2026.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Cashbook Direct Expense flow is fully verified. Backend: session-cookie auth via POST /api/auth/login (no JWT). Use requests.Session() + cookie 'session_token'. Key data-testids: cashbook-date-picker-btn, cashbook-month-select, cashbook-year-select, cashbook-project-filter, cashbook-preset-<name>, expense-filter-material|labour|petty_cash, add-expense-btn, submit-expense-row-btn, cashbook-expense-table. Direct email/password login on the form returns 401 in preview — use Demo Access > Super Admin tile instead.",
+  "observations": [
+    "Frontend login form at /login rejects email/password with 401 for admin@constructionos.com/Demo@1234 even though POST /api/auth/login with same creds returns 200 via curl. The Demo Access flow works. Minor, but E1 may want to verify the login form's request body/endpoint.",
+    "Backend test skipped in first run because login response has no JSON 'token' field (session-cookie auth); fixture updated to use cookie-based auth."
+  ]
+}
