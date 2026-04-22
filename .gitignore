@@ -1054,3 +1054,12 @@ frontend/node_modules/.cache/default-development/197.pack
 frontend/node_modules/.cache/default-development/200.pack
 frontend/node_modules/.cache/default-development/205.pack
 frontend/node_modules/.cache/default-development/207.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
