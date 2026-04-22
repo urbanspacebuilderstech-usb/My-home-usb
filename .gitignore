@@ -1050,3 +1050,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/195.pack
+frontend/node_modules/.cache/default-development/197.pack

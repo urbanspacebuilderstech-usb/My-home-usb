@@ -10,6 +10,8 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { DayPicker } from 'react-day-picker';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -1477,25 +1479,98 @@ function CashbookTab({ overview, projects, userRole }) {
         })}
       </div>
 
-      {/* Date Range Filters */}
+      {/* Date Range Filters — Meta Ads style */}
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-amber-600 shrink-0" />
-              <div className="flex items-center gap-2 flex-1 sm:flex-initial">
-                <Label className="text-xs text-gray-500 whitespace-nowrap">From</Label>
-                <Input type="date" className="h-8 w-full sm:w-40 text-xs" value={dateFrom}
-                  onChange={e => setDateFrom(e.target.value)} data-testid="cashbook-date-from" />
-              </div>
-            </div>
-            <div className="flex items-center gap-2 pl-6 sm:pl-0">
-              <Label className="text-xs text-gray-500 whitespace-nowrap">To</Label>
-              <Input type="date" className="h-8 w-full sm:w-40 text-xs" value={dateTo}
-                onChange={e => setDateTo(e.target.value)} data-testid="cashbook-date-to" />
-            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={`h-9 text-xs gap-1.5 rounded-lg shadow-sm ${(dateFrom || dateTo) ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                  data-testid="cashbook-date-picker-btn"
+                >
+                  <Calendar className="h-3.5 w-3.5" />
+                  {dateFrom ? (
+                    dateTo && dateFrom !== dateTo ? (
+                      `${new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${new Date(dateTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
+                    ) : (
+                      new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                    )
+                  ) : 'Select Date'}
+                  {(dateFrom || dateTo) && (
+                    <X className="h-3 w-3 ml-1 opacity-50 hover:opacity-100" onClick={(e) => { e.stopPropagation(); setDateFrom(''); setDateTo(''); }} />
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
+                <div className="flex">
+                  <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                    {[
+                      { label: 'Today', fn: () => { const d = new Date().toLocaleDateString('en-CA'); setDateFrom(d); setDateTo(d); } },
+                      { label: 'Yesterday', fn: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = d.toLocaleDateString('en-CA'); setDateFrom(s); setDateTo(s); } },
+                      { label: 'This Week', fn: () => { const now = new Date(); const mon = new Date(now); mon.setDate(now.getDate() - now.getDay() + 1); const sun = new Date(mon); sun.setDate(mon.getDate() + 6); setDateFrom(mon.toLocaleDateString('en-CA')); setDateTo(sun.toLocaleDateString('en-CA')); } },
+                      { label: 'Last 7 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 6); setDateFrom(s.toLocaleDateString('en-CA')); setDateTo(e.toLocaleDateString('en-CA')); } },
+                      { label: 'This Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA')); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toLocaleDateString('en-CA')); } },
+                      { label: 'Last Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-CA')); setDateTo(new Date(now.getFullYear(), now.getMonth(), 0).toLocaleDateString('en-CA')); } },
+                      { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 30); setDateFrom(s.toLocaleDateString('en-CA')); setDateTo(e.toLocaleDateString('en-CA')); } },
+                      { label: 'Last 90 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(e.getDate() - 90); setDateFrom(s.toLocaleDateString('en-CA')); setDateTo(e.toLocaleDateString('en-CA')); } },
+                      { label: 'Clear', fn: () => { setDateFrom(''); setDateTo(''); } },
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        onClick={p.fn}
+                        className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'Clear' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-amber-50 hover:text-amber-700'}`}
+                        data-testid={`cashbook-preset-${p.label.toLowerCase().replace(/ /g, '-')}`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="p-3">
+                    <DayPicker
+                      mode="range"
+                      selected={dateFrom ? { from: new Date(dateFrom + 'T00:00:00'), to: dateTo ? new Date(dateTo + 'T00:00:00') : new Date(dateFrom + 'T00:00:00') } : undefined}
+                      onSelect={(range) => {
+                        if (range?.from) {
+                          const from = range.from.toLocaleDateString('en-CA');
+                          const to = range.to ? range.to.toLocaleDateString('en-CA') : from;
+                          setDateFrom(from);
+                          setDateTo(to);
+                        } else {
+                          setDateFrom('');
+                          setDateTo('');
+                        }
+                      }}
+                      numberOfMonths={2}
+                      classNames={{
+                        months: 'flex gap-4',
+                        month: 'space-y-3',
+                        caption: 'flex justify-center relative items-center h-8',
+                        caption_label: 'text-sm font-semibold text-gray-800',
+                        nav: 'flex items-center gap-1',
+                        nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
+                        table: 'w-full border-collapse',
+                        head_row: 'flex',
+                        head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
+                        row: 'flex w-full mt-1',
+                        cell: 'relative p-0 text-center text-sm focus-within:relative',
+                        day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-amber-50 transition-colors inline-flex items-center justify-center',
+                        day_selected: 'bg-amber-600 text-white hover:bg-amber-700 font-medium',
+                        day_today: 'bg-gray-100 font-semibold text-amber-600',
+                        day_range_middle: 'bg-amber-50 text-amber-700 rounded-none',
+                        day_range_start: 'bg-amber-600 text-white rounded-l-lg rounded-r-none',
+                        day_range_end: 'bg-amber-600 text-white rounded-r-lg rounded-l-none',
+                        day_outside: 'text-gray-300',
+                        day_disabled: 'text-gray-300',
+                      }}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
             <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
-              <SelectTrigger className="w-full sm:w-48 h-8 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
+              <SelectTrigger className="w-full sm:w-48 h-9 text-xs" data-testid="cashbook-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Projects</SelectItem>
                 {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
