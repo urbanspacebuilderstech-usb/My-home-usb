@@ -1240,6 +1240,7 @@ function CashbookTab({ overview, projects, userRole }) {
   const [dateTo, setDateTo] = useState(_mEnd);
   const [filterProject, setFilterProject] = useState('');
   const [expenseSubTab, setExpenseSubTab] = useState('material');
+  const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'manual' | 'approval'
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
@@ -1298,6 +1299,8 @@ function CashbookTab({ overview, projects, userRole }) {
   ];
 
   const filteredExpenses = allExpenseEntries.filter(e => {
+    const src = e.source === 'approval' ? 'approval' : 'manual';
+    if (sourceFilter !== 'all' && src !== sourceFilter) return false;
     if (expenseSubTab === 'material') return e.expense_type === 'material';
     if (expenseSubTab === 'labour') return e.expense_type === 'labour';
     if (expenseSubTab === 'petty_cash') return e.expense_type === 'petty_cash';
@@ -1505,7 +1508,8 @@ function CashbookTab({ overview, projects, userRole }) {
       </>
       )}
 
-      {/* Date / Month / Year Filters — unified */}
+      {/* Date / Month / Year Filters — unified (hidden in expense-only, merged into top bar) */}
+      {!expenseOnly && (
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 sm:items-center">
@@ -1535,22 +1539,76 @@ function CashbookTab({ overview, projects, userRole }) {
           </div>
         </CardContent>
       </Card>
+      )}
 
+      {/* Expense-only top bar: Direct|Indirect (left) + ALL filters (right, full width) */}
+      {expenseOnly && (
+        <Card>
+          <CardContent className="p-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              {/* Left: small segmented Direct | Indirect */}
+              <div className="inline-flex bg-gray-100 rounded-lg p-0.5 self-start">
+                <button
+                  onClick={() => setSubTab('expense')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors gap-1 inline-flex items-center ${subTab === 'expense' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                  data-testid="expense-only-direct-tab"
+                >
+                  <ArrowUpRight className="h-3.5 w-3.5" /> Direct
+                </button>
+                <button
+                  onClick={() => setSubTab('indirect')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors gap-1 inline-flex items-center ${subTab === 'indirect' ? 'bg-violet-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                  data-testid="expense-only-indirect-tab"
+                >
+                  <PieChart className="h-3.5 w-3.5" /> Indirect
+                </button>
+              </div>
+              {/* Right: All filters in one row, full width */}
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end flex-1">
+                <CashbookDateFilter
+                  dateFrom={dateFrom}
+                  dateTo={dateTo}
+                  setDateFrom={setDateFrom}
+                  setDateTo={setDateTo}
+                  testIdPrefix="exponly"
+                  accent="red"
+                />
+                <Select value={filterProject || 'all'} onValueChange={v => setFilterProject(v === 'all' ? '' : v)}>
+                  <SelectTrigger className="w-40 h-9 text-xs" data-testid="exponly-project-filter"><SelectValue placeholder="All Projects" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Projects</SelectItem>
+                    {projectsList.map(p => <SelectItem key={p.project_id} value={p.project_id}>{p.name || p.project_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                  <SelectTrigger className="w-36 h-9 text-xs" data-testid="exponly-source-filter"><SelectValue placeholder="Source" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Sources</SelectItem>
+                    <SelectItem value="manual">Manual</SelectItem>
+                    <SelectItem value="approval">Approval</SelectItem>
+                  </SelectContent>
+                </Select>
+                {loading && <RefreshCw className="h-4 w-4 animate-spin text-red-600" />}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {/* Income / Direct Expense / Indirect Expense Sub-tabs */}
       <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList className={`w-full grid ${expenseOnly ? 'grid-cols-2' : 'grid-cols-3'} mb-3`}>
-          {!expenseOnly && (
+        {!expenseOnly && (
+          <TabsList className="w-full grid grid-cols-3 mb-3">
             <TabsTrigger value="income" className="data-[state=active]:bg-green-100 data-[state=active]:text-green-800 gap-1.5" data-testid="cashbook-income-tab">
               <ArrowDownRight className="h-4 w-4" /> Income ({incomeEntries.length})
             </TabsTrigger>
-          )}
-          <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="cashbook-expense-tab">
-            <ArrowUpRight className="h-4 w-4" /> Direct{!expenseOnly && <span className="hidden sm:inline"> Expense</span>} ({allExpenseEntries.length})
-          </TabsTrigger>
-          <TabsTrigger value="indirect" className="data-[state=active]:bg-violet-100 data-[state=active]:text-violet-800 gap-1.5" data-testid="cashbook-indirect-tab">
-            <PieChart className="h-4 w-4" /> Indirect
-          </TabsTrigger>
-        </TabsList>
+            <TabsTrigger value="expense" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-800 gap-1.5" data-testid="cashbook-expense-tab">
+              <ArrowUpRight className="h-4 w-4" /> <span className="hidden sm:inline">Direct </span>Expense ({allExpenseEntries.length})
+            </TabsTrigger>
+            <TabsTrigger value="indirect" className="data-[state=active]:bg-violet-100 data-[state=active]:text-violet-800 gap-1.5" data-testid="cashbook-indirect-tab">
+              <PieChart className="h-4 w-4" /> Indirect
+            </TabsTrigger>
+          </TabsList>
+        )}
 
         <TabsContent value="income">
           <Card>
@@ -1606,12 +1664,55 @@ function CashbookTab({ overview, projects, userRole }) {
 
         <TabsContent value="expense">
           {(() => {
+            // Apply source filter at the category-total level too, so the cards reflect active filters
+            const srcMatch = (e) => sourceFilter === 'all' || (e.source === 'approval' ? 'approval' : 'manual') === sourceFilter;
             const byCat = {
-              material: allExpenseEntries.filter(e => e.expense_type === 'material'),
-              labour: allExpenseEntries.filter(e => e.expense_type === 'labour'),
-              petty_cash: allExpenseEntries.filter(e => e.expense_type === 'petty_cash'),
+              material: allExpenseEntries.filter(e => e.expense_type === 'material' && srcMatch(e)),
+              labour: allExpenseEntries.filter(e => e.expense_type === 'labour' && srcMatch(e)),
+              petty_cash: allExpenseEntries.filter(e => e.expense_type === 'petty_cash' && srcMatch(e)),
             };
             const sumAmt = (arr) => arr.reduce((s, e) => s + (e.amount || 0), 0);
+            const cards = [
+              { key: 'material', label: 'Material', icon: Building2, gradient: 'from-blue-500 to-blue-600', ring: 'ring-blue-600', bg: 'bg-blue-50', count: byCat.material.length, total: sumAmt(byCat.material) },
+              { key: 'labour', label: 'Labour', icon: Wallet, gradient: 'from-purple-500 to-purple-600', ring: 'ring-purple-600', bg: 'bg-purple-50', count: byCat.labour.length, total: sumAmt(byCat.labour) },
+              { key: 'petty_cash', label: 'Petty Cash', icon: Banknote, gradient: 'from-amber-500 to-amber-600', ring: 'ring-amber-600', bg: 'bg-amber-50', count: byCat.petty_cash.length, total: sumAmt(byCat.petty_cash) },
+            ];
+            if (expenseOnly) {
+              // Colorful full cards
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                  {cards.map(c => {
+                    const Icon = c.icon;
+                    const active = expenseSubTab === c.key;
+                    return (
+                      <button
+                        key={c.key}
+                        onClick={() => setExpenseSubTab(c.key)}
+                        data-testid={`expense-filter-${c.key}`}
+                        className={`text-left rounded-xl p-4 bg-gradient-to-br ${c.gradient} text-white shadow-md transition-all hover:shadow-lg hover:scale-[1.02] ${active ? `ring-2 ring-offset-2 ${c.ring}` : 'opacity-90'}`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <Icon className="h-5 w-5 opacity-90" />
+                          <Badge className="bg-white/20 text-white border-0 text-[10px]">{c.count} entries</Badge>
+                        </div>
+                        <p className="text-sm font-medium opacity-90">{c.label}</p>
+                        <p className="text-2xl font-bold mt-1">
+                          <MaskedValue value={c.total} className="text-white" />
+                        </p>
+                      </button>
+                    );
+                  })}
+                  <div className="sm:col-span-3 flex justify-end">
+                    <Button size="sm" className="bg-red-600 hover:bg-red-700 gap-1 h-8 text-xs" onClick={() => {
+                      if (window.innerWidth < 768) { setMobileExpenseDialog(true); } else { setAddExpenseOpen(true); }
+                    }} data-testid="add-expense-btn">
+                      <Plus className="h-3.5 w-3.5" /> Add Expense
+                    </Button>
+                  </div>
+                </div>
+              );
+            }
+            // Fallback: legacy pill style for the regular Cashbook view
             const tabs = [
               { key: 'material', label: 'Material', accent: 'bg-blue-600 hover:bg-blue-700', chip: 'bg-blue-50 text-blue-700 border-blue-200', count: byCat.material.length, total: sumAmt(byCat.material) },
               { key: 'labour', label: 'Labour', accent: 'bg-purple-600 hover:bg-purple-700', chip: 'bg-purple-50 text-purple-700 border-purple-200', count: byCat.labour.length, total: sumAmt(byCat.labour) },

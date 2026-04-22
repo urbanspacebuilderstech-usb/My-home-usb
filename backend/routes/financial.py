@@ -2713,12 +2713,12 @@ async def get_cashbook_filtered(
     # Build all expenses list
     all_expenses = []
     for e in recorded_exps:
-        all_expenses.append({**e, "expense_type": e.get("category", "other"), "project_name": project_map.get(e.get("project_id"), "")})
+        all_expenses.append({**e, "expense_type": e.get("category", "other"), "project_name": project_map.get(e.get("project_id"), ""), "source": e.get("source") or ("approval" if e.get("approval_id") or e.get("from_approval") else "manual")})
     for l in labour_exps:
-        all_expenses.append({**l, "expense_type": "labour", "amount": l.get("total_amount", 0), "project_name": project_map.get(l.get("project_id"), "")})
+        all_expenses.append({**l, "expense_type": "labour", "amount": l.get("total_amount", 0), "project_name": project_map.get(l.get("project_id"), ""), "source": "approval"})
     for m in material_reqs:
         amt = m.get("estimated_price", 0) or m.get("final_price", 0)
-        all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), "")})
+        all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), ""), "source": "approval"})
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
