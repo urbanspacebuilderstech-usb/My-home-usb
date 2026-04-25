@@ -20,6 +20,7 @@ import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
+import ChequeListView from '../components/ChequeListView';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -426,6 +427,9 @@ export default function CREBoard() {
                 Payment Approvals {pendingCount > 0 && <Badge className="ml-1 bg-orange-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingCount}</Badge>}
               </TabsTrigger>
               <TabsTrigger value="payment_collected" className="text-xs sm:text-sm" data-testid="tab-payment-collected">Payment Collected</TabsTrigger>
+              <TabsTrigger value="cheques" className="text-xs sm:text-sm" data-testid="tab-cheque-management">
+                Cheque Management
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -716,6 +720,11 @@ export default function CREBoard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ==================== TAB 6: CHEQUE MANAGEMENT ==================== */}
+          <TabsContent value="cheques">
+            <ChequeListView scope="cre" userRole={user?.role} />
           </TabsContent>
         </Tabs>
       </div>

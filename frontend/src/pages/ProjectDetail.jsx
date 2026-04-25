@@ -24,6 +24,7 @@ import { FileUpload, FileList } from '../components/FileUpload';
 import { AppHeader } from '../components/AppHeader';
 import GanttChart from '../components/GanttChart';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import ChequeListView from '../components/ChequeListView';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
 import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
@@ -2118,6 +2119,9 @@ export default function ProjectDetail() {
                 </TabsTrigger>}
                 {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
                   Summary
+                </TabsTrigger>}
+                {canSeeFinancials && <TabsTrigger value="cheques" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-cheques">
+                  Cheques
                 </TabsTrigger>}
                 <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Documents
@@ -5393,6 +5397,11 @@ export default function ProjectDetail() {
                   </DialogContent>
                 </Dialog>
               </div>
+            </TabsContent>
+
+            {/* ==================== CHEQUES TAB ==================== */}
+            <TabsContent value="cheques" className="p-3 sm:p-6">
+              {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
             </TabsContent>
 
             {/* ==================== DOCUMENTS TAB ==================== */}

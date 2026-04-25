@@ -1118,6 +1118,12 @@ class ChequeRecord(BaseModel):
     remarks: Optional[str] = None
     is_post_dated: bool = False
     reminder_date: Optional[datetime] = None  # For post-dated cheques
+    # CRE workflow — cheque must be "opened" by CRE before Accountant can deposit/clear
+    is_opened: bool = False
+    opened_by: Optional[str] = None
+    opened_by_name: Optional[str] = None
+    opened_at: Optional[datetime] = None
+    opened_remarks: Optional[str] = None
     recorded_by: str
     recorded_by_name: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

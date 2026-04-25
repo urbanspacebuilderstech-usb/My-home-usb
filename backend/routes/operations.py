@@ -3327,7 +3327,18 @@ async def update_cheque_status(cheque_id: str, update: ChequeStatusUpdate, user:
     """Update cheque status"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
+    # Lock: incoming cheques must be opened by CRE before Accountant can deposit/clear them
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("cheque_type") == "incoming" and not cheque.get("is_opened"):
+        if update.status in (ChequeStatus.DEPOSITED, ChequeStatus.CLEARED, ChequeStatus.BOUNCED):
+            raise HTTPException(
+                status_code=400,
+                detail="This cheque is awaiting CRE release. Ask CRE to open the cheque before depositing/clearing."
+            )
+
     update_dict = {"status": update.status, "updated_at": datetime.now(timezone.utc).isoformat()}
     if update.deposit_date:
         update_dict["deposit_date"] = update.deposit_date.isoformat()
@@ -3345,6 +3356,58 @@ async def update_cheque_status(cheque_id: str, update: ChequeStatusUpdate, user:
         raise HTTPException(status_code=404, detail="Cheque not found")
     
     return {"message": "Cheque status updated"}
+
+
+# ==================== CRE Cheque Workflow ====================
+
+class ChequeOpenRequest(BaseModel):
+    remarks: Optional[str] = None
+
+
+@router.get("/cre/cheques")
+async def get_cre_cheques(project_id: Optional[str] = None, user: User = Depends(get_current_user)):
+    """List incoming cheques for CRE — collected by Sales (advance) + Planning stage payments."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    query = {"cheque_type": "incoming"}
+    if project_id:
+        query["project_id"] = project_id
+
+    cheques = await db.cheques.find(query, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
+    return cheques
+
+
+@router.get("/projects/{project_id}/cheques")
+async def get_project_cheques(project_id: str, user: User = Depends(get_current_user)):
+    """List ALL cheques (incoming + outgoing) tied to a project — for the Project Detail Cheques tab."""
+    cheques = await db.cheques.find({"project_id": project_id}, {"_id": 0}).sort("cheque_date", -1).to_list(2000)
+    return cheques
+
+
+@router.patch("/cre/cheques/{cheque_id}/open")
+async def cre_open_cheque(cheque_id: str, payload: ChequeOpenRequest, user: User = Depends(get_current_user)):
+    """CRE opens (releases) a cheque so the Accountant can proceed to deposit/clear."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Only CRE can open cheques")
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("is_opened"):
+        return {"message": "Cheque already opened", "cheque_id": cheque_id}
+
+    now = datetime.now(timezone.utc).isoformat()
+    update = {
+        "is_opened": True,
+        "opened_by": user.user_id,
+        "opened_by_name": user.name,
+        "opened_at": now,
+        "opened_remarks": payload.remarks,
+        "updated_at": now,
+    }
+    await db.cheques.update_one({"cheque_id": cheque_id}, {"$set": update})
+    return {"message": "Cheque opened. Accountant can now deposit/clear it.", "cheque_id": cheque_id}
 
 
 @router.get("/accountant/cheques/reminders")

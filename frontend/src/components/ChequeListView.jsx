@@ -1,0 +1,349 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import axios from 'axios';
+import { toast } from 'sonner';
+import { Card, CardContent } from './ui/card';
+import { Badge } from './ui/badge';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { Search, CheckCircle2, Lock, FileText, Loader2, Building2 } from 'lucide-react';
+
+const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const STATUS_BADGE = {
+  issued: { label: 'Issued', cls: 'bg-blue-100 text-blue-700' },
+  post_dated: { label: 'Post Dated', cls: 'bg-amber-100 text-amber-700' },
+  deposited: { label: 'Deposited', cls: 'bg-indigo-100 text-indigo-700' },
+  cleared: { label: 'Cleared', cls: 'bg-emerald-100 text-emerald-700' },
+  bounced: { label: 'Bounced', cls: 'bg-red-100 text-red-700' },
+  cancelled: { label: 'Cancelled', cls: 'bg-gray-100 text-gray-600' },
+};
+
+const fmtMoney = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
+const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+
+/**
+ * Reusable cheque list view.
+ * scope: 'cre' | 'project'
+ *   - 'cre' uses GET /api/cre/cheques  (incoming-only across projects, or specific project)
+ *   - 'project' uses GET /api/projects/{projectId}/cheques (incoming + outgoing for that project)
+ * userRole: drives Open button visibility (only super_admin/cre can open)
+ * projectId: optional — when present, scopes the list
+ */
+export default function ChequeListView({ scope = 'cre', projectId = null, userRole = null }) {
+  const [cheques, setCheques] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('all'); // all | open_pending | opened | by_project
+  const [openDialog, setOpenDialog] = useState({ open: false, cheque: null, remarks: '' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const canOpen = ['super_admin', 'cre'].includes(userRole);
+
+  const fetchCheques = async () => {
+    try {
+      setLoading(true);
+      let url;
+      if (scope === 'project' && projectId) {
+        url = `${API}/projects/${projectId}/cheques`;
+      } else {
+        url = `${API}/cre/cheques${projectId ? `?project_id=${projectId}` : ''}`;
+      }
+      const res = await axios.get(url);
+      setCheques(res.data || []);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to load cheques');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchCheques(); /* eslint-disable-next-line */ }, [scope, projectId]);
+
+  const handleOpen = async () => {
+    if (!openDialog.cheque) return;
+    try {
+      setSubmitting(true);
+      await axios.patch(`${API}/cre/cheques/${openDialog.cheque.cheque_id}/open`, {
+        remarks: openDialog.remarks || null,
+      });
+      toast.success('Cheque opened. Accountant can now deposit/clear it.');
+      setOpenDialog({ open: false, cheque: null, remarks: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to open cheque');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Filtering
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return cheques.filter(c => {
+      // Search match
+      if (term) {
+        const hay = `${c.cheque_number} ${c.bank_name} ${c.party_name} ${c.project_name || ''}`.toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
+      // Tab filter
+      if (activeTab === 'open_pending') return c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled';
+      if (activeTab === 'opened') return c.is_opened;
+      return true;
+    });
+  }, [cheques, search, activeTab]);
+
+  // Project-wise grouping (simple: name -> rows)
+  const projectGroups = useMemo(() => {
+    const map = {};
+    filtered.forEach(c => {
+      const key = c.project_name || 'Unassigned';
+      if (!map[key]) map[key] = [];
+      map[key].push(c);
+    });
+    return Object.entries(map).map(([name, rows]) => ({
+      name,
+      rows,
+      total: rows.reduce((s, r) => s + (r.amount || 0), 0),
+      count: rows.length,
+    })).sort((a, b) => b.total - a.total);
+  }, [filtered]);
+
+  const stats = useMemo(() => {
+    const pending = cheques.filter(c => c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled');
+    const opened = cheques.filter(c => c.is_opened);
+    return {
+      total: cheques.length,
+      total_amount: cheques.reduce((s, c) => s + (c.amount || 0), 0),
+      pending_open: pending.length,
+      pending_amount: pending.reduce((s, c) => s + (c.amount || 0), 0),
+      opened_count: opened.length,
+    };
+  }, [cheques]);
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-12 text-gray-400 gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading cheques…</div>;
+  }
+
+  return (
+    <div className="space-y-3" data-testid={`cheque-list-view-${scope}`}>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+        <Card className="border-l-4 border-l-blue-500">
+          <CardContent className="p-3">
+            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Total Cheques</p>
+            <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.total}</p>
+            <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.total_amount)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="p-3">
+            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE Open</p>
+            <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
+            <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-emerald-500">
+          <CardContent className="p-3">
+            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Opened by CRE</p>
+            <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.opened_count}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-violet-500">
+          <CardContent className="p-3">
+            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Projects</p>
+            <p className="text-lg sm:text-xl font-bold text-violet-700">{projectGroups.length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter Bar */}
+      <Card>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="inline-flex bg-gray-100 rounded-lg p-0.5">
+              {[
+                { k: 'all', label: 'All' },
+                { k: 'open_pending', label: 'Awaiting Open' },
+                { k: 'opened', label: 'Opened' },
+                ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise' }] : []),
+              ].map(t => (
+                <button
+                  key={t.k}
+                  onClick={() => setActiveTab(t.k)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${activeTab === t.k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                  data-testid={`cheque-tab-${t.k}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search cheque #, bank, party, project…"
+                className="pl-8 h-9 text-xs"
+                data-testid="cheque-search-input"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Project-wise grouped view */}
+      {activeTab === 'by_project' ? (
+        <div className="space-y-3">
+          {projectGroups.length === 0 ? (
+            <Card><CardContent className="py-12 text-center text-gray-400"><Building2 className="h-10 w-10 mx-auto mb-2 opacity-40" />No cheques in scope</CardContent></Card>
+          ) : projectGroups.map(g => (
+            <Card key={g.name}>
+              <CardContent className="p-0">
+                <div className="bg-violet-50 px-4 py-2 border-b flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-violet-600" />
+                    <span className="font-semibold text-sm">{g.name}</span>
+                    <Badge className="bg-violet-200 text-violet-800 text-[10px]">{g.count} cheques</Badge>
+                  </div>
+                  <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
+                </div>
+                <ChequeTable rows={g.rows} canOpen={canOpen} onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })} />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            {filtered.length === 0 ? (
+              <div className="py-12 text-center text-gray-400">
+                <FileText className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                <p className="text-sm">No cheques match the current filter</p>
+              </div>
+            ) : (
+              <ChequeTable rows={filtered} canOpen={canOpen} onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Open Cheque Dialog */}
+      <Dialog open={openDialog.open} onOpenChange={(open) => !open && setOpenDialog({ open: false, cheque: null, remarks: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Open Cheque</DialogTitle>
+          </DialogHeader>
+          {openDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{openDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-emerald-700">{fmtMoney(openDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{openDialog.cheque.bank_name}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{openDialog.cheque.party_name}</p></div>
+                <div className="col-span-2"><span className="text-gray-500">Project</span><p className="font-medium">{openDialog.cheque.project_name || '-'}</p></div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Remarks (optional)</label>
+                <Textarea
+                  rows={2}
+                  value={openDialog.remarks}
+                  onChange={(e) => setOpenDialog({ ...openDialog, remarks: e.target.value })}
+                  placeholder="e.g. Verified with client, ready for deposit"
+                  data-testid="cheque-open-remarks"
+                />
+              </div>
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-800">
+                <strong>Note:</strong> Once opened, the Accountant can proceed to deposit/clear this cheque. This action cannot be undone.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenDialog({ open: false, cheque: null, remarks: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleOpen} disabled={submitting} data-testid="cheque-open-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Opening…</> : <><CheckCircle2 className="h-4 w-4 mr-1" /> Open Cheque</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ChequeTable({ rows, canOpen, onOpenRequest }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-gray-50 border-b">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Cheque No</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Bank</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Party</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Type</th>
+            <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+            <th className="text-left px-3 py-2 font-medium text-gray-500">Cheque Date</th>
+            <th className="text-center px-3 py-2 font-medium text-gray-500">Status</th>
+            <th className="text-center px-3 py-2 font-medium text-gray-500">CRE</th>
+            <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c, i) => {
+            const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
+            return (
+              <tr key={c.cheque_id} className="border-b hover:bg-gray-50" data-testid={`cheque-row-${c.cheque_id}`}>
+                <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                <td className="px-3 py-2 font-mono font-semibold">{c.cheque_number}</td>
+                <td className="px-3 py-2">{c.bank_name}</td>
+                <td className="px-3 py-2">{c.party_name}</td>
+                <td className="px-3 py-2 text-violet-700">{c.project_name || '-'}</td>
+                <td className="px-3 py-2">
+                  <Badge className={c.cheque_type === 'incoming' ? 'bg-emerald-100 text-emerald-700 text-[10px]' : 'bg-orange-100 text-orange-700 text-[10px]'}>
+                    {c.cheque_type === 'incoming' ? 'Incoming' : 'Outgoing'}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2 text-right font-semibold">{fmtMoney(c.amount)}</td>
+                <td className="px-3 py-2 text-gray-600">{fmtDate(c.cheque_date)}</td>
+                <td className="px-3 py-2 text-center">
+                  <Badge className={`${sb.cls} text-[10px]`}>{sb.label}</Badge>
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {c.is_opened ? (
+                    <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Opened
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1">
+                      <Lock className="h-3 w-3" /> Locked
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {!c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled' && canOpen ? (
+                    <Button
+                      size="sm"
+                      className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
+                      onClick={() => onOpenRequest(c)}
+                      data-testid={`cheque-open-btn-${c.cheque_id}`}
+                    >
+                      Open
+                    </Button>
+                  ) : c.is_opened ? (
+                    <span className="text-[10px] text-gray-500" title={c.opened_by_name ? `By ${c.opened_by_name}` : ''}>
+                      {c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓'}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-gray-300">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
