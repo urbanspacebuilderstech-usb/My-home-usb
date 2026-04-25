@@ -118,10 +118,37 @@ async def get_project(project_id: str, user: User = Depends(get_current_user)):
     project_doc = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project_doc:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
+    # IDOR guard: scope the project view by role
+    # CLIENT — only their own project
     if user.role == UserRole.CLIENT and project_doc.get("client_user_id") != user.user_id:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+    # VENDOR — only projects they have an active PO/assignment on
+    if user.role == UserRole.VENDOR:
+        po_match = await db.purchase_orders.find_one({
+            "project_id": project_id,
+            "$or": [{"vendor_id": user.user_id}, {"vendor_user_id": user.user_id}],
+        }, {"_id": 0, "po_id": 1})
+        assignment = None
+        if not po_match:
+            assignment = await db.project_vendor_assignments.find_one({
+                "project_id": project_id,
+                "$or": [{"vendor_id": user.user_id}, {"vendor_user_id": user.user_id}],
+            }, {"_id": 0})
+        if not po_match and not assignment:
+            raise HTTPException(status_code=403, detail="Permission denied")
+    # SITE_ENGINEER / SR_SITE_ENGINEER / ASSOCIATE_PM — only assigned/team-member projects
+    if user.role in (UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM):
+        if (
+            project_doc.get("assigned_to") != user.user_id
+            and user.user_id not in (project_doc.get("team_members") or [])
+        ):
+            assigned = await db.site_engineer_assignments.find_one({
+                "project_id": project_id, "user_id": user.user_id
+            }, {"_id": 0, "assignment_id": 1})
+            if not assigned:
+                raise HTTPException(status_code=403, detail="Permission denied")
+
     if isinstance(project_doc.get("start_date"), str):
         project_doc["start_date"] = datetime.fromisoformat(project_doc["start_date"])
     if isinstance(project_doc.get("expected_completion"), str):

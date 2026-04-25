@@ -781,24 +781,36 @@ async def get_material_requests(
     user: User = Depends(get_current_user)
 ):
     """Get material requests"""
+    # Role gate: only roles that legitimately interact with material requests can list them.
+    # Vendor / Sales / HR / Pre-Sales / Architect / Marketing / Client must NOT see internal
+    # material requests across projects (competitive / privacy concern).
+    allowed_roles = {
+        UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER,
+        UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM,
+        UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PROCUREMENT,
+        UserRole.ACCOUNTANT, UserRole.CRE,
+    }
+    if user.role not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
     query = {}
-    
+
     if user.role == UserRole.SITE_ENGINEER:
         query["site_engineer_id"] = user.user_id
-    
+
     if project_id:
         query["project_id"] = project_id
-    
+
     if status:
         query["status"] = status
-    
+
     requests = await db.material_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
+
     # Enrich with project name
     for r in requests:
         project = await db.projects.find_one({"project_id": r["project_id"]}, {"_id": 0, "name": 1})
         r["project_name"] = project["name"] if project else "Unknown"
-    
+
     return requests
 
 

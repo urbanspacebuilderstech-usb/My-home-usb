@@ -139,7 +139,7 @@ class NewVendorInput(BaseModel):
 @router.get("/procurement/dashboard")
 async def get_procurement_dashboard(user: User = Depends(get_current_user)):
     """Get procurement dashboard metrics"""
-    allowed = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.SR_SITE_ENGINEER, UserRole.SITE_ENGINEER]
+    allowed = [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
