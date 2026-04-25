@@ -2361,14 +2361,22 @@ function ChequeManagementTab({ projects }) {
                     <th className="px-3 py-2 text-right font-semibold text-gray-600">AMOUNT</th>
                     <th className="px-3 py-2 text-left font-semibold text-gray-600">DATE</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-600">STATUS</th>
+                    <th className="px-3 py-2 text-center font-semibold text-gray-600">CRE</th>
                     <th className="px-3 py-2 text-center font-semibold text-gray-600">ACTION</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {filteredCheques.length === 0 ? (
-                    <tr><td colSpan="9" className="px-4 py-8 text-center text-gray-500">No cheques found</td></tr>
-                  ) : filteredCheques.map(cheque => (
-                    <tr key={cheque.cheque_id} className="hover:bg-gray-50" data-testid={`cheque-row-${cheque.cheque_id}`}>
+                    <tr><td colSpan="10" className="px-4 py-8 text-center text-gray-500">No cheques found</td></tr>
+                  ) : filteredCheques.map(cheque => {
+                    const lockedForAccountant = cheque.cheque_type === 'incoming' && !cheque.is_opened && cheque.status !== 'cancelled';
+                    const dateLabel = (() => {
+                      if (!cheque.cheque_date) return '-';
+                      const d = new Date(cheque.cheque_date);
+                      return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                    })();
+                    return (
+                    <tr key={cheque.cheque_id} className={`hover:bg-gray-50 ${lockedForAccountant ? 'bg-amber-50/30' : ''}`} data-testid={`cheque-row-${cheque.cheque_id}`}>
                       <td className="px-3 py-2">
                         <p className="font-mono font-medium">{cheque.cheque_number}</p>
                         {cheque.is_post_dated && <Badge variant="outline" className="text-purple-600 border-purple-300 text-[9px] mt-0.5">PDC</Badge>}
@@ -2390,17 +2398,47 @@ function ChequeManagementTab({ projects }) {
                       <td className="px-3 py-2 text-right font-bold">
                         <MaskedValue value={cheque.amount} className={cheque.cheque_type === 'incoming' ? 'text-green-600' : 'text-amber-600'} />
                       </td>
-                      <td className="px-3 py-2">{new Date(cheque.cheque_date).toLocaleDateString('en-IN')}</td>
+                      <td className="px-3 py-2">{dateLabel}</td>
                       <td className="px-3 py-2 text-center">{getStatusBadge(cheque.status)}</td>
                       <td className="px-3 py-2 text-center">
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => {
-                          setSelectedCheque(cheque);
-                          setStatusForm({ status: cheque.status, deposit_date: cheque.deposit_date?.split('T')[0] || '', clearance_date: cheque.clearance_date?.split('T')[0] || '', bounce_reason: cheque.bounce_reason || '', bounce_charges: cheque.bounce_charges?.toString() || '', remarks: cheque.remarks || '' });
-                          setStatusDialog(true);
-                        }} data-testid={`update-status-${cheque.cheque_id}`}><Edit className="h-3 w-3" /></Button>
+                        {cheque.cheque_type === 'incoming' ? (
+                          cheque.is_opened ? (
+                            <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1" title={cheque.opened_by_name ? `Opened by ${cheque.opened_by_name}` : 'Opened'}>
+                              <CheckCircle className="h-3 w-3" /> Opened
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1" title="Awaiting CRE release">
+                              <Lock className="h-3 w-3" /> Locked
+                            </Badge>
+                          )
+                        ) : (
+                          <span className="text-[10px] text-gray-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 w-6 p-0"
+                          disabled={lockedForAccountant}
+                          title={lockedForAccountant ? 'Awaiting CRE release — ask CRE to open this cheque first' : 'Update status'}
+                          onClick={() => {
+                            if (lockedForAccountant) {
+                              toast.warning('This cheque is awaiting CRE release. Ask CRE to open it before depositing/clearing.');
+                              return;
+                            }
+                            setSelectedCheque(cheque);
+                            setStatusForm({ status: cheque.status, deposit_date: cheque.deposit_date?.split('T')[0] || '', clearance_date: cheque.clearance_date?.split('T')[0] || '', bounce_reason: cheque.bounce_reason || '', bounce_charges: cheque.bounce_charges?.toString() || '', remarks: cheque.remarks || '' });
+                            setStatusDialog(true);
+                          }}
+                          data-testid={`update-status-${cheque.cheque_id}`}
+                        >
+                          {lockedForAccountant ? <Lock className="h-3 w-3 text-amber-600" /> : <Edit className="h-3 w-3" />}
+                        </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
