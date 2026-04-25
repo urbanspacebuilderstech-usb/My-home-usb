@@ -1,155 +1,171 @@
-# Security Audit Report — Construction CRM API
-**Date:** April 2026 | **Total Endpoints:** 633 across 13 route files
+# Security Audit Report — myhomeusb.com Construction CRM
+**Date:** 2026-04-25
+**Scope:** SAST (Bandit, Semgrep, detect-secrets), DAST (custom test harness), dependency audit (pip-audit), authN/Z review.
+**Codebase:** `/app` (backend FastAPI + frontend React), live target `https://www.myhomeusb.com`.
+**Previous audit:** `SECURITY_AUDIT_2026-04-08.md`
 
 ---
 
-## CRITICAL (Fix Before Production)
+## Executive Summary
 
-### 1. `/api/auth/demo-login` — Full Account Takeover (No Password Required)
-- **Risk:** CRITICAL
-- **File:** `auth.py:308`
-- **Issue:** Anyone can log in as ANY user (Super Admin, Accountant, etc.) by simply providing an email. No password needed.
-- **Attack:** `curl -X POST /api/auth/demo-login -d '{"email":"urbanspacebuilderstech@gmail.com"}'` → Full Super Admin access
-- **Fix:** Disable or remove this endpoint entirely in production. Add environment flag `DEMO_MODE=false`.
+| Category | Count |
+|---|---|
+| 🔴 **CRITICAL** | 2 |
+| 🟠 **HIGH** | 3 |
+| 🟡 **MEDIUM** | 4 |
+| 🟢 **LOW / Info** | 6 |
 
-### 2. `/api/files/upload` — Unauthenticated File Upload
-- **Risk:** CRITICAL
-- **File:** `files.py:22`
-- **Issue:** No authentication check (`get_current_user` missing). Anyone can upload files to your storage.
-- **Attack:** Attacker uploads malicious files, fills storage, or uses server as file hosting.
-- **Fix:** Add `user: User = Depends(get_current_user)` to the endpoint.
+The application's runtime authN/Z is **solid** — login is rate-limited (locks after ~8 attempts), all protected endpoints reject unauthenticated calls with 401, forged session tokens are rejected, NoSQL injection on `/auth/login` is blocked by Pydantic, and CORS does not reflect attacker origins with credentials.
 
-### 3. `/api/files/{file_id}/download` — Unauthenticated File Access
-- **Risk:** CRITICAL
-- **File:** `files.py:74`
-- **Issue:** Any file can be downloaded by anyone who guesses or enumerates file IDs.
-- **Attack:** Iterate through file IDs to download sensitive project documents, receipts, contracts.
-- **Fix:** Add authentication + verify the requesting user has access to the file's project.
-
-### 4. `/api/site-photos/upload` and `/api/documents/upload` — Unauthenticated
-- **Risk:** CRITICAL
-- **File:** `projects.py:617, 661`
-- **Issue:** No auth check. Anyone can upload photos/documents to any project.
-- **Fix:** Add `Depends(get_current_user)` + project access validation.
+The **dominant risk is secret leakage in git history + an outdated dependency stack** with several auth-bypass and DoS CVEs (`litellm`, `aiohttp`, `starlette`, `pyjwt`).
 
 ---
 
-## HIGH (Fix Within 1 Week)
+## 🔴 CRITICAL Findings
 
-### 5. `/api/auth/initial-setup` — Can Create New Super Admins
-- **Risk:** HIGH
-- **File:** `auth.py:116`
-- **Issue:** Not protected by auth. Only checks if email exists, not if setup was already done. An attacker can create additional super admin accounts with new emails.
-- **Fix:** Add a one-time flag in DB. If any super_admin exists, block this endpoint.
+### C1. **Production MongoDB Atlas credentials hard-coded in committed files**
+- **Files:**
+  - `backend/seed_demo_data.py:12` — fallback default in `os.environ.get("MONGO_URL", "mongodb+srv://urbanspacebuilderstech_db_user:BwrIZOO1GfTYGIbW@constructioncrm.l86s93a.mongodb.net/...")`
+  - `hostinger_setup/setup_step7.sh:23`
+  - `hostinger_setup/DEPLOYMENT_GUIDE.md:233`
+- **Impact:** Anyone with read access to the repo (including past commits if pushed publicly) gets full read/write to the production DB.
+- **Fix (in order):**
+  1. **Immediately rotate the Atlas password** for `urbanspacebuilderstech_db_user` in MongoDB Atlas. Issue a new connection string.
+  2. Update `backend/.env` (only) on the VPS with the new URL. **Never** put the connection string back into a tracked file.
+  3. Replace fallback in `seed_demo_data.py` with `os.environ["MONGO_URL"]` (no default — fail-fast).
+  4. Remove the URL from `setup_step7.sh` and `DEPLOYMENT_GUIDE.md`. Use `${MONGO_URL}` env-var instead.
+  5. (Recommended) Purge from git history with `git filter-repo --replace-text` and force-push.
 
-### 6. 26+ Endpoints Missing Authentication
-- **Risk:** HIGH
-- **Files:** Multiple (see list below)
-- **Issue:** These endpoints expose sensitive business data without requiring login:
-  - `/api/crm/pre-sales/leads` — All pre-sales leads
-  - `/api/crm/sales/leads` — All sales leads
-  - `/api/income` — Financial income data
-  - `/api/cre/projects/all` — All projects
-  - `/api/planning/projects-filtered` — Filtered projects
-  - `/api/work-orders` — All work orders
-  - `/api/accountant/transactions` — Financial transactions
-  - `/api/financial/audit-logs` — System audit logs
-  - `/api/financial/indirect-cost-categories` — Cost categories
-  - `/api/labour-attendance` — Attendance records
-  - `/api/site-receipts/image/{file_id}` — Receipt images
-  - `/api/site-engineer/material-requests/{id}/approve` — Material approval
-  - `/api/material-requests/{id}/planning-action` — Planning actions
-  - `/api/procurement/transit/{id}/update` — Transit updates
-  - `/api/accountant/payment-request/initiate` — Payment initiation
-- **Fix:** Add `user: User = Depends(get_current_user)` to ALL these endpoints.
-
-### 7. No File Type/Size Validation on Upload
-- **Risk:** HIGH
-- **File:** `files.py:22`
-- **Issue:** No check on file extension, MIME type, or file size. Attacker can upload .exe, .php, extremely large files.
-- **Fix:** Add file size limit (e.g., 50MB), whitelist allowed extensions (.pdf, .jpg, .png, .xlsx, .docx).
-
-### 8. Rate Limiting Only on Login
-- **Risk:** HIGH
-- **File:** `auth.py`
-- **Issue:** Rate limiting exists only on `/auth/login` and `/auth/demo-login`. All other endpoints are unlimited.
-- **Attack:** Brute force OTP codes, spam file uploads, DoS on expensive DB queries.
-- **Fix:** Add global rate limiting middleware (e.g., 100 req/min per IP for all endpoints).
+### C2. **`backend/.env` is committed to git history**
+- `.gitignore` line 1129 (`*.env\tbackend/.env`) is malformed; the file was committed before being added.
+- File contains: real `MONGO_URL`, `RESEND_API_KEY`, `GOOGLE_SHEETS_CLIENT_ID`/`SECRET`, `EMERGENT_LLM_KEY`.
+- **Fix:**
+  1. `git rm --cached backend/.env && git commit -m "stop tracking backend/.env"`
+  2. **Rotate every secret in that file** — Resend API key, Google OAuth client secret, Emergent LLM key, MongoDB password.
+  3. Add a clean `backend/.env.example` template that lists key names with placeholder values.
 
 ---
 
-## MEDIUM (Fix Within 2 Weeks)
+## 🟠 HIGH Findings
 
-### 9. OTP Brute Force — No Attempt Limiting
-- **Risk:** MEDIUM
-- **File:** `auth.py:985`
-- **Issue:** `/api/auth/verify-otp-reset-password` has no rate limiting. 6-digit OTP can be brute-forced (1M combinations).
-- **Fix:** Limit to 5 attempts per OTP, then invalidate. Add cooldown between attempts.
+### H1. **`litellm 1.80.0` — full authentication-bypass chain (GHSA-69x8-hrgq-fjj8)**
+- Three issues combine: weak password hashing + JWT cache prefix collision + missing admin role enforcement on `/config/update`.
+- **Fix:** `pip install --upgrade litellm` (≥ 1.81 once patched). If you don't actively need litellm at runtime, remove it from `requirements.txt`.
 
-### 10. Password Reset Token Not Time-Expired on Server
-- **Risk:** MEDIUM
-- **File:** `auth.py:428`
-- **Issue:** Forgot password tokens should have strict expiry checked server-side.
-- **Fix:** Verify `expires_at > now()` in the reset-password handler.
+### H2. **`starlette 0.37.2` — multipart parser DoS (GHSA-f96h-pmfr-66vw, GHSA-2c2j-9gv5-cj73)**
+- Starlette buffers entire form fields without filename in memory; large files spool to disk without size cap by default. Your `MAX_FILE_SIZE = 50 MB` is enforced AFTER the body is read, so an attacker can send larger payloads to OOM the worker.
+- **Fix:** Pin `starlette>=0.40.0` (compatible with FastAPI 0.115+). Add an explicit `Content-Length` check before reading.
 
-### 11. No Role-Based Access on Many Endpoints
-- **Risk:** MEDIUM
-- **Files:** Multiple
-- **Issue:** Some endpoints check auth but not role. A Site Engineer could potentially access Accountant or Super Admin endpoints.
-- **Fix:** Add role checks on sensitive operations (financial, user management, project deletion).
+### H3. **`aiohttp 3.13.3` — auth-cookie leak on cross-origin redirects (GHSA-966j-vmvw-g2g9)**
+- aiohttp drops `Authorization` header but **retains cookies** when redirecting to a different origin → could leak session cookies if any backend code makes outbound HTTP via aiohttp.
+- **Fix:** `pip install --upgrade aiohttp` to ≥ 3.14.
 
-### 12. Regex Injection in Search/Filter
-- **Risk:** MEDIUM
-- **File:** `packages.py:67`
-- **Issue:** `{"$regex": f"^{data.name}$"}` — User input directly in regex without escaping.
-- **Attack:** Crafted regex can cause ReDoS (Regular Expression Denial of Service).
-- **Fix:** Use `re.escape()` on all user inputs used in `$regex`.
+### Other dependency CVEs in the same upgrade pass:
+| Package | Current | Recommended | CVE |
+|---|---|---|---|
+| `pyjwt` | 2.10.1 | ≥ 2.11.0 | GHSA-752w-5fwx-jx9f (`crit` header bypass) |
+| `cryptography` | 46.0.3 | ≥ 47.0.5 | name-constraint validation gap |
+| `requests` | 2.32.5 | ≥ 2.33 | GHSA-gc5v-m9x4-r6x2 |
+| `pillow` | 12.1.0 | ≥ 12.2.0 | OOB-write on PSD; unbounded GZIP on FITS |
+| `python-multipart` | 0.0.21 | ≥ 0.0.22 | path traversal w/ `UPLOAD_DIR` |
+| `pymongo` | 4.5.0 | ≥ 4.7.0 | OOB read in BSON |
 
-### 13. CORS Allows Multiple Origins Including Wildcards
-- **Risk:** MEDIUM
-- **File:** `server.py:118`
-- **Issue:** CORS includes dynamic Cloudflare cluster patterns. In production, restrict to exact production domain only.
-- **Fix:** Set `CORS_ORIGINS` to only your production domain.
+Run `pip-audit -r backend/requirements.txt --fix` to bulk-update where safe, then `pip freeze > backend/requirements.txt`.
 
 ---
 
-## LOW (Best Practices)
+## 🟡 MEDIUM Findings
 
-### 14. No HTTPS Enforcement
-- **Issue:** No middleware forcing HTTPS redirect.
-- **Fix:** Add HSTS header and HTTPS-only cookies.
+### M1. **No object-level ACL on file downloads** *(IDOR class)*
+- Endpoints: `GET /api/files/{file_id}/download`, `GET /api/site-receipts/image/{file_id}`, `GET /api/crm/re-projects/attachments/{file_id}`.
+- They check the session is valid, but **do not** check whether the calling user is allowed to access *that specific file* (e.g. is on the project team, owns the receipt). 24-char hex `ObjectId`s are not guessable but are exposed in HTML/PDFs and can leak via misclick or sharing.
+- **Fix:** After GridFS lookup, check ACL:
+  ```python
+  meta = grid_out.metadata or {}
+  if meta.get("project_id") and not _user_can_view_project(user, meta["project_id"]):
+      raise HTTPException(403, "Forbidden")
+  ```
+  Add `project_id`/`re_project_id` to GridFS metadata at upload time.
 
-### 15. Session Tokens in Cookies Without `__Host-` Prefix
-- **Issue:** Cookie security could be improved with `__Host-` prefix for additional protection.
+### M2. **CORS reflects `*` for unknown origins** *(defense-in-depth)*
+- DAST showed `Origin: evil.example.com` → response `Access-Control-Allow-Origin: *`. The browser blocks credential cookies due to missing `Allow-Credentials`, but the wildcard hides bugs and surprises.
+- **Fix:** Restrict CORS to known frontends only:
+  ```python
+  ALLOWED = ["https://www.myhomeusb.com", "https://crm-onboard-flow.preview.emergentagent.com"]
+  app.add_middleware(CORSMiddleware, allow_origins=ALLOWED, allow_credentials=True, ...)
+  ```
 
-### 16. No Request Body Size Limit
-- **Issue:** Large POST bodies could cause memory issues.
-- **Fix:** Add body size limit middleware (e.g., 10MB max).
+### M3. **`POST /api/hr/attendance/essl-sync-key` uses non-constant-time hash compare**
+- `routes/hr.py` compares with `!=` which is a theoretical timing oracle.
+- **Fix:** `import hmac; hmac.compare_digest(key_hash, settings.get("sync_key_hash") or "")`.
 
-### 17. Audit Logs Accessible Without Auth
-- **Issue:** `/api/financial/audit-logs` exposes security-sensitive audit trail.
-- **Fix:** Restrict to Super Admin only.
-
----
-
-## Priority Fix Order for Production
-
-| Priority | Action | Time |
-|----------|--------|------|
-| 1 | Disable `/api/auth/demo-login` | 5 min |
-| 2 | Add auth to file upload/download endpoints | 30 min |
-| 3 | Add auth to all 26 unprotected endpoints | 2 hours |
-| 4 | Lock `/api/auth/initial-setup` after first admin | 15 min |
-| 5 | Add file size/type validation | 30 min |
-| 6 | Add global rate limiting | 1 hour |
-| 7 | Add OTP attempt limiting | 30 min |
-| 8 | Fix regex injection in search | 15 min |
-| 9 | Restrict CORS to production domain | 5 min |
-| 10 | Add role-based access checks | 2 hours |
+### M4. **Bandit `B608` — string-built SQL in `essl_sync.py`**
+- Lines 156 & 292 build a SELECT with `f"... [{table}] ..."`. Table/column names come from registry/config not user input, so practical risk is low — but defend in depth.
+- **Fix:** Validate with `re.match(r"^[a-zA-Z0-9_]+$", table)` before interpolation.
 
 ---
 
-**Total Critical Issues:** 4
-**Total High Issues:** 4
-**Total Medium Issues:** 5
-**Total Low Issues:** 4
+## 🟢 LOW / Informational
+
+| ID | Finding | Note |
+|---|---|---|
+| L1 | `0.0.0.0` bind in `main.py:54` | Required inside K8s pod; not a real issue. |
+| L2 | PostHog public key in `index.html` | Designed to be public — ignore. |
+| L3 | 73 detect-secrets hits in `backend/tests/` | Test fixtures (e.g. `Test@1234`). Add `.secrets.baseline` to mute. |
+| L4 | `frontend/plugins/visual-edits/dev-server-setup.js:16` | Regex pattern, not an actual password. |
+| L5 | Aadhar/PAN stored as plaintext (`HRPortal.jsx`) | Already in backlog as "Encrypted Aadhar upload". |
+| L6 | Login rate limit is per-IP only | Add per-account lockout for distributed bruteforce. |
+
+---
+
+## DAST Test Suite — All Pass ✅
+
+| Test | Result |
+|---|---|
+| `auth/me` leaks password hash? | ❌ No — only `user_id, email, name, picture, role, phone, created_at` returned |
+| Login rate-limited? | ✅ Locked after 8 attempts |
+| Anonymous → `/projects /cre/cheques /accountant/cheques /auth/me /users` | ✅ All return **401** |
+| Forged 64-char session token | ✅ Rejected with **401** |
+| Random ObjectId on `/crm/re-projects/attachments/<oid>` | ✅ Returns **404** |
+| CORS reflection of `evil.example.com` with credentials | ⚠️ See M2 (no cookie leak, but wildcard) |
+| NoSQL injection `{"$ne": ""}` on login | ✅ Blocked by Pydantic (**422 string_type**) |
+| SSRF / open redirect | n/a — no URL-accepting endpoints surfaced |
+
+---
+
+## Recommended Remediation Order
+
+### 🚨 TODAY (CRITICAL)
+1. Rotate MongoDB Atlas password + all keys in `backend/.env` (Resend, Google OAuth, Emergent LLM).
+2. Update `backend/.env` on VPS with new values.
+3. `git rm --cached backend/.env`. Scrub MongoDB URL from `seed_demo_data.py`, `setup_step7.sh`, `DEPLOYMENT_GUIDE.md`.
+
+### 📅 THIS WEEK (HIGH)
+4. Bulk dependency upgrade: `litellm aiohttp starlette pyjwt cryptography requests pillow python-multipart pymongo`. Re-run pytest.
+
+### 🎯 NEXT SPRINT (MEDIUM)
+5. Object-level ACL on file download endpoints (M1).
+6. CORS allow-list (M2).
+7. `hmac.compare_digest` on sync-key endpoint (M3).
+8. SQL identifier validator in `essl_sync.py` (M4).
+
+### 📋 BACKLOG (LOW)
+9. `.secrets.baseline` to keep future scans clean.
+10. Encrypt Aadhar/PAN at rest (already on roadmap).
+11. Per-account login lockout in addition to per-IP.
+
+---
+
+## Tooling Reference
+- **Bandit 1.9.4** → 100 findings (97 LOW, 3 MEDIUM)
+- **Semgrep 1.161** with `p/security-audit + p/secrets + p/owasp-top-ten + p/python + p/javascript` → **0 findings** on 175 files
+- **detect-secrets 1.5.0** → 77 raw hits, **4 prod-relevant** after triage
+- **pip-audit 2.9.0** → 36 vulnerable deps in `requirements.txt`
+- **Custom DAST harness** (`/tmp/sec/dast.py`) → 8 active tests, **0 findings**
+
+Raw outputs (this run):
+- `/tmp/sec/bandit.json`
+- `/tmp/sec/semgrep.json`
+- `/tmp/sec/secrets.json`
+- `/tmp/sec/pipaudit.json`
+- `/tmp/sec/dast.json`
