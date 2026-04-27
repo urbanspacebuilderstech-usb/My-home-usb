@@ -32,17 +32,25 @@ async def get_current_user(request: Request):
     """Get current authenticated user with security checks"""
     from core.models import User
 
-    # Real client IP (honours X-Forwarded-For from nginx/cloudflare so shared
-    # NAT users aren't all bucketed as a single proxy IP)
-    fwd = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
-    if fwd:
-        client_ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    # Real client IP (Cloudflare > X-Forwarded-For > direct). Each user's IP is
+    # then their own bucket so shared-NAT offices don't share a single bucket.
+    cf = request.headers.get("cf-connecting-ip") or request.headers.get("CF-Connecting-IP")
+    if cf:
+        client_ip = cf.strip()
     else:
-        client_ip = request.client.host if request.client else "unknown"
+        fwd = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+        if fwd:
+            client_ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+        else:
+            client_ip = request.client.host if request.client else "unknown"
 
-    # Generous IP cap (only meant to stop runaway scrapers from a single host).
-    # Per-user cap (applied below after auth) is the real protection.
-    if not rate_limiter.check_rate_limit(f"ip:{client_ip}"):
+    # Skip rate limiting for the polling /auth/me endpoint to avoid spurious
+    # 429s during normal SPA navigation. Real protection comes from the auth
+    # check + per-user bucket below.
+    path = request.url.path or ""
+    skip_rate_limit = path.endswith("/auth/me")
+
+    if not skip_rate_limit and not rate_limiter.check_rate_limit(f"ip:{client_ip}"):
         logger.warning(f"IP-level rate limit exceeded for: {client_ip}")
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
@@ -74,9 +82,8 @@ async def get_current_user(request: Request):
     if not user_doc.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
-    # Per-user rate limit: each authenticated user has their own bucket so
-    # heavy users on shared NAT don't starve their colleagues.
-    if not rate_limiter.check_rate_limit(f"user:{user_doc['user_id']}", max_requests=SecurityConfig.RATE_LIMIT_MAX_REQUESTS_PER_USER):
+    # Per-user rate limit (skipped for /auth/me to avoid throttling polling).
+    if not skip_rate_limit and not rate_limiter.check_rate_limit(f"user:{user_doc['user_id']}", max_requests=SecurityConfig.RATE_LIMIT_MAX_REQUESTS_PER_USER):
         logger.warning(f"User-level rate limit exceeded for: {user_doc.get('email')}")
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 

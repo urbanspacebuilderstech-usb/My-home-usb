@@ -99,6 +99,9 @@ export default function Login() {
         return;
       }
       toast.success(`Welcome, ${data.name}!`);
+      // Invalidate any stale auth cache from a prior session in this browser
+      // so the next ProtectedRoute load uses *this* user, not the old one.
+      if (window.__clearAuthCache) window.__clearAuthCache();
       const target = getRoleRedirect(data.role);
       navigate(target, { replace: true });
     } catch (error) {
@@ -115,6 +118,7 @@ export default function Login() {
       const response = await axios.post(`${API}/auth/demo-login`, { email: emailToUse }, { withCredentials: true });
       const user = response.data;
       toast.success(`Welcome, ${user.name}!`);
+      if (window.__clearAuthCache) window.__clearAuthCache();
       const target = getRoleRedirect(user.role);
       navigate(target, { replace: true });
     } catch (error) {

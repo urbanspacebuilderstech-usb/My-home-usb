@@ -240,11 +240,13 @@ class LoginRequest(BaseModel):
 
 
 def _real_client_ip(request: Request) -> str:
-    """Resolve real client IP, honouring X-Forwarded-For from nginx/cloudflare.
-    Falls back to direct request.client.host. Used for rate-limiting & audit."""
+    """Resolve real client IP, honouring Cloudflare's CF-Connecting-IP first,
+    then X-Forwarded-For from nginx, then direct request.client.host."""
+    cf = request.headers.get("cf-connecting-ip") or request.headers.get("CF-Connecting-IP")
+    if cf:
+        return cf.strip()
     fwd = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
     if fwd:
-        # Take the leftmost (original client) entry
         return fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
     return request.client.host if request.client else "unknown"
 

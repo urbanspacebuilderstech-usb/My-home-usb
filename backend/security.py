@@ -34,13 +34,13 @@ class SecurityConfig:
     SESSION_REFRESH_THRESHOLD_HOURS = 12  # Refresh if less than 12 hours remaining
     
     # Rate limiting (sized for shared-NAT office environments where many users
-    # share a single public IP, so per-IP buckets must be generous; per-user
-    # buckets are applied separately in deps.py)
+    # share a single public IP, so per-IP buckets must be very generous;
+    # per-user buckets are applied separately in deps.py)
     RATE_LIMIT_WINDOW_SECONDS = 60  # 1 minute window
-    RATE_LIMIT_MAX_REQUESTS = 6000  # Max 6000 requests / min / IP (covers ~100 concurrent users on a single NAT)
-    RATE_LIMIT_MAX_REQUESTS_PER_USER = 600  # Max 600 requests / min / authenticated user (10 req/sec)
+    RATE_LIMIT_MAX_REQUESTS = 60000  # 1000 req/sec from a single IP — effectively DoS protection only
+    RATE_LIMIT_MAX_REQUESTS_PER_USER = 3000  # 50 req/sec per authenticated user (covers heavy SPA polling)
     LOGIN_RATE_LIMIT_MAX = 30  # Max 30 login attempts / min keyed by IP+email
-    LOGIN_RATE_LIMIT_PER_IP = 200  # Max 200 logins / min from a single IP (office concurrent logins)
+    LOGIN_RATE_LIMIT_PER_IP = 500  # Max 500 logins / min from a single IP (office concurrent logins)
     
     # Password policy
     MIN_PASSWORD_LENGTH = 8
