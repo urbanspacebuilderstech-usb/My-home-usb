@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
@@ -9,78 +9,110 @@ import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
 import { Card, CardContent } from './ui/card';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
-import { Loader2, CheckCircle2, AlertCircle, Banknote, Building2, CreditCard, FileText, Wallet } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Banknote, Building2, CreditCard, FileText, Wallet, Search, Lock, Send } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
-
 const DENOMS = [2000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
 
-/**
- * Pay an approval (material/labour/petty_cash).
- * Props:
- *   - open, onOpenChange — dialog state
- *   - reqType, requestId — which approval
- *   - onPaid — callback after success
- */
 export default function PayApprovalDialog({ open, onOpenChange, reqType, requestId, onPaid }) {
   const [ctx, setCtx] = useState(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [method, setMethod] = useState('cheque');
-  const [chequeId, setChequeId] = useState('');
+  const [chequeIds, setChequeIds] = useState([]); // multi-select
   const [transactionId, setTransactionId] = useState('');
-  const [denoms, setDenoms] = useState({}); // { 2000: 5, 500: 10 }
+  const [denoms, setDenoms] = useState({});
   const [remarks, setRemarks] = useState('');
+  // Cheque tabs (Active / Inactive)
+  const [chequeTab, setChequeTab] = useState('active');
+  const [projSearch, setProjSearch] = useState('');
+  const [requestingOpen, setRequestingOpen] = useState(null); // cheque_id being requested
+
+  const reload = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API}/approvals/${reqType}/${requestId}/pay-context`);
+      setCtx(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to load context');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || !requestId) return;
-    setCtx(null); setMethod('cheque'); setChequeId(''); setTransactionId(''); setDenoms({}); setRemarks('');
-    setLoading(true);
-    axios.get(`${API}/approvals/${reqType}/${requestId}/pay-context`)
-      .then(r => setCtx(r.data))
-      .catch(e => toast.error(e?.response?.data?.detail || 'Failed to load context'))
-      .finally(() => setLoading(false));
+    setCtx(null); setMethod('cheque'); setChequeIds([]); setTransactionId(''); setDenoms({}); setRemarks('');
+    setChequeTab('active'); setProjSearch('');
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, requestId, reqType]);
 
   const denomTotal = Object.entries(denoms).reduce((s, [n, c]) => s + (Number(n) * Number(c || 0)), 0);
-  const selectedCheque = ctx?.active_cheques?.find(c => c.cheque_id === chequeId);
+  const selectedCheques = (ctx?.active_cheques || []).filter(c => chequeIds.includes(c.cheque_id));
+  const chequeTotal = selectedCheques.reduce((s, c) => s + (Number(c.amount) || 0), 0);
   const payable = ctx?.payable_after_suspense || 0;
+  const newSuspense = method === 'cheque' ? Math.max(0, chequeTotal - payable) : 0;
 
-  // What will actually be paid?
-  let chequePaid = selectedCheque?.amount || 0;
-  let newSuspense = 0;
-  if (method === 'cheque' && selectedCheque) {
-    newSuspense = Math.max(0, chequePaid - payable);
-  }
+  // Filter cheques by project search (matches project_name OR cheque_number OR bank_name)
+  const matchSearch = (c) => {
+    if (!projSearch.trim()) return true;
+    const q = projSearch.trim().toLowerCase();
+    return (c.project_name || '').toLowerCase().includes(q)
+        || (c.cheque_number || '').toLowerCase().includes(q)
+        || (c.bank_name || '').toLowerCase().includes(q)
+        || (c.party_name || '').toLowerCase().includes(q);
+  };
+  const visibleActive = useMemo(() => (ctx?.active_cheques || []).filter(matchSearch), [ctx, projSearch]);
+  const visibleInactive = useMemo(() => (ctx?.inactive_cheques || []).filter(matchSearch), [ctx, projSearch]);
 
-  const submit = async () => {
-    if (method === 'cheque' && !chequeId) {
-      toast.error('Please choose a cheque');
+  const toggleCheque = (cid) => {
+    setChequeIds(prev => prev.includes(cid) ? prev.filter(x => x !== cid) : [...prev, cid]);
+  };
+
+  const requestOpen = async (cheque) => {
+    if (cheque.open_requested) {
+      toast.info('Already requested. CRE will open it.');
       return;
     }
-    if (method === 'cheque' && selectedCheque && selectedCheque.amount < payable) {
-      toast.error(`Cheque amount ${fmt(selectedCheque.amount)} is less than payable ${fmt(payable)}`);
+    setRequestingOpen(cheque.cheque_id);
+    try {
+      await axios.patch(`${API}/accountant/cheques/${cheque.cheque_id}/request-open`, { remarks: `Needed for ${reqType} payment` });
+      toast.success(`Requested CRE to open ${cheque.cheque_number}`);
+      reload();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to request');
+    } finally {
+      setRequestingOpen(null);
+    }
+  };
+
+  const submit = async () => {
+    if (method === 'cheque' && chequeIds.length === 0) {
+      toast.error('Please select at least one cheque');
+      return;
+    }
+    if (method === 'cheque' && chequeTotal < payable) {
+      toast.error(`Cheque total ${fmt(chequeTotal)} is less than payable ${fmt(payable)}`);
       return;
     }
     if ((method === 'current_account' || method === 'savings') && !transactionId.trim()) {
       toast.error('Transaction ID is required');
       return;
     }
-    if (method === 'cash') {
-      if (Math.abs(denomTotal - payable) > 0.5) {
-        toast.error(`Denominations total ${fmt(denomTotal)} ≠ payable ${fmt(payable)}`);
-        return;
-      }
+    if (method === 'cash' && Math.abs(denomTotal - payable) > 0.5) {
+      toast.error(`Denominations total ${fmt(denomTotal)} ≠ payable ${fmt(payable)}`);
+      return;
     }
 
     const body = {
       payment_method: method,
       remarks: remarks || null,
-      ...(method === 'cheque' ? { cheque_id: chequeId } : {}),
+      ...(method === 'cheque' ? { cheque_ids: chequeIds } : {}),
       ...(method === 'current_account' || method === 'savings' ? { transaction_id: transactionId } : {}),
       ...(method === 'cash' ? {
-        denominations: Object.entries(denoms).filter(([_, c]) => Number(c) > 0).map(([n, c]) => ({ note: Number(n), count: Number(c) }))
+        denominations: Object.entries(denoms).filter(([, c]) => Number(c) > 0).map(([n, c]) => ({ note: Number(n), count: Number(c) }))
       } : {}),
     };
 
@@ -99,7 +131,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5 text-emerald-600" /> Process Payment — {reqType?.replace('_', ' ')}
@@ -129,7 +161,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-3">
                 <p className="text-xs font-semibold text-blue-700 uppercase mb-2">Vendor Suspense Balance (auto-applied)</p>
-                <div className="grid grid-cols-3 gap-3 text-sm" data-testid="pay-suspense-grid">
+                <div className="grid grid-cols-3 gap-3 text-sm">
                   <div className="text-center bg-white rounded-md p-2">
                     <p className="text-[10px] text-gray-500 uppercase">Existing Balance</p>
                     <p className="font-bold text-blue-800">{fmt(ctx.suspense.vendor_balance)}</p>
@@ -140,7 +172,7 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
                   </div>
                   <div className="text-center bg-white rounded-md p-2 ring-2 ring-orange-300">
                     <p className="text-[10px] text-gray-500 uppercase">Net Payable</p>
-                    <p className="font-bold text-orange-700 text-base">{fmt(ctx.payable_after_suspense)}</p>
+                    <p className="font-bold text-orange-700 text-base">{fmt(payable)}</p>
                   </div>
                 </div>
               </CardContent>
@@ -165,74 +197,181 @@ export default function PayApprovalDialog({ open, onOpenChange, reqType, request
               </RadioGroup>
             </div>
 
-            {/* Method-specific inputs */}
+            {/* === Cheque section: Active/Inactive tabs + search + multi-select === */}
             {method === 'cheque' && (
-              <div>
-                <Label className="text-xs font-semibold text-gray-700 mb-2 block">Choose CRE-Opened Cheque</Label>
-                {ctx.active_cheques.length === 0 ? (
-                  <Card><CardContent className="p-4 text-center text-sm text-gray-400">
-                    <AlertCircle className="h-6 w-6 mx-auto mb-1 text-amber-400" />
-                    No active CRE-opened cheques available
-                  </CardContent></Card>
+              <div className="border rounded-lg overflow-hidden">
+                {/* Tab strip */}
+                <div className="flex bg-gray-50 border-b">
+                  <button
+                    type="button"
+                    className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${chequeTab === 'active' ? 'bg-white text-emerald-700 border-b-2 border-emerald-500' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setChequeTab('active')}
+                    data-testid="pay-tab-active"
+                  >
+                    <CheckCircle2 className="h-4 w-4" /> Active Cheques
+                    <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">{(ctx.active_cheques || []).length}</Badge>
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${chequeTab === 'inactive' ? 'bg-white text-amber-700 border-b-2 border-amber-500' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setChequeTab('inactive')}
+                    data-testid="pay-tab-inactive"
+                  >
+                    <Lock className="h-4 w-4" /> Inactive Cheques
+                    <Badge className="bg-amber-100 text-amber-700 text-[10px]">{(ctx.inactive_cheques || []).length}</Badge>
+                  </button>
+                </div>
+
+                {/* Search bar */}
+                <div className="p-3 border-b bg-white">
+                  <div className="relative">
+                    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                    <Input
+                      placeholder="Search by project / bank / cheque number…"
+                      value={projSearch}
+                      onChange={e => setProjSearch(e.target.value)}
+                      className="pl-8 h-9 text-xs"
+                      data-testid="pay-cheque-search"
+                    />
+                  </div>
+                </div>
+
+                {/* Cheque table */}
+                {chequeTab === 'active' ? (
+                  <div className="max-h-72 overflow-auto">
+                    {visibleActive.length === 0 ? (
+                      <div className="p-6 text-center text-gray-400 text-sm">
+                        <AlertCircle className="h-6 w-6 mx-auto mb-1 text-amber-400" />
+                        {ctx.active_cheques?.length === 0 ? 'No active CRE-opened cheques available' : 'No matching cheques'}
+                      </div>
+                    ) : (
+                      <table className="w-full text-xs" data-testid="pay-active-cheque-table">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr className="border-b text-gray-500">
+                            <th className="text-left px-3 py-2 font-semibold">Project</th>
+                            <th className="text-left px-3 py-2 font-semibold">Bank</th>
+                            <th className="text-left px-3 py-2 font-semibold">Cheque #</th>
+                            <th className="text-right px-3 py-2 font-semibold">Amount</th>
+                            <th className="text-center px-3 py-2 font-semibold">Select</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleActive.map(c => {
+                            const sel = chequeIds.includes(c.cheque_id);
+                            return (
+                              <tr
+                                key={c.cheque_id}
+                                onClick={() => toggleCheque(c.cheque_id)}
+                                className={`border-b cursor-pointer transition-colors ${sel ? 'bg-emerald-50' : 'hover:bg-gray-50'}`}
+                                data-testid={`pay-active-row-${c.cheque_id}`}
+                              >
+                                <td className="px-3 py-2">{c.project_name || '—'}</td>
+                                <td className="px-3 py-2">
+                                  <Badge className="bg-blue-100 text-blue-700 text-[10px]">{c.bank_name || '—'}</Badge>
+                                  {c.is_post_dated && <Badge className="bg-purple-100 text-purple-700 text-[10px] ml-1">PDC</Badge>}
+                                </td>
+                                <td className="px-3 py-2 font-mono">{c.cheque_number}</td>
+                                <td className="px-3 py-2 text-right font-bold text-emerald-700">{fmt(c.amount)}</td>
+                                <td className="px-3 py-2 text-center">
+                                  <input
+                                    type="checkbox"
+                                    checked={sel}
+                                    onChange={() => toggleCheque(c.cheque_id)}
+                                    onClick={e => e.stopPropagation()}
+                                    className="h-4 w-4 accent-emerald-600 cursor-pointer"
+                                    data-testid={`pay-active-cb-${c.cheque_id}`}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 ) : (
-                  <div className="space-y-2 max-h-72 overflow-auto" data-testid="pay-cheque-list">
-                    {ctx.active_cheques.map(c => (
-                      <button
-                        key={c.cheque_id}
-                        type="button"
-                        onClick={() => setChequeId(c.cheque_id)}
-                        className={`w-full text-left p-3 rounded-md border transition-all ${chequeId === c.cheque_id ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200' : 'border-gray-200 hover:bg-gray-50'}`}
-                        data-testid={`pay-cheque-opt-${c.cheque_id}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-semibold text-sm">{c.cheque_number}</span>
-                              <Badge className="bg-blue-100 text-blue-700 text-[10px]">{c.bank_name}</Badge>
-                              {c.is_post_dated && <Badge className="bg-purple-100 text-purple-700 text-[10px]">PDC</Badge>}
-                            </div>
-                            <p className="text-[11px] text-gray-500 mt-0.5">
-                              {c.party_name} · {c.project_name || 'No project'} · {new Date(c.cheque_date).toLocaleDateString('en-IN')}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-emerald-700">{fmt(c.amount)}</p>
-                            {chequeId === c.cheque_id && <CheckCircle2 className="h-4 w-4 text-emerald-600 ml-auto" />}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
+                  <div className="max-h-72 overflow-auto">
+                    {visibleInactive.length === 0 ? (
+                      <div className="p-6 text-center text-gray-400 text-sm">
+                        <AlertCircle className="h-6 w-6 mx-auto mb-1 text-amber-400" />
+                        {ctx.inactive_cheques?.length === 0 ? 'No inactive cheques' : 'No matching cheques'}
+                      </div>
+                    ) : (
+                      <table className="w-full text-xs" data-testid="pay-inactive-cheque-table">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr className="border-b text-gray-500">
+                            <th className="text-left px-3 py-2 font-semibold">Project</th>
+                            <th className="text-left px-3 py-2 font-semibold">Bank</th>
+                            <th className="text-left px-3 py-2 font-semibold">Cheque #</th>
+                            <th className="text-right px-3 py-2 font-semibold">Amount</th>
+                            <th className="text-center px-3 py-2 font-semibold">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleInactive.map(c => (
+                            <tr key={c.cheque_id} className="border-b hover:bg-gray-50" data-testid={`pay-inactive-row-${c.cheque_id}`}>
+                              <td className="px-3 py-2">{c.project_name || '—'}</td>
+                              <td className="px-3 py-2">
+                                <Badge className="bg-blue-100 text-blue-700 text-[10px]">{c.bank_name || '—'}</Badge>
+                                {c.is_post_dated && <Badge className="bg-purple-100 text-purple-700 text-[10px] ml-1">PDC</Badge>}
+                              </td>
+                              <td className="px-3 py-2 font-mono">{c.cheque_number}</td>
+                              <td className="px-3 py-2 text-right font-bold text-gray-700">{fmt(c.amount)}</td>
+                              <td className="px-3 py-2 text-center">
+                                {c.open_requested ? (
+                                  <Badge className="bg-blue-100 text-blue-700 text-[10px] gap-1">
+                                    <Send className="h-3 w-3" /> Requested
+                                  </Badge>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-[10px] gap-1 px-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                    disabled={requestingOpen === c.cheque_id}
+                                    onClick={() => requestOpen(c)}
+                                    data-testid={`pay-req-open-btn-${c.cheque_id}`}
+                                  >
+                                    {requestingOpen === c.cheque_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                                    Req to Open
+                                  </Button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 )}
 
-                {/* Cheque math preview */}
-                {selectedCheque && (
-                  <Card className="mt-3 bg-emerald-50 border-emerald-200">
-                    <CardContent className="p-3">
-                      <p className="text-xs font-semibold text-emerald-700 uppercase mb-2">Payment Math</p>
-                      <div className="grid grid-cols-3 gap-3 text-sm">
-                        <div className="text-center bg-white rounded-md p-2">
-                          <p className="text-[10px] text-gray-500 uppercase">Cheque</p>
-                          <p className="font-bold text-emerald-700">{fmt(chequePaid)}</p>
-                        </div>
-                        <div className="text-center bg-white rounded-md p-2">
-                          <p className="text-[10px] text-gray-500 uppercase">Payable</p>
-                          <p className="font-bold text-orange-700">−{fmt(payable)}</p>
-                        </div>
-                        <div className="text-center bg-white rounded-md p-2 ring-2 ring-blue-300">
-                          <p className="text-[10px] text-gray-500 uppercase">New Suspense</p>
-                          <p className={`font-bold text-base ${newSuspense > 0 ? 'text-blue-700' : 'text-gray-500'}`}>
-                            {newSuspense > 0 ? '+' + fmt(newSuspense) : fmt(0)}
-                          </p>
-                        </div>
+                {/* Math preview when ≥1 active cheque selected */}
+                {selectedCheques.length > 0 && (
+                  <div className="bg-emerald-50 border-t border-emerald-200 p-3">
+                    <p className="text-xs font-semibold text-emerald-700 uppercase mb-2">
+                      Payment Math · {selectedCheques.length} cheque{selectedCheques.length > 1 ? 's' : ''} selected
+                    </p>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div className="text-center bg-white rounded-md p-2">
+                        <p className="text-[10px] text-gray-500 uppercase">Cheque Total</p>
+                        <p className="font-bold text-emerald-700">{fmt(chequeTotal)}</p>
                       </div>
-                      {newSuspense > 0 && (
-                        <p className="text-[11px] text-blue-700 mt-2 italic">
-                          Excess of {fmt(newSuspense)} will be credited to {ctx.request.vendor_name}'s suspense for future bills.
+                      <div className="text-center bg-white rounded-md p-2">
+                        <p className="text-[10px] text-gray-500 uppercase">Payable</p>
+                        <p className="font-bold text-orange-700">−{fmt(payable)}</p>
+                      </div>
+                      <div className="text-center bg-white rounded-md p-2 ring-2 ring-blue-300">
+                        <p className="text-[10px] text-gray-500 uppercase">New Suspense</p>
+                        <p className={`font-bold text-base ${newSuspense > 0 ? 'text-blue-700' : 'text-gray-500'}`}>
+                          {newSuspense > 0 ? '+' + fmt(newSuspense) : fmt(0)}
                         </p>
-                      )}
-                    </CardContent>
-                  </Card>
+                      </div>
+                    </div>
+                    {newSuspense > 0 && (
+                      <p className="text-[11px] text-blue-700 mt-2 italic">
+                        Excess of {fmt(newSuspense)} will be credited to {ctx.request.vendor_name}'s suspense for future bills.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}

@@ -3112,7 +3112,8 @@ class PaymentDenomination(BaseModel):
 class PayApprovalRequest(BaseModel):
     payment_method: str  # cash / current_account / savings / cheque
     transaction_id: Optional[str] = None
-    cheque_id: Optional[str] = None
+    cheque_id: Optional[str] = None  # legacy single cheque
+    cheque_ids: Optional[List[str]] = None  # multi-cheque selection
     denominations: Optional[List[PaymentDenomination]] = None
     remarks: Optional[str] = None
 
@@ -3180,6 +3181,24 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
     }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
 
+    # Inactive (locked) incoming cheques — Accountant can "Request Open"
+    inactive_cheques = await db.cheques.find({
+        "cheque_type": "incoming",
+        "is_opened": False,
+        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+
+    # Enrich with project name for both lists
+    project_cache = {}
+    for ch in (active_cheques + inactive_cheques):
+        pid = ch.get("project_id")
+        if pid and pid not in project_cache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            project_cache[pid] = p["name"] if p else None
+        if pid:
+            ch["project_name"] = project_cache.get(pid) or ch.get("project_name")
+
     payable = max(0.0, bill_amount - existing_suspense)
     credit_used = min(existing_suspense, bill_amount)
 
@@ -3200,6 +3219,7 @@ async def get_pay_context(req_type: str, request_id: str, user: User = Depends(g
         },
         "payable_after_suspense": payable,
         "active_cheques": active_cheques,
+        "inactive_cheques": inactive_cheques,
     }
 
 
@@ -3239,20 +3259,27 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
 
     # 2. Payment-method specific: figure out actual paid amount + create cheque link
     paid_amount = payable
-    cheque_doc = None
+    cheque_docs = []  # list of selected cheque docs (multi-cheque support)
     if data.payment_method == "cheque":
-        if not data.cheque_id:
-            raise HTTPException(status_code=400, detail="cheque_id required for cheque payment")
-        cheque_doc = await db.cheques.find_one({"cheque_id": data.cheque_id}, {"_id": 0})
-        if not cheque_doc:
-            raise HTTPException(status_code=404, detail="Selected cheque not found")
-        if not cheque_doc.get("is_opened"):
-            raise HTTPException(status_code=400, detail="Selected cheque is not opened by CRE yet")
-        if cheque_doc.get("used_for_expense_id"):
-            raise HTTPException(status_code=400, detail="This cheque has already been used")
-        paid_amount = float(cheque_doc.get("amount", 0) or 0)
+        # Resolve cheque ids (support both single legacy + multi)
+        ch_ids = list(data.cheque_ids or [])
+        if data.cheque_id and data.cheque_id not in ch_ids:
+            ch_ids.append(data.cheque_id)
+        if not ch_ids:
+            raise HTTPException(status_code=400, detail="At least one cheque must be selected")
+        # Validate each cheque
+        for cid in ch_ids:
+            cd = await db.cheques.find_one({"cheque_id": cid}, {"_id": 0})
+            if not cd:
+                raise HTTPException(status_code=404, detail=f"Cheque {cid} not found")
+            if not cd.get("is_opened"):
+                raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} is not opened by CRE yet")
+            if cd.get("used_for_expense_id"):
+                raise HTTPException(status_code=400, detail=f"Cheque {cd.get('cheque_number')} has already been used")
+            cheque_docs.append(cd)
+        paid_amount = sum(float(c.get("amount", 0) or 0) for c in cheque_docs)
         if paid_amount < payable:
-            raise HTTPException(status_code=400, detail=f"Cheque amount ₹{paid_amount:,.0f} is less than payable ₹{payable:,.0f}")
+            raise HTTPException(status_code=400, detail=f"Total cheque amount ₹{paid_amount:,.0f} is less than payable ₹{payable:,.0f}")
     elif data.payment_method in ("current_account", "savings"):
         if not data.transaction_id or not data.transaction_id.strip():
             raise HTTPException(status_code=400, detail="transaction_id required for bank payment")
@@ -3272,6 +3299,8 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
     expense_id = f"exp_{uuid.uuid4().hex[:12]}"
 
     # 4. Insert main expense in cashbook
+    cheque_ids_used = [c["cheque_id"] for c in cheque_docs] if cheque_docs else []
+    cheque_numbers_used = [c.get("cheque_number") for c in cheque_docs] if cheque_docs else []
     cashbook_entry = {
         "expense_id": expense_id,
         "project_id": project_id,
@@ -3281,7 +3310,9 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         "amount": payable,  # the actual expense booked = payable amount
         "payment_method": data.payment_method,
         "transaction_id": data.transaction_id,
-        "cheque_id": data.cheque_id,
+        "cheque_id": cheque_ids_used[0] if cheque_ids_used else None,  # legacy single field
+        "cheque_ids": cheque_ids_used,  # full multi-cheque list
+        "cheque_numbers": cheque_numbers_used,
         "denominations": [d.model_dump() for d in (data.denominations or [])],
         "vendor_name": vendor_name,
         "request_id": request_id,
@@ -3325,23 +3356,23 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
                {"contractor_name": vendor_name} if suspense_type == "labour" else
                ({"site_engineer_id": req.get("site_engineer_id"), "site_engineer_name": vendor_name} if req.get("site_engineer_id") else {"vendor_name": vendor_name})),
             "amount": new_suspense_credit,
-            "description": f"Excess from cheque {cheque_doc.get('cheque_number') if cheque_doc else ''} on {req_type} bill ({request_id})",
+            "description": f"Excess from cheque(s) {', '.join(cheque_numbers_used)} on {req_type} bill ({request_id})",
             "linked_expense_id": expense_id,
-            "linked_cheque_id": data.cheque_id,
+            "linked_cheque_ids": cheque_ids_used,
             "created_at": now,
             "created_by": user.user_id,
         })
 
-    # 6. Mark cheque used
-    if cheque_doc:
+    # 6. Mark all selected cheques used
+    for cd in cheque_docs:
         await db.cheques.update_one(
-            {"cheque_id": data.cheque_id},
+            {"cheque_id": cd["cheque_id"]},
             {"$set": {
                 "used_for_expense_id": expense_id,
                 "used_at": now,
                 "used_by": user.user_id,
                 "used_by_name": user.name,
-                "status": "deposited" if cheque_doc.get("status") == "issued" else cheque_doc.get("status"),
+                "status": "deposited" if cd.get("status") == "issued" else cd.get("status"),
                 "updated_at": now,
             }}
         )
