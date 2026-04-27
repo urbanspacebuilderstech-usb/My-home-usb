@@ -264,14 +264,15 @@ export default function CRMSales() {
         }
       }
       
-      // Intercept: Show remarks dialog for RE-Client
+      // Intercept: For RE-Client, open the unified Move-to-RE-Client popup
+      // (creates the prospect login AND auto-moves the stage) instead of the
+      // older remarks-only dialog.
       if (['stg_re_to_client'].includes(stage?.stage_id)) {
-        setRemarksLeadId(leadId);
-        setRemarksStageId(newStageId);
-        setRemarksStageName(stage.name);
-        setRemarksText('');
-        setRemarksDialog(true);
-        return;
+        const lead = leads.find(l => l.lead_id === leadId);
+        if (lead) {
+          setProspectDialog({ open: true, lead });
+          return;
+        }
       }
       
       // Intercept: Show lost reason dialog
