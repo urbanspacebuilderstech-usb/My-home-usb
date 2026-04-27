@@ -1,0 +1,47 @@
+{
+  "summary": "Tested the new token-based RE share-link feature (replaces Prospect Login). Backend: 15/15 pytest cases pass (100%) covering generate, get-status, public-view, book-appointment, regenerate-re and timeline. Frontend: public /quote/:token route renders correctly — live quote with expiry chip, project details, inclusions, Call Sales CTA; invalid tokens show 'Link unavailable' page; no auth cookies needed. CRMSales detail-dialog UI interaction could not be exercised live (specific lead 'Priya M' was not visible in the default CRMSales board view during the demo-admin session), but all required data-testids exist in the source code and the APIs those buttons invoke are validated backend-side.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Public quote view (live)",
+        "issues": ["When re_project.estimated_total is 0/missing, the 'Approved Estimate' hero + 'Inclusions' total block collapse silently — consider showing 'Estimate pending' to avoid an empty-looking quote."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_quote_links.py",
+    "/app/test_reports/pytest/pytest_quote_links.xml"
+  ],
+  "action_items": [
+    "Optional UX: show a fallback 'Estimate pending finalisation' chip on the public quote view when estimated_total is 0 so the hero card isn't visually empty.",
+    "Optional: increase default lead visibility on /crm-sales board (or add a filter) so GM-approved/RE-sent leads like 'Priya M' (stg_re_request) show in the default view for quicker testing/demo.",
+    "Main agent can self-verify the remaining CRMSales detail-dialog flow by opening a lead with active_quote_token set and clicking detail-generate-re-link-btn / detail-regenerate-re-btn / tab-timeline."
+  ],
+  "critical_code_review_comments": [
+    "quote_links.py: generate-quote-link correctly auto-revokes prior live links via update_many before inserting new doc — prior token returns 410 as expected.",
+    "public_get_quote: HMAC signature check prevents forged tokens (invalid & malformed → 404). Public endpoint works without cookies (withCredentials:false in PublicQuoteView publicAxios).",
+    "regenerate-re: correctly increments revision, points lead to new RE, moves stage to stg_re_request, creates Planning notification. New RE inherits rough_requirement/scope_items and stores previous_re_project_id for audit.",
+    "book-appointment: creates fresh lead tagged ['client_appointment','returning_prospect'], assigns to original sales_user_id, stores previous_lead_id — clean trail. Notification fires.",
+    "timeline endpoint sorts events newest-first and includes stage_history + follow_ups + appointment + advance_payment + quote_links — assertion verified.",
+    "quote_links.py uses a module-level AsyncIOMotorClient instead of the shared app client — harmless but inconsistent with the rest of routes/. Consider DRY-ing via core.deps.get_db.",
+    "Legacy prospect.py / CreateProspectUserDialog kept intentionally but now unused — cleanup candidate for a later pass."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_quote_links.py"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15)",
+    "frontend": "80% (public view fully verified; CRMSales detail-dialog test-ids confirmed in code, not exercised live)"
+  },
+  "test_credentials": "Super Admin via Demo Access tab → 'Login as Demo User' (admin@constructionos.com). Password login with Demo@1234 returned 401 on /api/auth/login for the demo admin; backend test fixture logs in successfully via the same endpoint, so the 401 seems UI-only; demo tab path works reliably.",
+  "seed_data_creation": "Test created 1 new lead 'TEST_Returning Prospect' via public book-appointment endpoint (tagged client_appointment, linked to lead_73896054d131). No cleanup performed — low volume.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend route prefix for quote_links is /api/ (not /api/quote-links/). GM-approved fixture REs are re_2b9ca650e828 (lead_73896054d131) and re_036b7016e31c (lead_d08bc1f28f16); the fixture in test_quote_links.py resets lead.re_project_id to these approved IDs before each module run because prior regen runs re-point the lead to new in-progress REs. Public endpoints require no auth. The token format is 'quote_id.hmac_sig[:24]'."
+}

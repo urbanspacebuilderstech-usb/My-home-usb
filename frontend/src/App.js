@@ -52,6 +52,7 @@ import SuspenseAccount from '@/pages/SuspenseAccount';
 import OtherAccounts from '@/pages/OtherAccounts';
 import DTBoard from '@/pages/DTBoard';
 import ProspectApp from '@/pages/ProspectApp';
+import PublicQuoteView from '@/pages/PublicQuoteView';
 import UserApp from '@/pages/UserApp';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
@@ -102,6 +103,7 @@ function AppRouter() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/setup-password" element={<SetupPassword />} />
+      <Route path="/quote/:token" element={<PublicQuoteView />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />

@@ -152,8 +152,14 @@ export default function CRMSales() {
   
   // Remarks dialog (Discussion, Deal Closed, RE-To Client, Lost)
   const [remarksDialog, setRemarksDialog] = useState(false);
-  // Create-Prospect-Login popup (Move to RE Client mobile flow)
+  // Create-Prospect-Login popup (Move to RE Client mobile flow) — DEPRECATED, kept for old flows only
   const [prospectDialog, setProspectDialog] = useState({ open: false, lead: null });
+  // Quote-link state for the currently-open lead (Live / Expired chip + URL)
+  const [quoteLink, setQuoteLink] = useState({ status: 'none', link: null });
+  const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
+  // Regenerate-RE remarks dialog
+  const [regenDialog, setRegenDialog] = useState({ open: false, lead: null });
+  const [regenRemarks, setRegenRemarks] = useState('');
   const [remarksLeadId, setRemarksLeadId] = useState(null);
   const [remarksStageId, setRemarksStageId] = useState(null);
   const [remarksStageName, setRemarksStageName] = useState('');
@@ -264,13 +270,13 @@ export default function CRMSales() {
         }
       }
       
-      // Intercept: For RE-Client, open the unified Move-to-RE-Client popup
-      // (creates the prospect login AND auto-moves the stage) instead of the
-      // older remarks-only dialog.
+      // Intercept: For RE-Client, auto-generate the public quote link
+      // (replaces the old prospect-login flow). The backend also moves
+      // the lead to "RE Sent to Client" stage.
       if (['stg_re_to_client'].includes(stage?.stage_id)) {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
-          setProspectDialog({ open: true, lead });
+          handleGenerateQuoteLink(lead);
           return;
         }
       }
@@ -733,6 +739,7 @@ export default function CRMSales() {
     setSelectedLead(lead);
     setDetailTab('overview');
     setViewLeadDialog(true);
+    setQuoteLink({ status: 'none', link: null });
     // Fetch full lead detail
     try {
       const res = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
@@ -741,6 +748,69 @@ export default function CRMSales() {
     } catch {
       setLeadDetail(lead);
       setSummary(lead.summary || '');
+    }
+    // Fetch the active quote link (for the Live/Expired chip)
+    fetchQuoteLink(lead.lead_id);
+  };
+
+  const fetchQuoteLink = async (leadId) => {
+    try {
+      const res = await axios.get(`${API}/leads/${leadId}/quote-link`);
+      setQuoteLink(res.data || { status: 'none', link: null });
+    } catch {
+      setQuoteLink({ status: 'none', link: null });
+    }
+  };
+
+  const buildPublicQuoteUrl = (token) => `${window.location.origin}/quote/${token}`;
+
+  const handleGenerateQuoteLink = async (lead) => {
+    if (!lead) return;
+    setQuoteLinkLoading(true);
+    try {
+      const res = await axios.post(`${API}/leads/${lead.lead_id}/generate-quote-link`, {});
+      const url = buildPublicQuoteUrl(res.data.token);
+      setQuoteLink({ status: 'live', link: res.data });
+      try { await navigator.clipboard.writeText(url); toast.success('RE link generated & copied to clipboard'); }
+      catch { toast.success('RE link generated'); }
+      // Refresh lead so stage moves to RE-To-Client are reflected
+      try {
+        const lr = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
+        setLeadDetail(lr.data);
+        setSelectedLead(lr.data);
+      } catch {}
+      fetchData(false);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not generate link');
+    } finally {
+      setQuoteLinkLoading(false);
+    }
+  };
+
+  const handleCopyQuoteLink = async () => {
+    const token = quoteLink?.link?.token;
+    if (!token) return;
+    try { await navigator.clipboard.writeText(buildPublicQuoteUrl(token)); toast.success('Link copied'); }
+    catch { toast.error('Could not copy'); }
+  };
+
+  const handleRegenerateRE = async () => {
+    const lead = regenDialog.lead;
+    if (!lead) return;
+    if (!regenRemarks.trim()) { toast.error('Please add remarks for Planning'); return; }
+    try {
+      await axios.post(`${API}/leads/${lead.lead_id}/regenerate-re`, { remarks: regenRemarks.trim() });
+      toast.success('Regeneration request sent to Planning');
+      setRegenDialog({ open: false, lead: null });
+      setRegenRemarks('');
+      try {
+        const lr = await axios.get(`${API}/crm/leads/${lead.lead_id}`);
+        setLeadDetail(lr.data);
+        setSelectedLead(lr.data);
+      } catch {}
+      fetchData(false);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Could not regenerate RE');
     }
   };
 
@@ -1665,16 +1735,40 @@ export default function CRMSales() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
-                          <p className="text-xs text-gray-600 mt-0.5">Client reviewing the Rough Estimate. Record their response below.</p>
+                          <p className="text-xs text-gray-600 mt-0.5">Share the public RE link, regenerate if revisions are needed, or record the client decision.</p>
+                          {quoteLink?.link?.token && (
+                            <div className="mt-2 flex items-center gap-2 flex-wrap">
+                              <Badge className={`${quoteLink.status === 'expired' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'} border-0 text-[10px]`} data-testid="quote-link-status-chip">
+                                {quoteLink.status === 'expired' ? 'Expired' : 'Live'}
+                              </Badge>
+                              <code className="text-[10px] bg-white px-2 py-0.5 rounded border max-w-[280px] truncate" data-testid="quote-link-url">
+                                {buildPublicQuoteUrl(quoteLink.link.token)}
+                              </code>
+                              <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={handleCopyQuoteLink} data-testid="copy-quote-link-btn">Copy</Button>
+                              <span className="text-[10px] text-gray-500">
+                                Expires {quoteLink.link.expires_at ? new Date(quoteLink.link.expires_at).toLocaleDateString('en-IN') : '—'} · Opened {quoteLink.link.open_count || 0}×
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <div className="flex gap-2 shrink-0 flex-wrap">
                           <Button
                             size="sm"
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => setProspectDialog({ open: true, lead: selectedLead })}
-                            data-testid="detail-create-prospect-btn"
+                            onClick={() => handleGenerateQuoteLink(selectedLead)}
+                            disabled={quoteLinkLoading}
+                            data-testid="detail-generate-re-link-btn"
                           >
-                            <Smartphone className="h-4 w-4 mr-1" /> Move to RE Client
+                            <Send className="h-4 w-4 mr-1" /> {quoteLink?.link ? 'Regenerate Link' : 'Generate RE Link'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-purple-700 border-purple-400 hover:bg-purple-50"
+                            onClick={() => { setRegenDialog({ open: true, lead: selectedLead }); setRegenRemarks(''); }}
+                            data-testid="detail-regenerate-re-btn"
+                          >
+                            <RefreshCw className="h-4 w-4 mr-1" /> Regenerate RE
                           </Button>
                           <Button
                             size="sm"
@@ -1833,6 +1927,11 @@ export default function CRMSales() {
                             (selectedLead.rnr_log || []).forEach((log, i) => {
                               events.push({ type: 'rnr', ts: log.timestamp || 0, data: log, key: `rnr-${i}` });
                             });
+                            // Quote-link events from the dedicated state (live + revoked)
+                            const ql = quoteLink?.link;
+                            if (ql) {
+                              events.push({ type: 'quote_link', ts: ql.created_at, data: ql, key: `ql-${ql.quote_id}` });
+                            }
                             if (selectedLead.office_visit) {
                               const ov = selectedLead.office_visit;
                               const ovTs = ov.created_at || (ov.date ? `${ov.date}T${ov.time || '00:00'}` : 0);
@@ -1911,6 +2010,22 @@ export default function CRMSales() {
                                     <div className="flex-1 bg-red-50 border border-red-200 rounded-lg p-2">
                                       <p className="text-xs font-semibold text-red-600">RNR #{log.attempt}</p>
                                       <p className="text-[10px] text-gray-500">{log.timestamp ? new Date(log.timestamp).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{log.logged_by_name ? ` — ${log.logged_by_name}` : ''}</p>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              if (ev.type === 'quote_link') {
+                                const q = ev.data;
+                                const isExpired = q.expires_at && new Date(q.expires_at) < new Date();
+                                const status = q.is_revoked ? 'revoked' : (isExpired ? 'expired' : 'live');
+                                const statusClass = status === 'live' ? 'text-emerald-700' : status === 'expired' ? 'text-amber-700' : 'text-gray-500';
+                                return (
+                                  <div key={key} className="flex items-start gap-3 relative">
+                                    <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center z-10 shrink-0"><Send className="h-3 w-3 text-white" /></div>
+                                    <div className="flex-1 bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+                                      <p className={`text-xs font-semibold ${statusClass}`}>RE Link {status === 'live' ? 'Generated' : status === 'expired' ? 'Expired' : 'Revoked'}</p>
+                                      <p className="text-[10px] text-gray-500">{q.created_at ? new Date(q.created_at).toLocaleString('en-IN', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'}) : ''}{q.created_by_name ? ` — ${q.created_by_name}` : ''}</p>
+                                      <p className="text-[10px] text-gray-600 mt-0.5">Expires {q.expires_at ? new Date(q.expires_at).toLocaleDateString('en-IN') : '—'} · Opened {q.open_count || 0}×</p>
                                     </div>
                                   </div>
                                 );
@@ -3179,13 +3294,43 @@ export default function CRMSales() {
         </DialogContent>
       </Dialog>
 
-      {/* Create Prospect Login (Move to RE Client mobile flow) */}
+      {/* Create Prospect Login (Move to RE Client mobile flow) — DEPRECATED, kept for old leads */}
       <CreateProspectUserDialog
         open={prospectDialog.open}
         onOpenChange={(o) => !o && setProspectDialog({ open: false, lead: null })}
         lead={prospectDialog.lead}
         onCreated={() => fetchLeads && fetchLeads()}
       />
+
+      {/* Regenerate RE — sends back to Planning with remarks */}
+      <Dialog open={regenDialog.open} onOpenChange={(o) => !o && setRegenDialog({ open: false, lead: null })}>
+        <DialogContent className="max-w-md" data-testid="regen-re-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-purple-600" /> Regenerate Rough Estimate</DialogTitle>
+            <DialogDescription>
+              Send this RE back to Planning for a fresh revision. The current public link stays live until the new RE is GM-approved.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Remarks for Planning <span className="text-red-500">*</span></Label>
+              <Textarea
+                value={regenRemarks}
+                onChange={(e) => setRegenRemarks(e.target.value)}
+                placeholder="What needs to change? e.g. add servant room, lower handover months, swap finishes..."
+                rows={4}
+                data-testid="regen-remarks-input"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRegenDialog({ open: false, lead: null })}>Cancel</Button>
+            <Button onClick={handleRegenerateRE} className="bg-purple-600 hover:bg-purple-700 text-white" data-testid="regen-submit-btn">
+              <RefreshCw className="h-4 w-4 mr-1" /> Send to Planning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
