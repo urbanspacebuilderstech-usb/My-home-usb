@@ -3087,3 +3087,286 @@ async def reject_request(approval_id: str, data: ApprovalAction = None, user: Us
         await create_notification(req["requested_by"], f"Your {req['entry_type']} request for ₹{req['amount']:,.0f} was rejected. Reason: {remarks}")
 
     return {"message": f"{req['entry_type'].capitalize()} rejected", "approval_id": approval_id}
+
+# ==================== UNIFIED PAY APPROVAL ENDPOINT ====================
+# Single endpoint handles payment for material/labour/petty_cash requests.
+# Logic:
+#   1. Look up the request by type+id, fetch bill_amount + vendor_name + project_id
+#   2. Look up existing vendor suspense balance
+#   3. Compute payable = max(0, bill_amount - existing_suspense)
+#   4. credit_used = min(existing_suspense, bill_amount)  → debits (reduces) old suspense
+#   5. If method == cheque: paid = chosen_cheque.amount; new_suspense_credit = paid - payable
+#   6. Else: paid = payable; new_suspense_credit = 0
+#   7. Insert recorded_expenses entry (cashbook outgoing)
+#   8. Insert suspense_entries adjustments (debit + new credit if any)
+#   9. Mark cheque used / set request status='paid'
+
+class PaymentDenomination(BaseModel):
+    note: int
+    count: int
+
+class PayApprovalRequest(BaseModel):
+    payment_method: str  # cash / current_account / savings / cheque
+    transaction_id: Optional[str] = None
+    cheque_id: Optional[str] = None
+    denominations: Optional[List[PaymentDenomination]] = None
+    remarks: Optional[str] = None
+
+
+def _request_collection_and_keys(req_type: str):
+    """Map request type to collection + ID field + amount field + vendor field + project field"""
+    if req_type == "material":
+        return ("material_requests", "request_id",
+                lambda r: r.get("estimated_price") or r.get("final_price") or 0,
+                lambda r: r.get("vendor_name") or r.get("supplier_name") or r.get("material_name") or "Unknown",
+                "project_id", "material")
+    if req_type == "labour":
+        return ("labour_expenses", "labour_expense_id",
+                lambda r: r.get("total_amount") or 0,
+                lambda r: r.get("contractor_name") or "Unknown Contractor",
+                "project_id", "labour")
+    if req_type == "petty_cash":
+        return ("petty_cash_requests", "petty_cash_id",
+                lambda r: r.get("amount_issued") or r.get("amount_spent") or 0,
+                lambda r: r.get("site_engineer_name") or r.get("vendor_name") or "Petty Cash",
+                "project_id", "petty_cash")
+    raise HTTPException(status_code=400, detail=f"Invalid request type: {req_type}")
+
+
+@router.get("/approvals/{req_type}/{request_id}/pay-context")
+async def get_pay_context(req_type: str, request_id: str, user: User = Depends(get_current_user)):
+    """Returns request details + current suspense balance + active opened cheques (for the dialog)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    coll, id_field, amount_fn, vendor_fn, _project_field, suspense_type = _request_collection_and_keys(req_type)
+    req = await db[coll].find_one({id_field: request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    bill_amount = float(amount_fn(req) or 0)
+    vendor_name = vendor_fn(req)
+    project_id = req.get("project_id")
+
+    # Project name lookup
+    project_name = None
+    if project_id:
+        p = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+        if p: project_name = p.get("name")
+
+    # Vendor suspense balance — sum existing entries
+    suspense_query = {"type": suspense_type}
+    if suspense_type == "material":
+        suspense_query["vendor_name"] = vendor_name
+    elif suspense_type == "labour":
+        suspense_query["contractor_name"] = vendor_name
+    else:  # petty_cash uses site_engineer_id
+        if req.get("site_engineer_id"):
+            suspense_query["site_engineer_id"] = req["site_engineer_id"]
+        else:
+            suspense_query["vendor_name"] = vendor_name
+    suspense_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
+    existing_suspense = sum(float(e.get("amount", 0) or 0) for e in suspense_entries)
+
+    # Active CRE-opened incoming cheques (not yet used for an expense)
+    active_cheques = await db.cheques.find({
+        "cheque_type": "incoming",
+        "is_opened": True,
+        "status": {"$in": ["issued", "post_dated", "deposited"]},
+        "$or": [{"used_for_expense_id": {"$exists": False}}, {"used_for_expense_id": None}],
+    }, {"_id": 0}).sort("cheque_date", -1).to_list(200)
+
+    payable = max(0.0, bill_amount - existing_suspense)
+    credit_used = min(existing_suspense, bill_amount)
+
+    return {
+        "request": {
+            "id": request_id,
+            "type": req_type,
+            "vendor_name": vendor_name,
+            "project_id": project_id,
+            "project_name": project_name,
+            "bill_amount": bill_amount,
+            "description": req.get("material_name") or req.get("labour_type") or req.get("description") or "",
+            "current_status": req.get("status"),
+        },
+        "suspense": {
+            "vendor_balance": existing_suspense,
+            "credit_to_apply": credit_used,
+        },
+        "payable_after_suspense": payable,
+        "active_cheques": active_cheques,
+    }
+
+
+@router.post("/approvals/{req_type}/{request_id}/pay")
+async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest, user: User = Depends(get_current_user)):
+    """Process payment for an expense approval (material/labour/petty_cash)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    coll, id_field, amount_fn, vendor_fn, _proj_field, suspense_type = _request_collection_and_keys(req_type)
+    req = await db[coll].find_one({id_field: request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") in ("paid", "settled", "rejected"):
+        raise HTTPException(status_code=400, detail=f"Already processed (status={req.get('status')})")
+
+    bill_amount = float(amount_fn(req) or 0)
+    vendor_name = vendor_fn(req)
+    project_id = req.get("project_id")
+
+    # 1. Existing suspense balance (auto-apply)
+    suspense_query = {"type": suspense_type}
+    if suspense_type == "material":
+        suspense_query["vendor_name"] = vendor_name
+    elif suspense_type == "labour":
+        suspense_query["contractor_name"] = vendor_name
+    else:
+        if req.get("site_engineer_id"):
+            suspense_query["site_engineer_id"] = req["site_engineer_id"]
+        else:
+            suspense_query["vendor_name"] = vendor_name
+    sus_entries = await db.suspense_entries.find(suspense_query, {"_id": 0}).to_list(1000)
+    existing_suspense = sum(float(e.get("amount", 0) or 0) for e in sus_entries)
+
+    payable = max(0.0, bill_amount - existing_suspense)
+    credit_used = min(existing_suspense, bill_amount)
+
+    # 2. Payment-method specific: figure out actual paid amount + create cheque link
+    paid_amount = payable
+    cheque_doc = None
+    if data.payment_method == "cheque":
+        if not data.cheque_id:
+            raise HTTPException(status_code=400, detail="cheque_id required for cheque payment")
+        cheque_doc = await db.cheques.find_one({"cheque_id": data.cheque_id}, {"_id": 0})
+        if not cheque_doc:
+            raise HTTPException(status_code=404, detail="Selected cheque not found")
+        if not cheque_doc.get("is_opened"):
+            raise HTTPException(status_code=400, detail="Selected cheque is not opened by CRE yet")
+        if cheque_doc.get("used_for_expense_id"):
+            raise HTTPException(status_code=400, detail="This cheque has already been used")
+        paid_amount = float(cheque_doc.get("amount", 0) or 0)
+        if paid_amount < payable:
+            raise HTTPException(status_code=400, detail=f"Cheque amount ₹{paid_amount:,.0f} is less than payable ₹{payable:,.0f}")
+    elif data.payment_method in ("current_account", "savings"):
+        if not data.transaction_id or not data.transaction_id.strip():
+            raise HTTPException(status_code=400, detail="transaction_id required for bank payment")
+    elif data.payment_method == "cash":
+        if not data.denominations:
+            raise HTTPException(status_code=400, detail="denominations required for cash payment")
+        denom_total = sum(d.note * d.count for d in data.denominations)
+        if abs(denom_total - payable) > 0.5:
+            raise HTTPException(status_code=400, detail=f"Denomination total ₹{denom_total:,.0f} ≠ payable ₹{payable:,.0f}")
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid payment_method: {data.payment_method}")
+
+    # 3. New suspense from over-payment (cheque only — cash/bank pay exact amount)
+    new_suspense_credit = max(0.0, paid_amount - payable) if data.payment_method == "cheque" else 0.0
+
+    now = datetime.now(timezone.utc).isoformat()
+    expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+
+    # 4. Insert main expense in cashbook
+    cashbook_entry = {
+        "expense_id": expense_id,
+        "project_id": project_id,
+        "category": suspense_type,
+        "expense_type": suspense_type,
+        "description": req.get("material_name") or req.get("labour_type") or f"{suspense_type} payment",
+        "amount": payable,  # the actual expense booked = payable amount
+        "payment_method": data.payment_method,
+        "transaction_id": data.transaction_id,
+        "cheque_id": data.cheque_id,
+        "denominations": [d.model_dump() for d in (data.denominations or [])],
+        "vendor_name": vendor_name,
+        "request_id": request_id,
+        "request_type": req_type,
+        "credit_applied": credit_used,
+        "cheque_amount_paid": paid_amount if data.payment_method == "cheque" else None,
+        "new_suspense_credit": new_suspense_credit,
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "remarks": data.remarks,
+        "status": "approved",
+        "source": "approval",
+        "approval_id": request_id,
+        "created_at": now,
+        "approved_at": now,
+        "approved_by": user.user_id,
+    }
+    await db.recorded_expenses.insert_one(cashbook_entry)
+
+    # 5. Suspense ledger updates
+    if credit_used > 0:
+        # Debit (reduce) existing balance — record as negative
+        await db.suspense_entries.insert_one({
+            "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+            "type": suspense_type,
+            **({"vendor_name": vendor_name} if suspense_type == "material" else
+               {"contractor_name": vendor_name} if suspense_type == "labour" else
+               ({"site_engineer_id": req.get("site_engineer_id"), "site_engineer_name": vendor_name} if req.get("site_engineer_id") else {"vendor_name": vendor_name})),
+            "amount": -credit_used,
+            "description": f"Suspense applied to {req_type} bill (request {request_id})",
+            "linked_expense_id": expense_id,
+            "linked_request_id": request_id,
+            "created_at": now,
+            "created_by": user.user_id,
+        })
+    if new_suspense_credit > 0:
+        await db.suspense_entries.insert_one({
+            "entry_id": f"se_{uuid.uuid4().hex[:10]}",
+            "type": suspense_type,
+            **({"vendor_name": vendor_name} if suspense_type == "material" else
+               {"contractor_name": vendor_name} if suspense_type == "labour" else
+               ({"site_engineer_id": req.get("site_engineer_id"), "site_engineer_name": vendor_name} if req.get("site_engineer_id") else {"vendor_name": vendor_name})),
+            "amount": new_suspense_credit,
+            "description": f"Excess from cheque {cheque_doc.get('cheque_number') if cheque_doc else ''} on {req_type} bill ({request_id})",
+            "linked_expense_id": expense_id,
+            "linked_cheque_id": data.cheque_id,
+            "created_at": now,
+            "created_by": user.user_id,
+        })
+
+    # 6. Mark cheque used
+    if cheque_doc:
+        await db.cheques.update_one(
+            {"cheque_id": data.cheque_id},
+            {"$set": {
+                "used_for_expense_id": expense_id,
+                "used_at": now,
+                "used_by": user.user_id,
+                "used_by_name": user.name,
+                "status": "deposited" if cheque_doc.get("status") == "issued" else cheque_doc.get("status"),
+                "updated_at": now,
+            }}
+        )
+
+    # 7. Update request status to "paid"
+    await db[coll].update_one(
+        {id_field: request_id},
+        {"$set": {
+            "status": "paid",
+            "paid_by": user.user_id,
+            "paid_by_name": user.name,
+            "paid_at": now,
+            "paid_amount": paid_amount,
+            "paid_via_expense_id": expense_id,
+            "updated_at": now,
+        }}
+    )
+
+    await create_audit_log(user.user_id, "pay", req_type, request_id, {
+        "bill_amount": bill_amount, "credit_used": credit_used, "paid_amount": paid_amount,
+        "new_suspense": new_suspense_credit, "payment_method": data.payment_method,
+    })
+
+    return {
+        "message": "Payment processed",
+        "expense_id": expense_id,
+        "bill_amount": bill_amount,
+        "credit_used": credit_used,
+        "payable": payable,
+        "paid_amount": paid_amount,
+        "new_suspense_credit": new_suspense_credit,
+    }
