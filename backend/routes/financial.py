@@ -3743,7 +3743,9 @@ async def cre_mark_dt_received(income_id: str, data: DTReceipt, user: User = Dep
 
 @router.post("/dt/{income_id}/approve")
 async def accountant_approve_dt(income_id: str, user: User = Depends(get_current_user)):
-    """Accountant final approval after CRE submits received amounts."""
+    """Accountant final approval after CRE submits received amounts.
+    Books an expense entry per linked item and marks the underlying request as paid.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant can approve DT")
     inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
@@ -3751,7 +3753,75 @@ async def accountant_approve_dt(income_id: str, user: User = Depends(get_current
         raise HTTPException(status_code=404, detail="Not found")
     if inc.get("dt_status") != "pending_accountant_review":
         raise HTTPException(status_code=400, detail=f"Cannot approve in current state: {inc.get('dt_status')}")
+
     now = datetime.now(timezone.utc).isoformat()
+    items = inc.get("dt_items", []) or []
+    expense_ids: List[str] = []
+
+    for it in items:
+        recv = float(it.get("received_amount", 0) or 0)
+        if recv <= 0:
+            continue
+        kind = it.get("kind")
+        # category mapping for Direct-Expense reporting
+        cat = "material" if kind == "material" else "labour" if kind == "labour" else "other"
+        expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+        cashbook_entry = {
+            "expense_id": expense_id,
+            "project_id": it.get("project_id") or inc.get("project_id"),
+            "category": cat,
+            "expense_type": cat,
+            "description": it.get("title") or f"{kind} payment via DT",
+            "amount": recv,
+            "payment_method": "direct_transfer",
+            "vendor_name": it.get("vendor_name") or it.get("contractor_name") or it.get("title"),
+            "request_id": it.get("request_id"),
+            "request_type": kind,
+            "other_account_id": it.get("other_account_id"),
+            "source": "dt",
+            "dt_income_id": income_id,
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "approved",
+            "created_at": now,
+            "approved_at": now,
+            "approved_by": user.user_id,
+        }
+        await db.recorded_expenses.insert_one(cashbook_entry)
+        expense_ids.append(expense_id)
+
+        # Mark underlying material/labour request as paid (so it disappears from approvals)
+        if kind == "material" and it.get("request_id"):
+            await db.material_expenses.update_one(
+                {"expense_id": it["request_id"]},
+                {"$set": {
+                    "status": "paid",
+                    "paid_via": "direct_transfer",
+                    "paid_via_dt_id": income_id,
+                    "paid_via_expense_id": expense_id,
+                    "paid_amount": recv,
+                    "paid_by": user.user_id,
+                    "paid_by_name": user.name,
+                    "paid_at": now,
+                    "updated_at": now,
+                }}
+            )
+        elif kind == "labour" and it.get("request_id"):
+            await db.labour_expenses.update_one(
+                {"$or": [{"labour_expense_id": it["request_id"]}, {"expense_id": it["request_id"]}]},
+                {"$set": {
+                    "status": "paid",
+                    "paid_via": "direct_transfer",
+                    "paid_via_dt_id": income_id,
+                    "paid_via_expense_id": expense_id,
+                    "paid_amount": recv,
+                    "paid_by": user.user_id,
+                    "paid_by_name": user.name,
+                    "paid_at": now,
+                    "updated_at": now,
+                }}
+            )
+
     await db.income.update_one(
         {"income_id": income_id},
         {"$set": {
@@ -3759,9 +3829,10 @@ async def accountant_approve_dt(income_id: str, user: User = Depends(get_current
             "dt_completed_at": now,
             "dt_completed_by": user.user_id,
             "dt_completed_by_name": user.name,
+            "dt_expense_ids": expense_ids,
             "status": "approved",
             "updated_at": now,
         }}
     )
-    return {"message": "DT cycle completed"}
+    return {"message": "DT cycle completed", "expense_ids": expense_ids, "expenses_recorded": len(expense_ids)}
 
