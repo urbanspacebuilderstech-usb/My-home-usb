@@ -186,6 +186,38 @@ export default function SuspenseAccountPage() {
           </Dialog>
         </div>
 
+        {/* Total Suspense (sum of all 3) */}
+        <Card className="mb-4 bg-gradient-to-r from-orange-50 via-amber-50 to-yellow-50 border-orange-200 border-2" data-testid="total-suspense-card">
+          <CardContent className="p-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-orange-700" />
+                  <span className="text-sm font-semibold text-orange-800 uppercase tracking-wide">Total Suspense Balance</span>
+                </div>
+                <p className="text-4xl font-extrabold text-orange-700 mt-1" data-testid="total-suspense-amount">
+                  {fmt((petty.balance || 0) + (matSus.total || 0) + (labSus.total || 0))}
+                </p>
+                <p className="text-xs text-orange-600 mt-1">Petty Cash + Material + Labour</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
+                <div className="bg-white/60 rounded-md px-3 py-2 border border-amber-200">
+                  <p className="text-[10px] uppercase font-semibold text-amber-700">Petty</p>
+                  <p className="text-base font-bold text-amber-800">{fmt(petty.balance)}</p>
+                </div>
+                <div className="bg-white/60 rounded-md px-3 py-2 border border-blue-200">
+                  <p className="text-[10px] uppercase font-semibold text-blue-700">Material</p>
+                  <p className="text-base font-bold text-blue-800">{fmt(matSus.total)}</p>
+                </div>
+                <div className="bg-white/60 rounded-md px-3 py-2 border border-purple-200">
+                  <p className="text-[10px] uppercase font-semibold text-purple-700">Labour</p>
+                  <p className="text-base font-bold text-purple-800">{fmt(labSus.total)}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Summary */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
           <Card data-testid="petty-summary" className="border-l-4 border-l-amber-500 cursor-pointer" onClick={() => setActiveTab('petty_cash')}>
