@@ -1712,6 +1712,49 @@ export default function CRMSales() {
                         <div><span className="text-xs text-green-600">Time</span><p className="font-medium">{(leadDetail || selectedLead).appointment.appointment_time}</p></div>
                         <div><span className="text-xs text-green-600">Type</span><p className="font-medium capitalize">{(leadDetail || selectedLead).appointment.appointment_type?.replace('_', ' ')}</p></div>
                       </div>
+                      {/* Site Visit / Our Project Visit details (engineer + project + visit date) */}
+                      {['stg_sv_client_land', 'stg_sv_our_projects'].includes((leadDetail || selectedLead).current_stage_id) && (leadDetail || selectedLead).site_visit_data && (
+                        <div className="mt-3 pt-3 border-t border-green-200 grid grid-cols-2 gap-3 text-sm">
+                          {((leadDetail || selectedLead).site_visit_data.sr_engineer_name || (leadDetail || selectedLead).site_visit_data.site_engineer_name) && (
+                            <div>
+                              <span className="text-xs text-green-600">Site Engineer</span>
+                              <p className="font-medium">
+                                {(leadDetail || selectedLead).site_visit_data.sr_engineer_name || (leadDetail || selectedLead).site_visit_data.site_engineer_name}
+                              </p>
+                              {((leadDetail || selectedLead).site_visit_data.sr_engineer_phone || (leadDetail || selectedLead).site_visit_data.site_engineer_phone) && (
+                                <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
+                                  <Phone className="h-3 w-3" /> {(leadDetail || selectedLead).site_visit_data.sr_engineer_phone || (leadDetail || selectedLead).site_visit_data.site_engineer_phone}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          {(leadDetail || selectedLead).site_visit_data.project_name && (
+                            <div>
+                              <span className="text-xs text-green-600">
+                                {(leadDetail || selectedLead).current_stage_id === 'stg_sv_our_projects' ? 'Project Visit' : 'Site / Project'}
+                              </span>
+                              <p className="font-medium flex items-center gap-1">
+                                <Building2 className="h-3 w-3 text-green-600" /> {(leadDetail || selectedLead).site_visit_data.project_name}
+                              </p>
+                            </div>
+                          )}
+                          {(leadDetail || selectedLead).site_visit_data.visit_date && (
+                            <div>
+                              <span className="text-xs text-green-600">Visit Date</span>
+                              <p className="font-medium flex items-center gap-1">
+                                <Calendar className="h-3 w-3 text-green-600" />
+                                {new Date((leadDetail || selectedLead).site_visit_data.visit_date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </p>
+                            </div>
+                          )}
+                          {(leadDetail || selectedLead).site_visit_data.visit_address && (
+                            <div className="col-span-2">
+                              <span className="text-xs text-green-600">Visit Address</span>
+                              <p className="font-medium flex items-start gap-1"><MapPin className="h-3 w-3 text-green-600 mt-0.5" /> {(leadDetail || selectedLead).site_visit_data.visit_address}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <Button variant="outline" size="sm" className="w-full border-dashed border-green-400 text-green-600 hover:bg-green-50" onClick={openApptDialog} data-testid="add-appointment-btn">
