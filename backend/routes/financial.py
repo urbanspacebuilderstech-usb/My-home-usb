@@ -433,15 +433,15 @@ async def get_unified_approvals(user: User = Depends(get_current_user)):
      projects_list) = await asyncio.gather(
         db.income.find({"status": "pending_approval"}, {"_id": 0}).sort("created_at", -1).to_list(500),
         db.material_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved", "procurement_priced"]}},
+            {"status": {"$in": ["requested", "planning_approved", "procurement_priced", "pending_accounts_approval"]}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(500),
         db.labour_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved"]}},
+            {"status": {"$in": ["requested", "planning_approved", "pending_accounts_approval"]}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(500),
         db.vendor_service_expenses.find(
-            {"status": {"$in": ["requested", "planning_approved"]}},
+            {"status": {"$in": ["requested", "planning_approved", "pending_accounts_approval"]}},
             {"_id": 0}
         ).sort("created_at", -1).to_list(500),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
@@ -1557,9 +1557,13 @@ async def accounts_approve_labour(expense_id: str, action: ApprovalAction, user:
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accounts can approve")
     
-    expense = await db.labour_expenses.find_one({"expense_id": expense_id}, {"_id": 0})
+    expense = await db.labour_expenses.find_one(
+        {"$or": [{"labour_expense_id": expense_id}, {"expense_id": expense_id}]}, {"_id": 0}
+    )
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
+
+    id_field = "labour_expense_id" if expense.get("labour_expense_id") else "expense_id"
     
     approval = {
         "approved_by": user.user_id,
@@ -1573,14 +1577,14 @@ async def accounts_approve_labour(expense_id: str, action: ApprovalAction, user:
     new_status = "accounts_approved" if action.action == "approved" else "accounts_rejected"
     
     await db.labour_expenses.update_one(
-        {"expense_id": expense_id},
+        {id_field: expense.get(id_field)},
         {
             "$set": {"status": new_status, "updated_at": datetime.now(timezone.utc).isoformat()},
             "$push": {"approvals": approval}
         }
     )
     
-    await create_notification(expense["requested_by"], f"Labour expense {action.action}: {expense['labour_type']}")
+    await create_notification(expense["requested_by"], f"Labour expense {action.action}: {expense.get('labour_type', 'Labour')}")
     
     return {"message": f"Labour expense {action.action}"}
 

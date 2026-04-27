@@ -2801,6 +2801,7 @@ function ApprovalsTab() {
   const getApprovalAction = (status, type) => {
     if (status === 'requested') return 'planning-approval';
     if (status === 'planning_approved') return type === 'material' ? 'procurement-pricing' : 'accounts-approval';
+    if (status === 'pending_accounts_approval') return 'accounts-approval';
     if (status === 'procurement_priced') return 'accounts-approval';
     return null;
   };
@@ -3362,6 +3363,7 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                       <Badge className={
                         item.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
                         item.status === 'planning_approved' ? 'bg-blue-100 text-blue-700' :
+                        item.status === 'pending_accounts_approval' ? 'bg-orange-100 text-orange-700' :
                         item.status === 'procurement_priced' ? 'bg-purple-100 text-purple-700' :
                         'bg-gray-100 text-gray-700'
                       }>{item.status?.replace(/_/g, ' ')}</Badge>
