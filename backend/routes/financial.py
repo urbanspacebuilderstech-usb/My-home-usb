@@ -652,7 +652,7 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
 
     await create_audit_log(user.user_id, "review_approve", "income", income_id, {"verification": verification})
     
-    # If this is an advance payment, update project status to payment_verified
+    # If this is an advance payment, update project status + move lead to Project Onboarded
     if income.get("category") == "advance_payment" and project_id:
         await db.projects.update_one(
             {"project_id": project_id, "status": "pending_payment"},
@@ -663,7 +663,43 @@ async def review_income(income_id: str, data: IncomeReviewRequest, user: User = 
                 "accountant_verified_at": datetime.now(timezone.utc).isoformat()
             }}
         )
-    
+
+        # Auto-move the linked lead to "Project Onboarded" so Sales doesn't have
+        # to manually move the stage after approving the advance.
+        lead_id_to_move = income.get("lead_id")
+        if not lead_id_to_move:
+            proj_doc = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "lead_id": 1})
+            lead_id_to_move = (proj_doc or {}).get("lead_id")
+        if not lead_id_to_move:
+            ld = await db.leads.find_one({"project_id": project_id}, {"_id": 0, "lead_id": 1})
+            lead_id_to_move = (ld or {}).get("lead_id")
+        if lead_id_to_move:
+            lead_doc = await db.leads.find_one({"lead_id": lead_id_to_move}, {"_id": 0})
+            if lead_doc and lead_doc.get("current_stage_id") != "stg_project_onboarded":
+                user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "name": 1})
+                user_name = (user_doc or {}).get("name", "Accountant")
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.leads.update_one(
+                    {"lead_id": lead_id_to_move},
+                    {"$set": {
+                        "current_stage_id": "stg_project_onboarded",
+                        "onboarding_status": "project_onboarded",
+                        "advance_payment.verified_by": user.user_id,
+                        "advance_payment.verified_by_name": user_name,
+                        "advance_payment.verified_at": now_iso,
+                        "updated_at": datetime.now(timezone.utc),
+                    },
+                    "$push": {"stage_history": {
+                        "stage_id": "stg_project_onboarded",
+                        "from_stage_id": lead_doc.get("current_stage_id"),
+                        "moved_at": now_iso,
+                        "moved_by": user.user_id,
+                        "moved_by_name": user_name,
+                        "action": "auto_after_accountant_review",
+                        "remark": "Advance payment reviewed & approved by Accountant",
+                    }}}
+                )
+
     return {"message": "Income reviewed and approved", "verification": verification}
 
 
