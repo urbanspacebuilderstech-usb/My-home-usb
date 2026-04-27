@@ -13,7 +13,12 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
-### Session — April 23, 2026 (Latest)
+### Session — April 27, 2026 (Latest)
+- **Planning Requests tab — total redesign**: Replaced the 5 sub-tabs (Site Engineer Req | Materials | Labour Payment | Labour Stage | Open Req) with **3 colourful pills + count badges**: Material | Labour | Petty Cash. Added Meta-style date range/Month/Year filter and Project search filter. Each row now has **inline Approve & Reject** buttons that open dedicated dialogs (Review-and-Approve with detailed grid + per-type fields like approved-quantity for material; Reject-with-Remarks).
+  - Backend: New endpoints `/api/planning/petty-cash-requests`, `/api/planning/petty-cash/{id}/approve`, `/api/planning/petty-cash/{id}/reject` — Planning is now an authorised approver of petty cash (alongside the existing PM flow).
+  - Frontend: New shared `ProjectSearchSelect` component (extracted) + `PlanningRequestsTab` component.
+
+### Session — April 23, 2026
 - **Unified "Pay & Settle" workflow (Accountant)**: New `PayApprovalDialog` (cheque / current-account / savings / cash with denomination split). Auto-applies vendor's existing suspense balance, computes net payable, and books excess from over-paid cheques back to suspense. Wired into Material + Labour approval rows alongside the legacy Approve/Reject.
   - Backend: `GET /api/approvals/{type}/{id}/pay-context` + `POST /api/approvals/{type}/{id}/pay` (financial.py)
   - Fixed material→`material_expenses` collection mapping (was incorrectly pointing to `material_requests`)
