@@ -117,11 +117,17 @@ function QuoteView({ data }) {
                 {months && <Badge className="bg-white/20 text-white border-0">{months} mo handover</Badge>}
                 {re.re_number && <Badge className="bg-white/20 text-white border-0">{re.re_number}</Badge>}
               </div>
-              {totalValue > 0 && (
+              {totalValue > 0 ? (
                 <div className="mt-3 pt-3 border-t border-white/20">
                   <p className="text-[11px] opacity-80">Approved Estimate</p>
                   <p className="text-3xl font-extrabold tracking-tight">{fmt(totalValue)}</p>
                   {ratePerSqft && <p className="text-[11px] opacity-80 mt-0.5">≈ {fmt(ratePerSqft)} per sqft</p>}
+                </div>
+              ) : (
+                <div className="mt-3 pt-3 border-t border-white/20">
+                  <p className="text-[11px] opacity-80">Approved Estimate</p>
+                  <p className="text-base font-semibold opacity-95">Final estimate pending</p>
+                  <p className="text-[10px] opacity-75 mt-0.5">Your sales executive will share the priced version shortly.</p>
                 </div>
               )}
             </CardContent>

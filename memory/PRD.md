@@ -13,10 +13,25 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
-### Session — April 27, 2026 (Latest)
-- **Planning Requests tab — total redesign**: Replaced the 5 sub-tabs (Site Engineer Req | Materials | Labour Payment | Labour Stage | Open Req) with **3 colourful pills + count badges**: Material | Labour | Petty Cash. Added Meta-style date range/Month/Year filter and Project search filter. Each row now has **inline Approve & Reject** buttons that open dedicated dialogs (Review-and-Approve with detailed grid + per-type fields like approved-quantity for material; Reject-with-Remarks).
-  - Backend: New endpoints `/api/planning/petty-cash-requests`, `/api/planning/petty-cash/{id}/approve`, `/api/planning/petty-cash/{id}/reject` — Planning is now an authorised approver of petty cash (alongside the existing PM flow).
-  - Frontend: New shared `ProjectSearchSelect` component (extracted) + `PlanningRequestsTab` component.
+### Session — April 27, 2026 (Latest — Custom RE Share Links)
+- **Pivot from Prospect Login → Public Token URL** (`/quote/:token`): Sales now share Rough Estimates via a no-login link that expires in 30 days. New module `/app/backend/routes/quote_links.py` (HMAC-signed token = `quote_id.signature[:24]`).
+  - Backend endpoints (under `/api`):
+    - `POST /leads/{lead_id}/generate-quote-link` — creates link, auto-revokes prior live link, advances lead to `stg_re_to_client` (requires RE to be GM-approved).
+    - `GET /leads/{lead_id}/quote-link` — returns `{link, status: live|expired|none}` for the header chip.
+    - `GET /public/quote/{token}` — no-auth public quote view; returns `{expired:true, sales_person:{...}}` once 30d elapse.
+    - `POST /public/quote/{token}/book-appointment` — public form drops a NEW lead tagged `client_appointment` back to the original sales person + notification.
+    - `POST /leads/{lead_id}/regenerate-re` — clones the RE with `revision++`, sends back to Planning with remarks, lead → `stg_re_request`, notification to all_planning.
+    - `GET /leads/{lead_id}/timeline` — unified events feed (stages + follow-ups + appointment + payment + quote_links).
+  - Frontend:
+    - New page `PublicQuoteView.jsx` (mobile-first, mounted at `/quote/:token` BEFORE ProtectedRoute) with **live-quote view** (full RE + 30d countdown chip + Call-Sales CTA) and **expired view** (sales contact card + appointment booking form).
+    - `CRMSales.jsx` — "Move to RE Client" replaced with **"Generate RE Link"** + **"Regenerate RE"** buttons. Live/Expired chip + clickable URL with copy. RE Link events appear in the lead Timeline tab. Stage move to `stg_re_to_client` now auto-generates the link (no popup needed).
+  - Auto-revoke + signed token = old links return 410 as soon as a fresh link is generated.
+  - **Testing**: 15/15 backend pytest cases pass (test_quote_links.py). Frontend public view verified live; data-testids confirmed for detail-generate-re-link-btn / regen-submit-btn / quote-link-status-chip / appt-submit-btn.
+
+### Session — April 27, 2026 (earlier in same day)
+- Auto-move lead to **`stg_project_onboarded`** when accountant approves an Advance Income.
+- Sales appointment card now displays Site Engineer + Project name on Site Visit / Project Visit stages.
+- Quote details expanded to show full Scope items, per-sqft math, and a "What's Included" panel.
 
 ### Session — April 23, 2026
 - **Unified "Pay & Settle" workflow (Accountant)**: New `PayApprovalDialog` (cheque / current-account / savings / cash with denomination split). Auto-applies vendor's existing suspense balance, computes net payable, and books excess from over-paid cheques back to suspense. Wired into Material + Labour approval rows alongside the legacy Approve/Reject.
@@ -70,18 +85,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 - Follow-up management system
 
 ## Pending / Upcoming Tasks
-- 🔴 [P0] Re-create user accounts on Hostinger VPS (setup page ready)
-- 🔴 [P0] Secure MongoDB on VPS (create auth user)
-- 🔴 [P0] Run migrate-stages + fix-unassigned on live site
-- 🔴 [P0] Finish RNR Count Tracker & Appointment Date Filter
+- 🟢 [DONE] Custom expiring RE share link + Sales Timeline view (Apr 27)
+- 🔴 [P1] Open Stage flow verification — Site Engineer payments on locked stages
+- 🔴 [P1] File Download IDOR — object-level ACL on `/files/{id}/download` and `/crm/re-projects/attachments/{id}`
 - 🔴 [P0] PaySprint escrow integration (waiting for API credentials)
+- 🔴 [P1] Interakt WhatsApp auto-send for RE links/Welcome (parked by user)
 - 🔴 [P0] Unified Attendance (SE GPS + Biometric + Manual Punch + Leave CL/SL)
 - 🔴 [P0] Automated Payroll
-- 🟡 [P1] Refactor bloated files (ProjectDetail.jsx 5600+, CRMSales.jsx 2400+, HRPortal.jsx 1600+)
+- 🟡 [P1] Refactor bloated files (CRMSales.jsx 3300+, AccountsBoard.jsx, ProjectDetail.jsx 5600+, HRPortal.jsx 1600+)
+- 🔵 [P2] Cleanup — remove unused `prospect.py` / `CreateProspectUserDialog.jsx` / `ProspectApp.jsx` legacy auth flow
 - 🔵 [P2] Sr. Engineer → Jr. Engineer assignment
 - 🔵 [P2] Aadhar Document Upload
 - 🔵 [P2] Cash Denomination feature
-- 🔵 [P2] SaaS conversion
 
 ## Key API Endpoints
 - POST /api/crm/migrate-stages — Fix missing stages in production
