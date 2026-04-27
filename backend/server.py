@@ -188,6 +188,32 @@ async def startup_init():
     except Exception as e:
         logger.warning(f"Storage init failed (non-fatal): {e}")
 
+    # ───── Critical performance indexes ─────
+    # These are idempotent; MongoDB no-ops if the index already exists.
+    try:
+        from core.database import db as startup_db
+        await startup_db.leads.create_index([("stage_type", 1), ("current_stage_id", 1)])
+        await startup_db.leads.create_index([("stage_type", 1), ("assigned_to", 1)])
+        await startup_db.leads.create_index([("stage_type", 1), ("created_at", -1)])
+        await startup_db.leads.create_index([("lead_id", 1)], unique=True)
+        await startup_db.leads.create_index([("re_project_id", 1)])
+        await startup_db.re_projects.create_index([("status", 1)])
+        await startup_db.re_projects.create_index([("re_project_id", 1)], unique=True)
+        await startup_db.re_projects.create_index([("lead_id", 1)])
+        await startup_db.material_expenses.create_index([("status", 1), ("created_at", -1)])
+        await startup_db.material_expenses.create_index([("expense_id", 1)], unique=True)
+        await startup_db.labour_expenses.create_index([("status", 1), ("created_at", -1)])
+        await startup_db.user_sessions.create_index([("session_token", 1)])
+        await startup_db.user_sessions.create_index([("user_id", 1)])
+        await startup_db.users.create_index([("email", 1)])
+        await startup_db.users.create_index([("role", 1), ("is_active", 1)])
+        await startup_db.cheques.create_index([("cheque_type", 1), ("is_opened", 1), ("status", 1)])
+        await startup_db.recorded_expenses.create_index([("project_id", 1), ("created_at", -1)])
+        await startup_db.income.create_index([("status", 1), ("payment_mode", 1)])
+        logger.info("MongoDB indexes verified/created")
+    except Exception as e:
+        logger.warning(f"Index init failed (non-fatal): {e}")
+
     # Auto-seed demo users only in DEMO_MODE
     try:
         from core.database import db as startup_db

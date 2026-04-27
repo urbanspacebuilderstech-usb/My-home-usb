@@ -32,8 +32,10 @@ async def get_current_user(request: Request):
     """Get current authenticated user with security checks"""
     from core.models import User
 
-    # Real client IP (Cloudflare > X-Forwarded-For > direct). Each user's IP is
-    # then their own bucket so shared-NAT offices don't share a single bucket.
+    # Real client IP (Cloudflare > X-Forwarded-For > direct). Used only for
+    # logging; we no longer rate-limit by IP because shared-NAT offices put
+    # 50+ users on a single IP and starve everyone — per-user limits below
+    # are the right tool for authenticated SPAs.
     cf = request.headers.get("cf-connecting-ip") or request.headers.get("CF-Connecting-IP")
     if cf:
         client_ip = cf.strip()
@@ -44,15 +46,9 @@ async def get_current_user(request: Request):
         else:
             client_ip = request.client.host if request.client else "unknown"
 
-    # Skip rate limiting for the polling /auth/me endpoint to avoid spurious
-    # 429s during normal SPA navigation. Real protection comes from the auth
-    # check + per-user bucket below.
+    # /auth/me is exempt from any rate limiting (lightweight polling endpoint).
     path = request.url.path or ""
     skip_rate_limit = path.endswith("/auth/me")
-
-    if not skip_rate_limit and not rate_limiter.check_rate_limit(f"ip:{client_ip}"):
-        logger.warning(f"IP-level rate limit exceeded for: {client_ip}")
-        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
     session_token = request.cookies.get("session_token")
     if not session_token:

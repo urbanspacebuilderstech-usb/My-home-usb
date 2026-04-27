@@ -8,7 +8,12 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
+import asyncio
 import logging
+
+# Per-user/per-key timestamp cache for throttling expensive once-per-minute jobs
+# (e.g. auto-followup scans). In-memory; resets on backend restart.
+_DASHBOARD_SCAN_CACHE: Dict[str, float] = {}
 import os
 import json
 import re
@@ -507,24 +512,15 @@ async def get_pre_sales_dashboard(user: User = Depends(get_current_user)):
         {"$match": base_query},
         {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
     ]
-    stage_counts = await db.leads.aggregate(pipeline).to_list(100)
+    # Run 4 reads in parallel — was sequential.
+    (stage_counts, recent_leads, source_counts, total_leads) = await asyncio.gather(
+        db.leads.aggregate(pipeline).to_list(100),
+        db.leads.find(base_query, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10),
+        db.leads.aggregate([{"$match": base_query}, {"$group": {"_id": "$source", "count": {"$sum": 1}}}]).to_list(20),
+        db.leads.count_documents(base_query),
+    )
     count_map = {s["_id"]: s["count"] for s in stage_counts}
-    
-    # Get recent leads
-    recent_leads = await db.leads.find(
-        base_query, 
-        {"_id": 0}
-    ).sort("created_at", -1).limit(10).to_list(10)
-    
-    # Get source breakdown
-    source_pipeline = [
-        {"$match": base_query},
-        {"$group": {"_id": "$source", "count": {"$sum": 1}}}
-    ]
-    source_counts = await db.leads.aggregate(source_pipeline).to_list(20)
-    
-    total_leads = await db.leads.count_documents(base_query)
-    
+
     return {
         "stages": [
             {**stage, "lead_count": count_map.get(stage["stage_id"], 0)}
@@ -2049,38 +2045,38 @@ async def get_sales_dashboard(user: User = Depends(get_current_user)):
     """Get Sales dashboard with stage counts"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
-    
+
     stages = await get_default_sales_stages()
-    
-    # Get lead counts per stage
+
     # Build query - filter by assigned_to for Sales users (not for Super Admin)
     base_query = {"stage_type": "sales"}
     if user.role == "sales":
         base_query["assigned_to"] = user.user_id
-    
+
     pipeline = [
         {"$match": base_query},
         {"$group": {"_id": "$current_stage_id", "count": {"$sum": 1}}}
     ]
-    stage_counts = await db.leads.aggregate(pipeline).to_list(100)
+
+    # Run all 6 reads in parallel — was sequential & took 7+ seconds.
+    (stage_counts, recent_leads, total_leads, re_requested, re_in_progress,
+     re_approved, re_converted) = await asyncio.gather(
+        db.leads.aggregate(pipeline).to_list(100),
+        db.leads.find(base_query, {"_id": 0}).sort("created_at", -1).limit(10).to_list(10),
+        db.leads.count_documents(base_query),
+        db.re_projects.count_documents({"status": "re_requested"}),
+        db.re_projects.count_documents({"status": "re_in_progress"}),
+        db.re_projects.count_documents({"status": "re_approved"}),
+        db.re_projects.count_documents({"status": "converted"}),
+    )
     count_map = {s["_id"]: s["count"] for s in stage_counts}
-    
-    # Get recent leads
-    recent_leads = await db.leads.find(
-        base_query, 
-        {"_id": 0}
-    ).sort("created_at", -1).limit(10).to_list(10)
-    
-    total_leads = await db.leads.count_documents(base_query)
-    
-    # Get RE project stats
     re_stats = {
-        "requested": await db.re_projects.count_documents({"status": "re_requested"}),
-        "in_progress": await db.re_projects.count_documents({"status": "re_in_progress"}),
-        "approved": await db.re_projects.count_documents({"status": "re_approved"}),
-        "converted": await db.re_projects.count_documents({"status": "converted"})
+        "requested": re_requested,
+        "in_progress": re_in_progress,
+        "approved": re_approved,
+        "converted": re_converted,
     }
-    
+
     return {
         "stages": [
             {**stage, "lead_count": count_map.get(stage["stage_id"], 0)}
@@ -2129,28 +2125,43 @@ async def get_sales_leads(
     }
     if user.role == "sales":
         followup_query["assigned_to"] = user.user_id
-    
-    due_leads = await db.leads.find(followup_query, {"_id": 0, "lead_id": 1, "current_stage_id": 1}).to_list(500)
-    if due_leads:
-        now = datetime.now(timezone.utc)
-        for lead in due_leads:
-            await db.leads.update_one(
-                {"lead_id": lead["lead_id"]},
-                {"$set": {
-                    "previous_stage_id": lead["current_stage_id"],
-                    "current_stage_id": "stg_sales_followup",
-                    "updated_at": now
-                },
-                "$push": {
-                    "stage_history": {
-                        "stage_id": "stg_sales_followup",
-                        "from_stage_id": lead["current_stage_id"],
-                        "moved_at": now.isoformat(),
-                        "moved_by": "system",
-                        "action": "auto_followup_due"
-                    }
-                }}
-            )
+
+    # Throttle the auto-move scan: run at most once every 60 seconds per user.
+    # Was running on every page load, causing per-user multi-second writes when
+    # the followup list grew. Replace per-call N+1 updates with a single
+    # aggregating $set + $push using update_many.
+    cache_key = f"sales_followup_scan:{user.user_id}"
+    last_scan = _DASHBOARD_SCAN_CACHE.get(cache_key, 0)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if now_ts - last_scan > 60:
+        _DASHBOARD_SCAN_CACHE[cache_key] = now_ts
+        due_leads = await db.leads.find(followup_query, {"_id": 0, "lead_id": 1, "current_stage_id": 1}).to_list(500)
+        if due_leads:
+            now_dt = datetime.now(timezone.utc)
+            # Bulk write — one round-trip per lead instead of per-doc await.
+            ops = []
+            for lead in due_leads:
+                ops.append({
+                    "filter": {"lead_id": lead["lead_id"]},
+                    "update": {
+                        "$set": {
+                            "previous_stage_id": lead["current_stage_id"],
+                            "current_stage_id": "stg_sales_followup",
+                            "updated_at": now_dt,
+                        },
+                        "$push": {
+                            "stage_history": {
+                                "stage_id": "stg_sales_followup",
+                                "from_stage_id": lead["current_stage_id"],
+                                "moved_at": now_dt.isoformat(),
+                                "moved_by": "system",
+                                "action": "auto_followup_due",
+                            }
+                        },
+                    },
+                })
+            from pymongo import UpdateOne
+            await db.leads.bulk_write([UpdateOne(o["filter"], o["update"]) for o in ops])
     
     query = {"stage_type": "sales"}
     
