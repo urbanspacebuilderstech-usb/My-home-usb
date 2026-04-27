@@ -154,24 +154,51 @@ async def prospect_me(user: User = Depends(get_current_user)):
 
 @router.get("/prospect/my-quote")
 async def prospect_my_quote(user: User = Depends(get_current_user)):
-    """Return the GM-approved rough estimate for this prospect's RE project."""
+    """Return the GM-approved rough estimate for this prospect's RE project.
+    Falls back gracefully:
+      1. user.re_project_id (set when prospect was created)
+      2. otherwise resolve via user.lead_id → most recent re_project for that lead
+    """
     if user.role != UserRole.PROSPECT:
         raise HTTPException(status_code=403, detail="Prospect only")
     udoc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
     re_project_id = udoc.get("re_project_id") if udoc else None
-    if not re_project_id:
-        raise HTTPException(status_code=404, detail="No quote linked to your account yet")
+    project = None
 
-    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if re_project_id:
+        project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+
+    # Fallback by lead_id when re_project_id wasn't on the prospect record
+    if not project and udoc and udoc.get("lead_id"):
+        # Prefer the latest GM-approved RE; otherwise take the latest one we have.
+        project = await db.re_projects.find_one(
+            {"lead_id": udoc["lead_id"], "status": "re_approved"}, {"_id": 0}, sort=[("created_at", -1)]
+        ) or await db.re_projects.find_one(
+            {"lead_id": udoc["lead_id"]}, {"_id": 0}, sort=[("created_at", -1)]
+        )
+        # Stamp the linkage forward so subsequent calls are O(1)
+        if project:
+            re_project_id = project.get("re_project_id")
+            await db.users.update_one(
+                {"user_id": user.user_id}, {"$set": {"re_project_id": re_project_id}}
+            )
+
     if not project:
-        raise HTTPException(status_code=404, detail="Quote not found")
+        raise HTTPException(status_code=404, detail="No quote linked to your account yet. Your sales executive will share it shortly.")
+
     if project.get("status") not in ("re_approved",):
-        raise HTTPException(status_code=403, detail="Your quote is not yet approved by management")
+        raise HTTPException(status_code=403, detail="Your quote is being finalised. Please check back shortly or call your sales executive.")
 
     estimate_id = project.get("rough_estimate_id") or project.get("estimate_id")
     estimate = None
     if estimate_id:
         estimate = await db.rough_estimates.find_one({"estimate_id": estimate_id}, {"_id": 0})
+    # Last-resort fallback: pick the latest GM-approved estimate for this RE project
+    if not estimate:
+        estimate = await db.rough_estimates.find_one(
+            {"re_project_id": re_project_id or project.get("re_project_id"), "status": {"$in": ["gm_approved", "approved", "re_approved"]}},
+            {"_id": 0}, sort=[("created_at", -1)]
+        )
     return {
         "re_project": project,
         "estimate": estimate,

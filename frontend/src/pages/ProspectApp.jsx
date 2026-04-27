@@ -106,6 +106,11 @@ function MyQuoteTab({ sales, attachGuard }) {
 
   const re = quote?.re_project || {};
   const est = quote?.estimate || {};
+  const totalValue = Number(est.total_value || re.estimated_total || re.total_value || 0);
+  const items = Array.isArray(est.items) ? est.items : [];
+  const requirementText = re.rough_requirement || re.requirement_summary || re.requirement_text || '';
+  const buildingType = re.building_type || re.config_type || re.floor_config;
+  const projectTitle = re.project_name || re.client_name || 'Your Dream Home';
 
   return (
     <div className="space-y-3 quote-guard" ref={attachGuard} style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
@@ -113,24 +118,38 @@ function MyQuoteTab({ sales, attachGuard }) {
       <Card className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0 shadow-lg">
         <CardContent className="p-4">
           <p className="text-[11px] uppercase tracking-wider opacity-80">Your Stress-Free Quote</p>
-          <p className="text-lg font-bold mt-1">{re.project_name || re.client_name || 'Your Dream Home'}</p>
-          {re.floor_config && <Badge className="bg-white/20 text-white border-0 mt-2">{re.floor_config}</Badge>}
-          {est.total_value > 0 && (
+          <p className="text-lg font-bold mt-1">{projectTitle}</p>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {buildingType && <Badge className="bg-white/20 text-white border-0">{buildingType}</Badge>}
+            {re.handover_months && <Badge className="bg-white/20 text-white border-0">Handover · {re.handover_months} months</Badge>}
+            {re.location && <Badge className="bg-white/20 text-white border-0">{re.location}</Badge>}
+          </div>
+          {totalValue > 0 && (
             <div className="mt-3 pt-3 border-t border-white/20">
               <p className="text-[11px] opacity-80">Approved Estimate</p>
-              <p className="text-2xl font-bold">{fmt(est.total_value)}</p>
+              <p className="text-2xl font-bold">{fmt(totalValue)}</p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Items */}
-      {est.items && est.items.length > 0 && (
+      {/* Requirement Summary */}
+      {requirementText && typeof requirementText === 'string' && (
+        <Card>
+          <CardContent className="p-3">
+            <p className="text-[11px] font-semibold text-gray-500 uppercase mb-1">Project Requirement</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{requirementText}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Itemised inclusions (when estimate has line items) */}
+      {items.length > 0 && (
         <Card>
           <CardContent className="p-3">
             <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Inclusions</p>
             <div className="divide-y">
-              {est.items.map((it, i) => (
+              {items.map((it, i) => (
                 <div key={it.item_id || i} className="py-2 flex items-start justify-between gap-2 text-sm">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium">{it.name}</p>
@@ -142,7 +161,7 @@ function MyQuoteTab({ sales, attachGuard }) {
             </div>
             <div className="mt-3 pt-2 border-t flex items-center justify-between">
               <span className="text-sm font-bold">Total</span>
-              <span className="text-lg font-extrabold text-emerald-700">{fmt(est.total_value)}</span>
+              <span className="text-lg font-extrabold text-emerald-700">{fmt(totalValue)}</span>
             </div>
           </CardContent>
         </Card>
