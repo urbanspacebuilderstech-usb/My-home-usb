@@ -2101,6 +2101,91 @@ async def pm_reject_petty_cash(petty_cash_id: str, request: Request, user: User 
     return {"message": "Rejected"}
 
 
+# ============ PETTY CASH - PLANNING APPROVAL (mirror of PM) ============
+
+@router.get("/planning/petty-cash-requests")
+async def get_petty_cash_for_planning(user: User = Depends(get_current_user)):
+    """Planning gets pending petty cash requests for approval (parallel to PM flow)."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    requests = await db.petty_cash.find(
+        {"status": {"$in": ["requested", "planning_approved", "pm_approved", "accountant_processing", "payment_done", "acknowledged"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    # Enrich with project name
+    project_cache = {}
+    for r in requests:
+        pid = r.get("project_id")
+        if pid and pid not in project_cache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            project_cache[pid] = p["name"] if p else "Unknown"
+        r["project_name"] = project_cache.get(pid, r.get("project_name") or "Unknown")
+    return requests
+
+
+@router.patch("/planning/petty-cash/{petty_cash_id}/approve")
+async def planning_approve_petty_cash(petty_cash_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Planning approves petty cash - moves to accountant for processing."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can approve")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if pc.get("status") not in ("requested", "pm_approved"):
+        raise HTTPException(status_code=400, detail=f"Cannot approve - current status is {pc.get('status')}")
+    data = {}
+    try:
+        data = await request.json()
+    except Exception:
+        pass
+    now = datetime.now(timezone.utc).isoformat()
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "planning_approved",
+            "planning_approved_by": user.user_id,
+            "planning_approved_by_name": user.name,
+            "planning_approved_at": now,
+            "planning_remarks": data.get("remarks", ""),
+        }}
+    )
+    accountants = await db.users.find({"role": "accountant", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+    for acc in accountants:
+        await create_notification(acc["user_id"], f"Petty cash approved by Planning: ₹{pc.get('amount_requested', 0):,.0f} for {pc.get('project_name', '')}")
+    await create_notification(pc["requested_by"], f"Petty cash approved by Planning ({user.name})")
+    return {"message": "Approved", "status": "planning_approved"}
+
+
+@router.patch("/planning/petty-cash/{petty_cash_id}/reject")
+async def planning_reject_petty_cash(petty_cash_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Planning rejects petty cash request with remarks."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can reject")
+    pc = await db.petty_cash.find_one({"petty_cash_id": petty_cash_id})
+    if not pc:
+        raise HTTPException(status_code=404, detail="Not found")
+    data = {}
+    try:
+        data = await request.json()
+    except Exception:
+        pass
+    reason = data.get("reason") or data.get("remarks") or "Rejected by Planning"
+    await db.petty_cash.update_one(
+        {"petty_cash_id": petty_cash_id},
+        {"$set": {
+            "status": "planning_rejected",
+            "planning_rejected_by": user.user_id,
+            "planning_rejected_by_name": user.name,
+            "planning_rejected_reason": reason,
+            "planning_rejected_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    await create_notification(pc["requested_by"], f"Petty cash rejected by Planning: {reason}")
+    return {"message": "Rejected"}
+
+
+
+
 # ============ PETTY CASH - ACCOUNTANT PAYMENT PROCESSING ============
 
 @router.patch("/accountant/petty-cash/{petty_cash_id}/process-payment")
