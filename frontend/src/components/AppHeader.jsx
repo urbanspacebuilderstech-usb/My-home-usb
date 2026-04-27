@@ -25,6 +25,7 @@ const ROLE_NAV = {
     { label: 'Approvals', path: '/accounts-board?tab=approvals' },
     { label: 'Expense', path: '/accounts-board?tab=cashbook&sub=expense' },
     { label: 'Cheque Management', path: '/accounts-board?tab=cheques' },
+    { label: 'Suspense A/c', path: '/suspense-account' },
     { label: 'Project Wise', path: '/accounts-board?tab=projects' },
   ],
   general_manager: [
