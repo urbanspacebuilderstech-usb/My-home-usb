@@ -1124,6 +1124,12 @@ class ChequeRecord(BaseModel):
     opened_by_name: Optional[str] = None
     opened_at: Optional[datetime] = None
     opened_remarks: Optional[str] = None
+    # Accountant → CRE "request to open" workflow
+    open_requested: bool = False
+    open_requested_by: Optional[str] = None
+    open_requested_by_name: Optional[str] = None
+    open_requested_at: Optional[datetime] = None
+    open_requested_remarks: Optional[str] = None
     recorded_by: str
     recorded_by_name: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

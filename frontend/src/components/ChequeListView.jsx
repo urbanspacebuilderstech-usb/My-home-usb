@@ -31,15 +31,17 @@ const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-dig
  * userRole: drives Open button visibility (only super_admin/cre can open)
  * projectId: optional — when present, scopes the list
  */
-export default function ChequeListView({ scope = 'cre', projectId = null, userRole = null }) {
+export default function ChequeListView({ scope = 'cre', projectId = null, userRole = null, onAction = null }) {
   const [cheques, setCheques] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('all'); // all | open_pending | opened | by_project
+  const [activeTab, setActiveTab] = useState('all'); // all | open_pending | open_requested | opened | by_project
   const [openDialog, setOpenDialog] = useState({ open: false, cheque: null, remarks: '' });
+  const [requestDialog, setRequestDialog] = useState({ open: false, cheque: null, remarks: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const canOpen = ['super_admin', 'cre'].includes(userRole);
+  const canRequestOpen = ['super_admin', 'accountant'].includes(userRole);
 
   const fetchCheques = async () => {
     try {
@@ -47,6 +49,8 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       let url;
       if (scope === 'project' && projectId) {
         url = `${API}/projects/${projectId}/cheques`;
+      } else if (scope === 'accountant') {
+        url = `${API}/accountant/cheques${projectId ? `?project_id=${projectId}` : ''}`;
       } else {
         url = `${API}/cre/cheques${projectId ? `?project_id=${projectId}` : ''}`;
       }
@@ -78,6 +82,23 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
     }
   };
 
+  const handleRequestOpen = async () => {
+    if (!requestDialog.cheque) return;
+    try {
+      setSubmitting(true);
+      await axios.patch(`${API}/accountant/cheques/${requestDialog.cheque.cheque_id}/request-open`, {
+        remarks: requestDialog.remarks || null,
+      });
+      toast.success('Open request sent to CRE');
+      setRequestDialog({ open: false, cheque: null, remarks: '' });
+      fetchCheques();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || 'Failed to send request');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Filtering
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -89,7 +110,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
       }
       // Tab filter
       if (activeTab === 'open_pending') return c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled';
+      if (activeTab === 'open_requested') return c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled';
       if (activeTab === 'opened') return c.is_opened;
+      if (activeTab === 'incoming') return c.cheque_type === 'incoming';
+      if (activeTab === 'outgoing') return c.cheque_type === 'outgoing';
       return true;
     });
   }, [cheques, search, activeTab]);
@@ -111,13 +135,22 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
   }, [filtered]);
 
   const stats = useMemo(() => {
+    const incoming = cheques.filter(c => c.cheque_type === 'incoming');
+    const outgoing = cheques.filter(c => c.cheque_type === 'outgoing');
     const pending = cheques.filter(c => c.cheque_type === 'incoming' && !c.is_opened && c.status !== 'cancelled');
+    const requested = cheques.filter(c => c.cheque_type === 'incoming' && !c.is_opened && c.open_requested && c.status !== 'cancelled');
     const opened = cheques.filter(c => c.is_opened);
     return {
       total: cheques.length,
       total_amount: cheques.reduce((s, c) => s + (c.amount || 0), 0),
+      incoming_count: incoming.length,
+      incoming_amount: incoming.reduce((s, c) => s + (c.amount || 0), 0),
+      outgoing_count: outgoing.length,
+      outgoing_amount: outgoing.reduce((s, c) => s + (c.amount || 0), 0),
       pending_open: pending.length,
       pending_amount: pending.reduce((s, c) => s + (c.amount || 0), 0),
+      open_requested_count: requested.length,
+      open_requested_amount: requested.reduce((s, c) => s + (c.amount || 0), 0),
       opened_count: opened.length,
     };
   }, [cheques]);
@@ -130,42 +163,80 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
     <div className="space-y-3" data-testid={`cheque-list-view-${scope}`}>
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-        <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-3">
-            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Total Cheques</p>
-            <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.total}</p>
-            <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.total_amount)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-3">
-            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE Open</p>
-            <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
-            <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="p-3">
-            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Opened by CRE</p>
-            <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.opened_count}</p>
-          </CardContent>
-        </Card>
-        <Card className="border-l-4 border-l-violet-500">
-          <CardContent className="p-3">
-            <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Projects</p>
-            <p className="text-lg sm:text-xl font-bold text-violet-700">{projectGroups.length}</p>
-          </CardContent>
-        </Card>
+        {scope === 'accountant' ? (
+          <>
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Incoming</p>
+                <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.incoming_count}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.incoming_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Outgoing</p>
+                <p className="text-lg sm:text-xl font-bold text-orange-700">{stats.outgoing_count}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.outgoing_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-amber-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_pending')}>
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE</p>
+                <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_requested')}>
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Open Requested</p>
+                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.open_requested_count}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.open_requested_amount)}</p>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <>
+            <Card className="border-l-4 border-l-blue-500">
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Total Cheques</p>
+                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.total}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.total_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-amber-500">
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Awaiting CRE Open</p>
+                <p className="text-lg sm:text-xl font-bold text-amber-700">{stats.pending_open}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.pending_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-blue-500 cursor-pointer hover:shadow-md" onClick={() => setActiveTab('open_requested')}>
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Accountant Requested</p>
+                <p className="text-lg sm:text-xl font-bold text-blue-700">{stats.open_requested_count}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500">{fmtMoney(stats.open_requested_amount)}</p>
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-emerald-500">
+              <CardContent className="p-3">
+                <p className="text-[10px] sm:text-xs font-semibold text-gray-500 uppercase">Opened by CRE</p>
+                <p className="text-lg sm:text-xl font-bold text-emerald-700">{stats.opened_count}</p>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Filter Bar */}
       <Card>
         <CardContent className="p-3">
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="inline-flex bg-gray-100 rounded-lg p-0.5">
+            <div className="inline-flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
               {[
                 { k: 'all', label: 'All' },
-                { k: 'open_pending', label: 'Awaiting Open' },
+                ...(scope === 'accountant' ? [{ k: 'incoming', label: 'Incoming' }, { k: 'outgoing', label: 'Outgoing' }] : []),
+                { k: 'open_pending', label: 'Awaiting CRE' },
+                { k: 'open_requested', label: 'Open Requested' },
                 { k: 'opened', label: 'Opened' },
                 ...(scope === 'cre' ? [{ k: 'by_project', label: 'Project Wise' }] : []),
               ].map(t => (
@@ -209,7 +280,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                   </div>
                   <span className="text-sm font-bold text-violet-700">{fmtMoney(g.total)}</span>
                 </div>
-                <ChequeTable rows={g.rows} canOpen={canOpen} onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })} />
+                <ChequeTable rows={g.rows} canOpen={canOpen} canRequestOpen={canRequestOpen}
+                  onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
+                  onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
+                  onAction={onAction} />
               </CardContent>
             </Card>
           ))}
@@ -223,7 +297,10 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
                 <p className="text-sm">No cheques match the current filter</p>
               </div>
             ) : (
-              <ChequeTable rows={filtered} canOpen={canOpen} onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })} />
+              <ChequeTable rows={filtered} canOpen={canOpen} canRequestOpen={canRequestOpen}
+                onOpenRequest={(c) => setOpenDialog({ open: true, cheque: c, remarks: '' })}
+                onRequestOpen={(c) => setRequestDialog({ open: true, cheque: c, remarks: '' })}
+                onAction={onAction} />
             )}
           </CardContent>
         </Card>
@@ -267,11 +344,50 @@ export default function ChequeListView({ scope = 'cre', projectId = null, userRo
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Accountant: Request CRE to Open dialog */}
+      <Dialog open={requestDialog.open} onOpenChange={(open) => !open && setRequestDialog({ open: false, cheque: null, remarks: '' })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Lock className="h-5 w-5 text-blue-600" /> Request CRE to Open Cheque</DialogTitle>
+          </DialogHeader>
+          {requestDialog.cheque && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 rounded-lg p-3">
+                <div><span className="text-gray-500">Cheque #</span><p className="font-semibold">{requestDialog.cheque.cheque_number}</p></div>
+                <div><span className="text-gray-500">Amount</span><p className="font-semibold text-emerald-700">{fmtMoney(requestDialog.cheque.amount)}</p></div>
+                <div><span className="text-gray-500">Bank</span><p className="font-medium">{requestDialog.cheque.bank_name}</p></div>
+                <div><span className="text-gray-500">Party</span><p className="font-medium">{requestDialog.cheque.party_name}</p></div>
+                <div className="col-span-2"><span className="text-gray-500">Project</span><p className="font-medium">{requestDialog.cheque.project_name || '-'}</p></div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">Note to CRE (optional)</label>
+                <Textarea
+                  rows={2}
+                  value={requestDialog.remarks}
+                  onChange={(e) => setRequestDialog({ ...requestDialog, remarks: e.target.value })}
+                  placeholder="e.g. Need this opened by EOD for tomorrow's deposit"
+                  data-testid="cheque-request-remarks"
+                />
+              </div>
+              <div className="text-xs bg-blue-50 border border-blue-200 rounded p-2 text-blue-800">
+                CRE will be notified. Once they open the cheque, you'll be able to deposit/clear it.
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRequestDialog({ open: false, cheque: null, remarks: '' })} disabled={submitting}>Cancel</Button>
+            <Button className="bg-blue-600 hover:bg-blue-700" onClick={handleRequestOpen} disabled={submitting} data-testid="cheque-request-confirm">
+              {submitting ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Sending…</> : <><Lock className="h-4 w-4 mr-1" /> Send Request</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ChequeTable({ rows, canOpen, onOpenRequest }) {
+function ChequeTable({ rows, canOpen, canRequestOpen, onOpenRequest, onRequestOpen, onAction }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
@@ -293,8 +409,9 @@ function ChequeTable({ rows, canOpen, onOpenRequest }) {
         <tbody>
           {rows.map((c, i) => {
             const sb = STATUS_BADGE[c.status] || { label: c.status, cls: 'bg-gray-100 text-gray-700' };
+            const isLockedIncoming = !c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled';
             return (
-              <tr key={c.cheque_id} className="border-b hover:bg-gray-50" data-testid={`cheque-row-${c.cheque_id}`}>
+              <tr key={c.cheque_id} className={`border-b hover:bg-gray-50 ${c.open_requested && !c.is_opened ? 'bg-blue-50/30' : ''}`} data-testid={`cheque-row-${c.cheque_id}`}>
                 <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                 <td className="px-3 py-2 font-mono font-semibold">{c.cheque_number}</td>
                 <td className="px-3 py-2">{c.bank_name}</td>
@@ -312,17 +429,24 @@ function ChequeTable({ rows, canOpen, onOpenRequest }) {
                 </td>
                 <td className="px-3 py-2 text-center">
                   {c.is_opened ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1">
+                    <Badge className="bg-emerald-100 text-emerald-700 text-[10px] gap-1" title={c.opened_by_name ? `Opened by ${c.opened_by_name}` : ''}>
                       <CheckCircle2 className="h-3 w-3" /> Opened
                     </Badge>
+                  ) : c.cheque_type === 'outgoing' ? (
+                    <span className="text-[10px] text-gray-300">—</span>
+                  ) : c.open_requested ? (
+                    <Badge className="bg-blue-100 text-blue-700 text-[10px] gap-1" title={c.open_requested_by_name ? `Requested by ${c.open_requested_by_name}` : ''}>
+                      <Loader2 className="h-3 w-3" /> Open Requested
+                    </Badge>
                   ) : (
-                    <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1">
+                    <Badge className="bg-amber-100 text-amber-700 text-[10px] gap-1" title="Awaiting open request from Accountant">
                       <Lock className="h-3 w-3" /> Locked
                     </Badge>
                   )}
                 </td>
                 <td className="px-3 py-2 text-center">
-                  {!c.is_opened && c.cheque_type === 'incoming' && c.status !== 'cancelled' && canOpen ? (
+                  {/* CRE: shows Open button on locked incoming */}
+                  {isLockedIncoming && canOpen ? (
                     <Button
                       size="sm"
                       className="h-7 text-[10px] bg-emerald-600 hover:bg-emerald-700"
@@ -331,10 +455,29 @@ function ChequeTable({ rows, canOpen, onOpenRequest }) {
                     >
                       Open
                     </Button>
+                  ) : isLockedIncoming && canRequestOpen && !c.open_requested ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] border-blue-300 text-blue-700 hover:bg-blue-50"
+                      onClick={() => onRequestOpen(c)}
+                      data-testid={`cheque-request-btn-${c.cheque_id}`}
+                    >
+                      Request Open
+                    </Button>
+                  ) : isLockedIncoming && c.open_requested ? (
+                    <span className="text-[10px] text-blue-600 italic">Sent to CRE</span>
                   ) : c.is_opened ? (
-                    <span className="text-[10px] text-gray-500" title={c.opened_by_name ? `By ${c.opened_by_name}` : ''}>
-                      {c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓'}
-                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-[10px] text-gray-700 hover:bg-gray-100"
+                      onClick={() => onAction && onAction('update_status', c)}
+                      title="Update status"
+                      data-testid={`cheque-update-btn-${c.cheque_id}`}
+                    >
+                      {onAction ? 'Update' : (c.opened_by_name ? `by ${c.opened_by_name.split(' ')[0]}` : '✓')}
+                    </Button>
                   ) : (
                     <span className="text-[10px] text-gray-300">—</span>
                   )}

@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { DayPicker } from 'react-day-picker';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
+import ChequeListView from '../components/ChequeListView';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -2338,7 +2339,37 @@ function ChequeManagementTab({ projects }) {
         </Card>
       )}
 
-      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
+      {/* Add Cheque / Smart Pay action bar */}
+      <div className="flex flex-wrap gap-2 justify-end">
+        <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1 h-8 text-xs" onClick={() => setAddDialog(true)} data-testid="add-cheque-btn">
+          <Plus className="h-3.5 w-3.5" /> Add Cheque
+        </Button>
+        <Button size="sm" variant="outline" className="gap-1 h-8 border-blue-300 text-blue-700 text-xs" onClick={() => setSmartPayDialog(true)} data-testid="smart-pay-btn">
+          <CreditCard className="h-3.5 w-3.5" /> Smart Pay
+        </Button>
+      </div>
+
+      {/* New unified Cheque List View — Accountant scope: stats + filters + Request Open workflow */}
+      <ChequeListView
+        scope="accountant"
+        userRole="accountant"
+        onAction={(type, c) => {
+          if (type === 'update_status') {
+            setSelectedCheque(c);
+            setStatusForm({
+              status: c.status,
+              deposit_date: c.deposit_date?.split('T')[0] || '',
+              clearance_date: c.clearance_date?.split('T')[0] || '',
+              bounce_reason: c.bounce_reason || '',
+              bounce_charges: c.bounce_charges?.toString() || '',
+              remarks: c.remarks || '',
+            });
+            setStatusDialog(true);
+          }
+        }}
+      />
+
+      <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3" style={{display:'none'}}>
         {[
           { key: 'all', label: 'Total', value: stats.total, icon: FileText, bg: '' },
           { key: 'incoming', label: 'Incoming', value: stats.incoming, color: 'text-green-700', bg: 'bg-green-50' },
@@ -2357,7 +2388,7 @@ function ChequeManagementTab({ projects }) {
         ))}
       </div>
 
-      <Card>
+      <Card style={{display:'none'}}>
         <CardHeader className="border-b py-3 px-3 sm:px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
             <div className="flex flex-wrap gap-1">

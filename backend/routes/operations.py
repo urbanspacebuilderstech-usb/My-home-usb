@@ -3404,10 +3404,52 @@ async def cre_open_cheque(cheque_id: str, payload: ChequeOpenRequest, user: User
         "opened_by_name": user.name,
         "opened_at": now,
         "opened_remarks": payload.remarks,
+        # Clear any pending request once CRE opens it
+        "open_requested": False,
         "updated_at": now,
     }
     await db.cheques.update_one({"cheque_id": cheque_id}, {"$set": update})
     return {"message": "Cheque opened. Accountant can now deposit/clear it.", "cheque_id": cheque_id}
+
+
+@router.patch("/accountant/cheques/{cheque_id}/request-open")
+async def accountant_request_open_cheque(cheque_id: str, payload: ChequeOpenRequest, user: User = Depends(get_current_user)):
+    """Accountant raises a request asking CRE to open this cheque (so it can be deposited/cleared)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can request cheque open")
+
+    cheque = await db.cheques.find_one({"cheque_id": cheque_id}, {"_id": 0})
+    if not cheque:
+        raise HTTPException(status_code=404, detail="Cheque not found")
+    if cheque.get("is_opened"):
+        raise HTTPException(status_code=400, detail="Cheque is already opened")
+    if cheque.get("cheque_type") != "incoming":
+        raise HTTPException(status_code=400, detail="Only incoming cheques require CRE release")
+
+    now = datetime.now(timezone.utc).isoformat()
+    update = {
+        "open_requested": True,
+        "open_requested_by": user.user_id,
+        "open_requested_by_name": user.name,
+        "open_requested_at": now,
+        "open_requested_remarks": payload.remarks,
+        "updated_at": now,
+    }
+    await db.cheques.update_one({"cheque_id": cheque_id}, {"$set": update})
+
+    # Notify CRE department
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": "all_cre",
+        "title": "Cheque open requested",
+        "message": f"{user.name} requested CRE to open cheque {cheque.get('cheque_number')} ({cheque.get('party_name')}).",
+        "type": "cheque_open_request",
+        "reference_id": cheque_id,
+        "is_read": False,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    return {"message": "Open request sent to CRE", "cheque_id": cheque_id}
 
 
 @router.get("/accountant/cheques/reminders")
