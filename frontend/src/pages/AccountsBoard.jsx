@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popove
 import { DayPicker } from 'react-day-picker';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import ChequeListView from '../components/ChequeListView';
+import PayApprovalDialog from '../components/PayApprovalDialog';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -2726,6 +2727,8 @@ function ApprovalsTab() {
   const [appDateTo, setAppDateTo] = useState(_a_mEnd);
   // Income review dialog
   const [reviewDialog, setReviewDialog] = useState({ open: false, income: null });
+  // Pay-approval dialog (unified Pay & Settle for material / labour / petty_cash)
+  const [payDialog, setPayDialog] = useState({ open: false, reqType: '', requestId: '' });
   const [reviewForm, setReviewForm] = useState({
     verification_mode: '',
     denomination: { '2000': 0, '500': 0, '200': 0, '100': 0, '50': 0, '20': 0, '10': 0, '5': 0, '2': 0, '1': 0 },
@@ -3093,6 +3096,7 @@ function ApprovalsTab() {
             getApprovalAction={getApprovalAction}
             onApprove={handleApproveExpense}
             onReject={(id) => setRejectDialog({ open: true, type: 'material', id, reason: '' })}
+            onPay={(id) => setPayDialog({ open: true, reqType: 'material', requestId: id })}
           />
         </TabsContent>
 
@@ -3108,6 +3112,7 @@ function ApprovalsTab() {
             getApprovalAction={getApprovalAction}
             onApprove={handleApproveExpense}
             onReject={(id) => setRejectDialog({ open: true, type: 'labour', id, reason: '' })}
+            onPay={(id) => setPayDialog({ open: true, reqType: 'labour', requestId: id })}
           />
         </TabsContent>
 
@@ -3126,6 +3131,15 @@ function ApprovalsTab() {
           />
         </TabsContent>
       </Tabs>
+
+      {/* Pay & Settle Dialog (Material/Labour/Petty-Cash) */}
+      <PayApprovalDialog
+        open={payDialog.open}
+        onOpenChange={(o) => !o && setPayDialog({ open: false, reqType: '', requestId: '' })}
+        reqType={payDialog.reqType}
+        requestId={payDialog.requestId}
+        onPaid={() => fetchApprovals(false)}
+      />
 
       {/* Income Review Dialog */}
       <Dialog open={reviewDialog.open} onOpenChange={(open) => { if (!open) setReviewDialog({ open: false, income: null }); }}>
@@ -3305,7 +3319,7 @@ function ApprovalsTab() {
 }
 
 // Reusable expense approval table within AccountsBoard
-function ApprovalExpenseTable({ items, type, idField, amountField, altAmountField, descField, processing, getApprovalAction, onApprove, onReject }) {
+function ApprovalExpenseTable({ items, type, idField, amountField, altAmountField, descField, processing, getApprovalAction, onApprove, onReject, onPay }) {
   if (!items || items.length === 0) {
     return (
       <Card><CardContent className="py-10 text-center text-gray-400">
@@ -3354,7 +3368,15 @@ function ApprovalExpenseTable({ items, type, idField, amountField, altAmountFiel
                     </td>
                     <td className="px-3 py-2 text-center">
                       {action ? (
-                        <div className="flex items-center justify-center gap-1">
+                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                          {onPay && (
+                            <Button size="sm" className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1 px-2"
+                              disabled={processing === id}
+                              onClick={() => onPay(id)}
+                              data-testid={`pay-${type}-btn-${id}`}>
+                              <Wallet className="h-3 w-3" /> Pay & Settle
+                            </Button>
+                          )}
                           <Button size="sm" className="h-6 text-[10px] bg-green-600 hover:bg-green-700 gap-1 px-2"
                             disabled={processing === id}
                             onClick={() => onApprove(type, id, action)}

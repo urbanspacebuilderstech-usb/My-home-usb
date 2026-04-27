@@ -3116,8 +3116,8 @@ class PayApprovalRequest(BaseModel):
 def _request_collection_and_keys(req_type: str):
     """Map request type to collection + ID field + amount field + vendor field + project field"""
     if req_type == "material":
-        return ("material_requests", "request_id",
-                lambda r: r.get("estimated_price") or r.get("final_price") or 0,
+        return ("material_expenses", "expense_id",
+                lambda r: r.get("final_amount") or r.get("estimated_cost") or r.get("estimated_price") or r.get("final_price") or 0,
                 lambda r: r.get("vendor_name") or r.get("supplier_name") or r.get("material_name") or "Unknown",
                 "project_id", "material")
     if req_type == "labour":
