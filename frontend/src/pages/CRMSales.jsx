@@ -302,6 +302,8 @@ export default function CRMSales() {
       
       if (result.data.re_project_created) {
         toast.success('Rough Estimate Project created! Planning team notified.');
+      } else if (result.data.re_already_exists) {
+        toast.info('Existing RE updated. Planning team already has the request.');
       } else if (stage?.stage_id === 'stg_payment_collect') {
         toast.success('Deal Close! Sent to CRE for project creation.');
       } else {

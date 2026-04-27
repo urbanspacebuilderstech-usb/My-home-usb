@@ -923,6 +923,28 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         "stage_history": stage_history,
         "updated_at": datetime.now(timezone.utc)
     }
+
+    # When a lead progresses OUT of Followup to any downstream stage, auto-complete any
+    # still-pending follow-ups. Otherwise the auto-move job in /crm/sales/leads would
+    # silently bounce the lead back to Followup on the next refresh.
+    DOWNSTREAM_OF_FOLLOWUP = {
+        "stg_re_requested", "stg_re_from_planning", "stg_re_to_client",
+        "stg_negotiation", "stg_payment_collect", "stg_accountant_approval",
+        "stg_project_onboarded", "stg_lost",
+    }
+    if (
+        old_stage_id == "stg_sales_followup"
+        and data.stage_id in DOWNSTREAM_OF_FOLLOWUP
+        and lead.get("follow_ups")
+    ):
+        completed_follow_ups = []
+        for fu in lead.get("follow_ups", []):
+            if not fu.get("completed"):
+                fu = {**fu, "completed": True, "auto_completed": True,
+                      "completed_at": datetime.now(timezone.utc).isoformat(),
+                      "completed_reason": f"auto-closed on stage move to {data.stage_id}"}
+            completed_follow_ups.append(fu)
+        update["follow_ups"] = completed_follow_ups
     
     # Store remarks on lead for RE-Client
     if data.remark and data.stage_id in ["stg_re_to_client"]:
@@ -1095,53 +1117,75 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
             }
             await db.notifications.insert_one(notification)
     
-    # TRIGGER: Sales "RE - Request" -> Create RE Project
+    # TRIGGER: Sales "RE - Request" -> Create RE Project (idempotent — don't duplicate if one exists)
     if lead["stage_type"] == "sales" and stage["stage_id"] == "stg_re_requested":
-        # Generate RE number
-        re_number = await get_next_re_number()
-        # Create RE Project
-        re_project = REProject(
-            lead_id=lead_id,
-            client_name=lead["name"],
-            client_email=lead.get("email"),
-            client_phone=lead.get("phone"),
-            project_name=f"RE - {lead['name']}",
-            location=lead.get("address"),
-            sqft=lead.get("custom_fields", {}).get("sqft"),
-            building_type=lead.get("custom_fields", {}).get("project_type"),
-            status=REProjectStatus.RE_REQUESTED,
-            created_by=user.user_id,
-            re_number=re_number,
-            revision=0,
-            parent_re_number=re_number
-        )
-        
-        re_dict = re_project.model_dump()
-        # Store rough requirement from Sales
-        if data.rough_requirement:
-            re_dict["rough_requirement"] = data.rough_requirement
-            re_dict["rough_requirement_by"] = user.name
-            re_dict["rough_requirement_at"] = datetime.now(timezone.utc).isoformat()
-        await db.re_projects.insert_one(re_dict)
-        
-        # Link RE project to lead
-        await db.leads.update_one({"lead_id": lead_id}, {"$set": {"re_project_id": re_project.re_project_id, "re_number": re_number}})
-        
-        result["re_project_created"] = True
-        result["re_project_id"] = re_project.re_project_id
-        
-        # Notify Planning Department
-        notification = {
-            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
-            "user_id": "all_planning",
-            "title": "New Rough Estimate Request",
-            "message": f"Rough Estimate requested for lead '{lead['name']}'",
-            "type": "re_request",
-            "reference_id": re_project.re_project_id,
-            "is_read": False,
-            "created_at": datetime.now(timezone.utc)
-        }
-        await db.notifications.insert_one(notification)
+        existing_re_pid = lead.get("re_project_id")
+        existing_re = None
+        if existing_re_pid:
+            existing_re = await db.re_projects.find_one({"re_project_id": existing_re_pid}, {"_id": 0})
+
+        # If a non-converted RE already exists for this lead, do NOT create a duplicate.
+        # Just keep the lead linked to the existing RE and refresh the rough requirement.
+        if existing_re and existing_re.get("status") not in ("converted", "deleted"):
+            if data.rough_requirement:
+                await db.re_projects.update_one(
+                    {"re_project_id": existing_re_pid},
+                    {"$set": {
+                        "rough_requirement": data.rough_requirement,
+                        "rough_requirement_by": user.name,
+                        "rough_requirement_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc),
+                    }}
+                )
+            result["re_project_created"] = False
+            result["re_project_id"] = existing_re_pid
+            result["re_already_exists"] = True
+        else:
+            # Generate RE number
+            re_number = await get_next_re_number()
+            # Create RE Project
+            re_project = REProject(
+                lead_id=lead_id,
+                client_name=lead["name"],
+                client_email=lead.get("email"),
+                client_phone=lead.get("phone"),
+                project_name=f"RE - {lead['name']}",
+                location=lead.get("address"),
+                sqft=lead.get("custom_fields", {}).get("sqft"),
+                building_type=lead.get("custom_fields", {}).get("project_type"),
+                status=REProjectStatus.RE_REQUESTED,
+                created_by=user.user_id,
+                re_number=re_number,
+                revision=0,
+                parent_re_number=re_number
+            )
+
+            re_dict = re_project.model_dump()
+            # Store rough requirement from Sales
+            if data.rough_requirement:
+                re_dict["rough_requirement"] = data.rough_requirement
+                re_dict["rough_requirement_by"] = user.name
+                re_dict["rough_requirement_at"] = datetime.now(timezone.utc).isoformat()
+            await db.re_projects.insert_one(re_dict)
+
+            # Link RE project to lead
+            await db.leads.update_one({"lead_id": lead_id}, {"$set": {"re_project_id": re_project.re_project_id, "re_number": re_number}})
+
+            result["re_project_created"] = True
+            result["re_project_id"] = re_project.re_project_id
+
+            # Notify Planning Department
+            notification = {
+                "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+                "user_id": "all_planning",
+                "title": "New Rough Estimate Request",
+                "message": f"Rough Estimate requested for lead '{lead['name']}'",
+                "type": "re_request",
+                "reference_id": re_project.re_project_id,
+                "is_read": False,
+                "created_at": datetime.now(timezone.utc)
+            }
+            await db.notifications.insert_one(notification)
     
     # TRIGGER: Sales "Deal Close" (stg_payment_collect) -> Advance collection popup handled by frontend
     if lead["stage_type"] == "sales" and stage["stage_id"] == "stg_payment_collect":
@@ -2063,10 +2107,19 @@ async def get_sales_leads(
         raise HTTPException(status_code=403, detail="Sales access required")
     
     # Auto-move leads with due follow-ups to the Follow-up stage
+    # IMPORTANT: only kick the lead back to followup if it's still in an EARLY pipeline stage.
+    # Once a lead has progressed to RE / Negotiation / Deal Close / Onboarded / Lost, leave it alone —
+    # otherwise the auto-move silently undoes Sales/Planning/GM stage changes.
+    EARLY_SALES_STAGES = [
+        "stg_new_appt",
+        "stg_sales_office_visit",
+        "stg_sv_client_land",
+        "stg_sv_our_projects",
+    ]
     tomorrow_str = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
     followup_query = {
         "stage_type": "sales",
-        "current_stage_id": {"$ne": "stg_sales_followup"},
+        "current_stage_id": {"$in": EARLY_SALES_STAGES},
         "follow_ups": {
             "$elemMatch": {
                 "scheduled_date": {"$lt": tomorrow_str},
