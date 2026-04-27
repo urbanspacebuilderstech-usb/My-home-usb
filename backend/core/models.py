@@ -26,6 +26,7 @@ class UserRole(str, Enum):
     MARKETING_HEAD = "marketing_head"  # Marketing Head
     ARCHITECT = "architect"  # Architect / Design Team
     HR = "hr"  # Human Resources
+    PROSPECT = "prospect"  # Pre-purchase mobile prospect (read-only quote viewer)
 
 
 class ProjectStatus(str, Enum):

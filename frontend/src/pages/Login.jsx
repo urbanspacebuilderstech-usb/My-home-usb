@@ -30,6 +30,7 @@ function getRoleRedirect(role) {
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
     hr: '/hr-portal',
+    prospect: '/prospect-app',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';

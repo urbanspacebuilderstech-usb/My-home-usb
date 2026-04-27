@@ -18,6 +18,7 @@ const ROLE_NAV = {
     { label: 'GM', path: '/gm-dashboard' },
     { label: 'HR', path: '/hr-portal' },
     { label: 'Users', path: '/users' },
+    { label: 'User App', path: '/user-app' },
     { label: 'Settings', path: '/settings' },
   ],
   accountant: [
@@ -64,8 +65,11 @@ const ROLE_NAV = {
   ],
   pre_sales: [
     { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
+    { label: 'User App', path: '/user-app' },
   ],
-  sales: [],
+  sales: [
+    { label: 'User App', path: '/user-app' },
+  ],
   site_engineer: [
     { label: 'Dashboard', path: '/site-engineer' },
     { label: 'Material Receipt', path: '/site-engineer/material-receipt' },
@@ -77,6 +81,7 @@ const ROLE_NAV = {
     { label: 'HR Portal', path: '/hr-portal' },
     { label: 'Projects', path: '/projects' },
   ],
+  prospect: [],  // mobile app uses its own footer nav; AppHeader is hidden
 };
 
 // ═══ SUB-MENUS (used by super_admin and accountant) ═══

@@ -95,6 +95,7 @@ from routes.architect import router as architect_router
 from routes.contractors import router as contractors_router
 from routes.hr import router as hr_router
 from routes.packages import router as packages_router
+from routes.prospect import router as prospect_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -108,6 +109,7 @@ app.include_router(architect_router, prefix="/api")
 app.include_router(contractors_router, prefix="/api")
 app.include_router(hr_router, prefix="/api")
 app.include_router(packages_router, prefix="/api")
+app.include_router(prospect_router, prefix="/api")
 
 @app.get("/api/reports/api-endpoints-pdf")
 async def download_api_report_pdf(user=Depends(get_current_user)):

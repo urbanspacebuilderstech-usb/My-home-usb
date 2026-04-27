@@ -12,11 +12,12 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
+import CreateProspectUserDialog from '../components/CreateProspectUserDialog';
 import { 
   Target, LogOut, Search, Phone, PhoneOff, Mail, MapPin, ArrowRight, RefreshCw, Plus, X,
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch, DollarSign, UserCheck, Users
+  MessageSquare, GitBranch, DollarSign, UserCheck, Users, Smartphone
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -151,6 +152,8 @@ export default function CRMSales() {
   
   // Remarks dialog (Discussion, Deal Closed, RE-To Client, Lost)
   const [remarksDialog, setRemarksDialog] = useState(false);
+  // Create-Prospect-Login popup (Move to RE Client mobile flow)
+  const [prospectDialog, setProspectDialog] = useState({ open: false, lead: null });
   const [remarksLeadId, setRemarksLeadId] = useState(null);
   const [remarksStageId, setRemarksStageId] = useState(null);
   const [remarksStageName, setRemarksStageName] = useState('');
@@ -1663,7 +1666,15 @@ export default function CRMSales() {
                           <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
                           <p className="text-xs text-gray-600 mt-0.5">Client reviewing the Rough Estimate. Record their response below.</p>
                         </div>
-                        <div className="flex gap-2 shrink-0">
+                        <div className="flex gap-2 shrink-0 flex-wrap">
+                          <Button
+                            size="sm"
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => setProspectDialog({ open: true, lead: selectedLead })}
+                            data-testid="detail-create-prospect-btn"
+                          >
+                            <Smartphone className="h-4 w-4 mr-1" /> Create Prospect Login
+                          </Button>
                           <Button
                             size="sm"
                             className="bg-green-600 hover:bg-green-700 text-white"
@@ -3123,6 +3134,14 @@ export default function CRMSales() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Create Prospect Login (Move to RE Client mobile flow) */}
+      <CreateProspectUserDialog
+        open={prospectDialog.open}
+        onOpenChange={(o) => !o && setProspectDialog({ open: false, lead: null })}
+        lead={prospectDialog.lead}
+        onCreated={() => fetchLeads && fetchLeads()}
+      />
     </div>
   );
 }

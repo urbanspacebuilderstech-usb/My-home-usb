@@ -51,6 +51,8 @@ import IndirectCostManagement from '@/pages/IndirectCostManagement';
 import SuspenseAccount from '@/pages/SuspenseAccount';
 import OtherAccounts from '@/pages/OtherAccounts';
 import DTBoard from '@/pages/DTBoard';
+import ProspectApp from '@/pages/ProspectApp';
+import UserApp from '@/pages/UserApp';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
 import REProjectsPage from '@/pages/REProjectsPage';
@@ -144,6 +146,8 @@ function AppRouter() {
       <Route path="/suspense-account" element={<ProtectedRoute><SuspenseAccount /></ProtectedRoute>} />
       <Route path="/other-accounts" element={<ProtectedRoute><OtherAccounts /></ProtectedRoute>} />
       <Route path="/dt-board" element={<ProtectedRoute><DTBoard /></ProtectedRoute>} />
+      <Route path="/prospect-app" element={<ProtectedRoute><ProspectApp /></ProtectedRoute>} />
+      <Route path="/user-app" element={<ProtectedRoute><UserApp /></ProtectedRoute>} />
       <Route path="/work-order-management" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
       <Route path="/labour-contractors" element={<ProtectedRoute><LabourContractorManagement /></ProtectedRoute>} />
       <Route path="/crm-pre-sales" element={<ProtectedRoute><CRMPreSales /></ProtectedRoute>} />
@@ -179,6 +183,7 @@ function getRoleRedirect(role) {
     marketing_head: '/marketing-board',
     architect: '/architect-dashboard',
     hr: '/hr-portal',
+    prospect: '/prospect-app',
     super_admin: '/dashboard'
   };
   return roleRoutes[role] || '/dashboard';
