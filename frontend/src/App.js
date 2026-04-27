@@ -69,11 +69,13 @@ const API = `${BACKEND_URL}/api`;
 
 axios.defaults.withCredentials = true;
 
-// Clear auth cache on logout or auth failure
+// Auth interceptor: only invalidate cache on real 401s (auth failure).
+// 429 (rate-limit) and 5xx are transient — never log the user out for those.
 axios.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    if (status === 401) {
       cachedUser = null;
       authPromise = null;
     }
@@ -230,9 +232,32 @@ function ProtectedRoute({ children }) {
         setUser(userData);
         setIsAuthenticated(true);
       })
-      .catch(() => {
-        setIsAuthenticated(false);
-        window.location.href = '/login';
+      .catch((err) => {
+        const status = err?.response?.status;
+        // Only force-logout on actual auth failures (401 / 403). On rate-limit
+        // (429), server errors (5xx) or network glitches, retry once after a
+        // short delay so a transient blip doesn't kick the user off.
+        if (status === 401 || status === 403) {
+          setIsAuthenticated(false);
+          window.location.href = '/login';
+          return;
+        }
+        const wait = status === 429 ? 2000 : 1500;
+        setTimeout(() => {
+          getAuthUser()
+            .then(u => { setUser(u); setIsAuthenticated(true); })
+            .catch((e2) => {
+              const s2 = e2?.response?.status;
+              if (s2 === 401 || s2 === 403) {
+                setIsAuthenticated(false);
+                window.location.href = '/login';
+              } else {
+                // Still transient — leave auth state intact and let the user
+                // see whatever cached page they have rather than logging out.
+                setIsAuthenticated(true);
+              }
+            });
+        }, wait);
       });
   }, []);
 

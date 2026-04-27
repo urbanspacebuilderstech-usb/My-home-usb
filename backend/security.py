@@ -33,10 +33,14 @@ class SecurityConfig:
     SESSION_EXPIRY_HOURS = 24  # Sessions expire after 24 hours
     SESSION_REFRESH_THRESHOLD_HOURS = 12  # Refresh if less than 12 hours remaining
     
-    # Rate limiting
+    # Rate limiting (sized for shared-NAT office environments where many users
+    # share a single public IP, so per-IP buckets must be generous; per-user
+    # buckets are applied separately in deps.py)
     RATE_LIMIT_WINDOW_SECONDS = 60  # 1 minute window
-    RATE_LIMIT_MAX_REQUESTS = 100  # Max 100 requests per minute per IP
-    LOGIN_RATE_LIMIT_MAX = 5  # Max 5 login attempts per minute
+    RATE_LIMIT_MAX_REQUESTS = 6000  # Max 6000 requests / min / IP (covers ~100 concurrent users on a single NAT)
+    RATE_LIMIT_MAX_REQUESTS_PER_USER = 600  # Max 600 requests / min / authenticated user (10 req/sec)
+    LOGIN_RATE_LIMIT_MAX = 30  # Max 30 login attempts / min keyed by IP+email
+    LOGIN_RATE_LIMIT_PER_IP = 200  # Max 200 logins / min from a single IP (office concurrent logins)
     
     # Password policy
     MIN_PASSWORD_LENGTH = 8
@@ -84,13 +88,17 @@ class RateLimiter:
         self.requests[identifier].append(time.time())
         return True
     
-    def check_login_rate_limit(self, identifier: str) -> bool:
-        """Special rate limit for login attempts"""
+    def check_login_rate_limit(self, identifier: str, max_attempts: int = None) -> bool:
+        """Special rate limit for login attempts.
+        identifier may be an IP, an email, or 'IP+email' depending on caller.
+        max_attempts overrides default (allows separate per-IP and per-IP+email caps).
+        """
+        cap = max_attempts or SecurityConfig.LOGIN_RATE_LIMIT_MAX
         self._clean_old_requests(identifier, self.login_attempts, SecurityConfig.RATE_LIMIT_WINDOW_SECONDS)
-        
-        if len(self.login_attempts[identifier]) >= SecurityConfig.LOGIN_RATE_LIMIT_MAX:
+
+        if len(self.login_attempts[identifier]) >= cap:
             return False
-        
+
         self.login_attempts[identifier].append(time.time())
         return True
     

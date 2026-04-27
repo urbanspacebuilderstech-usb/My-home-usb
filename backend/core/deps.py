@@ -32,10 +32,18 @@ async def get_current_user(request: Request):
     """Get current authenticated user with security checks"""
     from core.models import User
 
-    client_ip = request.client.host if request.client else "unknown"
+    # Real client IP (honours X-Forwarded-For from nginx/cloudflare so shared
+    # NAT users aren't all bucketed as a single proxy IP)
+    fwd = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if fwd:
+        client_ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    else:
+        client_ip = request.client.host if request.client else "unknown"
 
-    if not rate_limiter.check_rate_limit(client_ip):
-        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+    # Generous IP cap (only meant to stop runaway scrapers from a single host).
+    # Per-user cap (applied below after auth) is the real protection.
+    if not rate_limiter.check_rate_limit(f"ip:{client_ip}"):
+        logger.warning(f"IP-level rate limit exceeded for: {client_ip}")
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
     session_token = request.cookies.get("session_token")
@@ -65,6 +73,12 @@ async def get_current_user(request: Request):
 
     if not user_doc.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    # Per-user rate limit: each authenticated user has their own bucket so
+    # heavy users on shared NAT don't starve their colleagues.
+    if not rate_limiter.check_rate_limit(f"user:{user_doc['user_id']}", max_requests=SecurityConfig.RATE_LIMIT_MAX_REQUESTS_PER_USER):
+        logger.warning(f"User-level rate limit exceeded for: {user_doc.get('email')}")
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
 
     if isinstance(user_doc.get("created_at"), str):
         user_doc["created_at"] = datetime.fromisoformat(user_doc["created_at"])

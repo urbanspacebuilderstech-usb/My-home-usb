@@ -239,15 +239,31 @@ class LoginRequest(BaseModel):
     totp_code: Optional[str] = None
 
 
+def _real_client_ip(request: Request) -> str:
+    """Resolve real client IP, honouring X-Forwarded-For from nginx/cloudflare.
+    Falls back to direct request.client.host. Used for rate-limiting & audit."""
+    fwd = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if fwd:
+        # Take the leftmost (original client) entry
+        return fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    return request.client.host if request.client else "unknown"
+
+
 @router.post("/auth/login")
 async def login(login_request: LoginRequest, request: Request, response: Response):
     """Real login with email + password + optional 2FA"""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _real_client_ip(request)
+    email_key = (login_request.email or "").strip().lower()[:200]
 
-    if not rate_limiter.check_login_rate_limit(client_ip):
+    # Per-IP+email: prevents brute-forcing one user's password while letting other
+    # users from the same office IP log in normally.
+    # Per-IP cap is generous (200/min) — only catches abusive scrapers.
+    ok_email = rate_limiter.check_login_rate_limit(f"login:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = rate_limiter.check_login_rate_limit(f"login:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    if not (ok_email and ok_ip):
         audit_entry = AuditLogger.create_audit_entry(
             user_id="unknown", action=AuditAction.LOGIN_FAILED,
-            resource_type="auth", details={"reason": "rate_limit_exceeded"},
+            resource_type="auth", details={"reason": "rate_limit_exceeded", "scope": "email" if not ok_email else "ip"},
             ip_address=client_ip, success=False
         )
         await db.audit_logs.insert_one(audit_entry)
@@ -319,9 +335,12 @@ async def demo_login(login_request: DemoLoginRequest, request: Request, response
     if not DEMO_MODE:
         raise HTTPException(status_code=403, detail="Demo login is disabled in production.")
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _real_client_ip(request)
+    email_key = (login_request.email or "").strip().lower()[:200]
 
-    if not rate_limiter.check_login_rate_limit(client_ip):
+    ok_email = rate_limiter.check_login_rate_limit(f"demo:{client_ip}|{email_key}", SecurityConfig.LOGIN_RATE_LIMIT_MAX)
+    ok_ip = rate_limiter.check_login_rate_limit(f"demo:ip:{client_ip}", SecurityConfig.LOGIN_RATE_LIMIT_PER_IP)
+    if not (ok_email and ok_ip):
         audit_entry = AuditLogger.create_audit_entry(
             user_id="unknown", action=AuditAction.LOGIN_FAILED,
             resource_type="auth", details={"reason": "rate_limit_exceeded", "email": login_request.email[:50]},
