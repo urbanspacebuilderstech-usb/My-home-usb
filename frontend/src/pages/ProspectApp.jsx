@@ -107,29 +107,65 @@ function MyQuoteTab({ sales, attachGuard }) {
   const re = quote?.re_project || {};
   const est = quote?.estimate || {};
   const totalValue = Number(est.total_value || re.estimated_total || re.total_value || 0);
-  const items = Array.isArray(est.items) ? est.items : [];
+  const scopeItems = Array.isArray(re.rough_scope_items) ? re.rough_scope_items : [];
+  const items = Array.isArray(est.items) ? est.items : scopeItems;
   const requirementText = re.rough_requirement || re.requirement_summary || re.requirement_text || '';
   const buildingType = re.building_type || re.config_type || re.floor_config;
   const projectTitle = re.project_name || re.client_name || 'Your Dream Home';
+  const sqft = re.sqft || re.area_sqft;
+  const months = re.handover_months;
+  const ratePerSqft = sqft && totalValue ? Math.round(totalValue / sqft) : null;
 
   return (
-    <div className="space-y-3 quote-guard" ref={attachGuard} style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
+    <div className="space-y-3 quote-guard pb-2" ref={attachGuard} style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
       {/* Cover */}
       <Card className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0 shadow-lg">
         <CardContent className="p-4">
           <p className="text-[11px] uppercase tracking-wider opacity-80">Your Stress-Free Quote</p>
           <p className="text-lg font-bold mt-1">{projectTitle}</p>
+          {(re.location || re.address) && (
+            <div className="mt-1 flex items-center gap-1 opacity-90">
+              <MapPin className="h-3 w-3" />
+              <p className="text-[12px]">{re.location || re.address}</p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-1.5 mt-2">
             {buildingType && <Badge className="bg-white/20 text-white border-0">{buildingType}</Badge>}
-            {re.handover_months && <Badge className="bg-white/20 text-white border-0">Handover · {re.handover_months} months</Badge>}
-            {re.location && <Badge className="bg-white/20 text-white border-0">{re.location}</Badge>}
+            {sqft > 0 && <Badge className="bg-white/20 text-white border-0">{sqft} sqft</Badge>}
+            {months && <Badge className="bg-white/20 text-white border-0">{months} mo handover</Badge>}
+            {re.re_number && <Badge className="bg-white/20 text-white border-0">{re.re_number}</Badge>}
           </div>
           {totalValue > 0 && (
             <div className="mt-3 pt-3 border-t border-white/20">
               <p className="text-[11px] opacity-80">Approved Estimate</p>
-              <p className="text-2xl font-bold">{fmt(totalValue)}</p>
+              <p className="text-3xl font-extrabold tracking-tight">{fmt(totalValue)}</p>
+              {ratePerSqft && <p className="text-[11px] opacity-80 mt-0.5">≈ {fmt(ratePerSqft)} per sqft</p>}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Project Details — quick facts grid */}
+      <Card>
+        <CardContent className="p-3">
+          <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Project Details</p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {[
+              ['Client', re.client_name],
+              ['Phone', re.client_phone],
+              ['Email', re.client_email],
+              ['Building', buildingType],
+              ['Built-up Area', sqft ? `${sqft} sqft` : null],
+              ['Handover', months ? `${months} months` : null],
+              ['RE Number', re.re_number ? `${re.re_number}${re.revision ? ` · Rev ${re.revision}` : ''}` : null],
+              ['Location', re.location],
+            ].filter(([, v]) => v).map(([k, v]) => (
+              <div key={k} className="bg-gray-50 rounded p-2">
+                <p className="text-[10px] text-gray-500 uppercase">{k}</p>
+                <p className="text-sm font-medium text-gray-800 truncate">{v}</p>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 
@@ -143,29 +179,60 @@ function MyQuoteTab({ sales, attachGuard }) {
         </Card>
       )}
 
-      {/* Itemised inclusions (when estimate has line items) */}
-      {items.length > 0 && (
+      {/* Itemised inclusions */}
+      {items.length > 0 ? (
         <Card>
           <CardContent className="p-3">
             <p className="text-[11px] font-semibold text-gray-500 uppercase mb-2">Inclusions</p>
             <div className="divide-y">
-              {items.map((it, i) => (
-                <div key={it.item_id || i} className="py-2 flex items-start justify-between gap-2 text-sm">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">{it.name}</p>
-                    <p className="text-[11px] text-gray-500">{it.qty} {it.unit} × {fmt(it.amount)}{it.remarks ? ` · ${it.remarks}` : ''}</p>
+              {items.map((it, i) => {
+                const qty = it.qty || it.quantity;
+                const rate = it.amount || it.rate;
+                const total = it.total || (qty && rate ? Number(qty) * Number(rate) : 0);
+                return (
+                  <div key={it.item_id || i} className="py-2 flex items-start justify-between gap-2 text-sm">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium">{it.name}</p>
+                      <p className="text-[11px] text-gray-500">
+                        {qty && <>{qty} {it.unit || ''}</>}
+                        {rate ? ` × ${fmt(rate)}` : ''}
+                        {it.remarks ? ` · ${it.remarks}` : ''}
+                      </p>
+                    </div>
+                    <p className="font-semibold text-emerald-700 whitespace-nowrap">{fmt(total)}</p>
                   </div>
-                  <p className="font-semibold text-emerald-700 whitespace-nowrap">{fmt(it.total)}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-3 pt-2 border-t flex items-center justify-between">
-              <span className="text-sm font-bold">Total</span>
+              <span className="text-sm font-bold">Total Estimate</span>
               <span className="text-lg font-extrabold text-emerald-700">{fmt(totalValue)}</span>
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : null}
+
+      {/* What's included summary (always shown) */}
+      <Card className="bg-amber-50 border-amber-200">
+        <CardContent className="p-3">
+          <p className="text-[11px] font-semibold text-amber-700 uppercase mb-2">What's Included</p>
+          <ul className="space-y-1.5 text-xs text-amber-800">
+            {[
+              'Approved drawings & structural plans',
+              'Quality materials with brand options',
+              'Skilled labour managed end-to-end',
+              `On-time handover within ${months || 'agreed'} months`,
+              'Dedicated CRE & site engineer assigned',
+              'Real-time project tracking via mobile updates',
+            ].map((line, i) => (
+              <li key={i} className="flex items-start gap-1.5">
+                <span className="text-amber-600 mt-0.5">✓</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
 
       {/* Approval badge */}
       {quote?.approved_at && (
