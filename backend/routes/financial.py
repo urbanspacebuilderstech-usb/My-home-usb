@@ -58,7 +58,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns) = await asyncio.gather(
+    (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries) = await asyncio.gather(
         db.income.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.recorded_expenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
@@ -66,6 +66,8 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1, "status": 1}).to_list(1000),
         db.suspense_transactions.find({}, {"_id": 0}).to_list(5000),
+        db.petty_cash_requests.find({}, {"_id": 0}).to_list(2000),
+        db.suspense_entries.find({}, {"_id": 0}).to_list(5000),
     )
     
     project_map = {p["project_id"]: p["name"] for p in projects_list}
@@ -126,8 +128,23 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     petty_total_issued = sum(pc.get("amount_issued", 0) for pc in petty_cash_list)
     petty_total_spent = sum(pc.get("amount_spent", 0) for pc in petty_cash_list)
     
-    # Suspense balance
-    suspense_total = sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "credit") - sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "debit")
+    # Suspense balance = Petty Cash (issued − spent) + Material Suspense + Labour Suspense
+    legacy_suspense_total = sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "credit") - sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "debit")
+
+    petty_active = [p for p in petty_requests if p.get("status") in ("issued", "partially_settled")]
+    petty_cash_suspense = sum(p.get("amount_issued", 0) for p in petty_active) - sum(p.get("amount_spent", 0) for p in petty_active)
+
+    material_suspense_total = 0.0
+    labour_suspense_total = 0.0
+    for entry in suspense_entries:
+        amt = entry.get("amount", 0) or 0
+        etype = (entry.get("type") or "").lower()
+        if etype == "material":
+            material_suspense_total += amt
+        elif etype == "labour":
+            labour_suspense_total += amt
+
+    suspense_total = petty_cash_suspense + material_suspense_total + labour_suspense_total + legacy_suspense_total
     
     # Project-wise breakdown
     project_wise = {}
@@ -157,6 +174,13 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         "expense_entries": sorted(all_expenses, key=lambda x: x.get("created_at", ""), reverse=True)[:200],
         "petty_cash": {"issued": petty_total_issued, "spent": petty_total_spent, "balance": petty_total_issued - petty_total_spent},
         "suspense_balance": suspense_total,
+        "suspense_breakdown": {
+            "petty_cash": petty_cash_suspense,
+            "material": material_suspense_total,
+            "labour": labour_suspense_total,
+            "legacy": legacy_suspense_total,
+            "total": suspense_total,
+        },
         "project_wise": project_list_sorted,
         "totals": {
             "total_income": income_by_mode["total"],

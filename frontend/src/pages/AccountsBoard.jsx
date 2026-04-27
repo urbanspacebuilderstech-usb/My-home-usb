@@ -256,17 +256,29 @@ function DrilldownView({ title, entries, type, onBack }) {
 // ============ SUSPENSE DRILLDOWN ============
 function SuspenseDrilldown({ onBack }) {
   const [vendors, setVendors] = useState([]);
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await axios.get(`${API}/accountant/all-vendor-suspense`);
-        setVendors(res.data);
+        const [vRes, oRes] = await Promise.all([
+          axios.get(`${API}/accountant/all-vendor-suspense`).catch(() => ({ data: [] })),
+          axios.get(`${API}/suspense/overview`).catch(() => ({ data: null })),
+        ]);
+        setVendors(vRes.data || []);
+        setOverview(oRes.data || null);
       } catch { /* ignore */ }
       setLoading(false);
     })();
   }, []);
+
+  // Source-of-truth totals (matches /accountant/overview.suspense_balance)
+  const pettyBalance = (overview?.petty_cash?.balance) ?? 0;
+  const materialTotal = (overview?.material_suspense?.total) ?? 0;
+  const labourTotal = (overview?.labour_suspense?.total) ?? 0;
+  const totalSuspense = pettyBalance + materialTotal + labourTotal;
 
   return (
     <div className="space-y-3" data-testid="suspense-drilldown">
@@ -275,57 +287,84 @@ function SuspenseDrilldown({ onBack }) {
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
         <h3 className="text-sm font-semibold text-gray-800">Suspense Account</h3>
-        <Badge variant="outline" className="text-xs">{vendors.length} vendors</Badge>
+        <Button variant="outline" size="sm" className="h-7 text-xs ml-auto" onClick={() => navigate('/suspense-account')} data-testid="suspense-open-full">
+          Open Full View →
+        </Button>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin text-amber-600" /></div>
-      ) : vendors.length === 0 ? (
-        <Card><CardContent className="p-8 text-center text-gray-400">No suspense balances found</CardContent></Card>
       ) : (
         <div className="space-y-3">
+          {/* Master Total + 3-way breakdown */}
           <Card className="bg-gradient-to-r from-orange-50 to-red-50 border-orange-200">
             <CardContent className="p-3">
               <p className="text-sm font-semibold text-orange-800">Total Suspense Balance</p>
               <p className="text-2xl font-bold text-orange-700">
-                <MaskedValue value={vendors.reduce((s, v) => s + v.balance, 0)} className="text-orange-700" />
+                <MaskedValue value={totalSuspense} className="text-orange-700" />
               </p>
+              <div className="grid grid-cols-3 gap-2 mt-3" data-testid="suspense-breakdown">
+                <div className="bg-amber-50 border border-amber-200 rounded-md p-2">
+                  <p className="text-[10px] uppercase font-semibold text-amber-600">Petty Cash</p>
+                  <p className="text-base font-bold text-amber-800"><MaskedValue value={pettyBalance} className="text-amber-800" /></p>
+                  <p className="text-[10px] text-amber-600">{(overview?.petty_cash?.active_requests || []).length} active</p>
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-2">
+                  <p className="text-[10px] uppercase font-semibold text-blue-600">Material</p>
+                  <p className="text-base font-bold text-blue-800"><MaskedValue value={materialTotal} className="text-blue-800" /></p>
+                  <p className="text-[10px] text-blue-600">{(overview?.material_suspense?.balances || []).length} vendors</p>
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-md p-2">
+                  <p className="text-[10px] uppercase font-semibold text-purple-600">Labour</p>
+                  <p className="text-base font-bold text-purple-800"><MaskedValue value={labourTotal} className="text-purple-800" /></p>
+                  <p className="text-[10px] text-purple-600">{(overview?.labour_suspense?.balances || []).length} contractors</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
-          {vendors.map(v => (
-            <Card key={v.vendor_name} data-testid={`suspense-vendor-${v.vendor_name}`}>
-              <CardHeader className="py-2 px-4 border-b">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm">{v.vendor_name}</CardTitle>
-                  <Badge className={v.balance > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                    Balance: <MaskedValue value={v.balance} className={v.balance > 0 ? 'text-green-700' : 'text-red-700'} />
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      <th className="text-left px-3 py-1.5 font-medium text-gray-500">Date</th>
-                      <th className="text-left px-3 py-1.5 font-medium text-gray-500">Description</th>
-                      <th className="text-right px-3 py-1.5 font-medium text-gray-500">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {v.entries.map((e, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
-                        <td className="px-3 py-1.5">{new Date(e.created_at).toLocaleDateString('en-IN')}</td>
-                        <td className="px-3 py-1.5">{e.description}</td>
-                        <td className={`px-3 py-1.5 text-right font-bold ${e.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          <MaskedValue value={e.amount} className={e.amount >= 0 ? 'text-green-600' : 'text-red-600'} formatFn={(n) => `${n >= 0 ? '+' : ''}${fmtFull(n)}`} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
-            </Card>
-          ))}
+
+          {/* Detailed vendor list */}
+          {vendors.length === 0 ? (
+            <Card><CardContent className="p-6 text-center text-gray-400 text-sm">No vendor-level suspense entries yet</CardContent></Card>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-gray-600 mt-2">By Vendor:</p>
+              {vendors.map(v => (
+                <Card key={v.vendor_name} data-testid={`suspense-vendor-${v.vendor_name}`}>
+                  <CardHeader className="py-2 px-4 border-b">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm">{v.vendor_name}</CardTitle>
+                      <Badge className={v.balance > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                        Balance: <MaskedValue value={v.balance} className={v.balance > 0 ? 'text-green-700' : 'text-red-700'} />
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="text-left px-3 py-1.5 font-medium text-gray-500">Date</th>
+                          <th className="text-left px-3 py-1.5 font-medium text-gray-500">Description</th>
+                          <th className="text-right px-3 py-1.5 font-medium text-gray-500">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {v.entries.map((e, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-1.5">{new Date(e.created_at).toLocaleDateString('en-IN')}</td>
+                            <td className="px-3 py-1.5">{e.description}</td>
+                            <td className={`px-3 py-1.5 text-right font-bold ${e.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              <MaskedValue value={e.amount} className={e.amount >= 0 ? 'text-green-600' : 'text-red-600'} formatFn={(n) => `${n >= 0 ? '+' : ''}${fmtFull(n)}`} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
