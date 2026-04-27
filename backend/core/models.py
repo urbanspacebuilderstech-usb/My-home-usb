@@ -760,6 +760,7 @@ class PaymentMode(str, Enum):
     BANK_TRANSFER = "bank_transfer"
     UPI = "upi"
     PETTY_CASH = "petty_cash"
+    DIRECT_TRANSFER = "direct_transfer"
 
 
 class IncomeEntry(BaseModel):

@@ -49,6 +49,8 @@ import LabourContractorManagement from '@/pages/LabourContractorManagement';
 import ProjectMaterials from '@/pages/ProjectMaterials';
 import IndirectCostManagement from '@/pages/IndirectCostManagement';
 import SuspenseAccount from '@/pages/SuspenseAccount';
+import OtherAccounts from '@/pages/OtherAccounts';
+import DTBoard from '@/pages/DTBoard';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
 import REProjectsPage from '@/pages/REProjectsPage';
@@ -138,6 +140,8 @@ function AppRouter() {
       <Route path="/payment-processing" element={<ProtectedRoute><PaymentProcessing /></ProtectedRoute>} />
       <Route path="/indirect-costs" element={<ProtectedRoute><IndirectCostManagement /></ProtectedRoute>} />
       <Route path="/suspense-account" element={<ProtectedRoute><SuspenseAccount /></ProtectedRoute>} />
+      <Route path="/other-accounts" element={<ProtectedRoute><OtherAccounts /></ProtectedRoute>} />
+      <Route path="/dt-board" element={<ProtectedRoute><DTBoard /></ProtectedRoute>} />
       <Route path="/work-order-management" element={<ProtectedRoute><WorkOrderManagement /></ProtectedRoute>} />
       <Route path="/labour-contractors" element={<ProtectedRoute><LabourContractorManagement /></ProtectedRoute>} />
       <Route path="/crm-pre-sales" element={<ProtectedRoute><CRMPreSales /></ProtectedRoute>} />

@@ -5,7 +5,7 @@ import { Label } from './ui/label';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Plus, Trash2, CreditCard, Banknote, Building2, Smartphone, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, CreditCard, Banknote, Building2, Smartphone, ChevronDown, ChevronUp, ArrowRightLeft } from 'lucide-react';
 import { NumericInput } from './NumericInput';
 
 const PAYMENT_MODES = [
@@ -13,6 +13,7 @@ const PAYMENT_MODES = [
   { value: 'cheque', label: 'Cheque', icon: CreditCard, color: 'text-blue-600' },
   { value: 'bank_transfer', label: 'Bank Transfer', icon: Building2, color: 'text-purple-600' },
   { value: 'upi', label: 'UPI', icon: Smartphone, color: 'text-orange-600' },
+  { value: 'direct_transfer', label: 'Direct Transfer (DT)', icon: ArrowRightLeft, color: 'text-emerald-600' },
 ];
 
 const fmtCurrency = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);

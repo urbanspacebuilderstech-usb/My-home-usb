@@ -2579,6 +2579,7 @@ export default function CRMSales() {
                   <SelectItem value="upi">UPI</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
                   <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                  <SelectItem value="direct_transfer">Direct Transfer (DT)</SelectItem>
                 </SelectContent>
               </Select>
             </div>

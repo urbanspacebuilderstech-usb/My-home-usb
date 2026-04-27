@@ -26,6 +26,7 @@ const ROLE_NAV = {
     { label: 'Expense', path: '/accounts-board?tab=cashbook&sub=expense' },
     { label: 'Cheque Management', path: '/accounts-board?tab=cheques' },
     { label: 'Suspense A/c', path: '/suspense-account' },
+    { label: 'Other Accounts', path: '/other-accounts' },
     { label: 'Project Wise', path: '/accounts-board?tab=projects' },
   ],
   general_manager: [
@@ -59,6 +60,7 @@ const ROLE_NAV = {
     { label: 'CRE Board', path: '/cre-board' },
     { label: 'Projects', path: '/projects' },
     { label: 'Income', path: '/income' },
+    { label: 'DT Requests', path: '/dt-board' },
   ],
   pre_sales: [
     { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },

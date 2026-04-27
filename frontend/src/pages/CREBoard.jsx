@@ -39,7 +39,8 @@ const PAYMENT_MODES = [
   { value: 'cheque', label: 'Cheque' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
   { value: 'upi', label: 'UPI' },
-  { value: 'credit_card', label: 'Credit Card' }
+  { value: 'credit_card', label: 'Credit Card' },
+  { value: 'direct_transfer', label: 'Direct Transfer (DT)' }
 ];
 
 export default function CREBoard() {

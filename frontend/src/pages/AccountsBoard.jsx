@@ -15,6 +15,7 @@ import { DayPicker } from 'react-day-picker';
 import { CashbookDateFilter, filterByDateRange } from '../components/CashbookDateFilter';
 import ChequeListView from '../components/ChequeListView';
 import PayApprovalDialog from '../components/PayApprovalDialog';
+import DTSelectToPayDialog from '../components/DTSelectToPayDialog';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
@@ -1721,55 +1722,12 @@ function CashbookTab({ overview, projects, userRole }) {
         )}
 
         <TabsContent value="income">
-          <Card>
-            <CardContent className="px-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs" data-testid="cashbook-income-table">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">Stage</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
-                      <th className="text-left px-3 py-2 font-medium text-gray-500">Txn ID</th>
-                      <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
-                      <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {incomeEntries.map((entry, i) => (
-                      <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
-                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
-                        <td className="px-3 py-2">
-                          {new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                          {' '}<span className="text-gray-400">{new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                        </td>
-                        <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
-                        <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge></td>
-                        <td className="px-3 py-2">
-                          <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
-                            {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
-                          </Badge>
-                        </td>
-                        <td className="px-3 py-2 font-mono text-[10px]">{entry.reference_number || entry.cheque_number || 'Cash'}</td>
-                        <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={entry.amount} className="text-green-700" /></td>
-                        <td className="px-3 py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}><Printer className="h-3 w-3" /></Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {incomeEntries.length === 0 && (
-                      <tr><td colSpan={8} className="text-center py-8 text-gray-400">No income entries found</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+          <IncomeTabsView
+            incomeEntries={incomeEntries}
+            classifyMode={classifyMode}
+            onView={(entry) => { setSelectedEntry(entry); setViewDialog(true); }}
+            onPrint={handlePrintReceipt}
+          />
         </TabsContent>
 
         <TabsContent value="expense">
@@ -3315,6 +3273,112 @@ function ApprovalsTab() {
           <RefreshCw className="h-3.5 w-3.5" /> Refresh Approvals
         </Button>
       </div>
+    </div>
+  );
+}
+
+// Income split: Main Income (everything except DT) + Direct Transfer
+function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint }) {
+  const [tab, setTab] = useState('main');
+  const [dtPayDialog, setDtPayDialog] = useState({ open: false, dtIncome: null });
+  const isDT = (e) => (e.payment_mode === 'direct_transfer') || (classifyMode(e.payment_mode) === 'direct_transfer');
+  const main = (incomeEntries || []).filter(e => !isDT(e));
+  const dt = (incomeEntries || []).filter(isDT);
+  const list = tab === 'main' ? main : dt;
+  const dtStatusBadge = (s) => {
+    const map = {
+      pending_cre_recv: { label: 'CRE: Mark Received', cls: 'bg-blue-100 text-blue-700' },
+      pending_accountant_review: { label: 'Awaiting Review', cls: 'bg-purple-100 text-purple-700' },
+      completed: { label: 'Completed', cls: 'bg-green-100 text-green-700' },
+    };
+    const m = map[s] || { label: 'New', cls: 'bg-amber-100 text-amber-700' };
+    return <Badge className={`${m.cls} text-[10px]`}>{m.label}</Badge>;
+  };
+  return (
+    <div className="space-y-3" data-testid="income-tabs-view">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('main')}
+          className={`px-4 py-1.5 text-xs font-medium rounded-full border transition-all ${tab === 'main' ? 'bg-green-50 border-green-300 text-green-800 ring-1 ring-green-200' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}
+          data-testid="income-tab-main"
+        >Main Income <span className="ml-1 font-bold">({main.length})</span></button>
+        <button
+          type="button"
+          onClick={() => setTab('dt')}
+          className={`px-4 py-1.5 text-xs font-medium rounded-full border transition-all ${tab === 'dt' ? 'bg-emerald-50 border-emerald-300 text-emerald-800 ring-1 ring-emerald-200' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'}`}
+          data-testid="income-tab-dt"
+        >Direct Transfer <span className="ml-1 font-bold">({dt.length})</span></button>
+      </div>
+      <Card>
+        <CardContent className="px-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid={`cashbook-income-${tab}-table`}>
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">S.No</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Date & Time</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Project</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Stage</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">{tab === 'dt' ? 'DT Status' : 'Txn ID'}</th>
+                  <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                  <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((entry, i) => (
+                  <tr key={entry.income_id || i} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                    <td className="px-3 py-2">
+                      {new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      {' '}<span className="text-gray-400">{new Date(entry.approved_at || entry.payment_date || entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </td>
+                    <td className="px-3 py-2 font-medium">{entry.project_name || 'N/A'}</td>
+                    <td className="px-3 py-2"><Badge variant="outline" className="text-[10px]">{entry.stage || entry.description || 'Payment'}</Badge></td>
+                    <td className="px-3 py-2">
+                      <Badge className={`text-[10px] ${MODE_COLORS[classifyMode(entry.payment_mode)]}`}>
+                        {MODE_LABELS[classifyMode(entry.payment_mode)] || entry.payment_mode}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 font-mono text-[10px]">
+                      {tab === 'dt' ? dtStatusBadge(entry.dt_status) : (entry.reference_number || entry.cheque_number || 'Cash')}
+                    </td>
+                    <td className="px-3 py-2 text-right font-bold text-green-700"><MaskedValue value={entry.amount} className="text-green-700" /></td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1 flex-wrap">
+                        {tab === 'dt' && (!entry.dt_status || entry.dt_status === 'new') && (
+                          <Button
+                            size="sm"
+                            className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 gap-1 px-2"
+                            onClick={() => setDtPayDialog({ open: true, dtIncome: entry })}
+                            data-testid={`dt-select-pay-btn-${entry.income_id}`}
+                          >
+                            Select to Pay
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onView(entry)}><Eye className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => onPrint(entry)}><Printer className="h-3 w-3" /></Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {list.length === 0 && (
+                  <tr><td colSpan={8} className="text-center py-8 text-gray-400">
+                    {tab === 'main' ? 'No main income entries found' : 'No Direct Transfer entries found'}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+      <DTSelectToPayDialog
+        open={dtPayDialog.open}
+        onOpenChange={(o) => !o && setDtPayDialog({ open: false, dtIncome: null })}
+        dtIncome={dtPayDialog.dtIncome}
+        onAssigned={() => window.dispatchEvent(new Event('refresh-cashbook'))}
+      />
     </div>
   );
 }

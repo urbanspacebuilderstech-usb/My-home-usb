@@ -3405,3 +3405,363 @@ async def pay_approval(req_type: str, request_id: str, data: PayApprovalRequest,
         "paid_amount": paid_amount,
         "new_suspense_credit": new_suspense_credit,
     }
+
+
+# ==================== OTHER ACCOUNTS (Sub-contractors / Consultants / etc.) ====================
+
+class OtherAccountCreate(BaseModel):
+    name: str
+    category: str  # free-text; standard set: sub_contractor / consultant / statutory / misc + any custom
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    branch: Optional[str] = None
+    upi_id: Optional[str] = None
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class OtherAccountUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    ifsc_code: Optional[str] = None
+    branch: Optional[str] = None
+    upi_id: Optional[str] = None
+    gst_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.get("/other-accounts")
+async def list_other_accounts(
+    category: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    q: Dict[str, Any] = {}
+    if category:
+        q["category"] = category
+    accounts = await db.other_accounts.find(q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    # Also return distinct categories so the FE can render a "type and add new" combo
+    categories = await db.other_accounts.distinct("category")
+    default_cats = ["sub_contractor", "consultant", "statutory", "misc"]
+    merged = list(dict.fromkeys(default_cats + sorted([c for c in categories if c])))
+    return {"accounts": accounts, "categories": merged}
+
+
+@router.post("/other-accounts")
+async def create_other_account(data: OtherAccountCreate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can create")
+    name = (data.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Account name is required")
+    cat = (data.category or "misc").strip().lower().replace(" ", "_") or "misc"
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "account_id": f"oa_{uuid.uuid4().hex[:12]}",
+        **data.model_dump(),
+        "category": cat,
+        "name": name,
+        "is_active": True,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+    }
+    await db.other_accounts.insert_one(doc)
+    await create_audit_log(user.user_id, "create", "other_account", doc["account_id"], {"name": name, "category": cat})
+    doc.pop("_id", None)
+    return doc
+
+
+@router.get("/other-accounts/{account_id}")
+async def get_other_account(account_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    acc = await db.other_accounts.find_one({"account_id": account_id}, {"_id": 0})
+    if not acc:
+        raise HTTPException(status_code=404, detail="Other account not found")
+    history = await db.recorded_expenses.find(
+        {"other_account_id": account_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return {"account": acc, "history": history}
+
+
+@router.patch("/other-accounts/{account_id}")
+async def update_other_account(account_id: str, data: OtherAccountUpdate, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can update")
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if "category" in update:
+        update["category"] = update["category"].strip().lower().replace(" ", "_") or "misc"
+    if not update:
+        return {"message": "Nothing to update"}
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    res = await db.other_accounts.update_one({"account_id": account_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Other account not found")
+    await create_audit_log(user.user_id, "update", "other_account", account_id, update)
+    return {"message": "Updated"}
+
+
+@router.delete("/other-accounts/{account_id}")
+async def deactivate_other_account(account_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can deactivate")
+    res = await db.other_accounts.update_one(
+        {"account_id": account_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Other account not found")
+    return {"message": "Deactivated"}
+
+
+
+# ==================== DIRECT TRANSFER (DT) WORKFLOW ====================
+
+class DTSelection(BaseModel):
+    kind: str  # material / labour / other_account
+    request_id: Optional[str] = None  # for material/labour
+    other_account_id: Optional[str] = None  # for other_account
+    amount: float
+
+
+class DTAssign(BaseModel):
+    selections: List[DTSelection]
+
+
+@router.get("/dt/payable-items")
+async def list_dt_payable_items(user: User = Depends(get_current_user)):
+    """Lists items the Accountant can mark for payment against a DT income.
+    Returns: { material_requests, labour_requests, other_accounts }
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Material expenses awaiting payment (planning/procurement/account approved but unpaid)
+    material = await db.material_expenses.find(
+        {"status": {"$in": ["pending_accounts_approval", "procurement_priced", "planning_approved", "accounts_approved"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    # Labour
+    labour = await db.labour_expenses.find(
+        {"status": {"$in": ["pending_accounts_approval", "planning_approved", "accounts_approved"]}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    # Other accounts (active records with bank details)
+    other = await db.other_accounts.find({"is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+    # Enrich material/labour with project name
+    pcache = {}
+    for r in material + labour:
+        pid = r.get("project_id")
+        if pid and pid not in pcache:
+            p = await db.projects.find_one({"project_id": pid}, {"_id": 0, "name": 1})
+            pcache[pid] = p["name"] if p else "Unknown"
+        if pid:
+            r["project_name"] = pcache.get(pid, r.get("project_name") or "Unknown")
+
+    return {
+        "material_requests": material,
+        "labour_requests": labour,
+        "other_accounts": other,
+    }
+
+
+@router.post("/dt/{income_id}/assign")
+async def assign_dt(income_id: str, data: DTAssign, user: User = Depends(get_current_user)):
+    """Accountant assigns selected payable items to a DT income entry.
+    Moves the DT into 'dt_pending_cre_recv' so CRE can mark received amounts.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can assign DT")
+
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income not found")
+    if inc.get("payment_mode") != "direct_transfer":
+        raise HTTPException(status_code=400, detail="This income is not a Direct Transfer")
+
+    if not data.selections:
+        raise HTTPException(status_code=400, detail="Select at least one item")
+
+    # Allow exceeding DT amount per business rule (chunk paid later)
+    enriched = []
+    for s in data.selections:
+        if s.amount <= 0:
+            continue
+        item = {"kind": s.kind, "amount": float(s.amount), "received_amount": 0.0, "status": "pending"}
+        if s.kind == "material":
+            mr = await db.material_expenses.find_one({"expense_id": s.request_id}, {"_id": 0}) if s.request_id else None
+            if not mr:
+                raise HTTPException(status_code=404, detail=f"Material expense {s.request_id} not found")
+            item.update({
+                "request_id": s.request_id,
+                "title": mr.get("material_name") or "Material",
+                "vendor_name": mr.get("vendor_name") or mr.get("supplier_name"),
+                "vendor_id": mr.get("vendor_id"),
+                "project_id": mr.get("project_id"),
+            })
+        elif s.kind == "labour":
+            lr = await db.labour_expenses.find_one(
+                {"$or": [{"labour_expense_id": s.request_id}, {"expense_id": s.request_id}]}, {"_id": 0}
+            ) if s.request_id else None
+            if not lr:
+                raise HTTPException(status_code=404, detail=f"Labour expense {s.request_id} not found")
+            item.update({
+                "request_id": s.request_id,
+                "title": lr.get("labour_type") or lr.get("description") or "Labour",
+                "contractor_name": lr.get("contractor_name"),
+                "contractor_id": lr.get("contractor_id"),
+                "project_id": lr.get("project_id"),
+            })
+        elif s.kind == "other_account":
+            oa = await db.other_accounts.find_one({"account_id": s.other_account_id}, {"_id": 0}) if s.other_account_id else None
+            if not oa:
+                raise HTTPException(status_code=404, detail=f"Other account {s.other_account_id} not found")
+            item.update({
+                "other_account_id": s.other_account_id,
+                "title": oa.get("name"),
+                "category": oa.get("category"),
+            })
+        else:
+            raise HTTPException(status_code=400, detail=f"Invalid kind: {s.kind}")
+        enriched.append(item)
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "dt_status": "pending_cre_recv",
+            "dt_items": enriched,
+            "dt_assigned_at": now,
+            "dt_assigned_by": user.user_id,
+            "dt_assigned_by_name": user.name,
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Assigned", "dt_status": "pending_cre_recv", "items_count": len(enriched)}
+
+
+@router.get("/dt/{income_id}")
+async def get_dt_detail(income_id: str, user: User = Depends(get_current_user)):
+    """Get DT income with linked items + bank details (auto-fetched per item)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT, UserRole.CRE, UserRole.SALES]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if inc.get("payment_mode") != "direct_transfer":
+        raise HTTPException(status_code=400, detail="Not a DT entry")
+    items = inc.get("dt_items", []) or []
+    # Enrich each item with bank details
+    for it in items:
+        if it.get("kind") == "material" and it.get("vendor_id"):
+            v = await db.vendor_master.find_one({"vendor_id": it["vendor_id"]}, {"_id": 0})
+            if v:
+                it["bank"] = {
+                    "name": v.get("name"),
+                    "bank_name": v.get("bank_name"),
+                    "branch": v.get("branch"),
+                    "account_number": v.get("account_number"),
+                    "ifsc_code": v.get("ifsc_code"),
+                    "upi_id": v.get("upi_id"),
+                }
+        elif it.get("kind") == "labour" and it.get("contractor_id"):
+            c = await db.contractors.find_one({"contractor_id": it["contractor_id"]}, {"_id": 0})
+            if c:
+                it["bank"] = {
+                    "name": c.get("name"),
+                    "bank_name": c.get("bank_name"),
+                    "branch": c.get("branch"),
+                    "account_number": c.get("account_number"),
+                    "ifsc_code": c.get("ifsc_code"),
+                    "upi_id": c.get("upi_id"),
+                }
+        elif it.get("kind") == "other_account" and it.get("other_account_id"):
+            oa = await db.other_accounts.find_one({"account_id": it["other_account_id"]}, {"_id": 0})
+            if oa:
+                it["bank"] = {
+                    "name": oa.get("name"),
+                    "bank_name": oa.get("bank_name"),
+                    "branch": oa.get("branch"),
+                    "account_number": oa.get("account_number"),
+                    "ifsc_code": oa.get("ifsc_code"),
+                    "upi_id": oa.get("upi_id"),
+                }
+    return inc
+
+
+class DTReceipt(BaseModel):
+    receipts: List[Dict[str, Any]]  # [{index, received_amount}]
+
+
+@router.post("/dt/{income_id}/receive")
+async def cre_mark_dt_received(income_id: str, data: DTReceipt, user: User = Depends(get_current_user)):
+    """CRE updates received amount per item & submits to Accountant for final approval."""
+    if user.role not in [UserRole.CRE, UserRole.SALES, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE/Sales can mark received")
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Not found")
+    items = inc.get("dt_items", []) or []
+    if not items:
+        raise HTTPException(status_code=400, detail="No items linked")
+    for r in data.receipts:
+        idx = int(r.get("index", -1))
+        if 0 <= idx < len(items):
+            items[idx]["received_amount"] = float(r.get("received_amount", 0) or 0)
+            items[idx]["status"] = "received" if items[idx]["received_amount"] > 0 else "pending"
+    now = datetime.now(timezone.utc).isoformat()
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "dt_items": items,
+            "dt_status": "pending_accountant_review",
+            "dt_received_submitted_at": now,
+            "dt_received_submitted_by": user.user_id,
+            "dt_received_submitted_by_name": user.name,
+            "updated_at": now,
+        }}
+    )
+    return {"message": "Submitted to Accountant for review"}
+
+
+@router.post("/dt/{income_id}/approve")
+async def accountant_approve_dt(income_id: str, user: User = Depends(get_current_user)):
+    """Accountant final approval after CRE submits received amounts."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can approve DT")
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Not found")
+    if inc.get("dt_status") != "pending_accountant_review":
+        raise HTTPException(status_code=400, detail=f"Cannot approve in current state: {inc.get('dt_status')}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.income.update_one(
+        {"income_id": income_id},
+        {"$set": {
+            "dt_status": "completed",
+            "dt_completed_at": now,
+            "dt_completed_by": user.user_id,
+            "dt_completed_by_name": user.name,
+            "status": "approved",
+            "updated_at": now,
+        }}
+    )
+    return {"message": "DT cycle completed"}
+
