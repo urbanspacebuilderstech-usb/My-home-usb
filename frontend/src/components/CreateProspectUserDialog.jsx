@@ -23,8 +23,8 @@ export default function CreateProspectUserDialog({ open, onOpenChange, lead, onC
     if (open && lead) {
       setForm({
         name: lead.client_name || lead.name || '',
-        email: lead.email || '',
-        phone: lead.phone || '',
+        email: lead.email || lead.client_email || '',
+        phone: lead.phone || lead.client_phone || '',
         password: '',
       });
       setCreated(null);
@@ -67,7 +67,7 @@ export default function CreateProspectUserDialog({ open, onOpenChange, lead, onC
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5 text-emerald-600" /> Create Prospect Login
+            <Smartphone className="h-5 w-5 text-emerald-600" /> Move to RE Client — Create Prospect Login
           </DialogTitle>
         </DialogHeader>
         {!created ? (

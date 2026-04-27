@@ -1673,7 +1673,7 @@ export default function CRMSales() {
                             onClick={() => setProspectDialog({ open: true, lead: selectedLead })}
                             data-testid="detail-create-prospect-btn"
                           >
-                            <Smartphone className="h-4 w-4 mr-1" /> Create Prospect Login
+                            <Smartphone className="h-4 w-4 mr-1" /> Move to RE Client
                           </Button>
                           <Button
                             size="sm"

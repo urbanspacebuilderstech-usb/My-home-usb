@@ -5,13 +5,14 @@ Prospect (pre-purchase mobile user) routes.
   and curated content (testimonial videos, completed/ongoing project showcases).
 """
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from core.deps import get_current_user
 from core.models import User, UserRole
@@ -24,14 +25,16 @@ db = client[DB_NAME]
 
 router = APIRouter(tags=["prospect"])
 
+_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
 
 # ============ Sales: Create prospect login ============
 
 class CreateProspectUserRequest(BaseModel):
-    lead_id: str
+    lead_id: Optional[str] = None
     re_project_id: Optional[str] = None
     name: str
-    email: EmailStr
+    email: str  # validated manually so we accept any RFC-loose address
     password: str
     phone: Optional[str] = None
 
@@ -43,54 +46,95 @@ async def create_prospect_user(lead_id: str, data: CreateProspectUserRequest, us
     lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    email = data.email.lower().strip()
-    if not email:
-        raise HTTPException(status_code=400, detail="Email is required")
+    name = (data.name or "").strip() or lead.get("client_name") or lead.get("name") or "Prospect"
+    email = (data.email or "").strip().lower()
+    if not email or not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
     if len(data.password or "") < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    existing = await db.users.find_one({"email": email}, {"_id": 0})
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0, "user_id": 1, "role": 1})
+    # If an inactive prospect with this email already exists for this lead, recycle it.
     if existing:
-        raise HTTPException(status_code=400, detail=f"A user with email {email} already exists")
+        if existing.get("role") == "prospect" and lead.get("prospect_user_id") == existing.get("user_id"):
+            await db.users.update_one(
+                {"user_id": existing["user_id"]},
+                {"$set": {
+                    "name": name,
+                    "phone": data.phone or lead.get("phone") or "",
+                    "password_hash": hash_password(data.password),
+                    "is_active": True,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }}
+            )
+            user_id = existing["user_id"]
+        else:
+            raise HTTPException(status_code=400, detail=f"A user with email {email} already exists. Please use a different email.")
+    else:
+        re_project_id = data.re_project_id or lead.get("re_project_id")
+        sales_user_id = lead.get("assigned_to") or lead.get("created_by") or user.user_id
+        sales_user = await db.users.find_one({"user_id": sales_user_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+        now = datetime.now(timezone.utc).isoformat()
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        prospect_user = {
+            "user_id": user_id,
+            "email": email,
+            "name": name,
+            "role": "prospect",
+            "phone": data.phone or lead.get("phone") or lead.get("client_phone") or "",
+            "password_hash": hash_password(data.password),
+            "is_active": True,
+            "status": "active",
+            "created_at": now,
+            "lead_id": lead_id,
+            "re_project_id": re_project_id,
+            "assigned_sales_user_id": sales_user_id,
+            "assigned_sales_user_name": sales_user.get("name") if sales_user else None,
+            "created_by": user.user_id,
+            "created_by_name": user.name,
+        }
+        await db.users.insert_one(prospect_user)
 
-    re_project_id = data.re_project_id or lead.get("re_project_id")
-    # Resolve assigned salesperson — falls back to the lead's owner / current user
-    sales_user_id = lead.get("assigned_to") or lead.get("created_by") or user.user_id
-    sales_user = await db.users.find_one({"user_id": sales_user_id}, {"_id": 0, "name": 1, "phone": 1, "email": 1})
+    # Stamp the lead with the prospect link AND auto-transition to RE-Client.
+    now_dt = datetime.now(timezone.utc)
+    set_doc = {
+        "prospect_user_id": user_id,
+        "prospect_user_email": email,
+        "prospect_user_created_at": now_dt.isoformat(),
+        "updated_at": now_dt,
+    }
+    push_doc: Dict[str, Any] = {}
+    # Auto-move RE-Planning → RE-Client when Sales creates the prospect login.
+    if lead.get("current_stage_id") == "stg_re_from_planning":
+        set_doc["current_stage_id"] = "stg_re_to_client"
+        push_doc["stage_history"] = {
+            "stage_id": "stg_re_to_client",
+            "from_stage_id": "stg_re_from_planning",
+            "moved_at": now_dt.isoformat(),
+            "moved_by": user.user_id,
+            "moved_by_name": user.name,
+            "action": "prospect_login_created",
+        }
+    update_op: Dict[str, Any] = {"$set": set_doc}
+    if push_doc:
+        update_op["$push"] = push_doc
+    await db.leads.update_one({"lead_id": lead_id}, update_op)
 
-    now = datetime.now(timezone.utc).isoformat()
-    user_id = f"user_{uuid.uuid4().hex[:12]}"
-    prospect_user = {
+    # Mirror the linkage on the RE project so the prospect's My Quote can find it.
+    if (data.re_project_id or lead.get("re_project_id")):
+        await db.re_projects.update_one(
+            {"re_project_id": data.re_project_id or lead.get("re_project_id")},
+            {"$set": {"prospect_user_id": user_id, "prospect_user_email": email}}
+        )
+
+    return {
         "user_id": user_id,
         "email": email,
-        "name": (data.name or "").strip() or lead.get("client_name") or "Prospect",
+        "name": name,
         "role": "prospect",
-        "phone": data.phone or lead.get("client_phone") or "",
-        "password_hash": hash_password(data.password),
-        "is_active": True,
-        "status": "active",
-        "created_at": now,
-        # Linkages
         "lead_id": lead_id,
-        "re_project_id": re_project_id,
-        "assigned_sales_user_id": sales_user_id,
-        "assigned_sales_user_name": sales_user.get("name") if sales_user else None,
-        "created_by": user.user_id,
-        "created_by_name": user.name,
+        "stage_advanced": "current_stage_id" in set_doc,
     }
-    await db.users.insert_one(prospect_user)
-
-    # Tag the lead so we know a login was provisioned
-    await db.leads.update_one(
-        {"lead_id": lead_id},
-        {"$set": {
-            "prospect_user_id": user_id,
-            "prospect_user_email": email,
-            "prospect_user_created_at": now,
-        }}
-    )
-    prospect_user.pop("password_hash", None)
-    prospect_user.pop("_id", None)
-    return prospect_user
 
 
 # ============ Prospect: My Quote (GM-approved RE) ============
