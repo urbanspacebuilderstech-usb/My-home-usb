@@ -13,6 +13,14 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — April 28, 2026 — Share Package Link Dialog Width Fix
+- **Bug**: Pre-Sales' `🎁 Share Package Link` dialog rendered narrow; long package URL pushed inner flex content wider than the dialog, clipping labels ("eting message", "lic Package URL") and the URL input.
+- **Fix** in `CRMPreSales.jsx` (`PackageLinkShareDialog`):
+  - Dialog widened: `max-w-md` → `max-w-xl` (576px).
+  - URL `<Input>` now `flex-1 min-w-0` so it shrinks inside its flex row instead of overflowing.
+  - Preview `<pre>` got `break-all` so long URLs wrap cleanly.
+- ESLint clean. Change is frontend-only; deploy with same `git pull + yarn build + pm2 restart`.
+
 ### Session — April 28, 2026 — White Screen on `/user-app` (Pre-Sales)
 - **Bug**: `<AppHeader />` in `UserApp.jsx` was called without a `user` prop. `AppHeader.jsx:254` unconditionally evaluated `role.replace(...)` which threw `TypeError: Cannot read properties of undefined (reading 'replace')`, crashing the whole tree into a white screen. Affected any role opening `/user-app` (visible to Pre-Sales & Sales because Super Admin hit other routes first).
 - **Fix (2 files)**:

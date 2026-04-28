@@ -2820,7 +2820,7 @@ function PackageLinkShareDialog({ state, onClose }) {
 
   return (
     <Dialog open={state.open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md" data-testid="pkg-share-dialog">
+      <DialogContent className="max-w-xl" data-testid="pkg-share-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">🎁 Share Package Link</DialogTitle>
           <p className="text-xs text-gray-500">Customize the greeting, then copy the full message or open WhatsApp.</p>
@@ -2850,15 +2850,15 @@ function PackageLinkShareDialog({ state, onClose }) {
 
           <div>
             <Label className="text-xs">Public Package URL</Label>
-            <div className="flex gap-1 mt-1">
-              <Input value={url} readOnly className="font-mono text-[11px] bg-gray-50" data-testid="pkg-url-input" />
+            <div className="flex gap-1 mt-1 min-w-0">
+              <Input value={url} readOnly className="flex-1 min-w-0 font-mono text-[11px] bg-gray-50" data-testid="pkg-url-input" />
               <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(url); toast.success('URL copied'); }}>Copy</Button>
             </div>
           </div>
 
-          <div className="bg-amber-50 rounded-lg p-3">
+          <div className="bg-amber-50 rounded-lg p-3 overflow-hidden">
             <p className="text-[10px] uppercase text-amber-700 font-semibold mb-1">Preview (the message you'll send)</p>
-            <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans">{fullMessage}</pre>
+            <pre className="text-xs text-gray-800 whitespace-pre-wrap break-all font-sans">{fullMessage}</pre>
           </div>
         </div>
         <DialogFooter className="gap-2">
