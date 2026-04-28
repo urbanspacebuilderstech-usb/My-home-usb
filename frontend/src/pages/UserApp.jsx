@@ -10,7 +10,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Plus, Edit, Trash2, Smartphone, PlayCircle, Building2, Loader2, Sparkles, Construction, Package as PackageIcon } from 'lucide-react';
+import { Plus, Edit, Trash2, Smartphone, PlayCircle, Building2, Loader2, Sparkles, Construction, Package as PackageIcon, Home, FolderKanban } from 'lucide-react';
 import HomePackagesAdmin from '../components/HomePackagesAdmin';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -19,14 +19,18 @@ const empty = { title: '', description: '', youtube_url: '', cover_image_url: ''
 
 const TYPES = {
   testimonials: { label: 'Testimonials', endpoint: 'testimonials', Icon: PlayCircle, color: 'text-red-600', accent: 'red', requiresYoutube: true },
-  completed: { label: 'Completed Projects', endpoint: 'completed', Icon: Building2, color: 'text-emerald-600', accent: 'emerald', requiresYoutube: false },
-  ongoing: { label: 'Ongoing Projects', endpoint: 'ongoing', Icon: Construction, color: 'text-amber-600', accent: 'amber', requiresYoutube: false },
-  upcoming: { label: 'Upcoming Projects', endpoint: 'upcoming', Icon: Sparkles, color: 'text-purple-600', accent: 'purple', requiresYoutube: false },
+  home_tours: { label: 'Home Tour', endpoint: 'home-tours', Icon: Home, color: 'text-purple-600', accent: 'purple', requiresYoutube: true },
+  completed: { label: 'Completed', endpoint: 'completed', Icon: Building2, color: 'text-emerald-600', accent: 'emerald', requiresYoutube: false },
+  ongoing: { label: 'Ongoing', endpoint: 'ongoing', Icon: Construction, color: 'text-amber-600', accent: 'amber', requiresYoutube: false },
+  upcoming: { label: 'Upcoming', endpoint: 'upcoming', Icon: Sparkles, color: 'text-fuchsia-600', accent: 'fuchsia', requiresYoutube: false },
 };
+
+const PROJECT_KEYS = ['completed', 'ongoing', 'upcoming'];
 
 export default function UserApp() {
   const [tab, setTab] = useState('testimonials');
-  const [items, setItems] = useState({ testimonials: [], completed: [], ongoing: [], upcoming: [] });
+  const [projectTab, setProjectTab] = useState('completed');
+  const [items, setItems] = useState({ testimonials: [], home_tours: [], completed: [], ongoing: [], upcoming: [] });
   const [loading, setLoading] = useState(false);
   const [dialog, setDialog] = useState({ open: false, type: null, editing: null });
   const [form, setForm] = useState(empty);
@@ -51,8 +55,8 @@ export default function UserApp() {
 
   const submit = async () => {
     if (!form.title.trim()) { toast.error('Title is required'); return; }
-    if (TYPES[dialog.type].requiresYoutube && !form.youtube_url.trim()) {
-      toast.error('YouTube URL is required for testimonials'); return;
+    if (TYPES[dialog.type]?.requiresYoutube && !form.youtube_url.trim()) {
+      toast.error('YouTube URL is required'); return;
     }
     setSubmitting(true);
     try {
@@ -91,56 +95,68 @@ export default function UserApp() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid grid-cols-5">
-            {Object.entries(TYPES).map(([k, t]) => (
-              <TabsTrigger key={k} value={k} data-testid={`ua-tab-${k}`}>
-                <t.Icon className={`h-3.5 w-3.5 mr-1 ${t.color}`} /> {t.label}
-                <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items[k] || []).length}</Badge>
-              </TabsTrigger>
-            ))}
+          <TabsList className="grid grid-cols-4">
             <TabsTrigger value="packages" data-testid="ua-tab-packages">
               <PackageIcon className="h-3.5 w-3.5 mr-1 text-amber-600" /> Packages
             </TabsTrigger>
+            <TabsTrigger value="testimonials" data-testid="ua-tab-testimonials">
+              <PlayCircle className="h-3.5 w-3.5 mr-1 text-red-600" /> Testimonials
+              <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items.testimonials || []).length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="home_tours" data-testid="ua-tab-home_tours">
+              <Home className="h-3.5 w-3.5 mr-1 text-purple-600" /> Home Tour
+              <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items.home_tours || []).length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="projects" data-testid="ua-tab-projects">
+              <FolderKanban className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Projects
+              <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">
+                {(items.completed || []).length + (items.ongoing || []).length + (items.upcoming || []).length}
+              </Badge>
+            </TabsTrigger>
           </TabsList>
-          {Object.entries(TYPES).map(([k, t]) => (
+
+          {/* Testimonials + Home Tour share the single-type renderer */}
+          {['testimonials', 'home_tours'].map(k => (
             <TabsContent key={k} value={k}>
-              <div className="flex justify-end mb-3">
-                <Button onClick={() => openCreate(k)} className="bg-emerald-600 hover:bg-emerald-700 gap-1" data-testid={`ua-add-${k}`}>
-                  <Plus className="h-4 w-4" /> Add {t.label.replace('s$', '').slice(0, -1)}
-                </Button>
-              </div>
-              {loading ? (
-                <div className="py-12 text-center text-gray-400 flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
-              ) : list.length === 0 ? (
-                <Card><CardContent className="py-12 text-center text-gray-400">
-                  <Sparkles className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                  No {t.label.toLowerCase()} yet. Click <span className="font-semibold text-emerald-600">Add</span> to create one.
-                </CardContent></Card>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {list.filter(i => i.is_active !== false).map(item => (
-                    <Card key={item.id} className="hover:shadow-md transition-shadow" data-testid={`ua-card-${item.id}`}>
-                      <CardContent className="p-3 space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate">{item.title}</p>
-                            {item.location && <p className="text-[11px] text-gray-500 truncate">{item.location}</p>}
-                            <Badge className="bg-gray-100 text-gray-700 text-[10px] mt-1">{item.floor_config || 'all'}</Badge>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(k, item)} data-testid={`ua-edit-${item.id}`}><Edit className="h-3 w-3" /></Button>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500" onClick={() => remove(k, item)} data-testid={`ua-del-${item.id}`}><Trash2 className="h-3 w-3" /></Button>
-                          </div>
-                        </div>
-                        {item.youtube_url && <p className="text-[10px] text-gray-400 truncate font-mono">▶ {item.youtube_url}</p>}
-                        {item.description && <p className="text-[11px] text-gray-600 line-clamp-2">{item.description}</p>}
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
+              <SingleTypePanel
+                k={k} t={TYPES[k]}
+                list={items[k] || []}
+                loading={loading && tab === k}
+                onAdd={() => openCreate(k)}
+                onEdit={(item) => openEdit(k, item)}
+                onRemove={(item) => remove(k, item)}
+              />
             </TabsContent>
           ))}
+
+          <TabsContent value="projects">
+            <Tabs value={projectTab} onValueChange={(v) => { setProjectTab(v); load(v); }}>
+              <TabsList className="grid grid-cols-3 mb-3">
+                {PROJECT_KEYS.map(pk => {
+                  const pt = TYPES[pk];
+                  return (
+                    <TabsTrigger key={pk} value={pk} data-testid={`ua-ptab-${pk}`}>
+                      <pt.Icon className={`h-3.5 w-3.5 mr-1 ${pt.color}`} /> {pt.label}
+                      <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items[pk] || []).length}</Badge>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+              {PROJECT_KEYS.map(pk => (
+                <TabsContent key={pk} value={pk}>
+                  <SingleTypePanel
+                    k={pk} t={TYPES[pk]}
+                    list={items[pk] || []}
+                    loading={loading && projectTab === pk}
+                    onAdd={() => openCreate(pk)}
+                    onEdit={(item) => openEdit(pk, item)}
+                    onRemove={(item) => remove(pk, item)}
+                  />
+                </TabsContent>
+              ))}
+            </Tabs>
+          </TabsContent>
+
           <TabsContent value="packages">
             <HomePackagesAdmin />
           </TabsContent>
@@ -157,17 +173,17 @@ export default function UserApp() {
               <Label className="text-xs">Title *</Label>
               <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Mr Sharma's 3BHK Villa" data-testid="ua-form-title" />
             </div>
-            {dialog.type !== 'testimonials' && (
+            {!['testimonials', 'home_tours'].includes(dialog.type) && (
               <div>
                 <Label className="text-xs">Location</Label>
                 <Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. Whitefield, Bangalore" />
               </div>
             )}
             <div>
-              <Label className="text-xs">YouTube URL {dialog.type === 'testimonials' ? '*' : '(optional)'}</Label>
+              <Label className="text-xs">YouTube URL {['testimonials', 'home_tours'].includes(dialog.type) ? '*' : '(optional)'}</Label>
               <Input value={form.youtube_url} onChange={e => setForm({ ...form, youtube_url: e.target.value })} placeholder="https://youtu.be/abc123" data-testid="ua-form-youtube" />
             </div>
-            {dialog.type !== 'testimonials' && (
+            {!['testimonials', 'home_tours'].includes(dialog.type) && (
               <div>
                 <Label className="text-xs">Cover Image URL (optional, falls back to YouTube thumbnail)</Label>
                 <Input value={form.cover_image_url} onChange={e => setForm({ ...form, cover_image_url: e.target.value })} placeholder="https://…" />
@@ -197,6 +213,49 @@ export default function UserApp() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+
+function SingleTypePanel({ k, t, list, loading, onAdd, onEdit, onRemove }) {
+  return (
+    <div>
+      <div className="flex justify-end mb-3">
+        <Button onClick={onAdd} className="bg-emerald-600 hover:bg-emerald-700 gap-1" data-testid={`ua-add-${k}`}>
+          <Plus className="h-4 w-4" /> Add {t.label}
+        </Button>
+      </div>
+      {loading ? (
+        <div className="py-12 text-center text-gray-400 flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
+      ) : list.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-gray-400">
+          <Sparkles className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+          No {t.label.toLowerCase()} yet. Click <span className="font-semibold text-emerald-600">Add</span> to create one.
+        </CardContent></Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {list.filter(i => i.is_active !== false).map(item => (
+            <Card key={item.id} className="hover:shadow-md transition-shadow" data-testid={`ua-card-${item.id}`}>
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{item.title}</p>
+                    {item.location && <p className="text-[11px] text-gray-500 truncate">{item.location}</p>}
+                    {item.floor_config && <Badge className="bg-gray-100 text-gray-700 text-[10px] mt-1">{item.floor_config}</Badge>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => onEdit(item)} data-testid={`ua-edit-${item.id}`}><Edit className="h-3 w-3" /></Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500" onClick={() => onRemove(item)} data-testid={`ua-del-${item.id}`}><Trash2 className="h-3 w-3" /></Button>
+                  </div>
+                </div>
+                {item.youtube_url && <p className="text-[10px] text-gray-400 truncate font-mono">▶ {item.youtube_url}</p>}
+                {item.description && <p className="text-[11px] text-gray-600 line-clamp-2">{item.description}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

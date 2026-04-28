@@ -410,3 +410,41 @@ async def delete_upcoming(uid: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Permission denied")
     await db.user_app_upcoming_projects.update_one({"id": uid}, {"$set": {"is_active": False}})
     return {"message": "Deactivated"}
+
+
+
+# Home Tours (YouTube video walkthroughs — separate bucket from testimonials)
+@router.get("/user-app/home-tours")
+async def list_home_tours(user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return await db.user_app_home_tours.find({}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+
+
+@router.post("/user-app/home-tours")
+async def create_home_tour(data: TestimonialIn, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {"id": f"ht_{uuid.uuid4().hex[:10]}", **data.model_dump(), "is_active": True, "created_at": now, "created_by": user.user_id}
+    await db.user_app_home_tours.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.patch("/user-app/home-tours/{tid}")
+async def update_home_tour(tid: str, data: TestimonialIn, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.user_app_home_tours.update_one({"id": tid}, {"$set": {**data.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"message": "Updated"}
+
+
+@router.delete("/user-app/home-tours/{tid}")
+async def delete_home_tour(tid: str, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    await db.user_app_home_tours.update_one({"id": tid}, {"$set": {"is_active": False}})
+    return {"message": "Deactivated"}

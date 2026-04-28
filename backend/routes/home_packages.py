@@ -216,6 +216,7 @@ async def public_get_package(token: str):
     ).sort("sort_order", 1).to_list(50)
 
     testimonials = await db.user_app_testimonials.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    home_tours = await db.user_app_home_tours.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
     completed = await db.user_app_completed_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
     ongoing = await db.user_app_ongoing_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
     upcoming = await db.user_app_upcoming_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
@@ -236,6 +237,7 @@ async def public_get_package(token: str):
         "client_requirement": src_lead.get("requirement") or src_lead.get("notes") or "",
         "packages": packages,
         "testimonials": testimonials,
+        "home_tours": home_tours,
         "completed": completed,
         "ongoing": ongoing,
         "upcoming": upcoming,

@@ -15,6 +15,7 @@ import { Home, Phone, PhoneCall, Loader2, AlertCircle, CheckCircle, Calendar as 
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const publicAxios = axios.create({ withCredentials: false });
+const URBAN_LOGO = 'https://customer-assets.emergentagent.com/job_10daf0a1-16d3-40c8-bdda-23bef46d5e3c/artifacts/d5w0bsh3_images.png';
 
 // Mon-Sat, 10:00 AM – 6:00 PM, 30-min increments
 const TIME_SLOTS = (() => {
@@ -77,13 +78,16 @@ export default function PublicPackageView() {
         {/* Header */}
         <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-4 py-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-[11px] text-gray-500 leading-none">Welcome,</p>
               <p className="text-sm font-bold text-gray-800 leading-tight truncate">{data?.client_name || 'Valued Customer'}</p>
             </div>
-            <Badge className="bg-amber-100 text-amber-700 border-0 shrink-0">
-              <Sparkles className="h-3 w-3 mr-1" /> Urban Space
-            </Badge>
+            <img
+              src={URBAN_LOGO}
+              alt="Urban Space Builders"
+              className="h-11 w-11 rounded-full shadow ring-2 ring-amber-200 shrink-0 object-contain bg-white"
+              data-testid="urban-logo"
+            />
           </div>
           <p className="text-[11px] text-amber-700 italic mt-2">"Pick the package that fits your dream home"</p>
         </header>
@@ -91,7 +95,7 @@ export default function PublicPackageView() {
         {/* Scrollable content — pads for the two sticky bars at bottom */}
         <main className="flex-1 pb-[180px]">
           {activeTab === 'packages' && <PackagesNav packages={data?.packages || []} />}
-          {activeTab === 'testimonials' && <div className="px-3 py-2"><TestimonialsList items={data?.testimonials || []} /></div>}
+          {activeTab === 'testimonials' && <div className="px-3 py-2"><TestimonialsNav testimonials={data?.testimonials || []} homeTours={data?.home_tours || []} /></div>}
           {activeTab === 'projects' && <div className="px-3 py-2"><ProjectsNav completed={data?.completed || []} ongoing={data?.ongoing || []} upcoming={data?.upcoming || []} /></div>}
         </main>
 
@@ -262,14 +266,30 @@ function PackageCard({ pkg }) {
   );
 }
 
-// ===================== Testimonials =====================
-function TestimonialsList({ items }) {
+// ===================== Testimonials + Home Tour (2 inner tabs) =====================
+function TestimonialsNav({ testimonials, homeTours }) {
+  return (
+    <Tabs defaultValue="testimonial">
+      <TabsList className="grid grid-cols-2 w-full h-auto py-1 bg-white border sticky top-[72px] z-[5]">
+        <TabsTrigger value="testimonial" className="text-[11px] py-1.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white" data-testid="inner-tab-testimonial">
+          <Quote className="h-3 w-3 mr-1" /> Testimonial <span className="ml-1 opacity-70">({testimonials.length})</span>
+        </TabsTrigger>
+        <TabsTrigger value="home-tour" className="text-[11px] py-1.5 data-[state=active]:bg-purple-500 data-[state=active]:text-white" data-testid="inner-tab-home-tour">
+          <Home className="h-3 w-3 mr-1" /> Home Tour <span className="ml-1 opacity-70">({homeTours.length})</span>
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent value="testimonial" className="mt-2"><TestimonialsList items={testimonials} emptyLabel="Testimonials coming soon." /></TabsContent>
+      <TabsContent value="home-tour" className="mt-2"><TestimonialsList items={homeTours} emptyLabel="Home tours coming soon." /></TabsContent>
+    </Tabs>
+  );
+}
+
+function TestimonialsList({ items, emptyLabel = 'Testimonials coming soon.' }) {
   if (!items || items.length === 0) {
-    return <Card><CardContent className="p-6 text-center text-sm text-gray-500"><Quote className="h-10 w-10 text-amber-300 mx-auto mb-2" />Testimonials coming soon.</CardContent></Card>;
+    return <Card><CardContent className="p-6 text-center text-sm text-gray-500"><Quote className="h-10 w-10 text-amber-300 mx-auto mb-2" />{emptyLabel}</CardContent></Card>;
   }
   return (
     <div className="space-y-3">
-      <p className="text-[11px] uppercase tracking-wider text-amber-700 font-bold">What Our Clients Say</p>
       {items.map((t, i) => {
         const thumb = getYoutubeThumb(t.youtube_url);
         return (
