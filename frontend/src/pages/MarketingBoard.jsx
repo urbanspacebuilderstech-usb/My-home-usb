@@ -1974,7 +1974,6 @@ export default function MarketingBoard() {
                               <SelectItem value="stg_site_visit">Site Visit</SelectItem>
                               <SelectItem value="stg_re_requested">RE Requested</SelectItem>
                               <SelectItem value="stg_re_shared">RE Shared</SelectItem>
-                              <SelectItem value="stg_negotiation">Negotiation</SelectItem>
                               <SelectItem value="stg_deal_closed">Deal Closed</SelectItem>
                             </>
                           )}
