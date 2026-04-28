@@ -1963,7 +1963,6 @@ export default function MarketingBoard() {
                             <>
                               <SelectItem value="stg_new_lead">New Lead</SelectItem>
                               <SelectItem value="stg_contacted">Contacted</SelectItem>
-                              <SelectItem value="stg_proposal">Proposal</SelectItem>
                               <SelectItem value="stg_followup">Follow-up</SelectItem>
                               <SelectItem value="stg_appt_booked">Appt Booked</SelectItem>
                             </>

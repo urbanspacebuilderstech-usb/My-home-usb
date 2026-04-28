@@ -288,31 +288,52 @@ async def get_default_pre_sales_stages():
     """Get or create default Pre-Sales stages - also fills missing stages"""
     stages = await db.lead_stages.find({"stage_type": "pre_sales"}, {"_id": 0}).sort("order", 1).to_list(100)
     if not stages:
-        # Create all default stages
+        # Create all default stages (Portfolio sent removed Apr 2026)
         default_stages = [
             {"stage_id": "stg_new_lead", "name": "New Lead", "stage_type": "pre_sales", "order": 1, "color": "#6366f1", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_rnr", "name": "RNR", "stage_type": "pre_sales", "order": 2, "color": "#ef4444", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "stage_type": "pre_sales", "order": 3, "color": "#dc2626", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_proposal", "name": "Portfolio sent", "stage_type": "pre_sales", "order": 5, "color": "#10b981", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_package_send", "name": "Package Details Send", "stage_type": "pre_sales", "order": 5, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_appointment", "name": "Appointment Booked", "stage_type": "pre_sales", "order": 6, "color": "#22c55e", "is_final": True, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_office_visit", "name": "Office Visit", "stage_type": "pre_sales", "order": 7, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_package_send", "name": "Package Details Send", "stage_type": "pre_sales", "order": 8, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 9, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 8, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
         ]
         for stage in default_stages:
             stage["created_at"] = datetime.now(timezone.utc)
             await db.lead_stages.insert_one(stage)
         stages = default_stages
     else:
+        # Retire Portfolio-sent stage (Apr 2026) + migrate any live leads to Follow-up.
+        await db.lead_stages.update_one(
+            {"stage_id": "stg_proposal", "stage_type": "pre_sales"},
+            {"$set": {"is_active": False, "order": 99}},
+        )
+        await db.leads.update_many(
+            {"stage_type": "pre_sales", "current_stage_id": "stg_proposal"},
+            {"$set": {"current_stage_id": "stg_follow_up", "updated_at": datetime.now(timezone.utc)}},
+        )
+        # Re-order live stages so Package Details Send sits before Appointment Booked
+        reorder = [
+            ("stg_new_lead", 1),
+            ("stg_rnr", 2),
+            ("stg_new_rnr", 3),
+            ("stg_follow_up", 4),
+            ("stg_package_send", 5),
+            ("stg_appointment", 6),
+            ("stg_office_visit", 7),
+            ("stg_pre_lost", 8),
+        ]
+        for sid, order in reorder:
+            await db.lead_stages.update_one({"stage_id": sid, "stage_type": "pre_sales"}, {"$set": {"order": order, "is_active": True}})
         # Check for missing stages and add them
         existing_ids = {s["stage_id"] for s in stages}
         missing = [
             {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "stage_type": "pre_sales", "order": 3, "color": "#dc2626", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_follow_up", "name": "Follow-up", "stage_type": "pre_sales", "order": 4, "color": "#f59e0b", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_package_send", "name": "Package Details Send", "stage_type": "pre_sales", "order": 5, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
             {"stage_id": "stg_office_visit", "name": "Office Visit", "stage_type": "pre_sales", "order": 7, "color": "#0ea5e9", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_package_send", "name": "Package Details Send", "stage_type": "pre_sales", "order": 8, "color": "#a855f7", "is_final": False, "is_active": True, "created_by": "system"},
-            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 9, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
+            {"stage_id": "stg_pre_lost", "name": "Lost", "stage_type": "pre_sales", "order": 8, "color": "#6b7280", "is_final": False, "is_active": True, "created_by": "system"},
         ]
         for m in missing:
             if m["stage_id"] not in existing_ids:
@@ -451,18 +472,35 @@ async def migrate_stages(user: User = Depends(get_current_user)):
     
     added = []
     fixed = []
+    retired = []
+
+    # Retire + migrate legacy stages (Apr 2026: Portfolio sent → replaced by Package Details Send)
+    legacy_pre_sales = [
+        ("stg_proposal", "stg_follow_up"),  # migrate any stragglers back to Follow-up
+    ]
+    for old_sid, fallback_sid in legacy_pre_sales:
+        existing = await db.lead_stages.find_one({"stage_id": old_sid, "stage_type": "pre_sales"})
+        if existing:
+            await db.lead_stages.update_one(
+                {"stage_id": old_sid, "stage_type": "pre_sales"},
+                {"$set": {"is_active": False, "order": 99}},
+            )
+            mig = await db.leads.update_many(
+                {"stage_type": "pre_sales", "current_stage_id": old_sid},
+                {"$set": {"current_stage_id": fallback_sid, "updated_at": datetime.now(timezone.utc)}},
+            )
+            retired.append({"stage_id": old_sid, "migrated_leads": mig.modified_count, "to": fallback_sid})
     
-    # Define all expected pre_sales stages
+    # Define all expected pre_sales stages (Portfolio sent removed Apr 2026)
     expected_pre_sales = [
         {"stage_id": "stg_new_lead", "name": "New Lead", "order": 1, "color": "#6366f1", "is_final": False},
         {"stage_id": "stg_rnr", "name": "RNR", "order": 2, "color": "#ef4444", "is_final": False},
         {"stage_id": "stg_new_rnr", "name": "New RNR Leads", "order": 3, "color": "#dc2626", "is_final": False},
         {"stage_id": "stg_follow_up", "name": "Follow-up", "order": 4, "color": "#f59e0b", "is_final": False},
-        {"stage_id": "stg_proposal", "name": "Portfolio sent", "order": 5, "color": "#10b981", "is_final": False},
+        {"stage_id": "stg_package_send", "name": "Package Details Send", "order": 5, "color": "#a855f7", "is_final": False},
         {"stage_id": "stg_appointment", "name": "Appointment Booked", "order": 6, "color": "#22c55e", "is_final": True},
         {"stage_id": "stg_office_visit", "name": "Office Visit", "order": 7, "color": "#0ea5e9", "is_final": False},
-        {"stage_id": "stg_package_send", "name": "Package Details Send", "order": 8, "color": "#a855f7", "is_final": False},
-        {"stage_id": "stg_pre_lost", "name": "Lost", "order": 9, "color": "#6b7280", "is_final": False},
+        {"stage_id": "stg_pre_lost", "name": "Lost", "order": 8, "color": "#6b7280", "is_final": False},
     ]
     
     # Define all expected sales stages (Negotiation removed Apr 2026)
@@ -502,7 +540,7 @@ async def migrate_stages(user: User = Depends(get_current_user)):
                     await db.lead_stages.update_one({"stage_id": stage["stage_id"]}, {"$set": updates})
                     fixed.append(f"{stage['name']}: {updates}")
     
-    return {"message": "Migration complete", "added": added, "fixed": fixed}
+    return {"message": "Migration complete", "added": added, "fixed": fixed, "retired": retired}
 
 
 # ==================== CRM A (PRE-SALES) ENDPOINTS ====================
