@@ -247,6 +247,11 @@ class TestimonialIn(BaseModel):
     description: Optional[str] = None
     floor_config: Optional[str] = None  # 'all' or '2BHK G+1' etc.
     sort_order: Optional[int] = 0
+    # Extended details (also used for Home Tour)
+    client_name: Optional[str] = None
+    portion: Optional[str] = None     # e.g. "G+1" / "2BHK" / "Duplex"
+    location: Optional[str] = None
+    sqft: Optional[float] = None
 
 
 class ShowcaseProjectIn(BaseModel):
@@ -257,6 +262,10 @@ class ShowcaseProjectIn(BaseModel):
     youtube_url: Optional[str] = None
     floor_config: Optional[str] = None
     sort_order: Optional[int] = 0
+    # Extended project details
+    plot_area: Optional[float] = None
+    buildup_area: Optional[float] = None
+    portion: Optional[str] = None    # e.g. "G+1", "2BHK"
 
 
 def _can_manage_user_app(user: User) -> bool:

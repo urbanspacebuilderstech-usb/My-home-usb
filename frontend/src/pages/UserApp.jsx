@@ -15,7 +15,14 @@ import HomePackagesAdmin from '../components/HomePackagesAdmin';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
-const empty = { title: '', description: '', youtube_url: '', cover_image_url: '', location: '', floor_config: 'all', sort_order: 0 };
+const empty = {
+  title: '', description: '', youtube_url: '', cover_image_url: '',
+  location: '', floor_config: 'all', sort_order: 0,
+  // Testimonial / Home Tour fields
+  client_name: '', portion: '', sqft: '',
+  // Project-specific fields
+  plot_area: '', buildup_area: '',
+};
 
 const TYPES = {
   testimonials: { label: 'Testimonials', endpoint: 'testimonials', Icon: PlayCircle, color: 'text-red-600', accent: 'red', requiresYoutube: true },
@@ -63,7 +70,14 @@ export default function UserApp() {
       const ep = TYPES[dialog.type].endpoint;
       const url = dialog.editing ? `${API}/user-app/${ep}/${dialog.editing.id}` : `${API}/user-app/${ep}`;
       const method = dialog.editing ? 'patch' : 'post';
-      await axios[method](url, form);
+      const payload = {
+        ...form,
+        sort_order: Number(form.sort_order) || 0,
+        sqft: form.sqft === '' || form.sqft === null ? null : Number(form.sqft),
+        plot_area: form.plot_area === '' || form.plot_area === null ? null : Number(form.plot_area),
+        buildup_area: form.buildup_area === '' || form.buildup_area === null ? null : Number(form.buildup_area),
+      };
+      await axios[method](url, payload);
       toast.success(dialog.editing ? 'Updated' : 'Created');
       setDialog({ open: false, type: null, editing: null });
       load(dialog.type);
@@ -207,39 +221,95 @@ export default function UserApp() {
             <DialogTitle>{dialog.editing ? 'Edit' : 'Add'} — {dialog.type ? TYPES[dialog.type].label : ''}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div>
-              <Label className="text-xs">Title *</Label>
-              <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Mr Sharma's 3BHK Villa" data-testid="ua-form-title" />
-            </div>
-            {!['testimonials', 'home_tours'].includes(dialog.type) && (
-              <div>
-                <Label className="text-xs">Location</Label>
-                <Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. Whitefield, Bangalore" />
-              </div>
+            {/* ====== TESTIMONIAL / HOME TOUR FIELDS ====== */}
+            {['testimonials', 'home_tours'].includes(dialog.type) ? (
+              <>
+                <div>
+                  <Label className="text-xs">Name / Title *</Label>
+                  <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. 3BHK Villa Walkthrough" data-testid="ua-form-title" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Client Name</Label>
+                    <Input value={form.client_name} onChange={e => setForm({ ...form, client_name: e.target.value })} placeholder="e.g. Mr. Ramesh Kumar" data-testid="ua-form-client" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Portion</Label>
+                    <Input value={form.portion} onChange={e => setForm({ ...form, portion: e.target.value })} placeholder="G+1 / 2BHK / Duplex" data-testid="ua-form-portion" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Location</Label>
+                    <Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Perumbakkam, Chennai" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Sqft</Label>
+                    <Input type="number" value={form.sqft} onChange={e => setForm({ ...form, sqft: e.target.value })} placeholder="1500" data-testid="ua-form-sqft" />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">YouTube URL *</Label>
+                  <Input value={form.youtube_url} onChange={e => setForm({ ...form, youtube_url: e.target.value })} placeholder="https://youtu.be/abc123" data-testid="ua-form-youtube" />
+                </div>
+                <div>
+                  <Label className="text-xs">Description (optional)</Label>
+                  <Textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+                </div>
+              </>
+            ) : (
+              /* ====== PROJECT FIELDS (completed/ongoing/upcoming) ====== */
+              <>
+                <div>
+                  <Label className="text-xs">Name / Project Title *</Label>
+                  <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Mr. Sharma's Villa" data-testid="ua-form-title" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Location</Label>
+                    <Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Whitefield, Bangalore" data-testid="ua-form-location" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Portion</Label>
+                    <Input value={form.portion} onChange={e => setForm({ ...form, portion: e.target.value })} placeholder="G+1 / 2BHK / Duplex" data-testid="ua-form-portion" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Plot Area (sqft)</Label>
+                    <Input type="number" value={form.plot_area} onChange={e => setForm({ ...form, plot_area: e.target.value })} placeholder="2400" data-testid="ua-form-plot" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Buildup Area (sqft)</Label>
+                    <Input type="number" value={form.buildup_area} onChange={e => setForm({ ...form, buildup_area: e.target.value })} placeholder="1800" data-testid="ua-form-buildup" />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Cover Image URL <span className="text-amber-600 text-[10px]">· recommended 1080×1080</span></Label>
+                  <Input value={form.cover_image_url} onChange={e => setForm({ ...form, cover_image_url: e.target.value })} placeholder="https://…" data-testid="ua-form-image" />
+                  {form.cover_image_url && (
+                    <img src={form.cover_image_url} alt="preview" className="mt-1.5 h-28 w-28 object-cover rounded border" />
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">YouTube URL (optional)</Label>
+                  <Input value={form.youtube_url} onChange={e => setForm({ ...form, youtube_url: e.target.value })} placeholder="https://youtu.be/abc123" />
+                </div>
+                <div>
+                  <Label className="text-xs">Description (optional)</Label>
+                  <Textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
+                </div>
+              </>
             )}
-            <div>
-              <Label className="text-xs">YouTube URL {['testimonials', 'home_tours'].includes(dialog.type) ? '*' : '(optional)'}</Label>
-              <Input value={form.youtube_url} onChange={e => setForm({ ...form, youtube_url: e.target.value })} placeholder="https://youtu.be/abc123" data-testid="ua-form-youtube" />
-            </div>
-            {!['testimonials', 'home_tours'].includes(dialog.type) && (
-              <div>
-                <Label className="text-xs">Cover Image URL (optional, falls back to YouTube thumbnail)</Label>
-                <Input value={form.cover_image_url} onChange={e => setForm({ ...form, cover_image_url: e.target.value })} placeholder="https://…" />
-              </div>
-            )}
-            <div>
-              <Label className="text-xs">Description</Label>
-              <Textarea rows={3} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Floor Config Filter</Label>
-                <Input value={form.floor_config} onChange={e => setForm({ ...form, floor_config: e.target.value })} placeholder="all / 2BHK G+1 / 3BHK G+2…" />
+                <Input value={form.floor_config} onChange={e => setForm({ ...form, floor_config: e.target.value })} placeholder="all / 2BHK G+1…" />
                 <p className="text-[10px] text-gray-400 mt-0.5">Type "all" to show to every prospect.</p>
               </div>
               <div>
                 <Label className="text-xs">Sort Order</Label>
-                <Input type="number" value={form.sort_order} onChange={e => setForm({ ...form, sort_order: Number(e.target.value) || 0 })} />
+                <Input type="number" value={form.sort_order} onChange={e => setForm({ ...form, sort_order: Number(e.target.value) || 0 })} data-testid="ua-form-sort" />
               </div>
             </div>
           </div>

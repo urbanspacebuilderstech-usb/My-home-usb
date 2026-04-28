@@ -30,10 +30,15 @@ const TIME_SLOTS = (() => {
   return slots;
 })();
 
-const getYoutubeThumb = (url) => {
+const getYoutubeId = (url) => {
   if (!url) return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/))([A-Za-z0-9_-]{11})/);
-  return m ? `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg` : null;
+  return m ? m[1] : null;
+};
+
+const getYoutubeThumb = (url) => {
+  const id = getYoutubeId(url);
+  return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : null;
 };
 
 export default function PublicPackageView() {
@@ -75,21 +80,22 @@ export default function PublicPackageView() {
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-emerald-50 select-none" data-testid="public-package-view">
       <div className="max-w-md mx-auto min-h-screen flex flex-col relative">
 
-        {/* Header */}
-        <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-4 py-3">
+        {/* Compact header */}
+        <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] text-gray-500 leading-none">Welcome,</p>
-              <p className="text-sm font-bold text-gray-800 leading-tight truncate">{data?.client_name || 'Valued Customer'}</p>
+              <p className="text-[12px] font-semibold text-gray-800 leading-tight truncate">
+                Hi, {data?.client_name?.split(' ')[0] || 'there'} 👋
+              </p>
+              <p className="text-[10px] text-amber-700 italic leading-tight mt-0.5">"Pick the package that fits your dream home"</p>
             </div>
             <img
               src={URBAN_LOGO}
               alt="Urban Space Builders"
-              className="h-11 w-11 rounded-full shadow ring-2 ring-amber-200 shrink-0 object-contain bg-white"
+              className="h-9 w-9 rounded-full shadow ring-2 ring-amber-200 shrink-0 object-contain bg-white"
               data-testid="urban-logo"
             />
           </div>
-          <p className="text-[11px] text-amber-700 italic mt-2">"Pick the package that fits your dream home"</p>
         </header>
 
         {/* Scrollable content — pads for the two sticky bars at bottom */}
@@ -290,28 +296,67 @@ function TestimonialsList({ items, emptyLabel = 'Testimonials coming soon.' }) {
   }
   return (
     <div className="space-y-3">
-      {items.map((t, i) => {
-        const thumb = getYoutubeThumb(t.youtube_url);
-        return (
-          <Card key={t.id || i} className="bg-white overflow-hidden">
-            {thumb && t.youtube_url && (
-              <a href={t.youtube_url} target="_blank" rel="noopener noreferrer" className="block relative">
-                <img src={thumb} alt={t.title} className="w-full h-40 object-cover" />
-                <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                  <div className="h-12 w-12 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
-                    <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                  </div>
-                </div>
-              </a>
-            )}
-            <CardContent className="p-3">
-              <p className="text-sm font-semibold">{t.title}</p>
-              {t.description && <p className="text-xs text-gray-600 mt-1 leading-relaxed whitespace-pre-wrap">{t.description}</p>}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {items.map((t, i) => <TestimonialCard key={t.id || i} item={t} />)}
     </div>
+  );
+}
+
+function TestimonialCard({ item }) {
+  const videoId = getYoutubeId(item.youtube_url);
+  const [playing, setPlaying] = useState(false);
+  const details = [
+    item.client_name && { label: 'Client', value: item.client_name },
+    item.portion && { label: 'Portion', value: item.portion },
+    item.location && { label: 'Location', value: item.location },
+    item.sqft && { label: 'Sqft', value: `${item.sqft}` },
+  ].filter(Boolean);
+
+  return (
+    <Card className="bg-white overflow-hidden">
+      {videoId && (
+        <div className="relative bg-black" style={{ paddingTop: '56.25%' }}>
+          {playing ? (
+            <iframe
+              className="absolute inset-0 w-full h-full"
+              src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+              title={item.title}
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPlaying(true)}
+              className="absolute inset-0 w-full h-full group"
+              aria-label={`Play ${item.title}`}
+              data-testid="testimonial-play-btn"
+            >
+              <img src={`https://img.youtube.com/vi/${videoId}/hqdefault.jpg`} alt={item.title} className="w-full h-full object-cover" />
+              <div className="absolute inset-0 bg-black/30 group-hover:bg-black/40 flex items-center justify-center transition">
+                <div className="h-14 w-14 rounded-full bg-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                  <svg className="h-6 w-6 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+      <CardContent className="p-3">
+        <p className="text-sm font-semibold">{item.title}</p>
+        {details.length > 0 && (
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {details.map((d, i) => (
+              <div key={i} className="bg-gray-50 rounded p-1.5">
+                <p className="text-[9px] uppercase text-gray-400 font-semibold leading-none">{d.label}</p>
+                <p className="text-[11px] text-gray-800 font-medium mt-0.5 truncate">{d.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.description && <p className="text-xs text-gray-600 mt-2 leading-relaxed whitespace-pre-wrap">{item.description}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -343,21 +388,69 @@ function ProjectGrid({ items, emptyLabel }) {
   }
   return (
     <div className="space-y-2.5">
-      {items.map((p, i) => {
-        const thumb = p.cover_image_url || getYoutubeThumb(p.youtube_url);
-        return (
-          <Card key={p.id || i} className="overflow-hidden bg-white">
-            {thumb && <img src={thumb} alt={p.title} className="w-full h-40 object-cover" />}
-            <CardContent className="p-3">
-              <p className="text-sm font-semibold">{p.title}</p>
-              {p.location && <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-0.5"><MapPin className="h-3 w-3" /> {p.location}</p>}
-              {p.description && <p className="text-xs text-gray-600 mt-1 leading-relaxed">{p.description}</p>}
-              {p.floor_config && p.floor_config !== 'all' && <Badge className="mt-1.5 bg-gray-100 text-gray-700 border-0 text-[10px]">{p.floor_config}</Badge>}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {items.map((p, i) => <ProjectCard key={p.id || i} item={p} />)}
     </div>
+  );
+}
+
+function ProjectCard({ item }) {
+  const videoId = getYoutubeId(item.youtube_url);
+  const [playing, setPlaying] = useState(false);
+  const poster = item.cover_image_url || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : null);
+  const details = [
+    item.location && { label: 'Location', value: item.location, icon: <MapPin className="h-3 w-3" /> },
+    item.portion && { label: 'Portion', value: item.portion },
+    item.plot_area && { label: 'Plot Area', value: `${item.plot_area} sqft` },
+    item.buildup_area && { label: 'Buildup', value: `${item.buildup_area} sqft` },
+  ].filter(Boolean);
+
+  return (
+    <Card className="overflow-hidden bg-white">
+      {videoId && playing ? (
+        <div className="relative bg-black" style={{ paddingTop: '56.25%' }}>
+          <iframe
+            className="absolute inset-0 w-full h-full"
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+            title={item.title}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      ) : poster ? (
+        <button
+          type="button"
+          onClick={() => videoId ? setPlaying(true) : null}
+          className={`block w-full aspect-square relative group ${videoId ? 'cursor-pointer' : 'cursor-default'}`}
+          style={{ maxHeight: '460px' }}
+          aria-label={videoId ? `Play ${item.title}` : item.title}
+          data-testid="project-play-btn"
+        >
+          <img src={poster} alt={item.title} className="w-full h-full object-cover" />
+          {videoId && (
+            <div className="absolute inset-0 bg-black/25 group-hover:bg-black/40 flex items-center justify-center transition">
+              <div className="h-14 w-14 rounded-full bg-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition">
+                <svg className="h-6 w-6 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              </div>
+            </div>
+          )}
+        </button>
+      ) : null}
+      <CardContent className="p-3">
+        <p className="text-sm font-semibold">{item.title}</p>
+        {details.length > 0 && (
+          <div className="grid grid-cols-2 gap-1.5 mt-2">
+            {details.map((d, i) => (
+              <div key={i} className="bg-gray-50 rounded p-1.5">
+                <p className="text-[9px] uppercase text-gray-400 font-semibold leading-none flex items-center gap-1">{d.icon}{d.label}</p>
+                <p className="text-[11px] text-gray-800 font-medium mt-0.5 truncate">{d.value}</p>
+              </div>
+            ))}
+          </div>
+        )}
+        {item.description && <p className="text-xs text-gray-600 mt-2 leading-relaxed">{item.description}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
