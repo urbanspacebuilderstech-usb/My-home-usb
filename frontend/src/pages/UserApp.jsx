@@ -10,7 +10,8 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Plus, Edit, Trash2, Smartphone, PlayCircle, Building2, Loader2, Sparkles, Construction } from 'lucide-react';
+import { Plus, Edit, Trash2, Smartphone, PlayCircle, Building2, Loader2, Sparkles, Construction, Package as PackageIcon } from 'lucide-react';
+import HomePackagesAdmin from '../components/HomePackagesAdmin';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -89,13 +90,16 @@ export default function UserApp() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid grid-cols-3">
+          <TabsList className="grid grid-cols-4">
             {Object.entries(TYPES).map(([k, t]) => (
               <TabsTrigger key={k} value={k} data-testid={`ua-tab-${k}`}>
                 <t.Icon className={`h-3.5 w-3.5 mr-1 ${t.color}`} /> {t.label}
                 <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{(items[k] || []).length}</Badge>
               </TabsTrigger>
             ))}
+            <TabsTrigger value="packages" data-testid="ua-tab-packages">
+              <PackageIcon className="h-3.5 w-3.5 mr-1 text-amber-600" /> Packages
+            </TabsTrigger>
           </TabsList>
           {Object.entries(TYPES).map(([k, t]) => (
             <TabsContent key={k} value={k}>
@@ -136,6 +140,9 @@ export default function UserApp() {
               )}
             </TabsContent>
           ))}
+          <TabsContent value="packages">
+            <HomePackagesAdmin />
+          </TabsContent>
         </Tabs>
       </div>
 

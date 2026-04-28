@@ -337,6 +337,20 @@ export default function CRMPreSales() {
         setFollowupMoveDialog(true);
         return;
       }
+
+      // Intercept: Moving to Package Details Send — auto-generate the public link
+      if (newStageId === 'stg_package_send') {
+        try {
+          const r = await axios.post(`${API}/leads/${leadId}/generate-package-link`, {});
+          const url = `${window.location.origin}/package/${r.data.token}`;
+          try { await navigator.clipboard.writeText(url); toast.success('Package link generated & copied to clipboard'); }
+          catch { toast.success('Package link generated'); }
+          fetchData && fetchData(false);
+        } catch (e) {
+          toast.error(e?.response?.data?.detail || 'Could not generate package link');
+        }
+        return;
+      }
       
       const payload = { stage_id: newStageId };
       if (appointmentData) {
