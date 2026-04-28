@@ -17,7 +17,7 @@ import {
   Target, LogOut, Search, Phone, PhoneOff, Mail, MapPin, ArrowRight, RefreshCw, Plus, X,
   GripVertical, Eye, FileText, CheckCircle, XCircle, Clock, TrendingUp,
   Building2, Calculator, Download, LayoutGrid, List, Settings, Edit, Calendar, Send,
-  MessageSquare, GitBranch, DollarSign, UserCheck, Users, Smartphone
+  MessageSquare, GitBranch, DollarSign, UserCheck, Users, Smartphone, ArrowUpDown
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../components/ui/tabs';
@@ -50,6 +50,7 @@ export default function CRMSales() {
   const [stages, setStages] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'kanban' or 'list'
+  const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
   const [activeStage, setActiveStage] = useState('all');
   
   // Dialogs
@@ -992,6 +993,10 @@ export default function CRMSales() {
     }
     
     return matchesSearch && matchesDate;
+  }).sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return sortOrder === 'desc' ? tb - ta : ta - tb;
   });
 
   const getLeadsByStage = (stageId) => {
@@ -1001,15 +1006,7 @@ export default function CRMSales() {
     } else {
       stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     }
-    stageLeads.sort((a, b) => {
-      const getDate = (lead) => {
-        const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
-        const visit = lead.site_visit_data?.visit_date;
-        return fup || visit || lead.created_at?.split('T')[0] || '9999';
-      };
-      return getDate(a).localeCompare(getDate(b));
-    });
-    
+    // filteredLeads is already sorted by created_at per sortOrder; preserve that here.
     return stageLeads;
   };
 
@@ -1113,6 +1110,19 @@ export default function CRMSales() {
               data-testid="search-input"
             />
           </div>
+
+          {/* Sort: newest/oldest first */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs"
+            onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+            title={sortOrder === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'}
+            data-testid="sort-order-toggle"
+          >
+            <ArrowUpDown className="h-3.5 w-3.5" />
+            {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+          </Button>
           
           {/* Date Filter - Meta Ads style Calendar */}
           <Popover>

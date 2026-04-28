@@ -17,7 +17,7 @@ import {
   Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
-  LayoutGrid, List, MoreVertical, Bell, CheckCircle
+  LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -59,6 +59,7 @@ export default function CRMPreSales() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'kanban' or 'list'
+  const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
   const [syncingSheets, setSyncingSheets] = useState(false);
   
   // Dialogs
@@ -585,11 +586,9 @@ export default function CRMPreSales() {
     
     return matchesStage && matchesSearch && matchesSource && matchesDate;
   }).sort((a, b) => {
-    const getDate = (lead) => {
-      const fup = lead.next_followup_date || (lead.follow_ups || []).filter(f => !f.completed).map(f => f.scheduled_date).sort()[0];
-      return fup || lead.created_at?.split('T')[0] || '9999';
-    };
-    return getDate(a).localeCompare(getDate(b));
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return sortOrder === 'desc' ? tb - ta : ta - tb;
   });
 
   const getLeadsByStage = (stageId) => {
@@ -669,6 +668,19 @@ export default function CRMPreSales() {
               data-testid="search-input"
             />
           </div>
+
+          {/* Sort: newest/oldest first */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 text-xs"
+            onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+            title={sortOrder === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'}
+            data-testid="sort-order-toggle"
+          >
+            <ArrowUpDown className="h-3.5 w-3.5" />
+            {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+          </Button>
           
           {/* Date Filter - Meta Ads style */}
           <Popover>

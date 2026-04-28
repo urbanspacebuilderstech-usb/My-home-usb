@@ -28,7 +28,7 @@ import {
   Zap, BarChart3, ArrowRight, Phone, Mail, Clock, CheckCircle,
   User, ChevronRight, Filter, Search, Layers, Edit2, Eye, X,
   Calendar, FileText, Building2, MapPin, ChevronDown, ArrowUpRight,
-  FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check, Trash2
+  FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check, Trash2, ArrowUpDown
 } from 'lucide-react';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -105,6 +105,7 @@ export default function MarketingBoard() {
   const [allLeads, setAllLeads] = useState([]);
   const [leadsFilter, setLeadsFilter] = useState({ stage_type: '', assigned_to: '', source: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
   const [leadSources, setLeadSources] = useState([]);
   const [selectedSource, setSelectedSource] = useState('all');
   
@@ -808,6 +809,10 @@ export default function MarketingBoard() {
       lead.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.phone?.includes(searchQuery)
     );
+  }).sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return sortOrder === 'desc' ? tb - ta : ta - tb;
   });
 
 
@@ -1245,6 +1250,17 @@ export default function MarketingBoard() {
                         className="pl-10 w-[200px]"
                       />
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-1.5 text-xs"
+                      onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
+                      title={sortOrder === 'desc' ? 'Newest first — click for oldest first' : 'Oldest first — click for newest first'}
+                      data-testid="sort-order-toggle"
+                    >
+                      <ArrowUpDown className="h-3.5 w-3.5" />
+                      {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+                    </Button>
                     <Select value={leadsFilter.stage_type} onValueChange={(v) => setLeadsFilter(p => ({ ...p, stage_type: v }))}>
                       <SelectTrigger className="w-[140px]">
                         <SelectValue placeholder="All Types" />
