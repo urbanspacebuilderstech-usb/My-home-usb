@@ -11,12 +11,12 @@ import { Textarea } from '../components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../components/ui/accordion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Home, Phone, PhoneCall, Loader2, AlertCircle, CheckCircle, Clock, Calendar as CalendarIcon, Quote, Package as PackageIcon, Building2, Construction, Sparkles, MapPin } from 'lucide-react';
+import { Home, Phone, PhoneCall, Loader2, AlertCircle, CheckCircle, Calendar as CalendarIcon, Quote, Package as PackageIcon, Building2, Construction, Sparkles, MapPin, Clock } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const publicAxios = axios.create({ withCredentials: false });
 
-// Office-hour slots (Mon-Sat, 10:00 AM – 6:00 PM, every 30 min)
+// Mon-Sat, 10:00 AM – 6:00 PM, 30-min increments
 const TIME_SLOTS = (() => {
   const slots = [];
   for (let h = 10; h < 18; h++) {
@@ -41,6 +41,7 @@ export default function PublicPackageView() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [officeDialog, setOfficeDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState('packages');
 
   useEffect(() => {
     setLoading(true);
@@ -71,48 +72,34 @@ export default function PublicPackageView() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-emerald-50 select-none" data-testid="public-package-view">
-      <div className="max-w-md mx-auto pb-36 min-h-screen flex flex-col">
+      <div className="max-w-md mx-auto min-h-screen flex flex-col relative">
+
+        {/* Header */}
         <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b px-4 py-3">
           <div className="flex items-center justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <p className="text-[11px] text-gray-500 leading-none">Welcome,</p>
-              <p className="text-sm font-bold text-gray-800 leading-tight">{data?.client_name || 'Valued Customer'}</p>
+              <p className="text-sm font-bold text-gray-800 leading-tight truncate">{data?.client_name || 'Valued Customer'}</p>
             </div>
+            <Badge className="bg-amber-100 text-amber-700 border-0 shrink-0">
+              <Sparkles className="h-3 w-3 mr-1" /> Urban Space
+            </Badge>
           </div>
           <p className="text-[11px] text-amber-700 italic mt-2">"Pick the package that fits your dream home"</p>
         </header>
 
-        <Tabs defaultValue="packages" className="flex-1 flex flex-col">
-          <TabsList className="grid grid-cols-3 mx-3 mt-2 bg-amber-100/60 h-auto py-1">
-            <TabsTrigger value="packages" className="text-[11px] py-1.5" data-testid="nav-packages">
-              <PackageIcon className="h-3.5 w-3.5 mr-1" /> Packages
-            </TabsTrigger>
-            <TabsTrigger value="testimonials" className="text-[11px] py-1.5" data-testid="nav-testimonials">
-              <Quote className="h-3.5 w-3.5 mr-1" /> Our Testimonials
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="text-[11px] py-1.5" data-testid="nav-projects">
-              <Building2 className="h-3.5 w-3.5 mr-1" /> Our Projects
-            </TabsTrigger>
-          </TabsList>
+        {/* Scrollable content — pads for the two sticky bars at bottom */}
+        <main className="flex-1 pb-[180px]">
+          {activeTab === 'packages' && <PackagesNav packages={data?.packages || []} />}
+          {activeTab === 'testimonials' && <div className="px-3 py-2"><TestimonialsList items={data?.testimonials || []} /></div>}
+          {activeTab === 'projects' && <div className="px-3 py-2"><ProjectsNav completed={data?.completed || []} ongoing={data?.ongoing || []} upcoming={data?.upcoming || []} /></div>}
+        </main>
 
-          <TabsContent value="packages" className="mt-2">
-            <PackagesNav packages={data?.packages || []} />
-          </TabsContent>
-
-          <TabsContent value="testimonials" className="mt-2 px-3">
-            <TestimonialsList items={data?.testimonials || []} />
-          </TabsContent>
-
-          <TabsContent value="projects" className="mt-2 px-3">
-            <ProjectsNav completed={data?.completed || []} ongoing={data?.ongoing || []} upcoming={data?.upcoming || []} />
-          </TabsContent>
-        </Tabs>
-
-        {/* Sticky footer — Visit Office + Call Sales */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-[0_-2px_10px_rgba(0,0,0,0.04)] z-20">
-          <div className="max-w-md mx-auto p-3 space-y-2">
+        {/* ============ STICKY BAR 1 — CTA buttons ============ */}
+        <div className="fixed bottom-[64px] left-0 right-0 z-30 pointer-events-none">
+          <div className="max-w-md mx-auto px-3 pb-2 space-y-2 pointer-events-auto">
             <Button
-              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg gap-2"
+              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl gap-2"
               onClick={() => setOfficeDialog(true)}
               data-testid="visit-office-btn"
             >
@@ -120,13 +107,40 @@ export default function PublicPackageView() {
             </Button>
             {sales?.phone && (
               <a href={`tel:${sales.phone}`} className="block">
-                <Button variant="outline" className="w-full h-10 border-amber-600 text-amber-700 hover:bg-amber-50 gap-2" data-testid="package-call-sales-btn">
+                <Button variant="outline" className="w-full h-10 border-amber-600 text-amber-700 bg-white hover:bg-amber-50 gap-2 shadow-md" data-testid="package-call-sales-btn">
                   <PhoneCall className="h-4 w-4" /> Call {sales.name || 'Sales'} — {sales.phone}
                 </Button>
               </a>
             )}
           </div>
         </div>
+
+        {/* ============ STICKY BAR 2 — Instagram-style bottom nav ============ */}
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t shadow-[0_-2px_12px_rgba(0,0,0,0.06)]">
+          <div className="max-w-md mx-auto grid grid-cols-3 h-16">
+            <BottomTab
+              active={activeTab === 'packages'}
+              onClick={() => setActiveTab('packages')}
+              icon={<PackageIcon className="h-5 w-5" />}
+              label="Packages"
+              testid="nav-packages"
+            />
+            <BottomTab
+              active={activeTab === 'testimonials'}
+              onClick={() => setActiveTab('testimonials')}
+              icon={<Quote className="h-5 w-5" />}
+              label="Testimonial"
+              testid="nav-testimonials"
+            />
+            <BottomTab
+              active={activeTab === 'projects'}
+              onClick={() => setActiveTab('projects')}
+              icon={<Building2 className="h-5 w-5" />}
+              label="Our Projects"
+              testid="nav-projects"
+            />
+          </div>
+        </nav>
 
         <VisitOfficeDialog
           open={officeDialog}
@@ -137,6 +151,21 @@ export default function PublicPackageView() {
         />
       </div>
     </div>
+  );
+}
+
+function BottomTab({ active, onClick, icon, label, testid }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-testid={testid}
+      className={`flex flex-col items-center justify-center gap-0.5 transition-all ${active ? 'text-amber-600' : 'text-gray-500 hover:text-gray-800'}`}
+    >
+      <div className={`transition-transform ${active ? 'scale-110' : 'scale-100'}`}>{icon}</div>
+      <span className={`text-[10px] font-medium ${active ? 'font-bold' : ''}`}>{label}</span>
+      {active && <div className="h-0.5 w-6 bg-amber-600 rounded-full absolute bottom-1" />}
+    </button>
   );
 }
 
@@ -151,22 +180,22 @@ function Center({ children }) {
 // ===================== Packages: 3 sub-tabs by name =====================
 function PackagesNav({ packages }) {
   if (!packages || packages.length === 0) {
-    return <div className="px-3"><Card><CardContent className="p-6 text-center text-sm text-gray-500">Packages not configured yet.</CardContent></Card></div>;
+    return <div className="px-3 py-2"><Card><CardContent className="p-6 text-center text-sm text-gray-500">Packages not configured yet.</CardContent></Card></div>;
   }
   const defaultId = packages.find(p => p.is_popular)?.package_id || packages[0]?.package_id;
   return (
-    <div className="px-3">
+    <div className="px-3 py-2">
       <Tabs defaultValue={defaultId}>
-        <TabsList className="w-full h-auto py-1 bg-white border" style={{ display: 'grid', gridTemplateColumns: `repeat(${packages.length}, minmax(0, 1fr))` }}>
+        <TabsList className="w-full h-auto py-1 bg-white border sticky top-[72px] z-[5]" style={{ display: 'grid', gridTemplateColumns: `repeat(${packages.length}, minmax(0, 1fr))` }}>
           {packages.map(p => (
             <TabsTrigger
               key={p.package_id}
               value={p.package_id}
               className="text-[10px] py-1.5 data-[state=active]:bg-amber-500 data-[state=active]:text-white"
-              data-testid={`pkg-tab-${p.short_name?.toLowerCase().replace(/\s+/g,'-') || p.package_id}`}
+              data-testid={`pkg-tab-${p.short_name?.toLowerCase().replace(/\s+/g, '-') || p.package_id}`}
             >
-              <span className="flex items-center gap-1">
-                {p.is_popular && <Sparkles className="h-3 w-3" />}
+              <span className="flex items-center gap-1 min-w-0">
+                {p.is_popular && <Sparkles className="h-3 w-3 shrink-0" />}
                 <span className="truncate">{p.name}</span>
               </span>
             </TabsTrigger>
@@ -250,7 +279,7 @@ function TestimonialsList({ items }) {
                 <img src={thumb} alt={t.title} className="w-full h-40 object-cover" />
                 <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
                   <div className="h-12 w-12 rounded-full bg-red-600 flex items-center justify-center shadow-lg">
-                    <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    <svg className="h-5 w-5 text-white ml-0.5" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                   </div>
                 </div>
               </a>
@@ -270,7 +299,7 @@ function TestimonialsList({ items }) {
 function ProjectsNav({ completed, ongoing, upcoming }) {
   return (
     <Tabs defaultValue="completed">
-      <TabsList className="grid grid-cols-3 w-full h-auto py-1 bg-white border">
+      <TabsList className="grid grid-cols-3 w-full h-auto py-1 bg-white border sticky top-[72px] z-[5]">
         <TabsTrigger value="completed" className="text-[10px] py-1.5 data-[state=active]:bg-emerald-500 data-[state=active]:text-white" data-testid="proj-tab-completed">
           <CheckCircle className="h-3 w-3 mr-1" /> Completed <span className="ml-1 opacity-70">({completed.length})</span>
         </TabsTrigger>
@@ -332,7 +361,6 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
     }
   }, [open, data]);
 
-  // Min date = tomorrow, skip Sundays via JS validator
   const minDate = new Date().toISOString().split('T')[0];
 
   const handleSubmit = async () => {
@@ -357,7 +385,7 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
       <DialogContent className="max-w-md" data-testid="visit-office-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-emerald-600" /> Visit our Office</DialogTitle>
-          <p className="text-xs text-gray-500">Mon-Sat, 10:00 AM – 6:00 PM. We'll call to confirm.</p>
+          <p className="text-xs text-gray-500 flex items-center gap-1"><Clock className="h-3 w-3" /> Mon-Sat, 10:00 AM – 6:00 PM. We'll call to confirm.</p>
         </DialogHeader>
         <div className="space-y-3">
           <div>
@@ -405,15 +433,15 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
   );
 }
 
-// ===================== Expired view =====================
+// ===================== Expired =====================
 function ExpiredView({ token, data }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-emerald-50 px-4 py-6" data-testid="public-package-expired">
       <div className="max-w-md mx-auto space-y-3">
         <Card><CardContent className="py-6 text-center">
-          <Clock className="h-12 w-12 text-amber-500 mx-auto mb-3" />
-          <p className="text-lg font-semibold text-gray-800">Link Expired</p>
-          <p className="text-sm text-gray-500 mt-2">Please connect with our sales team for fresh details.</p>
+          <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-3" />
+          <p className="text-lg font-semibold text-gray-800">Link Unavailable</p>
+          <p className="text-sm text-gray-500 mt-2">Please connect with our sales team.</p>
         </CardContent></Card>
         {data?.sales_person?.phone && (
           <Card className="border-2 border-emerald-200 bg-emerald-50/40"><CardContent className="p-4">
