@@ -2800,12 +2800,26 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
         }
         await db.notifications.insert_one(notification)
     else:
+        now = datetime.now(timezone.utc)
+        rejection_entry = {
+            "reason": data.rejection_reason or "",
+            "rejected_by": user.user_id,
+            "rejected_by_name": user.name,
+            "rejected_at": now.isoformat(),
+            "revision": project.get("revision", 0),
+            "re_number": project.get("re_number"),
+            "estimated_total_at_rejection": project.get("estimated_total", 0),
+        }
         update = {
             "status": "re_rejected",
-            "gm_rejection_reason": data.rejection_reason,
-            "gm_approved_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc)
+            "gm_rejection_reason": data.rejection_reason,  # latest reason (legacy convenience)
+            "gm_approved_at": now,
+            "updated_at": now,
         }
+        await db.re_projects.update_one(
+            {"re_project_id": re_project_id},
+            {"$set": update, "$push": {"rejection_history": rejection_entry}},
+        )
         # Notify Planning about rejection
         notification = {
             "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
@@ -2815,12 +2829,13 @@ async def approve_re_project(re_project_id: str, data: REApproval, user: User = 
             "type": "re_rejected",
             "reference_id": re_project_id,
             "is_read": False,
-            "created_at": datetime.now(timezone.utc)
+            "created_at": now,
         }
         await db.notifications.insert_one(notification)
-    
+        return {"message": "RE Project rejected"}
+
     await db.re_projects.update_one({"re_project_id": re_project_id}, {"$set": update})
-    
+
     return {"message": "RE Project " + ("approved" if data.approved else "rejected")}
 
 

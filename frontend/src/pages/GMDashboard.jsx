@@ -19,7 +19,7 @@ import {
   LayoutDashboard, Building2, ClipboardCheck, Calculator, Users, Package,
   HardHat, DollarSign, CheckCircle, XCircle, Clock, AlertTriangle, Eye,
   ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download,
-  Edit2, Plus, Trash2, Save
+  Edit2, Plus, Trash2, Save, AlertCircle
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import { AppHeader } from '../components/AppHeader';
@@ -1175,7 +1175,58 @@ const GMDashboard = () => {
                       </div>
                     </CardContent>
                   </Card>
-                  
+
+                  {/* Sales Rough Requirement — always visible to GM */}
+                  {viewItem.rough_requirement && (
+                    <Card className="bg-amber-50 border-amber-200" data-testid="gm-rough-requirement">
+                      <CardContent className="p-4">
+                        <h4 className="font-semibold mb-2 text-sm text-amber-800 flex items-center gap-1.5">
+                          <FileText className="h-4 w-4" />
+                          Sales Team Input
+                        </h4>
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{viewItem.rough_requirement}</p>
+                        {viewItem.rough_requirement_by && (
+                          <p className="text-xs text-amber-600 mt-2">
+                            Submitted by: <span className="font-medium">{viewItem.rough_requirement_by}</span>
+                            {viewItem.rough_requirement_at && ` on ${new Date(viewItem.rough_requirement_at).toLocaleDateString('en-IN')}`}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* GM Rejection History — internal-only */}
+                  {(viewItem.rejection_history && viewItem.rejection_history.length > 0) && (
+                    <Card className="bg-red-50 border-red-300 border-2" data-testid="gm-rejection-history">
+                      <CardContent className="p-4">
+                        <h4 className="font-semibold mb-2 text-sm text-red-800 flex items-center gap-1.5">
+                          <AlertCircle className="h-4 w-4" />
+                          Past Rejection Reasons
+                          <Badge className="bg-red-100 text-red-700 text-[10px] ml-1">{viewItem.rejection_history.length}</Badge>
+                        </h4>
+                        <div className="space-y-2">
+                          {[...viewItem.rejection_history].reverse().map((rh, idx) => (
+                            <div key={idx} className="bg-white p-2.5 rounded border border-red-200">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-[11px] font-semibold text-red-700">
+                                  Attempt #{viewItem.rejection_history.length - idx}
+                                  {typeof rh.revision === 'number' && ` · RE${rh.revision}`}
+                                </span>
+                                <span className="text-[10px] text-red-500">
+                                  {rh.rejected_at ? new Date(rh.rejected_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{rh.reason || '(no reason provided)'}</p>
+                              {rh.rejected_by_name && (
+                                <p className="text-[10px] text-red-600 mt-1">— {rh.rejected_by_name}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Full Scope of Works */}
                   <Card className="border-purple-200">
                     <CardContent className="p-4">

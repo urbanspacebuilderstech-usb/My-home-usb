@@ -198,6 +198,9 @@ async def public_get_quote(token: str):
     re_project = await db.re_projects.find_one({"re_project_id": link["re_project_id"]}, {"_id": 0})
     if not re_project:
         raise HTTPException(status_code=404, detail="Quote details not found")
+    # CLIENT-FACING: never expose internal rejection notes / GM critique
+    for k in ("gm_rejection_reason", "rejection_history", "internal_notes", "planning_notes"):
+        re_project.pop(k, None)
     sales_person = {
         "name": link.get("sales_user_name"),
         "phone": link.get("sales_user_phone"),

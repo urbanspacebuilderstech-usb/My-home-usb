@@ -502,7 +502,10 @@ export default function REProjectsPage({ embedded = false }) {
                         {project.status === 're_rejected' && project.gm_rejection_reason && (
                           <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg" data-testid="rejection-reason-box">
                             <p className="text-xs font-semibold text-red-700 flex items-center gap-1 mb-1">
-                              <AlertCircle className="h-3 w-3" /> GM Rejection Reason:
+                              <AlertCircle className="h-3 w-3" /> GM Rejection Reason
+                              {(project.rejection_history || []).length > 1 && (
+                                <span className="text-[10px] bg-red-100 px-1.5 py-0.5 rounded">{(project.rejection_history || []).length}× rejected</span>
+                              )}
                             </p>
                             <p className="text-sm text-red-600">{project.gm_rejection_reason}</p>
                           </div>
@@ -648,6 +651,38 @@ export default function REProjectsPage({ embedded = false }) {
                 </CardContent>
               </Card>
               
+              {/* GM Rejection History — internal-only, never shown to client */}
+              {(selectedProject.rejection_history && selectedProject.rejection_history.length > 0) && (
+                <Card className="bg-red-50 border-red-300 border-2" data-testid="rejection-history-card">
+                  <CardContent className="p-4">
+                    <h4 className="font-semibold mb-2 text-sm text-red-800 flex items-center gap-1.5">
+                      <AlertCircle className="h-4 w-4" />
+                      GM Rejection History
+                      <Badge className="bg-red-100 text-red-700 text-[10px] ml-1">{selectedProject.rejection_history.length}</Badge>
+                    </h4>
+                    <div className="space-y-2">
+                      {[...selectedProject.rejection_history].reverse().map((rh, idx) => (
+                        <div key={idx} className="bg-white p-2.5 rounded border border-red-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-semibold text-red-700">
+                              Attempt #{selectedProject.rejection_history.length - idx}
+                              {typeof rh.revision === 'number' && ` · RE${rh.revision}`}
+                            </span>
+                            <span className="text-[10px] text-red-500">
+                              {rh.rejected_at ? new Date(rh.rejected_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{rh.reason || '(no reason provided)'}</p>
+                          {rh.rejected_by_name && (
+                            <p className="text-[10px] text-red-600 mt-1">— {rh.rejected_by_name}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Rough Requirement from Sales */}
               {selectedProject.rough_requirement && (
                 <Card className="bg-amber-50 border-amber-200">
