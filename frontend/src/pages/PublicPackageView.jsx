@@ -101,8 +101,8 @@ export default function PublicPackageView() {
         {/* Scrollable content — pads for the two sticky bars at bottom */}
         <main className="flex-1 pb-[180px]">
           {activeTab === 'packages' && <PackagesNav packages={data?.packages || []} />}
-          {activeTab === 'testimonials' && <div className="px-3 py-2"><TestimonialsNav testimonials={data?.testimonials || []} homeTours={data?.home_tours || []} /></div>}
-          {activeTab === 'projects' && <div className="px-3 py-2"><ProjectsNav completed={data?.completed || []} ongoing={data?.ongoing || []} upcoming={data?.upcoming || []} /></div>}
+          {activeTab === 'testimonials' && <div className="px-4 py-4"><TestimonialsNav testimonials={data?.testimonials || []} homeTours={data?.home_tours || []} /></div>}
+          {activeTab === 'projects' && <div className="px-4 py-4"><ProjectsNav completed={data?.completed || []} ongoing={data?.ongoing || []} upcoming={data?.upcoming || []} /></div>}
         </main>
 
         {/* ============ STICKY BAR 1 — CTA buttons ============ */}
@@ -284,8 +284,8 @@ function TestimonialsNav({ testimonials, homeTours }) {
           <Home className="h-3 w-3 mr-1" /> Home Tour <span className="ml-1 opacity-70">({homeTours.length})</span>
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="testimonial" className="mt-2"><TestimonialsList items={testimonials} emptyLabel="Testimonials coming soon." /></TabsContent>
-      <TabsContent value="home-tour" className="mt-2"><TestimonialsList items={homeTours} emptyLabel="Home tours coming soon." /></TabsContent>
+      <TabsContent value="testimonial" className="mt-3"><TestimonialsList items={testimonials} emptyLabel="Testimonials coming soon." /></TabsContent>
+      <TabsContent value="home-tour" className="mt-3"><TestimonialsList items={homeTours} emptyLabel="Home tours coming soon." /></TabsContent>
     </Tabs>
   );
 }
@@ -295,7 +295,7 @@ function TestimonialsList({ items, emptyLabel = 'Testimonials coming soon.' }) {
     return <Card><CardContent className="p-6 text-center text-sm text-gray-500"><Quote className="h-10 w-10 text-amber-300 mx-auto mb-2" />{emptyLabel}</CardContent></Card>;
   }
   return (
-    <div className="space-y-3">
+    <div className="space-y-5 pt-2 pb-4">
       {items.map((t, i) => <TestimonialCard key={t.id || i} item={t} />)}
     </div>
   );
@@ -312,7 +312,7 @@ function TestimonialCard({ item }) {
   ].filter(Boolean);
 
   return (
-    <Card className="bg-white overflow-hidden">
+    <Card className="bg-white overflow-hidden rounded-2xl shadow-md border-gray-100">
       {videoId && (
         <div className="relative bg-black" style={{ paddingTop: '56.25%' }}>
           {playing ? (
@@ -375,9 +375,9 @@ function ProjectsNav({ completed, ongoing, upcoming }) {
           <Sparkles className="h-3 w-3 mr-1" /> Upcoming <span className="ml-1 opacity-70">({upcoming.length})</span>
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="completed" className="mt-2"><ProjectGrid items={completed} emptyLabel="No completed projects yet." /></TabsContent>
-      <TabsContent value="ongoing" className="mt-2"><ProjectGrid items={ongoing} emptyLabel="No ongoing projects yet." /></TabsContent>
-      <TabsContent value="upcoming" className="mt-2"><ProjectGrid items={upcoming} emptyLabel="No upcoming projects yet." /></TabsContent>
+      <TabsContent value="completed" className="mt-3"><ProjectGrid items={completed} emptyLabel="No completed projects yet." /></TabsContent>
+      <TabsContent value="ongoing" className="mt-3"><ProjectGrid items={ongoing} emptyLabel="No ongoing projects yet." /></TabsContent>
+      <TabsContent value="upcoming" className="mt-3"><ProjectGrid items={upcoming} emptyLabel="No upcoming projects yet." /></TabsContent>
     </Tabs>
   );
 }
@@ -387,7 +387,7 @@ function ProjectGrid({ items, emptyLabel }) {
     return <Card><CardContent className="p-6 text-center text-sm text-gray-500">{emptyLabel}</CardContent></Card>;
   }
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-5 pt-2 pb-4">
       {items.map((p, i) => <ProjectCard key={p.id || i} item={p} />)}
     </div>
   );
@@ -405,7 +405,7 @@ function ProjectCard({ item }) {
   ].filter(Boolean);
 
   return (
-    <Card className="overflow-hidden bg-white">
+    <Card className="overflow-hidden bg-white rounded-2xl shadow-md border-gray-100">
       {videoId && playing ? (
         <div className="relative bg-black" style={{ paddingTop: '56.25%' }}>
           <iframe
