@@ -193,26 +193,40 @@ function getRoleRedirect(role) {
   return roleRoutes[role] || '/dashboard';
 }
 
-// Simple auth cache to avoid repeated /auth/me calls
-let cachedUser = null;
+// Simple auth cache to avoid repeated /auth/me calls.
+// Also persisted in sessionStorage so a force-refresh hydrates instantly
+// (no "Authenticating…" flash), while `/auth/me` re-validates in background.
+const AUTH_CACHE_KEY = 'mhu_user_cache';
+let cachedUser = (() => {
+  try {
+    const raw = sessionStorage.getItem(AUTH_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+})();
 let authPromise = null;
 
-async function getAuthUser() {
-  if (cachedUser) return cachedUser;
+async function getAuthUser(forceRefresh = false) {
+  if (!forceRefresh && cachedUser) return cachedUser;
   if (authPromise) return authPromise;
-  
+
   authPromise = axios.get(`${API}/auth/me`)
     .then(res => {
       cachedUser = res.data;
+      try { sessionStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(cachedUser)); } catch {}
       authPromise = null;
       return cachedUser;
     })
     .catch(err => {
       authPromise = null;
-      cachedUser = null;
+      // Only wipe cache on hard auth failure
+      const s = err?.response?.status;
+      if (s === 401 || s === 403) {
+        cachedUser = null;
+        try { sessionStorage.removeItem(AUTH_CACHE_KEY); } catch {}
+      }
       throw err;
     });
-  
+
   return authPromise;
 }
 
@@ -220,22 +234,22 @@ async function getAuthUser() {
 function clearAuthCache() {
   cachedUser = null;
   authPromise = null;
+  try { sessionStorage.removeItem(AUTH_CACHE_KEY); } catch {}
 }
 
 // Expose to other components
 window.__clearAuthCache = clearAuthCache;
 
 function ProtectedRoute({ children }) {
+  // Hydrate instantly from sessionStorage. If we already have a user we
+  // skip the blocking "Authenticating…" screen and revalidate silently.
   const [isAuthenticated, setIsAuthenticated] = useState(cachedUser ? true : null);
   const [user, setUser] = useState(cachedUser || null);
 
   useEffect(() => {
-    if (cachedUser) {
-      setUser(cachedUser);
-      setIsAuthenticated(true);
-      return;
-    }
-
+    const hasCache = !!cachedUser;
+    // If we have a cached user, re-validate silently in the background.
+    // If we don't, block on /auth/me and show the spinner.
     getAuthUser()
       .then(userData => {
         setUser(userData);
@@ -243,14 +257,15 @@ function ProtectedRoute({ children }) {
       })
       .catch((err) => {
         const status = err?.response?.status;
-        // Only force-logout on actual auth failures (401 / 403). On rate-limit
-        // (429), server errors (5xx) or network glitches, retry once after a
-        // short delay so a transient blip doesn't kick the user off.
         if (status === 401 || status === 403) {
           setIsAuthenticated(false);
           window.location.href = '/login';
           return;
         }
+        // Network/rate-limit/5xx blip. If we already had a cached user,
+        // trust it and keep the UI interactive — do NOT flash the spinner.
+        if (hasCache) return;
+
         const wait = status === 429 ? 2000 : 1500;
         setTimeout(() => {
           getAuthUser()
@@ -261,8 +276,6 @@ function ProtectedRoute({ children }) {
                 setIsAuthenticated(false);
                 window.location.href = '/login';
               } else {
-                // Still transient — leave auth state intact and let the user
-                // see whatever cached page they have rather than logging out.
                 setIsAuthenticated(true);
               }
             });

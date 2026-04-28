@@ -103,6 +103,9 @@ export default function Login() {
       // Invalidate any stale auth cache from a prior session in this browser
       // so the next ProtectedRoute load uses *this* user, not the old one.
       if (window.__clearAuthCache) window.__clearAuthCache();
+      // Seed the cache with the freshly authenticated user so the next
+      // route hydrates instantly without an extra /auth/me round-trip.
+      try { sessionStorage.setItem('mhu_user_cache', JSON.stringify(data)); } catch {}
       const target = getRoleRedirect(data.role);
       navigate(target, { replace: true });
     } catch (error) {
