@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
 import { Plus, Edit, Trash2, Smartphone, PlayCircle, Building2, Loader2, Sparkles, Construction, Package as PackageIcon, Home, FolderKanban } from 'lucide-react';
 import HomePackagesAdmin from '../components/HomePackagesAdmin';
+import ImageUpload from '../components/ImageUpload';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -290,11 +291,13 @@ export default function UserApp() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-xs">Cover Image URL <span className="text-amber-600 text-[10px]">· recommended 1080×1080</span></Label>
-                  <Input value={form.cover_image_url} onChange={e => setForm({ ...form, cover_image_url: e.target.value })} placeholder="https://…" data-testid="ua-form-image" />
-                  {form.cover_image_url && (
-                    <img src={form.cover_image_url} alt="preview" className="mt-1.5 h-28 w-28 object-cover rounded border" />
-                  )}
+                  <ImageUpload
+                    value={form.cover_image_url}
+                    onChange={(url) => setForm({ ...form, cover_image_url: url })}
+                    label="Cover Image"
+                    testId="ua-form-image"
+                    maxHint="Recommended 1080×1080"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">YouTube URL (optional)</Label>
