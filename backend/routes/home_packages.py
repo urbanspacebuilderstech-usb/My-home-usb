@@ -380,6 +380,10 @@ class OfficeVisitReq(BaseModel):
     appointment_date: str  # YYYY-MM-DD
     appointment_time: str  # HH:MM (24-h)
     requirement: Optional[str] = None
+    # Allow the prospect to correct details captured on the lead
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
 
 
 @router.post("/public/package/{token}/book-office-visit")
@@ -423,6 +427,18 @@ async def public_book_office_visit(token: str, data: OfficeVisitReq):
     if "client_office_visit" not in existing_tags:
         existing_tags = list(existing_tags) + ["client_office_visit"]
 
+    # Apply prospect-edited contact details (only when non-empty + actually changed)
+    contact_updates: Dict[str, Any] = {}
+    name_in = (data.name or "").strip()
+    if name_in and name_in != (src_lead.get("name") or ""):
+        contact_updates["name"] = name_in
+    phone_in = (data.phone or "").strip()
+    if phone_in and phone_in != (src_lead.get("phone") or ""):
+        contact_updates["phone"] = phone_in
+    email_in = (data.email or "").strip()
+    if email_in and email_in != (src_lead.get("email") or ""):
+        contact_updates["email"] = email_in
+
     stage_history_entry = {
         "stage_id": "stg_appointment",
         "from_stage_id": src_lead.get("current_stage_id"),
@@ -449,6 +465,7 @@ async def public_book_office_visit(token: str, data: OfficeVisitReq):
                     "booked_by_client": True,
                 },
                 "updated_at": now,
+                **contact_updates,
             },
             "$push": {"stage_history": stage_history_entry},
         },

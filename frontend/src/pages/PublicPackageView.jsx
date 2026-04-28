@@ -478,6 +478,7 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
 
   const handleSubmit = async () => {
     if (!date || !time) { toast.error('Pick a date and time'); return; }
+    if (!name.trim()) { toast.error('Please enter your name'); return; }
     const d = new Date(date);
     if (d.getDay() === 0) { toast.error('Office is closed on Sundays — please pick Mon-Sat.'); return; }
     setSubmitting(true);
@@ -486,6 +487,9 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
         appointment_date: date,
         appointment_time: time,
         requirement: requirement.trim(),
+        name: name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
       });
       onBooked && onBooked();
     } catch (e) {
@@ -502,17 +506,17 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label className="text-xs">Your Name</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} readOnly={!!data?.client_name} className={data?.client_name ? 'bg-gray-50' : ''} data-testid="office-name-input" />
+            <Label className="text-xs">Your Name <span className="text-red-500">*</span></Label>
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" data-testid="office-name-input" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <Label className="text-xs">Phone</Label>
-              <Input value={phone} onChange={e => setPhone(e.target.value)} readOnly={!!data?.client_phone} className={data?.client_phone ? 'bg-gray-50' : ''} data-testid="office-phone-input" />
+              <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="10-digit number" data-testid="office-phone-input" />
             </div>
             <div>
               <Label className="text-xs">Email</Label>
-              <Input value={email} onChange={e => setEmail(e.target.value)} readOnly={!!data?.client_email} className={data?.client_email ? 'bg-gray-50' : ''} data-testid="office-email-input" />
+              <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" data-testid="office-email-input" />
             </div>
           </div>
           <div>
