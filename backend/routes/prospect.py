@@ -372,3 +372,41 @@ async def delete_ongoing(oid: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Permission denied")
     await db.user_app_ongoing_projects.update_one({"id": oid}, {"$set": {"is_active": False}})
     return {"message": "Deactivated"}
+
+
+
+# Upcoming projects
+@router.get("/user-app/upcoming")
+async def list_upcoming(user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return await db.user_app_upcoming_projects.find({}, {"_id": 0}).sort("sort_order", 1).to_list(500)
+
+
+@router.post("/user-app/upcoming")
+async def create_upcoming(data: ShowcaseProjectIn, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {"id": f"uu_{uuid.uuid4().hex[:10]}", **data.model_dump(), "is_active": True, "created_at": now, "created_by": user.user_id}
+    await db.user_app_upcoming_projects.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.patch("/user-app/upcoming/{uid}")
+async def update_upcoming(uid: str, data: ShowcaseProjectIn, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.user_app_upcoming_projects.update_one({"id": uid}, {"$set": {**data.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"message": "Updated"}
+
+
+@router.delete("/user-app/upcoming/{uid}")
+async def delete_upcoming(uid: str, user: User = Depends(get_current_user)):
+    if not _can_manage_user_app(user):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    await db.user_app_upcoming_projects.update_one({"id": uid}, {"$set": {"is_active": False}})
+    return {"message": "Deactivated"}

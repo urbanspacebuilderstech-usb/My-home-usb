@@ -21,11 +21,12 @@ const TYPES = {
   testimonials: { label: 'Testimonials', endpoint: 'testimonials', Icon: PlayCircle, color: 'text-red-600', accent: 'red', requiresYoutube: true },
   completed: { label: 'Completed Projects', endpoint: 'completed', Icon: Building2, color: 'text-emerald-600', accent: 'emerald', requiresYoutube: false },
   ongoing: { label: 'Ongoing Projects', endpoint: 'ongoing', Icon: Construction, color: 'text-amber-600', accent: 'amber', requiresYoutube: false },
+  upcoming: { label: 'Upcoming Projects', endpoint: 'upcoming', Icon: Sparkles, color: 'text-purple-600', accent: 'purple', requiresYoutube: false },
 };
 
 export default function UserApp() {
   const [tab, setTab] = useState('testimonials');
-  const [items, setItems] = useState({ testimonials: [], completed: [], ongoing: [] });
+  const [items, setItems] = useState({ testimonials: [], completed: [], ongoing: [], upcoming: [] });
   const [loading, setLoading] = useState(false);
   const [dialog, setDialog] = useState({ open: false, type: null, editing: null });
   const [form, setForm] = useState(empty);
@@ -90,7 +91,7 @@ export default function UserApp() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid grid-cols-4">
+          <TabsList className="grid grid-cols-5">
             {Object.entries(TYPES).map(([k, t]) => (
               <TabsTrigger key={k} value={k} data-testid={`ua-tab-${k}`}>
                 <t.Icon className={`h-3.5 w-3.5 mr-1 ${t.color}`} /> {t.label}

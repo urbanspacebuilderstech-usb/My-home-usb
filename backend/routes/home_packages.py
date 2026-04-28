@@ -245,9 +245,13 @@ async def public_get_package(token: str):
         {"is_active": {"$ne": False}}, {"_id": 0, "created_by": 0, "updated_by": 0}
     ).sort("sort_order", 1).to_list(50)
 
-    showcase: List[Dict[str, Any]] = []
-    if "prospect_showcase" in await db.list_collection_names():
-        showcase = await db.prospect_showcase.find({"is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    testimonials = await db.user_app_testimonials.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    completed = await db.user_app_completed_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    ongoing = await db.user_app_ongoing_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+    upcoming = await db.user_app_upcoming_projects.find({"is_active": True}, {"_id": 0}).sort("sort_order", 1).to_list(200)
+
+    # Prefill payload for the Visit-our-Office popup
+    src_lead = await db.leads.find_one({"lead_id": link["lead_id"]}, {"_id": 0}) or {}
 
     await db.package_links.update_one(
         {"link_id": link_id},
@@ -257,10 +261,14 @@ async def public_get_package(token: str):
     return {
         "expired": False,
         "client_name": link.get("client_name"),
+        "client_phone": link.get("client_phone"),
+        "client_email": link.get("client_email"),
+        "client_requirement": src_lead.get("requirement") or src_lead.get("notes") or "",
         "packages": packages,
-        "testimonials": [s for s in showcase if s.get("category") == "testimonials"],
-        "completed": [s for s in showcase if s.get("category") == "completed"],
-        "ongoing": [s for s in showcase if s.get("category") == "ongoing"],
+        "testimonials": testimonials,
+        "completed": completed,
+        "ongoing": ongoing,
+        "upcoming": upcoming,
         "sales_person": {
             "name": link.get("sales_user_name"),
             "phone": link.get("sales_user_phone"),
@@ -336,6 +344,104 @@ async def public_book_pkg_appointment(token: str, data: BookPkgAppointmentReq):
     })
 
     return {"message": "Appointment booked. Our team will reach out shortly.", "lead_id": new_lead_id}
+
+
+class OfficeVisitReq(BaseModel):
+    appointment_date: str  # YYYY-MM-DD
+    appointment_time: str  # HH:MM (24-h)
+    requirement: Optional[str] = None
+
+
+@router.post("/public/package/{token}/book-office-visit")
+async def public_book_office_visit(token: str, data: OfficeVisitReq):
+    """Books an OFFICE VISIT against the SAME source lead (no new lead created).
+
+    Validates Mon-Sat + 10:00-18:00 office hours. Moves the lead to
+    `stg_appointment` (Appointment Booked) and adds a highlight tag
+    `client_office_visit` so it stands out in the Pre-Sales board.
+    """
+    link_id = _verify_token(token)
+    if not link_id:
+        raise HTTPException(status_code=404, detail="Invalid link")
+    link = await db.package_links.find_one({"link_id": link_id, "token": token}, {"_id": 0})
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    # Validate office hours
+    try:
+        d = datetime.strptime(data.appointment_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    if d.weekday() == 6:  # Sunday
+        raise HTTPException(status_code=400, detail="Office is closed on Sundays. Please pick Mon–Sat.")
+    if d < datetime.now(timezone.utc).date():
+        raise HTTPException(status_code=400, detail="Date must be today or later")
+    try:
+        h, m = (int(p) for p in data.appointment_time.split(":")[:2])
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid time format")
+    minutes = h * 60 + m
+    if minutes < 10 * 60 or minutes > 18 * 60:
+        raise HTTPException(status_code=400, detail="Office hours: 10:00 AM – 6:00 PM")
+
+    now = datetime.now(timezone.utc)
+    src_lead = await db.leads.find_one({"lead_id": link["lead_id"]}, {"_id": 0})
+    if not src_lead:
+        raise HTTPException(status_code=404, detail="Source lead missing")
+
+    existing_tags = src_lead.get("tags") or []
+    if "client_office_visit" not in existing_tags:
+        existing_tags = list(existing_tags) + ["client_office_visit"]
+
+    stage_history_entry = {
+        "stage_id": "stg_appointment",
+        "from_stage_id": src_lead.get("current_stage_id"),
+        "moved_at": now.isoformat(),
+        "moved_by": "public",
+        "moved_by_name": "Client (Package Link)",
+        "action": "client_booked_office_visit",
+    }
+
+    await db.leads.update_one(
+        {"lead_id": link["lead_id"]},
+        {
+            "$set": {
+                "current_stage_id": "stg_appointment",
+                "tags": existing_tags,
+                "client_office_visit_booked_at": now,
+                "appointment": {
+                    "appointment_date": data.appointment_date,
+                    "appointment_time": data.appointment_time,
+                    "appointment_type": "office_visit",
+                    "notes": data.requirement or src_lead.get("requirement") or "",
+                    "scheduled_via": "public_package_link",
+                    "scheduled_at": now.isoformat(),
+                    "booked_by_client": True,
+                },
+                "updated_at": now,
+            },
+            "$push": {"stage_history": stage_history_entry},
+        },
+    )
+
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": link.get("sales_user_id") or "all_pre_sales",
+        "title": "🎯 Client booked an Office Visit",
+        "message": f"{src_lead.get('name','Client')} booked a visit on {data.appointment_date} at {data.appointment_time}. Lead is now in Appointment Booked stage.",
+        "type": "client_office_visit",
+        "reference_id": link["lead_id"],
+        "is_read": False,
+        "created_at": now,
+    })
+
+    return {
+        "message": "Office visit booked. Our team will reach out shortly.",
+        "lead_id": link["lead_id"],
+        "stage": "stg_appointment",
+        "appointment_date": data.appointment_date,
+        "appointment_time": data.appointment_time,
+    }
 
 
 # =========================================================================

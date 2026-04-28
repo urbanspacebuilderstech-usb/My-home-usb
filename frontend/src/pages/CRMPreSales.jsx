@@ -907,8 +907,9 @@ export default function CRMPreSales() {
                   {(activeStage === 'all' ? filteredLeads : getLeadsByStage(activeStage)).map(lead => (
                     <tr 
                       key={lead.lead_id} 
-                      className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      className={`hover:bg-gray-50 cursor-pointer transition-colors ${(lead.tags || []).includes('client_office_visit') ? 'bg-emerald-50/80 ring-1 ring-emerald-200' : ''}`}
                       onClick={() => openLeadDetail(lead)}
+                      data-testid={(lead.tags || []).includes('client_office_visit') ? 'client-office-visit-lead-row' : undefined}
                     >
                       <td className="px-2 py-2">
                         <div className="flex items-center gap-2">
@@ -916,7 +917,12 @@ export default function CRMPreSales() {
                             {lead.name?.charAt(0)?.toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium text-gray-900 text-xs truncate">{lead.name}</p>
+                            <p className="font-medium text-gray-900 text-xs truncate flex items-center gap-1">
+                              {lead.name}
+                              {(lead.tags || []).includes('client_office_visit') && (
+                                <Badge className="bg-emerald-500 text-white border-0 text-[9px] px-1 py-0 h-4" title="Client booked an office visit">★ Client Visit</Badge>
+                              )}
+                            </p>
                             {lead.city && <p className="text-[10px] text-gray-500 truncate">{lead.city}</p>}
                           </div>
                         </div>
