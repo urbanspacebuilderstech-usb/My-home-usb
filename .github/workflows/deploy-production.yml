@@ -1,0 +1,47 @@
+name: Deploy to Hostinger VPS (Production)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: SSH → git pull → yarn build → pm2 restart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.VPS_APP_PATH }}
+            echo "==> Pulling latest main"
+            git fetch --all
+            git reset --hard origin/main
+
+            echo "==> Installing + building frontend"
+            cd frontend
+            yarn install --frozen-lockfile
+            yarn build
+
+            echo "==> Installing backend deps (if requirements changed)"
+            cd ../backend
+            if [ -f requirements.txt ]; then
+              if [ -d venv ]; then
+                source venv/bin/activate
+              fi
+              pip install -r requirements.txt || true
+            fi
+
+            echo "==> Restarting PM2 processes"
+            pm2 restart all --update-env
+            pm2 save
+
+            echo "==> Deploy complete"
+            pm2 status
