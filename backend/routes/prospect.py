@@ -260,7 +260,7 @@ class ShowcaseProjectIn(BaseModel):
 
 
 def _can_manage_user_app(user: User) -> bool:
-    return user.role in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.MARKETING_HEAD]
+    return user.role in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]
 
 
 # Testimonials

@@ -82,6 +82,18 @@ export default function UserApp() {
   };
 
   const list = items[tab] || [];
+  const [genericLink, setGenericLink] = useState(null);
+
+  useEffect(() => {
+    axios.get(`${API}/home-packages/generic-link`).then(r => setGenericLink(r.data)).catch(() => {});
+  }, []);
+
+  const copyGeneric = async () => {
+    if (!genericLink?.token) return;
+    const url = `${window.location.origin}/package/${genericLink.token}`;
+    try { await navigator.clipboard.writeText(url); toast.success('Portfolio link copied'); }
+    catch { toast.error('Copy failed'); }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -91,8 +103,34 @@ export default function UserApp() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <Smartphone className="h-6 w-6 text-emerald-600" /> User App Content
           </h1>
-          <p className="text-xs text-gray-500 mt-0.5">Manage testimonials and project showcases shown to mobile prospect users.</p>
+          <p className="text-xs text-gray-500 mt-0.5">Manage testimonials, home tours, packages and project showcases shown on your public URLs.</p>
         </div>
+
+        {/* Generic Portfolio & Packages link — non-customer */}
+        {genericLink?.token && (
+          <Card className="bg-gradient-to-br from-amber-50 to-emerald-50 border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 rounded-full bg-amber-500 text-white flex items-center justify-center text-lg">📦</div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-800">Portfolio & Packages (Generic)</p>
+                    <p className="text-[11px] text-gray-500">Use on WhatsApp status / social — no customer name attached.</p>
+                    <p className="text-[11px] text-amber-700 font-mono truncate mt-0.5" data-testid="generic-link-url">
+                      {window.location.origin}/package/{genericLink.token}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={copyGeneric} data-testid="generic-link-copy-btn">Copy</Button>
+                  <a href={`/package/${genericLink.token}`} target="_blank" rel="noopener noreferrer">
+                    <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1">Preview</Button>
+                  </a>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="grid grid-cols-4">

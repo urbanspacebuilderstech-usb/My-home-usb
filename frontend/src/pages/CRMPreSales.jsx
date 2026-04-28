@@ -17,7 +17,7 @@ import {
   Users, LogOut, Plus, Search, Upload, Phone, PhoneOff, Mail, MapPin, Calendar, Building2, 
   ArrowRight, RefreshCw, GripVertical, Eye, Clock, User, MessageSquare,
   FileText, History, Send, X, Settings, ChevronDown, Trash2, Edit2,
-  LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown
+  LayoutGrid, List, MoreVertical, Bell, CheckCircle, ArrowUpDown, Loader2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -59,7 +59,8 @@ export default function CRMPreSales() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
   const [viewMode, setViewMode] = useState('list'); // 'kanban' or 'list'
-  const [sortOrder, setSortOrder] = useState('desc'); // newest first by default
+  const [sortOrder, setSortOrder] = useState('desc');
+  const [packageLinkDialog, setPackageLinkDialog] = useState({ open: false, leadId: null, link: null }); // newest first by default
   const [syncingSheets, setSyncingSheets] = useState(false);
   
   // Dialogs
@@ -339,12 +340,11 @@ export default function CRMPreSales() {
       }
 
       // Intercept: Moving to Package Details Send — auto-generate the public link
+      // and open the share popup so the sales user can review greeting + share.
       if (newStageId === 'stg_package_send') {
         try {
           const r = await axios.post(`${API}/leads/${leadId}/generate-package-link`, {});
-          const url = `${window.location.origin}/package/${r.data.token}`;
-          try { await navigator.clipboard.writeText(url); toast.success('Package link generated & copied to clipboard'); }
-          catch { toast.success('Package link generated'); }
+          setPackageLinkDialog({ open: true, leadId, link: r.data });
           fetchData && fetchData(false);
         } catch (e) {
           toast.error(e?.response?.data?.detail || 'Could not generate package link');
@@ -431,11 +431,17 @@ export default function CRMPreSales() {
   };
 
   // ============ LEAD DETAILS & REMARKS ============
-  const openLeadDetail = (lead) => {
+  const openLeadDetail = async (lead) => {
     setSelectedLead(lead);
     setLeadSummary(lead.summary || '');
     setDetailTab('overview');
     setLeadDetailDialog(true);
+    // Auto-fetch active package link so the "Share Link" button is always
+    // available in the lead detail, regardless of stage.
+    try {
+      const r = await axios.get(`${API}/leads/${lead.lead_id}/package-link`);
+      setSelectedLead(prev => ({ ...(prev || lead), _package_link: r.data?.link || null }));
+    } catch {}
   };
 
   const openEditLead = (lead) => {
@@ -1568,6 +1574,26 @@ export default function CRMPreSales() {
           
           {selectedLead && (
             <Tabs value={detailTab} onValueChange={setDetailTab} className="mt-4">
+              {/* Package Link CTA — always visible when the lead has an active link */}
+              {selectedLead._package_link && (
+                <div className="flex items-center justify-between gap-2 mb-2 p-2.5 bg-gradient-to-r from-amber-50 to-emerald-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="h-9 w-9 rounded-full bg-amber-500 flex items-center justify-center text-white shrink-0">📦</div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-amber-800">Package Link Active</p>
+                      <p className="text-[10px] text-gray-600 font-mono truncate">/package/{selectedLead._package_link.token?.slice(0, 14)}…</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white gap-1 shrink-0"
+                    onClick={() => setPackageLinkDialog({ open: true, leadId: selectedLead.lead_id, link: selectedLead._package_link })}
+                    data-testid="lead-detail-share-pkg-btn"
+                  >
+                    <Send className="h-3.5 w-3.5" /> Share
+                  </Button>
+                </div>
+              )}
               <TabsList className="grid grid-cols-5 w-full">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
@@ -2743,7 +2769,109 @@ export default function CRMPreSales() {
         </DialogContent>
       </Dialog>
 
+      <PackageLinkShareDialog
+        state={packageLinkDialog}
+        onClose={() => setPackageLinkDialog({ open: false, leadId: null, link: null })}
+      />
+
       <MobileBottomNav user={user} />
     </div>
   );
 }
+
+// ================== Package Link Share Dialog ==================
+function PackageLinkShareDialog({ state, onClose }) {
+  const [greeting, setGreeting] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (state.open) setGreeting(state.link?.greeting || '');
+  }, [state.open, state.link]);
+
+  if (!state.open || !state.link) return null;
+  const url = `${window.location.origin}/package/${state.link.token}`;
+  const fullMessage = `${greeting}\n\n${url}`;
+  const clientName = state.link.client_name || '';
+  const clientPhone = state.link.client_phone || '';
+
+  const saveGreeting = async () => {
+    setSaving(true);
+    try {
+      await axios.patch(`${API}/leads/${state.leadId}/package-link/greeting`, { greeting });
+      toast.success('Greeting saved');
+    } catch { toast.error('Failed to save greeting'); }
+    finally { setSaving(false); }
+  };
+
+  const copyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(fullMessage);
+      toast.success('Copied! Paste in WhatsApp or SMS.');
+    } catch { toast.error('Copy failed'); }
+  };
+
+  const openWhatsApp = async () => {
+    await saveGreeting();
+    const phone = (clientPhone || '').replace(/[^0-9]/g, '');
+    const waPhone = phone.length === 10 ? `91${phone}` : phone;
+    const wa = `https://wa.me/${waPhone}?text=${encodeURIComponent(fullMessage)}`;
+    window.open(wa, '_blank');
+  };
+
+  return (
+    <Dialog open={state.open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md" data-testid="pkg-share-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">🎁 Share Package Link</DialogTitle>
+          <p className="text-xs text-gray-500">Customize the greeting, then copy the full message or open WhatsApp.</p>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 bg-emerald-50 rounded-lg p-3">
+            <div className="h-10 w-10 rounded-full bg-emerald-600 text-white flex items-center justify-center text-base font-bold">
+              {(clientName?.[0] || '?').toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{clientName || '(no name)'}</p>
+              <p className="text-xs text-gray-600">{clientPhone || '—'}</p>
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs">Greeting message (customizable)</Label>
+            <Textarea
+              value={greeting}
+              onChange={(e) => setGreeting(e.target.value)}
+              rows={3}
+              placeholder={`Hi ${clientName?.split(' ')[0] || 'there'}, here's your package details 👇`}
+              data-testid="pkg-greeting-input"
+            />
+            <p className="text-[10px] text-gray-400 mt-0.5">Tip: <code className="bg-gray-100 px-1 rounded text-[9px]">{'{lead name}'}</code> is already auto-filled.</p>
+          </div>
+
+          <div>
+            <Label className="text-xs">Public Package URL</Label>
+            <div className="flex gap-1 mt-1">
+              <Input value={url} readOnly className="font-mono text-[11px] bg-gray-50" data-testid="pkg-url-input" />
+              <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(url); toast.success('URL copied'); }}>Copy</Button>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 rounded-lg p-3">
+            <p className="text-[10px] uppercase text-amber-700 font-semibold mb-1">Preview (the message you'll send)</p>
+            <pre className="text-xs text-gray-800 whitespace-pre-wrap font-sans">{fullMessage}</pre>
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" onClick={() => { saveGreeting(); copyMessage(); }} className="gap-1" data-testid="pkg-copy-btn">
+            📋 Copy Message
+          </Button>
+          <Button onClick={openWhatsApp} className="bg-green-600 hover:bg-green-700 text-white gap-1" disabled={saving || !clientPhone} data-testid="pkg-whatsapp-btn">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : '💬'} WhatsApp
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

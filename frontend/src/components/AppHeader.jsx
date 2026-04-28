@@ -68,6 +68,7 @@ const ROLE_NAV = {
     { label: 'User App', path: '/user-app' },
   ],
   sales: [
+    { label: 'Sales CRM', path: '/crm-sales' },
     { label: 'User App', path: '/user-app' },
   ],
   site_engineer: [
@@ -155,8 +156,10 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
     navigate('/login', { replace: true });
   };
 
-  const role = user?.role || 'super_admin';
-  const navItems = ROLE_NAV[role] || ROLE_NAV.super_admin;
+  // While the user object is loading, render an empty header to avoid
+  // briefly flashing the Super Admin nav (previous default fallback).
+  const role = user?.role;
+  const navItems = role ? (ROLE_NAV[role] || []) : [];
   const currentPath = location.pathname;
   const currentSearch = location.search || '';
   const moduleKey = getModuleKey(currentPath, role);
@@ -194,7 +197,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             <div className="leading-tight">
               <span className="font-bold text-base text-gray-900 block">My Home USB</span>
               <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-600">
-                {role.replace(/_/g, ' ')}
+                {role ? role.replace(/_/g, ' ') : '…'}
               </span>
             </div>
           </div>

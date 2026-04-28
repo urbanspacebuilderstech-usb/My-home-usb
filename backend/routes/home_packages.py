@@ -154,6 +154,7 @@ async def generate_package_link(lead_id: str, user: User = Depends(get_current_u
         "created_at": now.isoformat(),
         "created_by": user.user_id,
         "created_by_name": user.name,
+        "greeting": f"Hi {(lead.get('name') or lead.get('client_name') or 'there').split()[0]}, here are your Urban Space package details 👇",
         "open_count": 0,
         "last_opened_at": None,
     }
@@ -192,6 +193,64 @@ async def get_active_package_link(lead_id: str, user: User = Depends(get_current
         return {"link": None, "status": "none"}
     # Package links never expire — always report live unless revoked.
     return {"link": link, "status": "live"}
+
+
+class GreetingUpdate(BaseModel):
+    greeting: str
+
+
+@router.patch("/leads/{lead_id}/package-link/greeting")
+async def update_package_link_greeting(lead_id: str, data: GreetingUpdate, user: User = Depends(get_current_user)):
+    """Save a custom greeting (used when the sales person shares the link)."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    res = await db.package_links.update_one(
+        {"lead_id": lead_id, "is_revoked": {"$ne": True}},
+        {"$set": {"greeting": data.greeting, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        sort=[("created_at", -1)],
+    ) if False else None  # Motor doesn't support sort in update_one directly
+    # Fallback: find the latest then update by link_id
+    latest = await db.package_links.find_one({"lead_id": lead_id, "is_revoked": {"$ne": True}}, {"_id": 0, "link_id": 1}, sort=[("created_at", -1)])
+    if not latest:
+        raise HTTPException(status_code=404, detail="No active package link")
+    await db.package_links.update_one({"link_id": latest["link_id"]}, {"$set": {"greeting": data.greeting, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    return {"message": "Greeting updated"}
+
+
+@router.get("/home-packages/generic-link")
+async def get_generic_package_link(user: User = Depends(get_current_user)):
+    """Returns a stable, non-customer-specific package link ('Portfolio + Packages')
+    that admins can share on WhatsApp/social/marketing posts. It has no lead
+    attached and never expires or moves anyone's stage."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    existing = await db.package_links.find_one({"is_generic": True, "is_revoked": {"$ne": True}}, {"_id": 0}, sort=[("created_at", -1)])
+    if existing:
+        return existing
+
+    now = datetime.now(timezone.utc)
+    link_id = "pkl_generic_portfolio"
+    token = _make_token(link_id)
+    doc = {
+        "link_id": link_id,
+        "token": token,
+        "lead_id": None,
+        "is_generic": True,
+        "client_name": "Urban Space Builders",
+        "sales_user_id": user.user_id,
+        "sales_user_name": user.name,
+        "sales_user_phone": None,
+        "is_revoked": False,
+        "expires_at": None,
+        "created_at": now.isoformat(),
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "greeting": "Explore our Home Construction Packages 👇",
+        "open_count": 0,
+    }
+    await db.package_links.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
 
 
 # =========================================================================
