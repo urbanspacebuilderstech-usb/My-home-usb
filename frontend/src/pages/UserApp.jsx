@@ -35,6 +35,7 @@ const TYPES = {
 const PROJECT_KEYS = ['completed', 'ongoing', 'upcoming'];
 
 export default function UserApp() {
+  const [user, setUser] = useState(null);
   const [tab, setTab] = useState('testimonials');
   const [projectTab, setProjectTab] = useState('completed');
   const [items, setItems] = useState({ testimonials: [], home_tours: [], completed: [], ongoing: [], upcoming: [] });
@@ -42,6 +43,10 @@ export default function UserApp() {
   const [dialog, setDialog] = useState({ open: false, type: null, editing: null });
   const [form, setForm] = useState(empty);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
+  }, []);
 
   const load = async (type) => {
     setLoading(true);
@@ -111,7 +116,7 @@ export default function UserApp() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader />
+      <AppHeader user={user} />
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">

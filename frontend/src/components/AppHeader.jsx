@@ -250,8 +250,8 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             </Button>
             <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">
-                <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{user?.name}</p>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">{role.replace(/_/g, ' ')}</p>
+                <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{user?.name || ''}</p>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">{role ? role.replace(/_/g, ' ') : ''}</p>
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">
                 <LogOut className="h-4 w-4" />
