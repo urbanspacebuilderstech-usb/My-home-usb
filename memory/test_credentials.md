@@ -1,12 +1,18 @@
 # Test Credentials
 
-## Super Admin
+## Production Super Admin (www.myhomeusb.com)
+- Email: skmd@urbanspacebuilders.com
+- Name: Sai Karthick
+- Password: MyHome@2026Temp  (TEMP — reset on Apr 27 2026; change via Profile → Change Password after login)
+
+## Dev / Demo Super Admin (preview env only)
 - Email: admin@constructionos.com
-- Password: USB@123.26 (production) / Demo@1234 (demo access)
+- Password: Demo@1234
 
 ## Demo Access
 - Available via "Demo Access" tab on login page
 
-## App URL
-- Frontend: https://crm-onboard-flow.preview.emergentagent.com
-- Backend API: https://crm-onboard-flow.preview.emergentagent.com/api
+## App URLs
+- Production: https://www.myhomeusb.com
+- Preview: https://crm-onboard-flow.preview.emergentagent.com
+- Backend API: append `/api` to either URL
