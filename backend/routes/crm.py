@@ -3855,12 +3855,13 @@ class GoogleSheetsConfig(BaseModel):
 # Standard lead field mappings
 STANDARD_LEAD_FIELDS = {
     "name": ["name", "lead name", "lead_name", "full name", "fullname", "client name", "customer name"],
-    "phone": ["phone", "phone number", "phone_number", "mobile", "mobile number", "contact", "contact number"],
+    "phone": ["phone", "phone number", "phone_number", "mobile", "mobile number", "contact", "contact number", "number"],
     "email": ["email", "email address", "email_address", "e-mail", "mail"],
-    "city": ["city", "location", "address", "area", "locality"],
+    "city": ["city", "location", "address", "area", "locality", "loaction"],
     "sqft": ["sqft", "sq ft", "square feet", "area sqft", "plot size", "area", "size"],
     "source": ["source", "lead source", "lead_source", "campaign", "utm_source"],
     "budget": ["budget", "expected budget", "price range"],
+    "duration": ["duration", "timeline", "time frame", "timeframe", "when", "expected start", "start time", "construction timeline"],
     "notes": ["notes", "remarks", "comments", "description"]
 }
 
@@ -4380,7 +4381,7 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
                     
                     if col_idx < len(row):
                         value = str(row[col_idx]).strip() if row[col_idx] else ""
-                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "duration", "address", "state"]:
                             lead_data[field_name] = value
                         elif field_name == "sqft":
                             try:
@@ -4607,7 +4608,7 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
                 
                 if col_idx < len(row):
                     value = row[col_idx].strip() if row[col_idx] else ""
-                    if field_name in ["name", "phone", "email", "city", "source", "budget", "notes"]:
+                    if field_name in ["name", "phone", "email", "city", "source", "budget", "notes", "duration", "address", "state"]:
                         lead_data[field_name] = value
                     elif field_name == "sqft":
                         # Try to parse as number
@@ -4756,7 +4757,7 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
                     
                     if col_idx < len(row):
                         value = str(row[col_idx]).strip() if col_idx < len(row) and row[col_idx] else ""
-                        if field_name in ["name", "phone", "email", "city", "budget", "notes"]:
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "duration", "address", "state"]:
                             lead_data[field_name] = value
                         elif field_name == "sqft":
                             try:
@@ -5127,7 +5128,7 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
                     
                     if col_idx < len(row):
                         value = str(row[col_idx]).strip() if row[col_idx] else ""
-                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "address", "state"]:
+                        if field_name in ["name", "phone", "email", "city", "budget", "notes", "duration", "address", "state"]:
                             lead_data[field_name] = value
                         elif field_name == "sqft":
                             try:

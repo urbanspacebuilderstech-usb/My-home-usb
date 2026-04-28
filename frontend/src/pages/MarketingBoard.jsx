@@ -57,6 +57,7 @@ const STANDARD_FIELDS = [
   { value: 'city', label: 'Location/City' },
   { value: 'sqft', label: 'Sqft / Area' },
   { value: 'budget', label: 'Budget' },
+  { value: 'duration', label: 'Duration' },
   { value: 'notes', label: 'Notes/Remarks' },
   { value: 'source', label: 'Lead Source' },
 ];
@@ -1642,6 +1643,7 @@ export default function MarketingBoard() {
                                                 <SelectItem value="city">City</SelectItem>
                                                 <SelectItem value="sqft">Sqft</SelectItem>
                                                 <SelectItem value="budget">Budget</SelectItem>
+                                                <SelectItem value="duration">Duration</SelectItem>
                                                 <SelectItem value="notes">Notes</SelectItem>
                                                 <SelectItem value="address">Address</SelectItem>
                                                 <SelectItem value="state">State</SelectItem>
