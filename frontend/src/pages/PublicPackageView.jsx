@@ -68,8 +68,6 @@ export default function PublicPackageView() {
   if (data?.expired) return <ExpiredView token={token} data={data} />;
 
   const sales = data?.sales_person || {};
-  const expiresAt = data?.expires_at ? new Date(data.expires_at) : null;
-  const daysLeft = expiresAt ? Math.max(0, Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24))) : null;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-emerald-50 select-none" data-testid="public-package-view">
@@ -80,11 +78,6 @@ export default function PublicPackageView() {
               <p className="text-[11px] text-gray-500 leading-none">Welcome,</p>
               <p className="text-sm font-bold text-gray-800 leading-tight">{data?.client_name || 'Valued Customer'}</p>
             </div>
-            {daysLeft !== null && (
-              <Badge className={`${daysLeft <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'} border-0`}>
-                <Clock className="h-3 w-3 mr-1" /> {daysLeft}d left
-              </Badge>
-            )}
           </div>
           <p className="text-[11px] text-amber-700 italic mt-2">"Pick the package that fits your dream home"</p>
         </header>

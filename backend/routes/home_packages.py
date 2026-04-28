@@ -190,17 +190,8 @@ async def get_active_package_link(lead_id: str, user: User = Depends(get_current
     link = await db.package_links.find_one({"lead_id": lead_id, "is_revoked": {"$ne": True}}, {"_id": 0}, sort=[("created_at", -1)])
     if not link:
         return {"link": None, "status": "none"}
-    expires_at = link.get("expires_at")
-    is_expired = False
-    if expires_at:
-        try:
-            exp = datetime.fromisoformat(expires_at)
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            is_expired = datetime.now(timezone.utc) >= exp
-        except ValueError:
-            pass
-    return {"link": link, "status": "expired" if is_expired else "live"}
+    # Package links never expire — always report live unless revoked.
+    return {"link": link, "status": "live"}
 
 
 # =========================================================================
@@ -218,29 +209,8 @@ async def public_get_package(token: str):
     if link.get("is_revoked"):
         raise HTTPException(status_code=410, detail="Link has been revoked")
 
-    is_expired = False
-    expires_at_iso = link.get("expires_at")
-    if expires_at_iso:
-        try:
-            exp = datetime.fromisoformat(expires_at_iso)
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            is_expired = datetime.now(timezone.utc) >= exp
-        except ValueError:
-            pass
-
-    if is_expired:
-        return {
-            "expired": True,
-            "client_name": link.get("client_name"),
-            "client_phone": link.get("client_phone"),
-            "client_email": link.get("client_email"),
-            "sales_person": {
-                "name": link.get("sales_user_name"),
-                "phone": link.get("sales_user_phone"),
-            },
-        }
-
+    # Package links do NOT expire — per user request, they stay live indefinitely.
+    # (We still keep the `expires_at` column for historical parity but never enforce it.)
     packages = await db.home_packages.find(
         {"is_active": {"$ne": False}}, {"_id": 0, "created_by": 0, "updated_by": 0}
     ).sort("sort_order", 1).to_list(50)
@@ -273,7 +243,6 @@ async def public_get_package(token: str):
             "name": link.get("sales_user_name"),
             "phone": link.get("sales_user_phone"),
         },
-        "expires_at": expires_at_iso,
     }
 
 

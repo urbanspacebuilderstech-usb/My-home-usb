@@ -1324,3 +1324,4 @@ credentials.json
 *.pem
 *.key
 .credentials
+frontend/node_modules/.cache/default-development/256.pack
