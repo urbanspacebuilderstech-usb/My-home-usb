@@ -483,7 +483,7 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
     if (d.getDay() === 0) { toast.error('Office is closed on Sundays — please pick Mon-Sat.'); return; }
     setSubmitting(true);
     try {
-      await publicAxios.post(`${API}/public/package/${token}/book-office-visit`, {
+      const res = await publicAxios.post(`${API}/public/package/${token}/book-office-visit`, {
         appointment_date: date,
         appointment_time: time,
         requirement: requirement.trim(),
@@ -491,6 +491,14 @@ function VisitOfficeDialog({ open, onOpenChange, token, data, onBooked }) {
         phone: phone.trim(),
         email: email.trim(),
       });
+      // Backend signals already-booked with `already_booked: true`
+      if (res?.data?.already_booked) {
+        toast.info(res.data.message || 'You already have a visit booked.');
+      } else if (res?.data?.new_lead) {
+        toast.success('Office visit booked! Our team will call you to confirm.');
+      } else {
+        toast.success(res?.data?.message || 'Office visit booked.');
+      }
       onBooked && onBooked();
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Could not book the visit');

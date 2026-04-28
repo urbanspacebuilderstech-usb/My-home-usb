@@ -419,10 +419,90 @@ async def public_book_office_visit(token: str, data: OfficeVisitReq):
         raise HTTPException(status_code=400, detail="Office hours: 10:00 AM – 6:00 PM")
 
     now = datetime.now(timezone.utc)
-    src_lead = await db.leads.find_one({"lead_id": link["lead_id"]}, {"_id": 0})
-    if not src_lead:
-        raise HTTPException(status_code=404, detail="Source lead missing")
+    src_lead = None
+    if link.get("lead_id"):
+        src_lead = await db.leads.find_one({"lead_id": link["lead_id"]}, {"_id": 0})
 
+    # ============ Path A: source lead already in Appointment Booked ============
+    if src_lead and src_lead.get("current_stage_id") == "stg_appointment":
+        existing_appt = src_lead.get("appointment") or {}
+        existing_date = existing_appt.get("appointment_date") or "previously"
+        existing_time = existing_appt.get("appointment_time") or ""
+        return {
+            "already_booked": True,
+            "message": (
+                f"You already have an appointment booked on {existing_date}"
+                + (f" at {existing_time}" if existing_time else "")
+                + ". Our team will reach out shortly."
+            ),
+            "lead_id": src_lead["lead_id"],
+            "stage": "stg_appointment",
+            "appointment_date": existing_appt.get("appointment_date"),
+            "appointment_time": existing_appt.get("appointment_time"),
+        }
+
+    # ============ Path B: NO source lead (generic link or stale lead_id) → create new ============
+    if not src_lead:
+        if not (data.name or "").strip():
+            raise HTTPException(status_code=400, detail="Please share your name to book a visit.")
+        new_lead_id = f"lead_{uuid.uuid4().hex[:12]}"
+        new_lead = {
+            "lead_id": new_lead_id,
+            "name": (data.name or link.get("client_name") or "Package Prospect").strip(),
+            "phone": (data.phone or link.get("client_phone") or "").strip(),
+            "email": (data.email or link.get("client_email") or "").strip(),
+            "stage_type": "pre_sales",
+            "current_stage_id": "stg_appointment",
+            "source": "package_link_office_visit",
+            "tags": ["client_office_visit", "from_package_link"],
+            "assigned_to": link.get("sales_user_id"),
+            "assigned_to_name": link.get("sales_user_name"),
+            "created_at": now,
+            "created_by": "public",
+            "created_by_name": "Public package viewer",
+            "client_office_visit_booked_at": now,
+            "appointment": {
+                "appointment_date": data.appointment_date,
+                "appointment_time": data.appointment_time,
+                "appointment_type": "office_visit",
+                "notes": (data.requirement or "").strip(),
+                "scheduled_via": "public_package_link",
+                "scheduled_at": now.isoformat(),
+                "booked_by_client": True,
+            },
+            "stage_history": [{
+                "stage_id": "stg_appointment",
+                "moved_at": now.isoformat(),
+                "moved_by": "public",
+                "moved_by_name": "Client (Package Link)",
+                "action": "client_booked_office_visit",
+            }],
+            "package_link_id": link.get("link_id"),
+            "is_generic_link": bool(link.get("is_generic")),
+        }
+        await db.leads.insert_one(new_lead)
+
+        await db.notifications.insert_one({
+            "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+            "user_id": link.get("sales_user_id") or "all_pre_sales",
+            "title": "🎯 New lead via Package Link — Office Visit",
+            "message": f"{new_lead['name']} ({new_lead['phone'] or 'no phone'}) booked an office visit on {data.appointment_date} at {data.appointment_time}.",
+            "type": "client_office_visit",
+            "reference_id": new_lead_id,
+            "is_read": False,
+            "created_at": now,
+        })
+
+        return {
+            "message": "Office visit booked. Our team will reach out shortly.",
+            "lead_id": new_lead_id,
+            "stage": "stg_appointment",
+            "appointment_date": data.appointment_date,
+            "appointment_time": data.appointment_time,
+            "new_lead": True,
+        }
+
+    # ============ Path C: existing lead — move it to Appointment Booked ============
     existing_tags = src_lead.get("tags") or []
     if "client_office_visit" not in existing_tags:
         existing_tags = list(existing_tags) + ["client_office_visit"]
