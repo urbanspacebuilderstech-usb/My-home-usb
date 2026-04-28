@@ -381,6 +381,8 @@ async def startup_init():
                                 tab_name = tc.get("tab_name")
                                 col_mapping = tc.get("column_mapping", {})
                                 old_count = old_row_counts.get(tab_name, 0)
+                                # Track phones already inserted in this auto-sync pass
+                                seen_phones_in_run: set[str] = set()
                                 
                                 try:
                                     result = service.spreadsheets().values().get(
@@ -434,10 +436,18 @@ async def startup_init():
                                     
                                     if not lead_data.get("name") and not lead_data.get("phone"):
                                         continue
-                                    if lead_data.get("phone"):
-                                        existing = await sync_db.leads.find_one({"phone": lead_data["phone"]})
+                                    # Country-code-tolerant + in-batch dedup
+                                    from routes.crm import normalize_phone, find_existing_lead_by_phone
+                                    phone_raw = lead_data.get("phone") or ""
+                                    phone_norm = normalize_phone(phone_raw)
+                                    if phone_norm:
+                                        if phone_norm in seen_phones_in_run:
+                                            continue
+                                        existing = await find_existing_lead_by_phone(sync_db, phone_raw)
                                         if existing:
                                             continue
+                                        seen_phones_in_run.add(phone_norm)
+                                        lead_data["phone_normalized"] = phone_norm
                                     
                                     # Auto-assign via round-robin
                                     from routes.crm import assign_lead_to_next_user

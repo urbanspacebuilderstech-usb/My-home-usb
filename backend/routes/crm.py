@@ -2525,7 +2525,9 @@ async def import_csv_leads(data: CSVImportData, user: User = Depends(get_current
     
     import_batch_id = f"import_{uuid.uuid4().hex[:12]}"
     imported_count = 0
+    skipped_duplicate = 0
     errors = []
+    seen_phones_in_run: set[str] = set()
     
     for idx, row in enumerate(data.leads):
         try:
@@ -2539,6 +2541,19 @@ async def import_csv_leads(data: CSVImportData, user: User = Depends(get_current
                     else:
                         lead_data[lead_field] = value
             
+            # Country-code-tolerant + in-batch dedup on phone
+            phone_raw = lead_data.get("phone") or ""
+            phone_norm = normalize_phone(phone_raw)
+            if phone_norm:
+                if phone_norm in seen_phones_in_run:
+                    skipped_duplicate += 1
+                    continue
+                existing = await find_existing_lead_by_phone(db, phone_raw)
+                if existing:
+                    skipped_duplicate += 1
+                    continue
+                seen_phones_in_run.add(phone_norm)
+
             # Create lead
             lead = Lead(
                 name=lead_data.get("name", f"Lead {idx + 1}"),
@@ -2564,16 +2579,20 @@ async def import_csv_leads(data: CSVImportData, user: User = Depends(get_current
                 created_by=user.user_id
             )
             
-            await db.leads.insert_one(lead.model_dump())
+            lead_doc = lead.model_dump()
+            if phone_norm:
+                lead_doc["phone_normalized"] = phone_norm
+            await db.leads.insert_one(lead_doc)
             imported_count += 1
             
         except Exception as e:
             errors.append({"row": idx + 1, "error": str(e)})
     
     return {
-        "message": f"Imported {imported_count} leads",
+        "message": f"Imported {imported_count} leads ({skipped_duplicate} duplicates skipped)",
         "import_batch_id": import_batch_id,
         "imported_count": imported_count,
+        "skipped_duplicate": skipped_duplicate,
         "error_count": len(errors),
         "errors": errors[:10]  # Return first 10 errors
     }
@@ -3871,6 +3890,40 @@ def normalize_column_name(col: str) -> str:
     return col.lower().strip().replace("_", " ").replace("-", " ")
 
 
+def normalize_phone(phone) -> str:
+    """Normalize a phone string to its last 10 digits.
+
+    Handles values like:
+      "+91 9876543210", "91 9876543210", "9876543210", 9876543210 (int),
+      "+91-98765-43210", "91 98765 43210" → all collapse to "9876543210".
+    Returns empty string for missing/invalid input.
+    """
+    if phone is None:
+        return ""
+    digits = ''.join(ch for ch in str(phone) if ch.isdigit())
+    if not digits:
+        return ""
+    # Indian numbers are 10 digits. Anything longer → take the last 10.
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+async def find_existing_lead_by_phone(db_handle, phone: str):
+    """Look up an existing lead by phone, tolerant of country-code variants."""
+    norm = normalize_phone(phone)
+    if not norm:
+        return None
+    # Match either the exact normalized 10-digit form OR any phone string
+    # whose digits end with these 10 digits (covers stored values like
+    # "+91 9876543210", "919876543210", etc.)
+    return await db_handle.leads.find_one({
+        "$or": [
+            {"phone": norm},
+            {"phone_normalized": norm},
+            {"phone": {"$regex": f"{norm}$"}},
+        ]
+    })
+
+
 def auto_map_column(col_name: str) -> Optional[str]:
     """Auto-map a column name to a standard field"""
     normalized = normalize_column_name(col_name)
@@ -4317,6 +4370,8 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
         total_skipped = 0
         sources_imported = []
         custom_fields_created = []
+        # Dedup phones across the entire run (covers same-batch duplicates)
+        seen_phones_in_run: set[str] = set()
         
         for tab_config in data.tab_configs:
             tab_name = tab_config.get("tab_name")
@@ -4396,11 +4451,18 @@ async def import_all_tabs_configured(data: ImportAllTabsRequest, user: User = De
                     tab_skipped += 1
                     continue
                 
-                if lead_data.get("phone"):
-                    existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                phone_raw = lead_data.get("phone") or ""
+                phone_norm = normalize_phone(phone_raw)
+                if phone_norm:
+                    if phone_norm in seen_phones_in_run:
+                        tab_skipped += 1
+                        continue
+                    existing = await find_existing_lead_by_phone(db, phone_raw)
                     if existing:
                         tab_skipped += 1
                         continue
+                    seen_phones_in_run.add(phone_norm)
+                    lead_data["phone_normalized"] = phone_norm
                 
                 if settings.get("enabled") and pre_sales_team:
                     assigned_user_id = pre_sales_team[current_index % len(pre_sales_team)]
@@ -4711,7 +4773,10 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
         total_imported = 0
         total_skipped = 0
         sources_imported = []
-        
+        # Track phone numbers processed in this entire import run so duplicates
+        # within the same sheet (or across tabs) are dropped, not inserted.
+        seen_phones_in_run: set[str] = set()
+
         for sheet_name in sheet_names:
             # Get all data from this sheet
             try:
@@ -4773,12 +4838,22 @@ async def import_all_sheets(data: ImportAllSheetsRequest, user: User = Depends(g
                     sheet_skipped += 1
                     continue
                 
-                # Check for duplicate (same phone)
-                if lead_data.get("phone"):
-                    existing = await db.leads.find_one({"phone": lead_data["phone"]})
+                # Check for duplicate (same phone, country-code tolerant)
+                phone_raw = lead_data.get("phone") or ""
+                phone_norm = normalize_phone(phone_raw)
+                if phone_norm:
+                    # 1) Already inserted earlier in this same run?
+                    if phone_norm in seen_phones_in_run:
+                        sheet_skipped += 1
+                        continue
+                    # 2) Already exists in DB (any phone format)?
+                    existing = await find_existing_lead_by_phone(db, phone_raw)
                     if existing:
                         sheet_skipped += 1
                         continue
+                    # Mark as seen and persist normalized form for fast future lookups
+                    seen_phones_in_run.add(phone_norm)
+                    lead_data["phone_normalized"] = phone_norm
                 
                 # Assign using round-robin
                 rr_user_id = await assign_lead_to_next_user("pre_sales")
@@ -5191,6 +5266,62 @@ async def run_auto_sync(user: User = Depends(get_current_user)):
         "new_leads": total_new,
         "skipped": total_skipped,
         "details": sync_details
+    }
+
+
+@router.post("/leads/dedupe")
+async def dedupe_leads(user: User = Depends(get_current_user)):
+    """One-time cleanup: backfill phone_normalized + remove duplicate leads.
+
+    Strategy: keep the OLDEST lead per normalized phone (preserves history,
+    pipeline stage, follow-ups). Delete subsequent duplicates.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+
+    # Step 1 — backfill phone_normalized everywhere
+    backfilled = 0
+    cursor = db.leads.find({"phone_normalized": {"$exists": False}}, {"_id": 0, "lead_id": 1, "phone": 1})
+    async for lead in cursor:
+        norm = normalize_phone(lead.get("phone"))
+        if norm:
+            await db.leads.update_one({"lead_id": lead["lead_id"]}, {"$set": {"phone_normalized": norm}})
+            backfilled += 1
+
+    # Step 2 — find duplicates per normalized phone (keep the earliest created_at)
+    pipeline = [
+        {"$match": {"phone_normalized": {"$exists": True, "$ne": ""}}},
+        {"$sort": {"created_at": 1}},  # oldest first
+        {"$group": {
+            "_id": "$phone_normalized",
+            "leads": {"$push": {"lead_id": "$lead_id", "name": "$name", "stage": "$current_stage_id", "created_at": "$created_at"}},
+            "count": {"$sum": 1},
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+    ]
+    duplicates = await db.leads.aggregate(pipeline).to_list(10000)
+
+    deleted = 0
+    deleted_samples: List[Dict[str, Any]] = []
+    for grp in duplicates:
+        # Keep first (oldest), delete the rest
+        to_delete = [l["lead_id"] for l in grp["leads"][1:]]
+        if to_delete:
+            res = await db.leads.delete_many({"lead_id": {"$in": to_delete}})
+            deleted += res.deleted_count
+            if len(deleted_samples) < 20:
+                deleted_samples.append({
+                    "phone": grp["_id"],
+                    "kept": grp["leads"][0]["lead_id"],
+                    "removed": to_delete,
+                })
+
+    return {
+        "message": f"Backfilled {backfilled} leads, removed {deleted} duplicates.",
+        "backfilled": backfilled,
+        "deleted_duplicates": deleted,
+        "duplicate_groups": len(duplicates),
+        "samples": deleted_samples,
     }
 
 
