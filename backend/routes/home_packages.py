@@ -311,9 +311,14 @@ async def public_get_package(token: str):
 async def public_package_pdf(token: str):
     """Returns a downloadable A4 PDF of the package details. Same auth model as the
     public package URL — anyone with the token can download it. Used by Pre-Sales
-    in the Share dialog to attach a PDF in WhatsApp alongside the link."""
-    from fastapi.responses import Response
+    in the Share dialog to attach a PDF in WhatsApp alongside the link.
+
+    If an admin has uploaded a master brochure via User App → Packages, we
+    stream that file instead of generating one on-the-fly.
+    """
+    from fastapi.responses import FileResponse, Response
     from services.package_pdf import build_package_pdf
+    from pathlib import Path as _Path
 
     link_id = _verify_token(token)
     if not link_id:
@@ -324,6 +329,23 @@ async def public_package_pdf(token: str):
     if link.get("is_revoked"):
         raise HTTPException(status_code=410, detail="Link has been revoked")
 
+    # 1) Prefer admin-uploaded master brochure when available
+    brochure = await db.app_settings.find_one({"key": "master_package_brochure"}, {"_id": 0})
+    if brochure and brochure.get("filename"):
+        # Locate on disk (prod VPS path first, dev fallback)
+        for base in [_Path("/var/www/myhomeusb/uploads/userapp"),
+                     _Path(__file__).resolve().parent.parent / "uploads" / "userapp"]:
+            fp = base / brochure["filename"]
+            if fp.exists() and fp.is_file():
+                client_first = (link.get("client_name") or "client").split()[0].lower()
+                return FileResponse(
+                    fp,
+                    media_type="application/pdf",
+                    filename=f"urbanspace-packages-{client_first}.pdf",
+                )
+        # Fall through to generated if the stored file is missing
+
+    # 2) Fallback: generate branded PDF on the fly
     packages = await db.home_packages.find(
         {"is_active": {"$ne": False}}, {"_id": 0, "created_by": 0, "updated_by": 0}
     ).sort("sort_order", 1).to_list(50)
@@ -336,6 +358,59 @@ async def public_package_pdf(token: str):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Master Package Brochure — admin sets a single PDF that Pre-Sales will
+# download from the Share dialog. When unset, we auto-generate a PDF.
+# ---------------------------------------------------------------------------
+
+class MasterBrochureReq(BaseModel):
+    filename: str
+    original_name: Optional[str] = None
+    size_bytes: Optional[int] = None
+
+
+@router.get("/user-app/master-brochure")
+async def get_master_brochure(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    doc = await db.app_settings.find_one({"key": "master_package_brochure"}, {"_id": 0})
+    return doc or {"key": "master_package_brochure", "filename": None}
+
+
+@router.put("/user-app/master-brochure")
+async def set_master_brochure(data: MasterBrochureReq, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "key": "master_package_brochure",
+        "filename": data.filename,
+        "original_name": data.original_name,
+        "size_bytes": data.size_bytes,
+        "updated_at": now,
+        "updated_by": user.user_id,
+        "updated_by_name": user.name,
+    }
+    await db.app_settings.update_one(
+        {"key": "master_package_brochure"},
+        {"$set": payload},
+        upsert=True,
+    )
+    return payload
+
+
+@router.delete("/user-app/master-brochure")
+async def clear_master_brochure(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    await db.app_settings.update_one(
+        {"key": "master_package_brochure"},
+        {"$set": {"filename": None, "original_name": None, "size_bytes": None}},
+        upsert=True,
+    )
+    return {"cleared": True}
 
 
 class BookPkgAppointmentReq(BaseModel):

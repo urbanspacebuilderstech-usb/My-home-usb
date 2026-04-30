@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
@@ -9,7 +9,7 @@ import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Switch } from './ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
-import { Plus, Edit, Trash2, Loader2, Package as PackageIcon, ChevronDown, ChevronUp, X, Star, Sparkles } from 'lucide-react';
+import { Plus, Edit, Trash2, Loader2, Package as PackageIcon, ChevronDown, ChevronUp, X, Star, Sparkles, FileText, Upload } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -30,12 +30,20 @@ export default function HomePackagesAdmin() {
   const [form, setForm] = useState(emptyPkg);
   const [submitting, setSubmitting] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  // Master package brochure (global PDF sent in Share Package dialog)
+  const [brochure, setBrochure] = useState(null);
+  const [brochureUploading, setBrochureUploading] = useState(false);
+  const pdfInputRef = useRef(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/home-packages`);
+      const [r, br] = await Promise.all([
+        axios.get(`${API}/home-packages`),
+        axios.get(`${API}/user-app/master-brochure`).catch(() => ({ data: null })),
+      ]);
       setItems(r.data || []);
+      setBrochure(br?.data?.filename ? br.data : null);
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
   };
@@ -88,6 +96,46 @@ export default function HomePackagesAdmin() {
     finally { setSeeding(false); }
   };
 
+  // ============ Master Brochure (single global PDF used by Share Package dialog) ============
+  const handleBrochureFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) { toast.error('PDF too large (max 15MB)'); return; }
+    setBrochureUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await axios.post(`${API}/uploads/pdf`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const saved = await axios.put(`${API}/user-app/master-brochure`, {
+        filename: up.data.filename,
+        original_name: up.data.original_name,
+        size_bytes: up.data.size_bytes,
+      });
+      setBrochure(saved.data);
+      toast.success('Master brochure uploaded. Pre-Sales will receive this PDF when sharing packages.');
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Upload failed');
+    } finally {
+      setBrochureUploading(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+    }
+  };
+
+  const removeBrochure = async () => {
+    if (!window.confirm('Remove the uploaded master brochure? Pre-Sales will switch back to the auto-generated PDF.')) return;
+    try {
+      await axios.delete(`${API}/user-app/master-brochure`);
+      setBrochure(null);
+      toast.success('Master brochure cleared. Auto-generated PDF will be used instead.');
+    } catch { toast.error('Failed to remove'); }
+  };
+
+  const previewBrochure = () => {
+    if (brochure?.filename) {
+      window.open(`${API}/uploads/file/${brochure.filename}`, '_blank');
+    }
+  };
+
   // Section editor helpers
   const addSection = () => setForm({ ...form, sections: [...form.sections, { title: '', bullets: [''] }] });
   const removeSection = (i) => setForm({ ...form, sections: form.sections.filter((_, k) => k !== i) });
@@ -98,6 +146,67 @@ export default function HomePackagesAdmin() {
 
   return (
     <div>
+      {/* Master Package Brochure Uploader */}
+      <Card className="mb-4 border-amber-200 bg-gradient-to-r from-amber-50 to-white">
+        <CardContent className="p-3 sm:p-4">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-semibold text-sm">Master Package Brochure (PDF)</p>
+                {brochure?.filename ? (
+                  <Badge className="bg-emerald-100 text-emerald-700 border-0 text-[10px]">Active</Badge>
+                ) : (
+                  <Badge className="bg-gray-100 text-gray-500 border-0 text-[10px]">Not set (auto-generated PDF in use)</Badge>
+                )}
+              </div>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Upload a designed brochure here — Pre-Sales gets this file when they click <span className="font-semibold">Download PDF</span> in the Share Package Link dialog. If no file is uploaded, the system auto-generates a PDF from the package cards below.
+              </p>
+              {brochure?.filename && (
+                <p className="text-[11px] text-gray-500 mt-1 font-mono truncate">
+                  {brochure.original_name || brochure.filename} · {Math.round((brochure.size_bytes || 0) / 1024)} KB
+                  {brochure.updated_at && <> · uploaded {new Date(brochure.updated_at).toLocaleDateString()}</>}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mt-3">
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept="application/pdf"
+              onChange={handleBrochureFile}
+              className="hidden"
+              data-testid="brochure-file-input"
+            />
+            <Button
+              size="sm"
+              onClick={() => pdfInputRef.current?.click()}
+              disabled={brochureUploading}
+              className="bg-amber-600 hover:bg-amber-700 gap-1"
+              data-testid="brochure-upload-btn"
+            >
+              {brochureUploading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…</> : <><Upload className="h-3.5 w-3.5" /> {brochure ? 'Replace PDF' : 'Upload PDF'}</>}
+            </Button>
+            {brochure?.filename && (
+              <>
+                <Button size="sm" variant="outline" onClick={previewBrochure} data-testid="brochure-preview-btn">
+                  Preview
+                </Button>
+                <Button size="sm" variant="outline" onClick={removeBrochure} className="text-red-600 hover:bg-red-50 hover:text-red-700" data-testid="brochure-remove-btn">
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Remove
+                </Button>
+              </>
+            )}
+            <span className="text-[10px] text-gray-400 self-center ml-auto">PDF only · max 15 MB</span>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex items-center justify-between mb-3">
         <div className="text-xs text-gray-500">Each package shows on the public package link with a dropdown selector + accordion sections.</div>
         <div className="flex items-center gap-2">

@@ -19,7 +19,8 @@ from core.models import User, UserRole
 
 router = APIRouter(tags=["uploads"])
 
-MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+MAX_BYTES = 5 * 1024 * 1024  # 5 MB (images)
+PDF_MAX_BYTES = 15 * 1024 * 1024  # 15 MB (brochure PDFs)
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_MIME = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 
@@ -94,3 +95,41 @@ async def get_uploaded_file(filename: str):
         media_type=mimetypes.guess_type(str(path))[0] or "image/jpeg",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+# ---------------------------------------------------------------------------
+# PDF upload — for User App master package brochure and similar documents
+# ---------------------------------------------------------------------------
+
+@router.post("/uploads/pdf")
+async def upload_pdf(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.SALES, UserRole.PRE_SALES, UserRole.MARKETING_HEAD]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    ext = Path(file.filename or "").suffix.lower()
+    if ext != ".pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
+    if file.content_type and file.content_type not in ("application/pdf", "application/x-pdf"):
+        raise HTTPException(status_code=400, detail=f"Unsupported content type: {file.content_type}")
+
+    contents = await file.read()
+    if len(contents) > PDF_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="PDF too large. Max 15MB.")
+    if len(contents) < 100 or not contents.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="File does not look like a valid PDF.")
+
+    filename = f"{uuid.uuid4().hex}.pdf"
+    dest = UPLOAD_DIR / filename
+    with open(dest, "wb") as f:
+        f.write(contents)
+
+    return {
+        "filename": filename,
+        "original_name": file.filename,
+        "url": f"/api/uploads/file/{filename}",
+        "size_bytes": len(contents),
+        "content_type": "application/pdf",
+    }
