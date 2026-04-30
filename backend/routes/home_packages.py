@@ -307,6 +307,37 @@ async def public_get_package(token: str):
     }
 
 
+@router.get("/public/package/{token}/pdf")
+async def public_package_pdf(token: str):
+    """Returns a downloadable A4 PDF of the package details. Same auth model as the
+    public package URL — anyone with the token can download it. Used by Pre-Sales
+    in the Share dialog to attach a PDF in WhatsApp alongside the link."""
+    from fastapi.responses import Response
+    from services.package_pdf import build_package_pdf
+
+    link_id = _verify_token(token)
+    if not link_id:
+        raise HTTPException(status_code=404, detail="Invalid link")
+    link = await db.package_links.find_one({"link_id": link_id, "token": token}, {"_id": 0})
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+    if link.get("is_revoked"):
+        raise HTTPException(status_code=410, detail="Link has been revoked")
+
+    packages = await db.home_packages.find(
+        {"is_active": {"$ne": False}}, {"_id": 0, "created_by": 0, "updated_by": 0}
+    ).sort("sort_order", 1).to_list(50)
+
+    pdf_bytes = build_package_pdf(link.get("client_name"), packages)
+    safe_name = (link.get("client_name") or "client").split()[0].lower()
+    filename = f"urbanspace-packages-{safe_name}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 class BookPkgAppointmentReq(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None

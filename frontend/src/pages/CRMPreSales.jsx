@@ -2811,6 +2811,26 @@ function PackageLinkShareDialog({ state, onClose }) {
     window.open(wa, '_blank');
   };
 
+  const downloadPdf = async () => {
+    try {
+      const res = await axios.get(`${API}/public/package/${state.link.token}/pdf`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `urbanspace-packages-${(clientName || 'client').split(' ')[0].toLowerCase()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('PDF downloaded');
+    } catch {
+      toast.error('Failed to download PDF');
+    }
+  };
+
   return (
     <Dialog open={state.open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-xl" data-testid="pkg-share-dialog">
@@ -2854,8 +2874,11 @@ function PackageLinkShareDialog({ state, onClose }) {
             <pre className="text-xs text-gray-800 whitespace-pre-wrap break-all font-sans">{fullMessage}</pre>
           </div>
         </div>
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 flex-wrap">
           <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" onClick={downloadPdf} className="gap-1" data-testid="pkg-download-pdf-btn">
+            📄 Download PDF
+          </Button>
           <Button variant="outline" onClick={() => { saveGreeting(); copyMessage(); }} className="gap-1" data-testid="pkg-copy-btn">
             📋 Copy Message
           </Button>
