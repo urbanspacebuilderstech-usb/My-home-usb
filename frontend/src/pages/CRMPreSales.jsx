@@ -555,56 +555,47 @@ export default function CRMPreSales() {
   };
 
   // ============ FILTERS ============
-  const filteredLeads = leads.filter(lead => {
-    const matchesStage = activeStage === 'all' || lead.current_stage_id === activeStage;
+  // Apply ALL filters EXCEPT activeStage — used by stage tab counts so they
+  // always show the right number regardless of which tab is currently active.
+  const leadsAfterNonStageFilters = leads.filter(lead => {
     const matchesSearch = !searchQuery || 
       lead.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       lead.phone?.includes(searchQuery);
     const matchesSource = !selectedSource || selectedSource === 'all' || lead.source === selectedSource;
-    
-    // Follow-up filter: show only leads with today's follow-up
+
     if (followUpFilter) {
       const today = new Date().toISOString().split('T')[0];
       const pendingFollowups = (lead.follow_ups || []).filter(f => !f.completed);
       const hasToday = pendingFollowups.some(f => f.scheduled_date === today) || lead.next_followup_date === today;
       if (!hasToday) return false;
     }
-    
-    // Date filter — Follow-up/Appointment stages use those dates, others use created/moved dates
+
     let matchesDate = true;
     if (dateFilter) {
       let datesToCheck = [];
-      
-      // Follow-up stage: filter by follow-up scheduled dates
       if (lead.current_stage_id === 'stg_follow_up') {
         datesToCheck = (lead.follow_ups || []).map(f => f.scheduled_date).filter(Boolean);
         if (lead.next_followup_date) datesToCheck.push(lead.next_followup_date);
-      }
-      // Appointment stage: filter by appointment date
-      else if (lead.current_stage_id === 'stg_appointment') {
+      } else if (lead.current_stage_id === 'stg_appointment') {
         if (lead.appointment_date) datesToCheck.push(lead.appointment_date.split('T')[0]);
-      }
-      // All other stages: filter by created date and last stage move date
-      else {
+      } else {
         if (lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
         const lastMove = (lead.stage_history || []).slice(-1)[0];
         if (lastMove?.moved_at) datesToCheck.push(lastMove.moved_at.split('T')[0]);
       }
-      
-      if (datesToCheck.length === 0) {
-        // Fallback to created_at
-        if (lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
-      }
-      
-      if (dateFilterEnd) {
-        matchesDate = datesToCheck.some(d => d >= dateFilter && d <= dateFilterEnd);
-      } else {
-        matchesDate = datesToCheck.includes(dateFilter);
-      }
+      if (datesToCheck.length === 0 && lead.created_at) datesToCheck.push(lead.created_at.split('T')[0]);
+      matchesDate = dateFilterEnd
+        ? datesToCheck.some(d => d >= dateFilter && d <= dateFilterEnd)
+        : datesToCheck.includes(dateFilter);
     }
-    
-    return matchesStage && matchesSearch && matchesSource && matchesDate;
+
+    return matchesSearch && matchesSource && matchesDate;
+  });
+
+  const filteredLeads = leadsAfterNonStageFilters.filter(lead => {
+    const matchesStage = activeStage === 'all' || lead.current_stage_id === activeStage;
+    return matchesStage;
   }).sort((a, b) => {
     const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
     const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -612,7 +603,9 @@ export default function CRMPreSales() {
   });
 
   const getLeadsByStage = (stageId) => {
-    return filteredLeads.filter(lead => lead.current_stage_id === stageId);
+    // Use the list filtered by everything EXCEPT the active stage tab,
+    // so tab counts stay accurate when switching between tabs.
+    return leadsAfterNonStageFilters.filter(lead => lead.current_stage_id === stageId);
   };
   
   const getStageName = (stageId) => {
@@ -872,7 +865,7 @@ export default function CRMPreSales() {
                   }`}
                   onClick={() => setActiveStage('all')}
                 >
-                  All ({leads.length})
+                  All ({leadsAfterNonStageFilters.length})
                 </button>
                 {stages.map(stage => (
                   <button
