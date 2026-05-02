@@ -857,7 +857,7 @@ export default function SiteEngineerDashboard() {
     );
   }
 
-  if (!user || user.role !== 'site_engineer') {
+  if (!user || (user.role !== 'site_engineer' && user.role !== 'sr_site_engineer')) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 p-4">
         <Card className="w-full max-w-sm">
