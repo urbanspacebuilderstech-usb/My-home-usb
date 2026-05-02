@@ -2765,6 +2765,17 @@ export default function CRMPreSales() {
       <PackageLinkShareDialog
         state={packageLinkDialog}
         onClose={() => setPackageLinkDialog({ open: false, leadId: null, link: null })}
+        currentStageId={selectedLead?.lead_id === packageLinkDialog.leadId ? selectedLead?.current_stage_id : leads.find(l => l.lead_id === packageLinkDialog.leadId)?.current_stage_id}
+        onMoveToPackageStage={async (leadId) => {
+          try {
+            await axios.patch(`${API}/crm/leads/${leadId}/stage`, { stage_id: 'stg_package_send' });
+            toast.success('Lead moved to Package Details Send');
+            fetchData(false);
+            setPackageLinkDialog({ open: false, leadId: null, link: null });
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || 'Could not move stage');
+          }
+        }}
       />
 
       <MobileBottomNav user={user} />
@@ -2773,7 +2784,7 @@ export default function CRMPreSales() {
 }
 
 // ================== Package Link Share Dialog ==================
-function PackageLinkShareDialog({ state, onClose }) {
+function PackageLinkShareDialog({ state, onClose, currentStageId, onMoveToPackageStage }) {
   const [greeting, setGreeting] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -2873,6 +2884,24 @@ function PackageLinkShareDialog({ state, onClose }) {
             <p className="text-[10px] uppercase text-amber-700 font-semibold mb-1">Preview (the message you'll send)</p>
             <pre className="text-xs text-gray-800 whitespace-pre-wrap break-all font-sans">{fullMessage}</pre>
           </div>
+
+          {currentStageId && currentStageId !== 'stg_package_send' && onMoveToPackageStage && (
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 flex items-start gap-3">
+              <div className="text-violet-600 text-xl leading-none">📦</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-violet-900">Lead is still in an earlier stage</p>
+                <p className="text-[11px] text-violet-700 mt-0.5">Now that you're sharing the package, move the lead to <span className="font-semibold">Package Details Send</span> so the board reflects it.</p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => onMoveToPackageStage(state.leadId)}
+                className="bg-violet-600 hover:bg-violet-700 text-white whitespace-nowrap"
+                data-testid="pkg-move-stage-btn"
+              >
+                Move to Package Details Send →
+              </Button>
+            </div>
+          )}
         </div>
         <DialogFooter className="gap-2 flex-wrap">
           <Button variant="outline" onClick={onClose}>Close</Button>
