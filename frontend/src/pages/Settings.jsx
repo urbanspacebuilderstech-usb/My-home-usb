@@ -135,11 +135,18 @@ export default function Settings() {
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4 sm:mb-8">
+        <div className="flex items-center justify-between mb-4 sm:mb-8 flex-wrap gap-2">
           <div>
             <h2 data-testid="settings-title" className="text-xl sm:text-3xl font-bold text-gray-900">System Settings</h2>
             <p className="text-sm sm:text-base text-gray-600 mt-1">Manage company profile, materials, and users</p>
           </div>
+          <Button
+            onClick={() => window.location.href = '/settings/slots'}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-1"
+            data-testid="settings-slots-link"
+          >
+            👥 Slot Management
+          </Button>
         </div>
 
         {/* Stats Cards */}
