@@ -846,18 +846,15 @@ export default function PlanningBoard() {
             {/* Stage summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" data-testid="stage-summary">
               {[
-                { label: 'Pre-Construction', count: stageCountMap.pre_construction, color: 'bg-blue-50 border-blue-200 text-blue-800', icon: '🏗️' },
-                { label: 'Under Construction', count: stageCountMap.under_construction, color: 'bg-amber-50 border-amber-200 text-amber-800', icon: '⚙️' },
-                { label: 'Completed', count: stageCountMap.completed, color: 'bg-green-50 border-green-200 text-green-800', icon: '✅' },
-                { label: 'Other', count: stageCountMap.other, color: 'bg-gray-50 border-gray-200 text-gray-600', icon: '📋' },
+                { label: 'Pre-Construction', count: stageCountMap.pre_construction, color: 'bg-blue-50 border-blue-200 text-blue-800' },
+                { label: 'Under Construction', count: stageCountMap.under_construction, color: 'bg-amber-50 border-amber-200 text-amber-800' },
+                { label: 'Completed', count: stageCountMap.completed, color: 'bg-green-50 border-green-200 text-green-800' },
+                { label: 'Other', count: stageCountMap.other, color: 'bg-gray-50 border-gray-200 text-gray-600' },
               ].map(s => (
                 <Card key={s.label} className={`border ${s.color}`}>
-                  <CardContent className="p-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-[11px] font-medium opacity-80">{s.label}</p>
-                      <p className="text-2xl font-bold">{s.count}</p>
-                    </div>
-                    <span className="text-2xl">{s.icon}</span>
+                  <CardContent className="p-3">
+                    <p className="text-[11px] font-medium opacity-80">{s.label}</p>
+                    <p className="text-2xl font-bold">{s.count}</p>
                   </CardContent>
                 </Card>
               ))}
