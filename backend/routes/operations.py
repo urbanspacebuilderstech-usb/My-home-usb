@@ -1186,11 +1186,22 @@ async def get_cre_pending_approvals(user: User = Depends(get_current_user)):
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
     
-    # Projects where advance is verified by accountant - CRE can send to planning
+    # Projects where advance is verified by accountant — CRE can send to planning.
+    # Exclude:
+    #   • archived / soft-deleted (no longer actionable)
+    #   • already sent to planning (sent_to_planning_at exists) — once CRE has
+    #     handed over, the project belongs to Planning and shouldn't keep re-appearing.
     advance_verified = await db.projects.find(
-        {"status": {"$in": ["payment_verified", "payment_received"]}},
-        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1,
-         "total_value": 1, "advance_amount": 1, "status": 1, "created_at": 1}
+        {
+            "status": {"$in": ["payment_verified", "payment_received"]},
+            "$and": [
+                {"$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}]},
+                {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]},
+                {"$or": [{"sent_to_planning_at": {"$exists": False}}, {"sent_to_planning_at": None}]},
+            ],
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1, "location": 1,
+         "total_value": 1, "advance_amount": 1, "status": 1, "created_at": 1, "planning_status": 1}
     ).sort("created_at", -1).to_list(50)
     
     # Income records pending approval (non-advance, just need confirmation)
