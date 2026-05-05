@@ -75,6 +75,7 @@ export default function CREBoard() {
   // Payment Approvals
   const [pendingApprovals, setPendingApprovals] = useState({ advance_verified: [], pending_income: [] });
   const [feProjects, setFeProjects] = useState([]);
+  const [feActiveTab, setFeActiveTab] = useState('awaiting');
   const [reviewDialog, setReviewDialog] = useState({ open: false, project: null, text: '' });
 
   // Payment Collected (ledger)
@@ -516,95 +517,193 @@ export default function CREBoard() {
 
           {/* ==================== TAB 1.5: FINAL ESTIMATE ==================== */}
           <TabsContent value="final_estimate">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4 text-purple-600" />Final Estimate Review</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">Planning has prepared the Final Estimate. Approve directly or send a Review back to Planning.</p>
-              </CardHeader>
-              <CardContent className="p-0">
-                {feProjects.length === 0 ? (
-                  <div className="p-8 text-center text-gray-400">
-                    <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No Final Estimates pending review</p>
+            {(() => {
+              const counts = {
+                awaiting: feProjects.filter(p => p.fe?.status === 'pending_cre_review').length,
+                in_revision: feProjects.filter(p => p.fe?.status === 'review_pending').length,
+                approved: feProjects.filter(p => p.fe?.status === 'approved').length,
+                all: feProjects.length,
+              };
+              const filtered = (() => {
+                switch (feActiveTab) {
+                  case 'awaiting': return feProjects.filter(p => p.fe?.status === 'pending_cre_review');
+                  case 'in_revision': return feProjects.filter(p => p.fe?.status === 'review_pending');
+                  case 'approved': return feProjects.filter(p => p.fe?.status === 'approved');
+                  default: return feProjects;
+                }
+              })();
+              const statusBadgeFor = (status) => {
+                if (status === 'approved') return { cls: 'bg-green-100 text-green-700 border-green-200', label: 'Approved' };
+                if (status === 'review_pending') return { cls: 'bg-amber-100 text-amber-700 border-amber-200', label: 'In Revision @ Planning' };
+                if (status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700 border-purple-200', label: 'Awaiting You' };
+                return { cls: 'bg-gray-100 text-gray-700 border-gray-200', label: status || 'Draft' };
+              };
+
+              return (
+                <div className="space-y-4">
+                  {/* Status Summary Cards */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <Card
+                      className={`cursor-pointer transition-all ${feActiveTab === 'awaiting' ? 'ring-2 ring-purple-500' : 'hover:shadow-sm'}`}
+                      onClick={() => setFeActiveTab('awaiting')}
+                      data-testid="fe-status-awaiting"
+                    >
+                      <CardContent className="p-4 text-center">
+                        <Clock className="h-6 w-6 mx-auto mb-1 text-purple-600" />
+                        <p className="text-2xl font-bold text-purple-700">{counts.awaiting}</p>
+                        <p className="text-xs text-purple-600">Awaiting You</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all ${feActiveTab === 'in_revision' ? 'ring-2 ring-amber-500' : 'hover:shadow-sm'}`}
+                      onClick={() => setFeActiveTab('in_revision')}
+                      data-testid="fe-status-in-revision"
+                    >
+                      <CardContent className="p-4 text-center">
+                        <RefreshCw className="h-6 w-6 mx-auto mb-1 text-amber-600" />
+                        <p className="text-2xl font-bold text-amber-700">{counts.in_revision}</p>
+                        <p className="text-xs text-amber-600">In Revision @ Planning</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all ${feActiveTab === 'approved' ? 'ring-2 ring-green-500' : 'hover:shadow-sm'}`}
+                      onClick={() => setFeActiveTab('approved')}
+                      data-testid="fe-status-approved"
+                    >
+                      <CardContent className="p-4 text-center">
+                        <CheckCircle2 className="h-6 w-6 mx-auto mb-1 text-green-600" />
+                        <p className="text-2xl font-bold text-green-700">{counts.approved}</p>
+                        <p className="text-xs text-green-600">Approved</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all ${feActiveTab === 'all' ? 'ring-2 ring-gray-500' : 'hover:shadow-sm'}`}
+                      onClick={() => setFeActiveTab('all')}
+                      data-testid="fe-status-all"
+                    >
+                      <CardContent className="p-4 text-center">
+                        <FileText className="h-6 w-6 mx-auto mb-1 text-gray-600" />
+                        <p className="text-2xl font-bold text-gray-800">{counts.all}</p>
+                        <p className="text-xs text-gray-600">All</p>
+                      </CardContent>
+                    </Card>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm" data-testid="fe-table">
-                      <thead className="bg-gray-50 border-y">
-                        <tr>
-                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Project</th>
-                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Client</th>
-                          <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Rev</th>
-                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Reviews</th>
-                          <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {feProjects.map((p) => {
+
+                  {/* Project Cards List */}
+                  <Card>
+                    <CardHeader className="border-b pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-purple-600" />
+                        Final Estimate — {feActiveTab === 'awaiting' ? 'Awaiting You'
+                          : feActiveTab === 'in_revision' ? 'In Revision @ Planning'
+                          : feActiveTab === 'approved' ? 'Approved'
+                          : 'All'}
+                      </CardTitle>
+                      <p className="text-xs text-gray-500 mt-1">Planning has prepared the Final Estimate. Approve directly or send a Review back to Planning.</p>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <div className="divide-y">
+                        {filtered.length === 0 ? (
+                          <div className="p-8 text-center text-gray-400">
+                            <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                            <p className="text-sm">No projects in this category</p>
+                          </div>
+                        ) : filtered.map((p) => {
                           const fe = p.fe || {};
                           const reviewCount = (fe.reviews || []).length;
-                          const statusBadge = (() => {
-                            if (fe.status === 'approved') return { cls: 'bg-green-100 text-green-700', label: 'Approved' };
-                            if (fe.status === 'review_pending') return { cls: 'bg-amber-100 text-amber-700', label: 'Review Sent' };
-                            if (fe.status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700', label: 'Awaiting You' };
-                            return { cls: 'bg-gray-100 text-gray-700', label: fe.status || 'Draft' };
-                          })();
+                          const sb = statusBadgeFor(fe.status);
                           const canAct = fe.status === 'pending_cre_review';
                           return (
-                            <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`fe-row-${p.project_id}`}>
-                              <td className="px-3 py-2 font-medium">{p.name}</td>
-                              <td className="px-3 py-2 text-xs">
-                                <p className="font-medium text-gray-700">{p.client_name}</p>
-                                {p.client_phone && <p className="text-gray-500 text-[11px]">{p.client_phone}</p>}
-                              </td>
-                              <td className="px-3 py-2 text-center"><Badge variant="outline" className="text-xs">{fe.revision || 0}</Badge></td>
-                              <td className="px-3 py-2"><Badge className={`text-xs ${statusBadge.cls}`}>{statusBadge.label}</Badge></td>
-                              <td className="px-3 py-2 text-xs">{reviewCount > 0 ? <span className="text-amber-700 font-medium">{reviewCount} review{reviewCount > 1 ? 's' : ''}</span> : <span className="text-gray-400">—</span>}</td>
-                              <td className="px-3 py-2">
-                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <div
+                              key={p.project_id}
+                              className={`p-4 hover:bg-gray-50 transition-all ${fe.status === 'approved' ? 'border-l-4 border-l-green-500 bg-green-50/30' : fe.status === 'pending_cre_review' ? 'border-l-4 border-l-purple-400' : ''}`}
+                              data-testid={`fe-project-${p.project_id}`}
+                            >
+                              <div className="flex items-start justify-between gap-3 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                    <span className="font-mono text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                                      {p.project_code || p.project_id?.slice(0, 8)}
+                                    </span>
+                                    <Badge variant="outline" className="text-[10px] bg-gray-50 text-gray-600 border-gray-200">
+                                      Rev {fe.revision || 0}
+                                    </Badge>
+                                    <h4 className="font-semibold text-gray-900">{p.name}</h4>
+                                    <Badge className={`text-xs border ${sb.cls}`}>{sb.label}</Badge>
+                                    {reviewCount > 0 && (
+                                      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+                                        <MessageSquare className="h-3 w-3 mr-0.5" /> {reviewCount} review{reviewCount > 1 ? 's' : ''}
+                                      </Badge>
+                                    )}
+                                  </div>
+
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                    <div>
+                                      <span className="text-gray-500">Client:</span>
+                                      <p className="font-medium">{p.client_name || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Location:</span>
+                                      <p>{p.location || '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">Sent to CRE:</span>
+                                      <p>{fe.sent_to_cre_at ? new Date(fe.sent_to_cre_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-gray-500">FE Total:</span>
+                                      <p className="font-bold text-purple-700">{formatCurrency(p.total_value)}</p>
+                                    </div>
+                                  </div>
+
+                                  {p.client_phone && (
+                                    <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                                      <Phone className="h-3 w-3" /> {p.client_phone}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 ml-auto">
                                   <Button
-                                    size="sm"
                                     variant="outline"
-                                    className="h-7 px-2"
+                                    size="sm"
                                     onClick={() => navigate(`/cre/final-estimate/${p.project_id}`)}
                                     data-testid={`fe-view-${p.project_id}`}
-                                    title="View Final Estimate"
                                   >
-                                    <Eye className="h-3.5 w-3.5 mr-1" /> View
+                                    <Eye className="h-4 w-4 mr-1" /> View
                                   </Button>
                                   {canAct && (
                                     <>
                                       <Button
                                         size="sm"
-                                        className="h-7 px-2 bg-green-600 hover:bg-green-700"
+                                        className="bg-green-600 hover:bg-green-700"
                                         onClick={() => handleFeApprove(p)}
                                         data-testid={`fe-approve-${p.project_id}`}
                                       >
-                                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
                                       </Button>
                                       <Button
                                         size="sm"
                                         variant="outline"
-                                        className="h-7 px-2 border-amber-400 text-amber-700 hover:bg-amber-50"
+                                        className="border-amber-400 text-amber-700 hover:bg-amber-50"
                                         onClick={() => setReviewDialog({ open: true, project: p, text: '' })}
                                         data-testid={`fe-review-${p.project_id}`}
                                       >
-                                        <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
+                                        <MessageSquare className="h-4 w-4 mr-1" /> Review
                                       </Button>
                                     </>
                                   )}
                                 </div>
-                              </td>
-                            </tr>
+                              </div>
+                            </div>
                           );
                         })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
           </TabsContent>
 
           {/* ==================== TAB 2: ALL PROJECTS ==================== */}
