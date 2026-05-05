@@ -96,12 +96,13 @@ export default function VendorMasterManagement() {
   };
 
   const handleDelete = async (vendorId) => {
-    if (!window.confirm('Deactivate this vendor?')) return;
+    const v = vendors.find(x => x.vendor_id === vendorId);
+    if (!window.confirm(`Delete vendor "${v?.name || ''}"?\n\nThis will remove them from the active vendor list. Past purchase orders & payment history will stay intact.`)) return;
     try {
       await axios.delete(`${API}/vendor-master/${vendorId}`);
-      toast.success('Vendor deactivated');
+      toast.success('Vendor deleted');
       fetchData();
-    } catch (e) {
+    } catch {
       toast.error('Failed to delete vendor');
     }
   };
@@ -225,8 +226,18 @@ export default function VendorMasterManagement() {
                       <h3 className="font-semibold text-gray-900 truncate">{v.name}</h3>
                     </div>
                     <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); openEdit(v); }} data-testid={`edit-vendor-${v.vendor_id}`}>
+                      <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); openEdit(v); }} data-testid={`edit-vendor-${v.vendor_id}`} title="Edit vendor">
                         <Edit className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={e => { e.stopPropagation(); handleDelete(v.vendor_id); }}
+                        data-testid={`delete-vendor-${v.vendor_id}`}
+                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                        title="Delete vendor"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -449,9 +460,25 @@ export default function VendorMasterManagement() {
                         {viewVendor.gst_number && <span className="text-xs font-mono">GST: {viewVendor.gst_number}</span>}
                       </DialogDescription>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => { setViewVendor(null); openEdit(viewVendor); }}>
-                      <Edit className="h-4 w-4 mr-1" /> Edit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setViewVendor(null); openEdit(viewVendor); }}>
+                        <Edit className="h-4 w-4 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          const id = viewVendor.vendor_id;
+                          setViewVendor(null);
+                          setVendorSummary(null);
+                          await handleDelete(id);
+                        }}
+                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                        data-testid="delete-vendor-detail-btn"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" /> Delete
+                      </Button>
+                    </div>
                   </div>
                 </DialogHeader>
 
