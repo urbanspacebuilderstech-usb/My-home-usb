@@ -1584,6 +1584,84 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     <div className="space-y-4" data-testid="cashbook-tab">
       {!expenseOnly && (
       <>
+      {/* Top KPI cards: Overall Income / Expense / Balance / Profit */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-cards">
+        <Card className="border-l-4 border-l-green-500 bg-gradient-to-br from-green-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Overall Income</p>
+                <p className="text-2xl font-bold text-green-700 mt-1"><MaskedValue value={totals.total_income || 0} className="text-green-700" formatFn={fmtFull} testId="kpi-overall-income" /></p>
+                <p className="text-[10px] text-gray-400 mt-0.5">For selected period</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
+                <ArrowDownRight className="h-5 w-5 text-green-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-red-500 bg-gradient-to-br from-red-50 to-white">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Expense</p>
+                <p className="text-2xl font-bold text-red-600 mt-1"><MaskedValue value={totals.total_expense || 0} className="text-red-600" formatFn={fmtFull} testId="kpi-expense" /></p>
+                <p className="text-[10px] text-gray-400 mt-0.5">For selected period</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <ArrowUpRight className="h-5 w-5 text-red-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {(() => {
+          const bal = (totals.total_income || 0) - (totals.total_expense || 0);
+          const isPos = bal >= 0;
+          return (
+            <Card className={`border-l-4 ${isPos ? 'border-l-blue-500 bg-gradient-to-br from-blue-50 to-white' : 'border-l-orange-500 bg-gradient-to-br from-orange-50 to-white'}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Balance</p>
+                    <p className={`text-2xl font-bold mt-1 ${isPos ? 'text-blue-700' : 'text-orange-600'}`}><MaskedValue value={bal} className={isPos ? 'text-blue-700' : 'text-orange-600'} formatFn={fmtFull} testId="kpi-balance" /></p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Income − Expense (period)</p>
+                  </div>
+                  <div className={`h-10 w-10 rounded-full ${isPos ? 'bg-blue-100' : 'bg-orange-100'} flex items-center justify-center`}>
+                    <Wallet className={`h-5 w-5 ${isPos ? 'text-blue-600' : 'text-orange-600'}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
+        {(() => {
+          // Profit = lifetime cumulative net (ignores date filter) — uses overview endpoint totals
+          const lifetimeIncome = overview?.totals?.total_income || 0;
+          const lifetimeExpense = overview?.totals?.total_expense || 0;
+          const profit = lifetimeIncome - lifetimeExpense;
+          const isPos = profit >= 0;
+          return (
+            <Card className={`border-l-4 ${isPos ? 'border-l-emerald-500 bg-gradient-to-br from-emerald-50 to-white' : 'border-l-rose-500 bg-gradient-to-br from-rose-50 to-white'}`}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Profit</p>
+                    <p className={`text-2xl font-bold mt-1 ${isPos ? 'text-emerald-700' : 'text-rose-600'}`}><MaskedValue value={profit} className={isPos ? 'text-emerald-700' : 'text-rose-600'} formatFn={fmtFull} testId="kpi-profit" /></p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">All-time cumulative</p>
+                  </div>
+                  <div className={`h-10 w-10 rounded-full ${isPos ? 'bg-emerald-100' : 'bg-rose-100'} flex items-center justify-center`}>
+                    <TrendingUp className={`h-5 w-5 ${isPos ? 'text-emerald-600' : 'text-rose-600'}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+      </div>
+
       {/* Financial Overview - Clickable Cards */}
       <Card className="border-l-4 border-l-amber-500">
         <CardHeader className="pb-2 pt-3 px-4">
