@@ -330,8 +330,8 @@ async def convert_deal_to_project(
         "status": "pending_payment",
         "accountant_verified": False,
         # Planning board visibility
-        "planning_status": "new",
-        "planning_new_date": now.isoformat(),
+        "planning_status": "pending_planning",  # CRE moves to "new" after accountant verifies
+        "pending_planning_date": now.isoformat(),
         # Links
         "re_project_id": lead.get("re_project_id"),
         "lead_id": lead_id,
@@ -558,8 +558,8 @@ async def convert_re_project_to_project(
         "status": "pending_payment",
         "accountant_verified": False,
         # Planning board visibility
-        "planning_status": "new",
-        "planning_new_date": now.isoformat(),
+        "planning_status": "pending_planning",  # CRE moves to "new" after accountant verifies
+        "pending_planning_date": now.isoformat(),
         # Links
         "re_project_id": re_project_id,
         "lead_id": re_project.get("lead_id"),
@@ -1002,8 +1002,8 @@ async def cro_submit_project(project_id: str, user: User = Depends(get_current_u
         {"project_id": project_id},
         {"$set": {
             "status": "pending_payment",
-            "planning_status": "new",
-            "planning_new_date": datetime.now(timezone.utc).isoformat(),
+            "planning_status": "pending_planning",  # CRE moves to "new" after accountant verifies
+            "pending_planning_date": datetime.now(timezone.utc).isoformat(),
             "submitted_for_payment_at": datetime.now(timezone.utc).isoformat()
         }}
     )
@@ -1449,18 +1449,18 @@ async def get_planning_projects_filtered(
             query["$or"] = deleted_clause["$or"]
             date_field = "archived_at"
         elif planning_status == "new":
+            # ONLY projects explicitly moved to Planning by CRE (after accountant verification).
+            # Projects fresh out of convert-deal have planning_status="pending_planning" and
+            # are NOT shown here.
+            query["planning_status"] = "new"
             query["$and"] = [
-                {"$or": [
-                    {"planning_status": "new"},
-                    {"planning_status": {"$exists": False}},
-                ]},
                 {"$or": [
                     {"is_archived": {"$exists": False}},
                     {"is_archived": False},
                 ]},
                 deleted_clause,
             ]
-            date_field = "created_at"
+            date_field = "planning_new_date"
         else:
             query["planning_status"] = planning_status
             query["$and"] = [
