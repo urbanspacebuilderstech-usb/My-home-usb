@@ -2841,10 +2841,39 @@ async def get_cashbook_filtered(
     total_income = sum(i.get("amount", 0) for i in incomes)
     total_expense = sum(e.get("amount", 0) for e in all_expenses)
 
+    # Build income_by_mode and expense_by_mode for the Financial Overview cards,
+    # honoring the same date/project filter so cards always match the table below.
+    mode_keys = ["cash", "current_account", "savings_account", "cheque", "petty_cash", "miscellaneous", "direct_transfer", "suspense_account"]
+    def _classify(mode):
+        if not mode:
+            return "cash"
+        m = str(mode).lower().replace(" ", "_")
+        mp = {
+            "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
+            "rtgs": "current_account", "imps": "current_account", "upi": "current_account",
+            "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
+            "savings_account": "savings_account", "current_account": "current_account",
+            "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
+            "dt": "direct_transfer", "suspense": "suspense_account", "suspense_account": "suspense_account",
+        }
+        return mp.get(m, "miscellaneous")
+
+    income_by_mode = {k: 0 for k in mode_keys}
+    income_by_mode["total"] = total_income
+    for i in incomes:
+        income_by_mode[_classify(i.get("payment_mode"))] += i.get("amount", 0)
+
+    expense_by_mode = {k: 0 for k in mode_keys}
+    expense_by_mode["total"] = total_expense
+    for e in all_expenses:
+        expense_by_mode[_classify(e.get("payment_method") or e.get("payment_mode"))] += e.get("amount", 0)
+
     return {
         "income_entries": incomes[:500],
         "expense_entries": all_expenses[:500],
         "projects": projects_list,
+        "income_by_mode": income_by_mode,
+        "expense_by_mode": expense_by_mode,
         "summary": {
             "total_income": total_income,
             "total_expense": total_expense,

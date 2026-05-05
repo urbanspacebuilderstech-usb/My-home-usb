@@ -1412,10 +1412,14 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
   const summary = cashbookData?.summary || overview?.totals || {};
 
-  // Data from overview for Financial Overview cards
-  const inc = overview?.income_by_mode || {};
-  const exp = overview?.expense_by_mode || {};
-  const totals = overview?.totals || {};
+  // Data from cashbook (filtered by date/project) for Financial Overview cards.
+  // Falls back to overview (all-time) only if cashbook hasn't loaded yet so the
+  // cards stay in sync with the table below as the user changes the date filter.
+  const inc = cashbookData?.income_by_mode || overview?.income_by_mode || {};
+  const exp = cashbookData?.expense_by_mode || overview?.expense_by_mode || {};
+  const totals = cashbookData?.summary
+    ? { total_income: cashbookData.summary.total_income, total_expense: cashbookData.summary.total_expense, net_balance: cashbookData.summary.net_balance }
+    : (overview?.totals || {});
 
   // Expense category calc
   const expByCategory = {
