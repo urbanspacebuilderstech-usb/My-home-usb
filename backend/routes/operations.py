@@ -1352,9 +1352,22 @@ async def get_planning_projects(status: Optional[str] = None, user: User = Depen
         raise HTTPException(status_code=403, detail="Only Planning can access this")
     
     query = {}
+    # Always exclude soft-deleted + archived projects from planning lists
+    query["$or"] = [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]
+
     if status == "new":
-        # Include projects sent from CRE (in_planning) and from CRM RE conversion (planning_review, planning)
-        query["status"] = {"$in": ["in_planning", "planning_review", "planning"]}
+        # Include projects sent from CRE (in_planning) and from CRM RE conversion (planning_review, planning).
+        # For "in_planning" specifically, require the explicit CRE handoff (sent_to_planning_at)
+        # so projects that haven't been sent by CRE don't leak into Planning's queue.
+        query["$and"] = [
+            {"$or": [
+                {"status": {"$in": ["planning_review", "planning"]}},
+                {"$and": [
+                    {"status": "in_planning"},
+                    {"sent_to_planning_at": {"$exists": True, "$ne": None}},
+                ]},
+            ]},
+        ]
     elif status == "awaiting":
         query["status"] = "awaiting_approval"
     elif status == "working":
@@ -1463,9 +1476,13 @@ async def get_planning_projects_filtered(
             date_field = "archived_at"
         elif planning_status == "new":
             # ONLY projects explicitly moved to Planning by CRE (after accountant verification).
-            # Projects fresh out of convert-deal have planning_status="pending_planning" and
-            # are NOT shown here.
+            # Two requirements:
+            #   1. planning_status == "new"
+            #   2. sent_to_planning_at must exist (legacy data fix — projects converted
+            #      before the pending_planning gate could have planning_status='new'
+            #      but were never explicitly handed over by CRE).
             query["planning_status"] = "new"
+            query["sent_to_planning_at"] = {"$exists": True, "$ne": None}
             query["$and"] = [
                 {"$or": [
                     {"is_archived": {"$exists": False}},
