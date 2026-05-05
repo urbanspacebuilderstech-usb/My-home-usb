@@ -408,7 +408,7 @@ export default function CREBoard() {
           <Card className="border-l-4 border-l-orange-500" data-testid="card-pending">
             <CardContent className="p-3">
               <p className="text-xs text-gray-500 mb-1">Pending Actions</p>
-              <p className="text-2xl font-bold text-orange-700">{pendingCount + paymentRequests.length + newDeals.length}</p>
+              <p className="text-2xl font-bold text-orange-700">{(pendingApprovals.advance_verified?.length || 0) + paymentRequests.length}</p>
             </CardContent>
           </Card>
         </div>
@@ -418,7 +418,7 @@ export default function CREBoard() {
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
               <TabsTrigger value="new_deals" className="text-xs sm:text-sm" data-testid="tab-new-deals">
-                New Deals {newDeals.length > 0 && <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{newDeals.length}</Badge>}
+                New Deals {(pendingApprovals.advance_verified?.length || 0) > 0 && <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingApprovals.advance_verified.length}</Badge>}
               </TabsTrigger>
               <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
               <TabsTrigger value="payment_req" className="text-xs sm:text-sm" data-testid="tab-payment-req">
@@ -438,32 +438,34 @@ export default function CREBoard() {
           <TabsContent value="new_deals">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals — Sales Onboarded</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals — Advance Verified</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">Projects automatically arrive here once Accountant verifies the advance payment. Click "Send to Planning" to hand over.</p>
               </CardHeader>
               <CardContent className="p-0">
-                {newDeals.length === 0 ? (
+                {(!pendingApprovals.advance_verified || pendingApprovals.advance_verified.length === 0) ? (
                   <div className="p-8 text-center text-gray-400">
                     <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No new deals waiting for conversion</p>
+                    <p className="text-sm">No new deals waiting for handover</p>
                   </div>
                 ) : (
                   <div className="divide-y">
-                    {newDeals.map((deal) => (
-                      <div key={deal.re_project_id || deal.lead_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`deal-card-${deal.re_project_id || deal.lead_id}`}>
+                    {pendingApprovals.advance_verified.map((p) => (
+                      <div key={p.project_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`deal-card-${p.project_id}`}>
                         <div className="flex justify-between items-start gap-4">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-semibold truncate">{deal.project_name || deal.name}</h4>
-                              {deal.deal_type === 're_project' ? <Badge className="bg-green-100 text-green-700 text-xs shrink-0">GM Approved RE</Badge> : <Badge className="bg-yellow-100 text-yellow-700 text-xs shrink-0">Sales Deal</Badge>}
+                              <h4 className="font-semibold truncate">{p.name}</h4>
+                              <Badge className="bg-green-100 text-green-700 text-xs shrink-0">Advance Verified</Badge>
                             </div>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                              {(deal.phone || deal.client_phone) && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{deal.phone || deal.client_phone}</span>}
-                              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{deal.location || deal.city || deal.re_project?.location || '-'}</span>
-                              {(deal.estimated_total || deal.re_project?.estimated_total) && <span className="font-medium text-green-600">{formatCurrency(deal.estimated_total || deal.re_project?.estimated_total)}</span>}
+                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.client_phone || '-'}</span>
+                              <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{p.location || '-'}</span>
+                              <span className="text-gray-700">Client: <span className="font-medium">{p.client_name}</span></span>
+                              {p.advance_amount > 0 && <span className="font-medium text-green-600">Advance: {formatCurrency(p.advance_amount)}</span>}
                             </div>
                           </div>
-                          <Button className="bg-green-600 hover:bg-green-700 shrink-0" size="sm" onClick={() => openConvertDealDialog(deal)} data-testid={`convert-deal-${deal.re_project_id || deal.lead_id}`}>
-                            <ArrowRight className="h-4 w-4 mr-1" />Convert
+                          <Button className="bg-amber-600 hover:bg-amber-700 shrink-0" size="sm" onClick={() => handleSubmitToPlanning(p.project_id)} data-testid={`send-to-planning-${p.project_id}`}>
+                            <Send className="h-4 w-4 mr-1" />Send to Planning
                           </Button>
                         </div>
                       </div>

@@ -131,46 +131,13 @@ async def get_cro_dashboard(user: User = Depends(get_current_user)):
 
 @router.get("/cre/new-deals")
 async def get_cre_new_deals(user: User = Depends(get_current_user)):
-    """New Deals tab — shows ONLY Sales leads that have reached the
-    'Project Onboarded' stage (stg_project_onboarded). GM-approved RE
-    projects and Deal-Close-but-not-yet-onboarded items are NOT included
-    (per business rule — they belong to other queues).
+    """[DEPRECATED] CRE 'New Deals' tab now reads from pendingApprovals.advance_verified
+    (projects auto-arrived from accountant approval). This endpoint is kept for
+    backward compatibility but returns an empty list.
     """
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can access this")
-
-    deals = []
-
-    # Sales leads parked at "Project Onboarded" that haven't been
-    # converted into a real project yet.
-    cursor = db.leads.find({
-        "current_stage_id": "stg_project_onboarded",
-        "stage_type": "sales",
-        "$or": [
-            {"project_created": {"$ne": True}},
-            {"project_created": {"$exists": False}},
-        ],
-    }).sort("updated_at", -1)
-
-    async for lead in cursor:
-        lead.pop("_id", None)
-        lead["deal_type"] = "sales_lead"
-
-        # Attach the linked RE project (if any) for client-side reference,
-        # without re-listing it as a separate row.
-        if lead.get("re_project_id"):
-            re_project = await db.re_projects.find_one(
-                {"re_project_id": lead["re_project_id"]},
-                {"_id": 0},
-            )
-            lead["re_project"] = re_project
-
-        deals.append(lead)
-
-    if user.role not in PRIVILEGED_ROLES:
-        deals = [strip_contact_fields(d) for d in deals]
-
-    return deals
+    return []
 
 
 class PaymentEntry(BaseModel):
