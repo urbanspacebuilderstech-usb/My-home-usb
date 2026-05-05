@@ -144,7 +144,7 @@ function ProjectSearchSelect({ projects = [], value = '', onChange, placeholder 
 }
 
 // Masked value component - Super Admin always sees values, Accountant clicks to reveal for 10s
-function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '' }) {
+function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '', style }) {
   const role = React.useContext(MaskContext);
   const globalUnmasked = React.useContext(UnmaskContext);
   const [visible, setVisible] = useState(false);
@@ -174,6 +174,7 @@ function MaskedValue({ value, className = '', formatFn = fmtFull, testId = '' })
       className={`inline-flex items-center gap-1 select-none ${alwaysVisible ? '' : 'cursor-pointer'} ${className}`}
       onClick={handleClick}
       data-testid={testId || undefined}
+      style={style}
       title={alwaysVisible ? undefined : (show ? 'Click to hide' : 'Click to reveal')}
     >
       {show ? formatFn(value) : '₹*****'}
@@ -1663,25 +1664,26 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       </div>
 
       {/* Financial Overview - Clickable Cards */}
-      <Card className="border-l-4 border-l-amber-500">
+      <Card className="border-l-4 border-l-amber-500" style={{ backgroundColor: '#dcfce7' }}>
         <CardHeader className="pb-2 pt-3 px-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-amber-600" /> Financial Overview
+            <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: '#15803d' }}>
+              <Wallet className="h-4 w-4" style={{ color: '#15803d' }} /> Financial Overview
             </CardTitle>
             <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs flex-wrap">
-              <span className="text-green-600 font-semibold">Income: <MaskedValue value={totals.total_income} className="text-green-600" testId="masked-total-income" /></span>
+              <span className="font-semibold" style={{ color: '#15803d' }}>Income: <MaskedValue value={totals.total_income} className="font-semibold" style={{ color: '#15803d' }} testId="masked-total-income" /></span>
               <span className="text-red-600 font-semibold">Expense: <MaskedValue value={totals.total_expense} className="text-red-600" testId="masked-total-expense" /></span>
-              <Badge className={totals.net_balance >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                Net: <MaskedValue value={totals.net_balance} className={totals.net_balance >= 0 ? 'text-green-700' : 'text-red-700'} testId="masked-net-balance" />
+              <Badge className={totals.net_balance >= 0 ? 'bg-green-100' : 'bg-red-100 text-red-700'} style={totals.net_balance >= 0 ? { color: '#15803d' } : undefined}>
+                Net: <MaskedValue value={totals.net_balance} testId="masked-net-balance" style={totals.net_balance >= 0 ? { color: '#15803d' } : { color: '#dc2626' }} />
               </Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="px-3 sm:px-4 pb-3">
-          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-1.5 sm:gap-2">
-            {Object.keys(MODE_LABELS).map(mode => {
+          <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-1.5 sm:gap-2">
+            {Object.keys(MODE_LABELS).filter(m => m !== 'suspense_account').map(mode => {
               const Icon = MODE_ICONS[mode];
+              const net = (inc[mode] || 0) - (exp[mode] || 0);
               return (
                 <div key={mode}
                   className={`rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03] ${MODE_COLORS[mode]}`}
@@ -1690,17 +1692,37 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 >
                   <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" />
                   <p className="text-[9px] sm:text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
-                  <p className="text-[10px] sm:text-xs font-bold text-green-700"><MaskedValue value={inc[mode] || 0} className="text-green-700 text-[10px] sm:text-xs" formatFn={(n) => `+${fmt(n)}`} /></p>
-                  <p className="text-[10px] sm:text-xs font-bold text-red-600"><MaskedValue value={exp[mode] || 0} className="text-red-600 text-[10px] sm:text-xs" formatFn={(n) => `-${fmt(n)}`} /></p>
+                  <p
+                    className="text-[10px] sm:text-xs font-bold"
+                    style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#6b7280' }}
+                  >
+                    <MaskedValue
+                      value={net}
+                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
+                      style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#6b7280' }}
+                      className="text-[10px] sm:text-xs font-bold"
+                    />
+                  </p>
                 </div>
               );
             })}
-            <div className="rounded-lg border p-1.5 sm:p-2 text-center bg-gray-900 text-white col-span-3 sm:col-span-1">
-              <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
-              <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
-              <p className="text-[10px] sm:text-xs font-bold text-green-400"><MaskedValue value={inc.total || 0} className="text-green-400 text-[10px] sm:text-xs" formatFn={(n) => `+${fmt(n)}`} /></p>
-              <p className="text-[10px] sm:text-xs font-bold text-red-400"><MaskedValue value={exp.total || 0} className="text-red-400 text-[10px] sm:text-xs" formatFn={(n) => `-${fmt(n)}`} /></p>
-            </div>
+            {(() => {
+              const totalNet = (inc.total || 0) - (exp.total || 0);
+              return (
+                <div className="rounded-lg border p-1.5 sm:p-2 text-center bg-gray-900 text-white col-span-3 sm:col-span-1">
+                  <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
+                  <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
+                  <p className="text-[10px] sm:text-xs font-bold" style={{ color: totalNet > 0 ? '#86efac' : totalNet < 0 ? '#fca5a5' : '#d1d5db' }}>
+                    <MaskedValue
+                      value={totalNet}
+                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
+                      style={{ color: totalNet > 0 ? '#86efac' : totalNet < 0 ? '#fca5a5' : '#d1d5db' }}
+                      className="text-[10px] sm:text-xs font-bold"
+                    />
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>
