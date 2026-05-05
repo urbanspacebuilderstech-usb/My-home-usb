@@ -341,7 +341,7 @@ export default function PlanningBoard() {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally { setLoading(false); }
   };
-  useAutoRefresh(fetchData, 15000);
+  useAutoRefresh(fetchData, 60000);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -365,7 +365,9 @@ export default function PlanningBoard() {
   };
 
   // Fetch projects by planning lifecycle sub-tab with date filters
+  const subTabFetchRef = React.useRef(0);
   const fetchSubTabProjects = async (status, filter) => {
+    const myFetchId = ++subTabFetchRef.current;
     setSubTabLoading(true);
     try {
       const params = new URLSearchParams({ planning_status: status });
@@ -382,9 +384,15 @@ export default function PlanningBoard() {
         params.append('year', filter.year);
       }
       const res = await axios.get(`${API}/planning/projects-filtered?${params.toString()}`);
+      // Ignore stale responses — only the latest fetch is allowed to write to state
+      if (myFetchId !== subTabFetchRef.current) return;
       setSubTabProjects(res.data || []);
-    } catch { toast.error('Failed to load projects'); }
-    finally { setSubTabLoading(false); }
+    } catch {
+      if (myFetchId === subTabFetchRef.current) toast.error('Failed to load projects');
+    }
+    finally {
+      if (myFetchId === subTabFetchRef.current) setSubTabLoading(false);
+    }
   };
 
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1031,24 +1039,34 @@ export default function PlanningBoard() {
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                {subTabLoading ? (
-                  <div className="p-8 text-center text-gray-500">Loading projects...</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm" data-testid="projects-table">
-                      <thead className="bg-gray-50 border-y">
-                        <tr>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                          <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {(() => {
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="projects-table">
+                    <thead className="bg-gray-50 border-y">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {subTabLoading && subTabProjects.length === 0 ? (
+                        // Skeleton rows while first-load is in flight
+                        Array.from({ length: 5 }).map((_, i) => (
+                          <tr key={`sk-${i}`} className="animate-pulse" data-testid={`skeleton-row-${i}`}>
+                            <td className="px-4 py-3"><div className="h-3 w-32 bg-gray-200 rounded" /><div className="h-2.5 w-20 bg-gray-100 rounded mt-1.5" /></td>
+                            <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
+                            <td className="px-4 py-3"><div className="h-5 w-20 bg-gray-200 rounded mx-auto" /></td>
+                            <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded ml-auto" /></td>
+                            <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-200 rounded mx-auto" /></td>
+                            <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded" /></td>
+                            <td className="px-4 py-3"><div className="h-7 w-24 bg-gray-200 rounded mx-auto" /></td>
+                          </tr>
+                        ))
+                      ) : (() => {
                           const filtered = subTabProjects.filter(p =>
                             !projectSearch ||
                             (p.name || '').toLowerCase().includes(projectSearch.toLowerCase()) ||
@@ -1142,10 +1160,9 @@ export default function PlanningBoard() {
                             </tr>
                           ));
                         })()}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
             )}
