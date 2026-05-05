@@ -145,7 +145,7 @@ function getModuleKey(pathname, role) {
   return null;
 }
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -239,6 +239,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
 
           {/* Right: Notifs + Profile + User + Logout */}
           <div className="flex items-center gap-2 shrink-0">
+            {headerActions}
             <Button variant="ghost" size="icon" onClick={() => navigate('/notifications')} className="relative h-9 w-9" data-testid="header-notifications">
               <Bell className="h-4 w-4" />
               {unreadNotifs > 0 && (

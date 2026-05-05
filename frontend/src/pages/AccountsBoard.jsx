@@ -3846,41 +3846,36 @@ export default function AccountsBoard() {
     );
   }
 
+  // Mask/Unmask toggle button — moved into the header (right of nav, before bell).
+  const maskToggleButton = user?.role && user.role !== 'super_admin' ? (
+    globalUnmasked ? (
+      <Button
+        variant="outline"
+        size="sm"
+        className="border-red-300 text-red-600 hover:bg-red-50 hidden md:inline-flex"
+        onClick={() => setGlobalUnmasked(false)}
+        data-testid="mask-all-btn"
+      >
+        <EyeOff className="h-4 w-4 mr-1.5" /> Mask All
+      </Button>
+    ) : (
+      <Button
+        variant="outline"
+        size="sm"
+        className="border-amber-300 text-amber-700 hover:bg-amber-50 hidden md:inline-flex"
+        onClick={() => setUnmaskDialog(true)}
+        data-testid="unmask-all-btn"
+      >
+        <Eye className="h-4 w-4 mr-1.5" /> Unmask All
+      </Button>
+    )
+  ) : null;
+
   return (
     <MaskContext.Provider value={user?.role || 'accountant'}>
     <UnmaskContext.Provider value={globalUnmasked}>
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-4" data-testid="accounts-board">
-      <AppHeader user={user} />
-      <div className="sticky top-14 z-40 bg-gray-50 border-b border-gray-100">
-        <div className="max-w-[1400px] mx-auto px-3 md:px-6 pt-2 pb-2">
-          <div className="flex items-center justify-between mb-2">
-            <div />
-            {user?.role !== 'super_admin' && (
-              globalUnmasked ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-red-300 text-red-600 hover:bg-red-50"
-                  onClick={() => setGlobalUnmasked(false)}
-                  data-testid="mask-all-btn"
-                >
-                  <EyeOff className="h-4 w-4 mr-1.5" /> Mask All
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
-                  onClick={() => setUnmaskDialog(true)}
-                  data-testid="unmask-all-btn"
-                >
-                  <Eye className="h-4 w-4 mr-1.5" /> Unmask All
-                </Button>
-              )
-            )}
-          </div>
-        </div>
-      </div>
+      <AppHeader user={user} headerActions={maskToggleButton} />
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">
