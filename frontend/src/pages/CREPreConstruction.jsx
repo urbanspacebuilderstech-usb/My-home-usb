@@ -51,6 +51,8 @@ export default function CREPreConstruction({ embedded = false }) {
   const initialStage = embedded ? null : searchParams.get('stage');
   const [activeStage, setActiveStage] = useState(initialStage);
   const [search, setSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState('all'); // all | this_week | next_7_days | custom
+  const [customRange, setCustomRange] = useState({ from: '', to: '' });
   const [scheduleDialog, setScheduleDialog] = useState({ open: false, project: null, value: '', submitting: false });
 
   const fetchData = async (showLoader = true) => {
@@ -87,15 +89,47 @@ export default function CREPreConstruction({ embedded = false }) {
 
   const filteredRows = useMemo(() => {
     if (!data.rows) return [];
+    let rows = data.rows;
+
+    // Search
     const q = search.trim().toLowerCase();
-    if (!q) return data.rows;
-    return data.rows.filter(r =>
-      (r.name || '').toLowerCase().includes(q) ||
-      (r.client_name || '').toLowerCase().includes(q) ||
-      (r.location || '').toLowerCase().includes(q) ||
-      (r.project_code || '').toLowerCase().includes(q)
-    );
-  }, [data.rows, search]);
+    if (q) {
+      rows = rows.filter(r =>
+        (r.name || '').toLowerCase().includes(q) ||
+        (r.client_name || '').toLowerCase().includes(q) ||
+        (r.location || '').toLowerCase().includes(q) ||
+        (r.project_code || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Date filter — applied against scheduled_at
+    if (dateFilter !== 'all') {
+      const now = new Date();
+      const start = new Date(now); start.setHours(0, 0, 0, 0);
+      let from, to;
+      if (dateFilter === 'this_week') {
+        // Monday → Sunday
+        const dayOfWeek = (start.getDay() + 6) % 7; // 0 = Mon
+        from = new Date(start); from.setDate(start.getDate() - dayOfWeek);
+        to = new Date(from); to.setDate(from.getDate() + 7);
+      } else if (dateFilter === 'next_7_days') {
+        from = start;
+        to = new Date(start); to.setDate(start.getDate() + 7);
+      } else if (dateFilter === 'custom') {
+        if (customRange.from) from = new Date(customRange.from);
+        if (customRange.to) { to = new Date(customRange.to); to.setHours(23, 59, 59, 999); }
+      }
+      rows = rows.filter(r => {
+        if (!r.scheduled_at) return false;
+        const t = new Date(r.scheduled_at).getTime();
+        if (from && t < from.getTime()) return false;
+        if (to && t > to.getTime()) return false;
+        return true;
+      });
+    }
+
+    return rows;
+  }, [data.rows, search, dateFilter, customRange]);
 
   const updateStage = async (projectId, stageKey, payload) => {
     try {
@@ -108,7 +142,14 @@ export default function CREPreConstruction({ embedded = false }) {
   };
 
   const openSchedule = (row) => {
-    setScheduleDialog({ open: true, project: row, value: toLocalInputValue(row.scheduled_at), submitting: false });
+    // For completed rows, start with a blank picker so CRE picks a fresh date.
+    // For scheduled/pending rows, pre-fill with the existing scheduled_at.
+    setScheduleDialog({
+      open: true,
+      project: row,
+      value: row.status === 'completed' ? '' : toLocalInputValue(row.scheduled_at),
+      submitting: false,
+    });
   };
   const submitSchedule = async () => {
     if (!scheduleDialog.value) {
@@ -215,7 +256,22 @@ export default function CREPreConstruction({ embedded = false }) {
     </div>
   );
 
-  const StageDetail = () => (
+  const StageDetail = () => {
+    const filterPill = (key, label) => (
+      <button
+        key={key}
+        onClick={() => setDateFilter(key)}
+        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+          dateFilter === key
+            ? 'bg-amber-50 text-amber-700 border-amber-300'
+            : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+        }`}
+        data-testid={`pc-filter-${key}`}
+      >
+        {label}
+      </button>
+    );
+    return (
     <Card>
       <CardHeader className="border-b pb-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -233,6 +289,34 @@ export default function CREPreConstruction({ embedded = false }) {
               data-testid="pc-search"
             />
           </div>
+        </div>
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
+          <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500 mr-1">
+            Scheduled date:
+          </span>
+          {filterPill('all', 'All')}
+          {filterPill('this_week', 'This Week')}
+          {filterPill('next_7_days', 'Next 7 Days')}
+          {filterPill('custom', 'Custom Range')}
+          {dateFilter === 'custom' && (
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="date"
+                value={customRange.from}
+                onChange={(e) => setCustomRange(r => ({ ...r, from: e.target.value }))}
+                className="h-7 text-xs w-36"
+                data-testid="pc-filter-custom-from"
+              />
+              <span className="text-xs text-gray-400">→</span>
+              <Input
+                type="date"
+                value={customRange.to}
+                onChange={(e) => setCustomRange(r => ({ ...r, to: e.target.value }))}
+                className="h-7 text-xs w-36"
+                data-testid="pc-filter-custom-to"
+              />
+            </div>
+          )}
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -324,7 +408,8 @@ export default function CREPreConstruction({ embedded = false }) {
         )}
       </CardContent>
     </Card>
-  );
+    );
+  };
 
   const Body = (
     <div className="space-y-4">
