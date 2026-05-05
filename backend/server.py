@@ -101,6 +101,7 @@ from routes.home_packages import router as home_packages_router
 from routes.uploads import router as uploads_router
 from routes.slots import router as slots_router
 from routes.final_estimates import router as final_estimates_router
+from routes.pre_construction import router as pre_construction_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
@@ -120,6 +121,7 @@ app.include_router(home_packages_router, prefix="/api")
 app.include_router(uploads_router, prefix="/api")
 app.include_router(slots_router, prefix="/api")
 app.include_router(final_estimates_router, prefix="/api")
+app.include_router(pre_construction_router, prefix="/api")
 
 @app.get("/api/reports/api-endpoints-pdf")
 async def download_api_report_pdf(user=Depends(get_current_user)):
