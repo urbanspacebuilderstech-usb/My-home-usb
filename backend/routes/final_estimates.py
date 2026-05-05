@@ -244,6 +244,72 @@ async def cre_submit_review(project_id: str, body: ReviewBody, user: User = Depe
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# CRE → "Request Revision"  (post-approval revision: bumps revision +1 and sends back to Planning)
+# Allowed only when fe.status == "approved" — i.e. CRE already signed off, but
+# something needs to change after the fact (client called back, scope mismatch, etc.).
+# ──────────────────────────────────────────────────────────────────────────────
+class RevisionRequestBody(BaseModel):
+    description: str
+
+
+@router.post("/cre/final-estimates/{project_id}/request-revision")
+async def cre_request_revision(project_id: str, body: RevisionRequestBody, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can request a revision")
+
+    description = (body.description or "").strip()
+    if not description:
+        raise HTTPException(status_code=400, detail="Revision description cannot be empty")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    if fe["status"] != "approved":
+        raise HTTPException(status_code=400, detail=f"Revision can only be requested on an Approved Final Estimate. Current status: {fe['status']}")
+
+    # Bump revision counter and move back to Planning's queue
+    new_revision = (fe.get("revision") or 0) + 1
+    fe["revision"] = new_revision
+
+    review_index = len(fe.get("reviews", [])) + 1
+    new_review = {
+        "review_no": review_index,
+        "revision": new_revision,
+        "text": description,
+        "kind": "post_approval_revision",
+        "by": user.user_id,
+        "by_name": user.name if hasattr(user, "name") else None,
+        "at": _now(),
+    }
+    fe["reviews"] = (fe.get("reviews") or []) + [new_review]
+    fe["status"] = "review_pending"
+    # Clear the previous client-approval timestamp since the FE is now in flux again
+    fe["client_approved_at"] = None
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "cre_request_revision",
+        "review_no": review_index,
+        "revision": new_revision,
+        "by": user.user_id,
+        "at": new_review["at"],
+    }]
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify Planning
+    planners = await db.users.find({"role": "planning", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+    for p in planners:
+        await _notify(
+            p["user_id"],
+            f"FE Revision Requested — FE {new_revision:02d}",
+            f"CRE requested a post-approval revision on Final Estimate for {project.get('name', '')}",
+            "fe_revision_requested",
+            project_id,
+        )
+
+    return {"message": f"Revision FE {new_revision:02d} sent to Planning", "revision": new_revision, "review_no": review_index}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # CRE → "Send for Client Approval"  (issue / refresh permanent token; view-only)
 # ──────────────────────────────────────────────────────────────────────────────
 @router.post("/cre/final-estimates/{project_id}/send-to-client")

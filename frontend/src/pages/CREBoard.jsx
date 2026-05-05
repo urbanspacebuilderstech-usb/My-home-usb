@@ -77,6 +77,7 @@ export default function CREBoard() {
   const [feProjects, setFeProjects] = useState([]);
   const [feActiveTab, setFeActiveTab] = useState('awaiting');
   const [reviewDialog, setReviewDialog] = useState({ open: false, project: null, text: '' });
+  const [revisionDialog, setRevisionDialog] = useState({ open: false, project: null, description: '', submitting: false });
 
   // Payment Collected (ledger)
   const [incomeCollected, setIncomeCollected] = useState([]);
@@ -306,6 +307,24 @@ export default function CREBoard() {
       fetchData(false);
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to send review');
+    }
+  };
+
+  const handleSubmitRevision = async () => {
+    const desc = (revisionDialog.description || '').trim();
+    if (!desc) {
+      toast.error('Please describe what should change in this revision');
+      return;
+    }
+    setRevisionDialog((d) => ({ ...d, submitting: true }));
+    try {
+      const r = await axios.post(`${API}/cre/final-estimates/${revisionDialog.project.project_id}/request-revision`, { description: desc });
+      toast.success(r.data?.message || 'Revision sent to Planning');
+      setRevisionDialog({ open: false, project: null, description: '', submitting: false });
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send revision');
+      setRevisionDialog((d) => ({ ...d, submitting: false }));
     }
   };
 
@@ -688,6 +707,17 @@ export default function CREBoard() {
                                   >
                                     <Eye className="h-4 w-4 mr-1" /> View
                                   </Button>
+                                  {fe.status === 'approved' && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="border-purple-400 text-purple-700 hover:bg-purple-50"
+                                      onClick={() => setRevisionDialog({ open: true, project: p, description: '', submitting: false })}
+                                      data-testid={`fe-request-revision-${p.project_id}`}
+                                    >
+                                      <RefreshCw className="h-4 w-4 mr-1" /> Revision
+                                    </Button>
+                                  )}
                                   {canAct && (
                                     <>
                                       <Button
@@ -1229,6 +1259,44 @@ export default function CREBoard() {
             <Button variant="outline" onClick={() => setReviewDialog({ open: false, project: null, text: '' })}>Cancel</Button>
             <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleFeSubmitReview} data-testid="fe-review-submit">
               <Send className="h-4 w-4 mr-1" /> Send to Planning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* CRE → Request Revision dialog (post-approval, bumps revision and sends to Planning) */}
+      <Dialog open={revisionDialog.open} onOpenChange={(o) => !o && !revisionDialog.submitting && setRevisionDialog({ open: false, project: null, description: '', submitting: false })}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><RefreshCw className="h-5 w-5 text-purple-600" />Request Final Estimate Revision</DialogTitle>
+            <DialogDescription>This will bump the revision number and send the Final Estimate back to Planning for changes. Use this only when scope changes are required after approval.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-purple-50 px-3 py-2.5">
+              <p className="text-xs text-gray-500 mb-0.5">Project</p>
+              <p className="font-medium text-gray-900">{revisionDialog.project?.name}</p>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <Badge variant="outline" className="text-[11px]">Current: FE {String(revisionDialog.project?.fe?.revision || 0).padStart(2, '0')}</Badge>
+                <Badge className="bg-purple-100 text-purple-700 text-[11px]">New: FE {String((revisionDialog.project?.fe?.revision || 0) + 1).padStart(2, '0')}</Badge>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Revision Description <span className="text-red-500">*</span></label>
+              <Textarea
+                rows={5}
+                placeholder="What should change in this revision? Example: Client requested premium wood flooring instead of laminate. Add modular kitchen with 8ft tall units. Increase budget for false ceiling…"
+                value={revisionDialog.description}
+                onChange={(e) => setRevisionDialog(d => ({ ...d, description: e.target.value }))}
+                disabled={revisionDialog.submitting}
+                data-testid="fe-revision-textarea"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevisionDialog({ open: false, project: null, description: '', submitting: false })} disabled={revisionDialog.submitting}>Cancel</Button>
+            <Button className="bg-purple-600 hover:bg-purple-700" onClick={handleSubmitRevision} disabled={revisionDialog.submitting} data-testid="fe-revision-submit">
+              {revisionDialog.submitting ? <RefreshCw className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+              Send to Planning
             </Button>
           </DialogFooter>
         </DialogContent>
