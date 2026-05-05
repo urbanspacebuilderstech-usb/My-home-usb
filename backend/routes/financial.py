@@ -419,6 +419,40 @@ async def delete_income_entry(income_id: str, user: User = Depends(get_current_u
     return {"message": "Income entry deleted"}
 
 
+@router.delete("/cashbook/expense/{expense_type}/{record_id}")
+async def delete_cashbook_expense(expense_type: str, record_id: str, user: User = Depends(get_current_user)):
+    """Delete an expense from the cashbook view.
+    The cashbook surfaces three different collections — recorded_expenses,
+    labour_expenses, material_requests. We probe all three (by both
+    expense_id and request_id) since a row's `expense_type` alone
+    doesn't uniquely identify the source collection (e.g. a 'material'
+    row may live in recorded_expenses if it was a manual entry, or in
+    material_requests if it came from an approval workflow).
+    Only Accountant / Super Admin can delete.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Only Accountant can delete expenses")
+
+    # Probe order: most specific collections first
+    candidates = [
+        (db.material_requests, "request_id"),
+        (db.labour_expenses, "expense_id"),
+        (db.recorded_expenses, "expense_id"),
+    ]
+    for coll, id_field in candidates:
+        existing = await coll.find_one({id_field: record_id}, {"_id": 0})
+        if existing:
+            await coll.delete_one({id_field: record_id})
+            await create_audit_log(
+                user.user_id, "delete", f"expense_{expense_type}", record_id,
+                {"amount": existing.get("amount") or existing.get("total_amount") or existing.get("estimated_price", 0),
+                 "collection": coll.name}
+            )
+            return {"message": "Expense deleted", "type": expense_type, "from": coll.name}
+
+    raise HTTPException(status_code=404, detail="Expense record not found in any cashbook collection")
+
+
 
 # ==================== UNIFIED APPROVALS ENDPOINT ====================
 
@@ -2748,6 +2782,15 @@ async def get_cashbook_filtered(
 
     income_q = {}
     expense_q = {}
+
+    # Income tab should only show APPROVED entries (or legacy entries without
+    # an explicit status field). Hide pending_approval / rejected so the
+    # Cashbook stays a "money in the bank" view.
+    income_q["$or"] = [
+        {"status": "approved"},
+        {"status": {"$exists": False}},
+        {"status": None},
+    ]
 
     if project_id:
         income_q["project_id"] = project_id

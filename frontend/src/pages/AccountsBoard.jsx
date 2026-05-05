@@ -24,7 +24,7 @@ import {
   Filter, Printer, ChevronDown, ChevronUp, X, Plus, Calendar, Search,
   CreditCard, CheckCircle, Clock, AlertTriangle, Edit, XCircle, Bell,
   AlertCircle, BookOpen, ArrowLeft, BarChart3, ClipboardCheck, ThumbsUp, ThumbsDown, EyeOff,
-  Lock, PieChart, Truck, Check
+  Lock, PieChart, Truck, Check, Trash2
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -1380,6 +1380,32 @@ function CashbookTab({ overview, projects, userRole }) {
 
   useEffect(() => { fetchCashbook(); }, [fetchCashbook]);
 
+  const handleDeleteIncome = async (entry) => {
+    if (!entry?.income_id) { toast.error('Missing income id'); return; }
+    if (!window.confirm(`Delete this income entry of ₹${(entry.amount || 0).toLocaleString('en-IN')}?\n\nThis will also adjust the project's recorded income. This action cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/income/${entry.income_id}`);
+      toast.success('Income entry deleted');
+      fetchCashbook();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to delete income');
+    }
+  };
+
+  const handleDeleteExpense = async (entry) => {
+    const recordId = entry.expense_id || entry.request_id;
+    if (!recordId) { toast.error('Missing expense id'); return; }
+    const expType = entry.expense_type || entry.category || 'recorded';
+    if (!window.confirm(`Delete this ${expType} expense of ₹${(entry.amount || 0).toLocaleString('en-IN')}?\n\nThis action cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/cashbook/expense/${expType}/${recordId}`);
+      toast.success('Expense deleted');
+      fetchCashbook();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to delete expense');
+    }
+  };
+
   const incomeEntries = cashbookData?.income_entries || overview?.income_entries || [];
   const allExpenseEntries = cashbookData?.expense_entries || overview?.expense_entries || [];
   const summary = cashbookData?.summary || overview?.totals || {};
@@ -1727,6 +1753,7 @@ function CashbookTab({ overview, projects, userRole }) {
             classifyMode={classifyMode}
             onView={(entry) => { setSelectedEntry(entry); setViewDialog(true); }}
             onPrint={handlePrintReceipt}
+            onDelete={handleDeleteIncome}
           />
         </TabsContent>
 
@@ -1921,6 +1948,16 @@ function CashbookTab({ overview, projects, userRole }) {
                           <div className="flex items-center justify-center gap-1">
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => { setSelectedEntry(entry); setViewDialog(true); }}><Eye className="h-3 w-3" /></Button>
                             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => handlePrintReceipt(entry)}><Printer className="h-3 w-3" /></Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                              onClick={() => handleDeleteExpense(entry)}
+                              data-testid={`expense-delete-btn-${entry.expense_id || entry.request_id || i}`}
+                              title="Delete expense"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -3278,7 +3315,7 @@ function ApprovalsTab() {
 }
 
 // Income split: Main Income (everything except DT) + Direct Transfer
-function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint }) {
+function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint, onDelete }) {
   const [tab, setTab] = useState('main');
   const [dtPayDialog, setDtPayDialog] = useState({ open: false, dtIncome: null });
   const isDT = (e) => (e.payment_mode === 'direct_transfer') || (classifyMode(e.payment_mode) === 'direct_transfer');
@@ -3359,6 +3396,18 @@ function IncomeTabsView({ incomeEntries, classifyMode, onView, onPrint }) {
                         )}
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onView(entry)}><Eye className="h-3 w-3" /></Button>
                         <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-amber-600" onClick={() => onPrint(entry)}><Printer className="h-3 w-3" /></Button>
+                        {onDelete && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-red-600 hover:bg-red-50"
+                            onClick={() => onDelete(entry)}
+                            data-testid={`income-delete-btn-${entry.income_id}`}
+                            title="Delete income entry"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
