@@ -425,7 +425,7 @@ export default function CREBoard() {
                 Payment Req {(paymentRequests.length + additionalPaymentRequests.length) > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{paymentRequests.length + additionalPaymentRequests.length}</Badge>}
               </TabsTrigger>
               <TabsTrigger value="payment_approvals" className="text-xs sm:text-sm" data-testid="tab-payment-approvals">
-                Payment Approvals {pendingCount > 0 && <Badge className="ml-1 bg-orange-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingCount}</Badge>}
+                Payment Approvals
               </TabsTrigger>
               <TabsTrigger value="payment_collected" className="text-xs sm:text-sm" data-testid="tab-payment-collected">Payment Collected</TabsTrigger>
               <TabsTrigger value="cheques" className="text-xs sm:text-sm" data-testid="tab-cheque-management">
@@ -438,7 +438,7 @@ export default function CREBoard() {
           <TabsContent value="new_deals">
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals from Sales & GM-Approved RE</CardTitle>
+                <CardTitle className="text-base flex items-center gap-2"><Target className="h-4 w-4 text-yellow-600" />New Deals — Sales Onboarded</CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 {newDeals.length === 0 ? (
@@ -602,74 +602,15 @@ export default function CREBoard() {
 
           {/* ==================== TAB 4: PAYMENT APPROVALS ==================== */}
           <TabsContent value="payment_approvals">
-            <div className="space-y-4">
-              {/* Advance Payments - Send to Planning */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Send className="h-4 w-4 text-amber-600" />
-                    Advance Verified - Ready for Planning
-                    {pendingApprovals.advance_verified?.length > 0 && <Badge className="bg-amber-100 text-amber-700 text-xs">{pendingApprovals.advance_verified.length}</Badge>}
-                  </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Accountant has verified advance payment. Send project to Planning team.</p>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {(!pendingApprovals.advance_verified || pendingApprovals.advance_verified.length === 0) ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No advance payments pending action</div>
-                  ) : (
-                    <div className="divide-y">
-                      {pendingApprovals.advance_verified.map((p) => (
-                        <div key={p.project_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`approval-advance-${p.project_id}`}>
-                          <div>
-                            <p className="font-medium">{p.name}</p>
-                            <p className="text-xs text-gray-500">{p.client_name} | Advance: {formatCurrency(p.advance_amount)}</p>
-                          </div>
-                          <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-8" onClick={() => handleSubmitToPlanning(p.project_id)}>
-                            <Send className="h-3 w-3 mr-1" />Send to Planning
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Other Payments - Just Approve */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    Pending Income Approvals
-                    {pendingApprovals.pending_income?.length > 0 && <Badge className="bg-green-100 text-green-700 text-xs">{pendingApprovals.pending_income.length}</Badge>}
-                  </CardTitle>
-                  <p className="text-xs text-gray-500 mt-1">Collected payments pending confirmation</p>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {(!pendingApprovals.pending_income || pendingApprovals.pending_income.length === 0) ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No payments pending approval</div>
-                  ) : (
-                    <div className="divide-y">
-                      {pendingApprovals.pending_income.map((inc) => (
-                        <div key={inc.income_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`approval-income-${inc.income_id}`}>
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{inc.project_name}</p>
-                            <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
-                              <span>{inc.category?.replace(/_/g, ' ')}</span>
-                              <span>{inc.payment_mode?.replace(/_/g, ' ')}</span>
-                              {inc.stage && <span>{inc.stage}</span>}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-semibold text-green-700">{formatCurrency(inc.amount)}</p>
-                            <Badge className="bg-yellow-100 text-yellow-700 text-xs">Pending</Badge>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            <Card>
+              <CardContent className="p-12 text-center">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 mb-3">
+                  <CheckCircle2 className="h-6 w-6 text-gray-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-700">No payment approvals pending</p>
+                <p className="text-xs text-gray-400 mt-1">Approvals are now handled automatically. Check the New Deals tab for items ready to convert.</p>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ==================== TAB 5: PAYMENT COLLECTED ==================== */}
