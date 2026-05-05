@@ -198,7 +198,7 @@ const classifyMode = (mode) => {
 };
 
 // ============ DRILLDOWN VIEW ============
-function DrilldownView({ title, entries, type, onBack }) {
+function DrilldownView({ title, entries, type, onBack, onDelete, canDelete = false }) {
   return (
     <div className="space-y-3" data-testid="drilldown-view">
       <div className="flex items-center gap-3">
@@ -226,11 +226,12 @@ function DrilldownView({ title, entries, type, onBack }) {
                   <th className="text-left px-3 py-2 font-medium text-gray-500">Mode</th>
                   {type === 'expense' && <th className="text-left px-3 py-2 font-medium text-gray-500">Vendor</th>}
                   <th className="text-right px-3 py-2 font-medium text-gray-500">Amount</th>
+                  {canDelete && <th className="text-center px-3 py-2 font-medium text-gray-500">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {entries.length === 0 ? (
-                  <tr><td colSpan={type === 'expense' ? 7 : 6} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
+                  <tr><td colSpan={(type === 'expense' ? 7 : 6) + (canDelete ? 1 : 0)} className="px-4 py-8 text-center text-gray-400">No entries found</td></tr>
                 ) : entries.map((e, i) => (
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
@@ -246,6 +247,20 @@ function DrilldownView({ title, entries, type, onBack }) {
                     <td className={`px-3 py-2 text-right font-bold ${type === 'income' ? 'text-green-700' : 'text-red-600'}`}>
                       <MaskedValue value={e.amount} className={type === 'income' ? 'text-green-700' : 'text-red-600'} />
                     </td>
+                    {canDelete && (
+                      <td className="px-3 py-2 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-red-600 hover:bg-red-50"
+                          onClick={() => onDelete && onDelete(e)}
+                          data-testid={`drilldown-delete-${e.income_id || e.expense_id || e.request_id || i}`}
+                          title={type === 'income' ? 'Delete income entry' : 'Delete expense'}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1494,9 +1509,18 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     return <PettyCashManagement onBack={() => setDrilldown(null)} />;
   }
   if (drilldown?.type === 'category') {
-    return <DrilldownView title={`${drilldown.label} Expenses`} entries={drilldown.entries} type="expense" onBack={() => setDrilldown(null)} />;
+    const allowAcctActions = userRole === 'accountant' || userRole === 'super_admin';
+    return <DrilldownView
+      title={`${drilldown.label} Expenses`}
+      entries={drilldown.entries}
+      type="expense"
+      onBack={() => setDrilldown(null)}
+      canDelete={allowAcctActions}
+      onDelete={(e) => { handleDeleteExpense(e); setDrilldown(null); }}
+    />;
   }
   if (drilldown?.type === 'mode') {
+    const allowAcctActions = userRole === 'accountant' || userRole === 'super_admin';
     return (
       <div className="space-y-3" data-testid="mode-drilldown">
         <div className="flex items-center gap-3">
@@ -1515,10 +1539,24 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="income">
-            <DrilldownView title={`${drilldown.label} Income`} entries={drilldown.incomeEntries} type="income" onBack={() => setDrilldown(null)} />
+            <DrilldownView
+              title={`${drilldown.label} Income`}
+              entries={drilldown.incomeEntries}
+              type="income"
+              onBack={() => setDrilldown(null)}
+              canDelete={allowAcctActions}
+              onDelete={(e) => { handleDeleteIncome(e); setDrilldown(null); }}
+            />
           </TabsContent>
           <TabsContent value="expense">
-            <DrilldownView title={`${drilldown.label} Expenses`} entries={drilldown.expenseEntries} type="expense" onBack={() => setDrilldown(null)} />
+            <DrilldownView
+              title={`${drilldown.label} Expenses`}
+              entries={drilldown.expenseEntries}
+              type="expense"
+              onBack={() => setDrilldown(null)}
+              canDelete={allowAcctActions}
+              onDelete={(e) => { handleDeleteExpense(e); setDrilldown(null); }}
+            />
           </TabsContent>
         </Tabs>
       </div>
