@@ -198,29 +198,55 @@ async def startup_init():
 
     # ───── Critical performance indexes ─────
     # These are idempotent; MongoDB no-ops if the index already exists.
-    try:
-        from core.database import db as startup_db
-        await startup_db.leads.create_index([("stage_type", 1), ("current_stage_id", 1)])
-        await startup_db.leads.create_index([("stage_type", 1), ("assigned_to", 1)])
-        await startup_db.leads.create_index([("stage_type", 1), ("created_at", -1)])
-        await startup_db.leads.create_index([("lead_id", 1)], unique=True)
-        await startup_db.leads.create_index([("re_project_id", 1)])
-        await startup_db.re_projects.create_index([("status", 1)])
-        await startup_db.re_projects.create_index([("re_project_id", 1)], unique=True)
-        await startup_db.re_projects.create_index([("lead_id", 1)])
-        await startup_db.material_expenses.create_index([("status", 1), ("created_at", -1)])
-        await startup_db.material_expenses.create_index([("expense_id", 1)], unique=True)
-        await startup_db.labour_expenses.create_index([("status", 1), ("created_at", -1)])
-        await startup_db.user_sessions.create_index([("session_token", 1)])
-        await startup_db.user_sessions.create_index([("user_id", 1)])
-        await startup_db.users.create_index([("email", 1)])
-        await startup_db.users.create_index([("role", 1), ("is_active", 1)])
-        await startup_db.cheques.create_index([("cheque_type", 1), ("is_opened", 1), ("status", 1)])
-        await startup_db.recorded_expenses.create_index([("project_id", 1), ("created_at", -1)])
-        await startup_db.income.create_index([("status", 1), ("payment_mode", 1)])
-        logger.info("MongoDB indexes verified/created")
-    except Exception as e:
-        logger.warning(f"Index init failed (non-fatal): {e}")
+    # Each index is wrapped individually so a pre-existing conflict on one
+    # doesn't abort creation of the rest.
+    from core.database import db as startup_db
+
+    async def _safe_index(coll, keys, **opts):
+        try:
+            await coll.create_index(keys, **opts)
+        except Exception as ie:
+            logger.debug(f"Index {keys} on {coll.name} skipped: {ie}")
+
+    await _safe_index(startup_db.leads, [("stage_type", 1), ("current_stage_id", 1)])
+    await _safe_index(startup_db.leads, [("stage_type", 1), ("assigned_to", 1)])
+    await _safe_index(startup_db.leads, [("stage_type", 1), ("created_at", -1)])
+    await _safe_index(startup_db.leads, [("lead_id", 1)], unique=True)
+    await _safe_index(startup_db.leads, [("re_project_id", 1)])
+    await _safe_index(startup_db.re_projects, [("status", 1)])
+    await _safe_index(startup_db.re_projects, [("re_project_id", 1)], unique=True)
+    await _safe_index(startup_db.re_projects, [("lead_id", 1)])
+    await _safe_index(startup_db.material_expenses, [("status", 1), ("created_at", -1)])
+    await _safe_index(startup_db.material_expenses, [("expense_id", 1)], unique=True)
+    await _safe_index(startup_db.labour_expenses, [("status", 1), ("created_at", -1)])
+    await _safe_index(startup_db.user_sessions, [("session_token", 1)])
+    await _safe_index(startup_db.user_sessions, [("user_id", 1)])
+    await _safe_index(startup_db.users, [("email", 1)])
+    await _safe_index(startup_db.users, [("role", 1), ("is_active", 1)])
+    await _safe_index(startup_db.cheques, [("cheque_type", 1), ("is_opened", 1), ("status", 1)])
+    await _safe_index(startup_db.recorded_expenses, [("project_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.income, [("status", 1), ("payment_mode", 1)])
+    # Projects collection — heavy queries from Planning Board, CRE, Accountant.
+    # These are the biggest perf wins for slow Planning Board loads.
+    await _safe_index(startup_db.projects, [("project_id", 1)], unique=True)
+    await _safe_index(startup_db.projects, [("planning_status", 1), ("is_archived", 1), ("is_deleted", 1)])
+    await _safe_index(startup_db.projects, [("status", 1), ("sent_to_planning_at", 1)])
+    await _safe_index(startup_db.projects, [("is_archived", 1), ("archived_at", -1)])
+    await _safe_index(startup_db.projects, [("lead_id", 1)])
+    await _safe_index(startup_db.projects, [("re_project_id", 1)])
+    await _safe_index(startup_db.projects, [("created_at", -1)])
+    await _safe_index(startup_db.projects, [("client_phone", 1)])
+    # Notifications — user_id lookup on every page (header bell)
+    await _safe_index(startup_db.notifications, [("user_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.notifications, [("user_id", 1), ("read", 1)])
+    # Material/Labour by project_id (used in delete-blocking + project detail)
+    await _safe_index(startup_db.material_requests, [("project_id", 1), ("status", 1)])
+    await _safe_index(startup_db.material_expenses, [("project_id", 1)])
+    await _safe_index(startup_db.labour_expenses, [("project_id", 1)])
+    # Income/Expenses by project_id (used in cashbook + safe-delete check)
+    await _safe_index(startup_db.income, [("project_id", 1), ("created_at", -1)])
+    await _safe_index(startup_db.expenses, [("project_id", 1), ("created_at", -1)])
+    logger.info("MongoDB indexes verified/created")
 
     # Auto-seed demo users only in DEMO_MODE
     try:
