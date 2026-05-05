@@ -766,7 +766,9 @@ async def accountant_verify_advance(project_id: str, data: AccountantVerifyInput
 
 @router.patch("/cre/projects/{project_id}/send-to-planning")
 async def send_project_to_planning(project_id: str, user: User = Depends(get_current_user)):
-    """CRE sends verified project to Planning department"""
+    """CRE sends verified project to Planning department.
+    Flips planning_status from 'pending_planning' → 'new' so the project
+    becomes visible in the Planning Board's New Projects tab."""
     if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only CRE can send projects to planning")
     
@@ -782,12 +784,23 @@ async def send_project_to_planning(project_id: str, user: User = Depends(get_cur
         {"project_id": project_id},
         {"$set": {
             "status": "in_planning",
+            # Now visible to Planning team (was 'pending_planning' until now)
+            "planning_status": "new",
+            "planning_new_date": now.isoformat(),
             "sent_to_planning_by": user.user_id,
             "sent_to_planning_at": now.isoformat()
         }}
     )
-    
-    return {"message": "Project sent to Planning", "status": "in_planning"}
+
+    # Notify planning users about the newly arrived project
+    try:
+        planning_users = await db.users.find({"role": "planning"}, {"_id": 0, "user_id": 1}).to_list(100)
+        for pu in planning_users:
+            await create_notification(pu["user_id"], f"New project from CRE: {project.get('name')}")
+    except Exception:
+        pass
+
+    return {"message": "Project sent to Planning", "status": "in_planning", "planning_status": "new"}
 
 
 @router.patch("/cre/projects/{project_id}/move-to-drawing")

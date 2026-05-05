@@ -387,7 +387,7 @@ export default function PlanningBoard() {
     finally { setSubTabLoading(false); }
   };
 
-  useEffect(() => { if (activeTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleProjectSubTabChange = (tab) => {
     setProjectSubTab(tab);
