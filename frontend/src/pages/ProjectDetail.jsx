@@ -423,6 +423,10 @@ export default function ProjectDetail() {
   const [editingScopeItem, setEditingScopeItem] = useState(null);
   const [editScopeForm, setEditScopeForm] = useState({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
+  // Req Payment dialog (asks for expected month/date before requesting)
+  const [reqPayDialog, setReqPayDialog] = useState({ open: false, stage: null, date: '', submitting: false });
+  // Payment Schedule month/year filter (filters by expected_payment_date)
+  const [psMonthFilter, setPsMonthFilter] = useState(''); // '' = all, format 'YYYY-MM'
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
   // Inline edit for project header
@@ -1570,9 +1574,10 @@ export default function ProjectDetail() {
   };
 
 
-  const handleRequestPayment = async (stageId) => {
+  const handleRequestPayment = async (stageId, expectedDate = null) => {
     try {
-      await axios.patch(`${API}/payment-stages/${stageId}/request`);
+      const payload = expectedDate ? { expected_payment_date: expectedDate } : {};
+      await axios.patch(`${API}/payment-stages/${stageId}/request`, payload);
       toast.success('Payment requested! Goes to CRE for processing.');
       fetchData(false);
     } catch (error) {
@@ -3217,7 +3222,7 @@ export default function ProjectDetail() {
                 );
               })()}
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                 <div>
                   <h3 className="text-lg font-bold">Payment Schedule</h3>
                   <p className="text-sm text-gray-500">
@@ -3465,6 +3470,50 @@ export default function ProjectDetail() {
                 </DialogContent>
               </Dialog>
 
+              {/* Month/Year filter — filters by expected_payment_date */}
+              {(() => {
+                // Build set of YYYY-MM values present in payment_stages
+                const monthSet = new Set();
+                (payment_stages || []).forEach(s => {
+                  if (s.expected_payment_date) {
+                    monthSet.add((s.expected_payment_date || '').slice(0, 7));
+                  }
+                });
+                const months = Array.from(monthSet).sort();
+                if (months.length === 0) return null;
+                const fmtMonth = (ym) => {
+                  if (!ym) return '';
+                  const [y, m] = ym.split('-');
+                  return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-IN', { month: 'short', year: 'numeric' });
+                };
+                return (
+                  <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="payment-schedule-month-filter">
+                    <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500">Filter by month:</span>
+                    <button
+                      onClick={() => setPsMonthFilter('')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                        !psMonthFilter ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                      }`}
+                      data-testid="ps-month-all"
+                    >
+                      All
+                    </button>
+                    {months.map(m => (
+                      <button
+                        key={m}
+                        onClick={() => setPsMonthFilter(m)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          psMonthFilter === m ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                        }`}
+                        data-testid={`ps-month-${m}`}
+                      >
+                        {fmtMonth(m)}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
@@ -3495,14 +3544,20 @@ export default function ProjectDetail() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {payment_stages.length === 0 ? (
-                      <tr>
-                        <td colSpan={canManage ? 10 : 8} className="px-4 py-8 text-center text-gray-500">
-                          No payment stages defined yet. Click "Add Payments" to define milestones.
-                        </td>
-                      </tr>
-                    ) : (
-                      payment_stages.map((stage, index) => {
+                    {(() => {
+                      const filteredStages = psMonthFilter
+                        ? (payment_stages || []).filter(s => (s.expected_payment_date || '').slice(0, 7) === psMonthFilter)
+                        : (payment_stages || []);
+                      if (filteredStages.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={canManage ? 10 : 8} className="px-4 py-8 text-center text-gray-500">
+                              {psMonthFilter ? 'No payments scheduled for this month.' : 'No payment stages defined yet. Click "Add Payments" to define milestones.'}
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return filteredStages.map((stage, index) => {
                         const balance = stage.amount - (stage.amount_received || 0);
                         const isPaid = balance <= 0;
                         const isRequested = stage.workflow_status === 'requested' || stage.workflow_status === 'pending_collection';
@@ -3539,6 +3594,11 @@ export default function ProjectDetail() {
                               {stage.due_date && (
                                 <p className="text-xs text-gray-500">Due: {new Date(stage.due_date).toLocaleDateString('en-IN')}</p>
                               )}
+                              {stage.expected_payment_date && (
+                                <p className="text-[11px] text-amber-600 mt-0.5">
+                                  📅 Expected: {new Date(stage.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </p>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right">{stage.percentage}%</td>
                             {user?.role !== 'project_manager' && (
@@ -3566,7 +3626,7 @@ export default function ProjectDetail() {
                                     variant="outline"
                                     size="sm"
                                     className="text-amber-600 border-blue-300 hover:bg-amber-50"
-                                    onClick={() => handleRequestPayment(stage.stage_id)}
+                                    onClick={() => setReqPayDialog({ open: true, stage, date: '', submitting: false })}
                                   >
                                     <Send className="h-3 w-3 mr-1" />
                                     Req Payment
@@ -3604,8 +3664,8 @@ export default function ProjectDetail() {
                             </td>
                           </tr>
                         );
-                      })
-                    )}
+                      });
+                    })()}
                   </tbody>
                   {payment_stages.length > 0 && (
                     <tfoot className="bg-green-50 border-t-2">
@@ -5822,6 +5882,77 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
       <MobileBottomNav user={user} />
+
+      {/* Req Payment Dialog — asks for expected payment month/date before submitting */}
+      <Dialog
+        open={reqPayDialog.open}
+        onOpenChange={(o) => !o && !reqPayDialog.submitting && setReqPayDialog({ open: false, stage: null, date: '', submitting: false })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-amber-600" />Request Payment</DialogTitle>
+            <DialogDescription>
+              Choose the month and date when you expect this payment to be collected. CRE can then prioritize and filter requests by month.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-amber-50 px-3 py-2.5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs text-gray-500 mb-0.5">Stage</p>
+                  <p className="font-medium text-gray-900 truncate">{reqPayDialog.stage?.stage_name}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-gray-500 mb-0.5">Amount</p>
+                  <p className="font-bold text-amber-700">
+                    ₹{(reqPayDialog.stage ? (reqPayDialog.stage.amount - (reqPayDialog.stage.amount_received || 0)) : 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Expected Payment Date <span className="text-red-500">*</span></label>
+              <Input
+                type="date"
+                value={reqPayDialog.date}
+                onChange={(e) => setReqPayDialog((d) => ({ ...d, date: e.target.value }))}
+                disabled={reqPayDialog.submitting}
+                data-testid="req-pay-date-input"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">CRE board will show this in the schedule and can filter requests by this month.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setReqPayDialog({ open: false, stage: null, date: '', submitting: false })}
+              disabled={reqPayDialog.submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={async () => {
+                if (!reqPayDialog.date) {
+                  toast.error('Please pick the expected payment date');
+                  return;
+                }
+                setReqPayDialog((d) => ({ ...d, submitting: true }));
+                try {
+                  await handleRequestPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
+                  setReqPayDialog({ open: false, stage: null, date: '', submitting: false });
+                } catch {
+                  setReqPayDialog((d) => ({ ...d, submitting: false }));
+                }
+              }}
+              disabled={reqPayDialog.submitting}
+              data-testid="req-pay-submit"
+            >
+              <Send className="h-4 w-4 mr-1" /> Req
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Project Location Setup Dialog */}
       <Dialog open={showLocationSetup} onOpenChange={setShowLocationSetup}>

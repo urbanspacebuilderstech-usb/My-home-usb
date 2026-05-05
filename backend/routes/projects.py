@@ -1987,9 +1987,15 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
     return {"message": "Payment stage deleted"}
 
 
+class PaymentRequestBody(BaseModel):
+    expected_payment_date: Optional[str] = None  # ISO date (YYYY-MM-DD) when Planning expects this payment to be collected
+
+
 @router.patch("/payment-stages/{stage_id}/request")
-async def request_payment(stage_id: str, user: User = Depends(get_current_user)):
-    """Planning/PM requests payment from CRE - updates workflow_status to 'requested'"""
+async def request_payment(stage_id: str, body: Optional[PaymentRequestBody] = None, user: User = Depends(get_current_user)):
+    """Planning/PM requests payment from CRE - updates workflow_status to 'requested'.
+
+    Optionally accepts an expected_payment_date so CRE can prioritize / filter by month."""
     if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning can request payments")
     
@@ -1999,15 +2005,19 @@ async def request_payment(stage_id: str, user: User = Depends(get_current_user))
     
     project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
     
+    set_fields = {
+        "workflow_status": "requested",
+        "requested_by": user.user_id,
+        "requested_by_name": user.name,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if body and body.expected_payment_date:
+        set_fields["expected_payment_date"] = body.expected_payment_date
+
     # Update workflow status to requested
     await db.payment_stages.update_one(
         {"stage_id": stage_id},
-        {"$set": {
-            "workflow_status": "requested",
-            "requested_by": user.user_id,
-            "requested_by_name": user.name,
-            "requested_at": datetime.now(timezone.utc).isoformat()
-        }}
+        {"$set": set_fields}
     )
     
     # Notify all CRE users about the payment request
