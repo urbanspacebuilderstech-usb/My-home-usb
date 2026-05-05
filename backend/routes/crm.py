@@ -935,9 +935,20 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     
     old_stage_id = lead["current_stage_id"]
     
-    # Block manual moves FROM "Payment Collect" and "Accountant Approval" stages
-    if old_stage_id in ["stg_payment_collect", "stg_accountant_approval"]:
-        raise HTTPException(status_code=400, detail="This lead cannot be moved manually. It will move automatically after accountant verification.")
+    # Block manual moves FROM "Payment Collect", "Accountant Approval", and
+    # "Project Onboarded" stages. Once a deal has reached payment collection,
+    # Sales must NOT be able to drag it back to an earlier stage — accounting
+    # records, project creation, and downstream handovers depend on this lead
+    # staying past the post-Deal-Close gate.
+    if old_stage_id in ["stg_payment_collect", "stg_accountant_approval", "stg_project_onboarded"]:
+        raise HTTPException(status_code=400, detail="This lead is past Deal Close and cannot be moved back. Payment has already been collected and the project has been created.")
+
+    # Belt-and-braces: if the lead is linked to a real project (i.e. a deal was
+    # closed and a project was spawned), block any manual stage move regardless
+    # of the current stage_id. This catches edge cases where a lead's stage was
+    # somehow reverted by a script while the project still exists.
+    if lead.get("project_id") and not getattr(data, "internal_deal_convert", False):
+        raise HTTPException(status_code=400, detail="This lead is already linked to an active project. Sales can no longer change its stage.")
     
     # Block manual moves TO "Project Onboarded" 
     if data.stage_id == "stg_project_onboarded":
