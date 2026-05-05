@@ -28,23 +28,29 @@ router = APIRouter()
 
 
 @router.get("/projects")
-async def get_projects(user: User = Depends(get_current_user)):
+async def get_projects(include_deleted: bool = False, user: User = Depends(get_current_user)):
     # IDOR Fix: Role-based project filtering
     full_access_roles = [
         UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT,
         UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.CRE
     ]
+    # Soft-deleted filter (only Super Admin can opt-in to see them)
+    deleted_filter = {} if (include_deleted and user.role == UserRole.SUPER_ADMIN) else \
+                     {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
     if user.role == UserRole.CLIENT:
-        projects = await db.projects.find({"client_user_id": user.user_id}, {"_id": 0}).to_list(1000)
+        projects = await db.projects.find({"client_user_id": user.user_id, **deleted_filter}, {"_id": 0}).to_list(1000)
     elif user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM]:
         projects = await db.projects.find(
-            {"$or": [{"assigned_to": user.user_id}, {"team_members": user.user_id}]},
+            {"$and": [
+                {"$or": [{"assigned_to": user.user_id}, {"team_members": user.user_id}]},
+                deleted_filter,
+            ]},
             {"_id": 0}
         ).to_list(1000)
     elif user.role in full_access_roles:
-        projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+        projects = await db.projects.find(deleted_filter, {"_id": 0}).to_list(1000)
     else:
-        projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+        projects = await db.projects.find(deleted_filter, {"_id": 0}).to_list(1000)
     
     # Collect all project IDs for batch queries
     project_ids = [p["project_id"] for p in projects]
@@ -1299,17 +1305,29 @@ async def update_project(project_id: str, update_data: ProjectUpdate, user: User
 
 
 @router.delete("/projects/{project_id}")
-async def delete_project(project_id: str, user: User = Depends(get_current_user)):
-    """Delete a project - Super Admin can delete any, Planning can delete 'In Planning' projects"""
+async def delete_project(project_id: str, hard: bool = False, user: User = Depends(get_current_user)):
+    """Soft-delete a project (default) or permanently delete (Super Admin + no financials).
+
+    SOFT DELETE (default):
+      - Sets is_deleted=true on the project doc
+      - Project disappears from ALL lists / boards / dashboards
+      - Income, expenses, payment stages, scope items, deductions — ALL preserved
+      - Reversible via /projects/{id}/restore by Super Admin
+      - Allowed for: Super Admin, and Planning if project is in planning stage or already archived
+
+    HARD DELETE (?hard=true):
+      - Super Admin only
+      - REJECTED if the project has ANY financial records (income / expenses / payments)
+      - This protects accounting/audit history
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Only Super Admin or Planning can delete projects")
-    
-    # Get project to check status for Planning role
+
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Planning can delete projects that are still in planning stage OR archived
+
+    # Permission gate for Planning role (unchanged)
     if user.role == UserRole.PLANNING:
         allowed_statuses = ["in_planning", "planning", "draft", "pending"]
         project_status = project.get("status", "").lower()
@@ -1317,16 +1335,92 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
         is_archived = bool(project.get("is_archived"))
         if not is_archived and project_status not in allowed_statuses and project_stage not in allowed_statuses:
             raise HTTPException(status_code=403, detail="Planning can only delete projects in planning/draft stage or archived projects")
-    
-    # Delete related data
-    await db.scope_items.delete_many({"project_id": project_id})
-    await db.payment_stages.delete_many({"project_id": project_id})
-    await db.additional_costs.delete_many({"project_id": project_id})
-    await db.deductions.delete_many({"project_id": project_id})
-    await db.projects.delete_one({"project_id": project_id})
-    
-    await create_audit_log(user.user_id, "delete", "project", project_id, {"deleted_by_role": user.role})
-    return {"message": "Project and all related data deleted"}
+
+    # ----- HARD DELETE path -----
+    if hard:
+        if user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete a project")
+
+        # Refuse if any financial record exists for this project
+        finance_collections = [
+            ("income", "incoming payments"),
+            ("recorded_expenses", "expenses"),
+            ("labour_expenses", "labour expenses"),
+            ("material_expenses", "material expenses"),
+            ("vendor_service_expenses", "vendor service expenses"),
+        ]
+        # payment_stages with any collected_amount > 0 also counts as financial
+        for coll, label in finance_collections:
+            count = await db[coll].count_documents({"project_id": project_id})
+            if count > 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot permanently delete: project has {count} {label} record(s). Use soft delete to hide the project while preserving accounting history.",
+                )
+        # Check for collected payments on payment stages
+        collected = await db.payment_stages.count_documents({
+            "project_id": project_id,
+            "$or": [
+                {"collected_amount": {"$gt": 0}},
+                {"status": {"$in": ["paid", "completed", "received", "verified"]}},
+            ],
+        })
+        if collected > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot permanently delete: project has {collected} collected payment record(s). Use soft delete instead.",
+            )
+
+        # Safe to hard-delete — wipe project doc + non-financial child rows only
+        await db.scope_items.delete_many({"project_id": project_id})
+        await db.payment_stages.delete_many({"project_id": project_id})  # all uncollected
+        await db.additional_costs.delete_many({"project_id": project_id})
+        await db.deductions.delete_many({"project_id": project_id})
+        await db.projects.delete_one({"project_id": project_id})
+        await create_audit_log(user.user_id, "hard_delete", "project", project_id, {"deleted_by_role": user.role})
+        return {"message": "Project permanently deleted (no financial records existed)", "hard_deleted": True}
+
+    # ----- SOFT DELETE path (default) -----
+    if project.get("is_deleted"):
+        return {"message": "Project already deleted (soft)", "soft_deleted": True}
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "is_deleted": True,
+            "deleted_at": now,
+            "deleted_by": user.user_id,
+            "deleted_by_name": user.name,
+        }},
+    )
+    await create_audit_log(user.user_id, "soft_delete", "project", project_id, {"deleted_by_role": user.role})
+    return {
+        "message": "Project hidden. All income/expense/payment records preserved for accounting.",
+        "soft_deleted": True,
+    }
+
+
+@router.post("/projects/{project_id}/restore")
+async def restore_project(project_id: str, user: User = Depends(get_current_user)):
+    """Restore a soft-deleted project. Super Admin only."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can restore deleted projects")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not project.get("is_deleted"):
+        return {"message": "Project is not deleted", "restored": False}
+
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$unset": {"deleted_at": "", "deleted_by": "", "deleted_by_name": ""},
+         "$set": {"is_deleted": False}},
+    )
+    await create_audit_log(user.user_id, "restore", "project", project_id, {})
+    return {"message": "Project restored. It will reappear in its original tab.", "restored": True}
+
 
 
 # ==================== ARCHIVE / UNARCHIVE PROJECT ====================

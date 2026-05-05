@@ -431,12 +431,31 @@ export default function PlanningBoard() {
   };
 
   const handleDeleteArchivedProject = async (projectId, projectName) => {
-    if (!window.confirm(`PERMANENTLY DELETE archived project "${projectName}"?\n\nAll scope items, payments, and additional costs will also be removed. This cannot be undone.`)) return;
+    // First try a permanent (hard) delete — backend rejects with 409 if any
+    // financial records exist for this project, in which case we offer the
+    // user a soft delete instead.
+    if (!window.confirm(`Delete archived project "${projectName}"?\n\n• If the project has NO income/expense records → permanently deleted.\n• If it has any financial history → it will be hidden but accounting records preserved.`)) return;
     try {
-      await axios.delete(`${API}/projects/${projectId}`);
-      toast.success('Project deleted permanently');
+      const r = await axios.delete(`${API}/projects/${projectId}?hard=true`);
+      toast.success(r.data?.message || 'Project permanently deleted');
       fetchSubTabProjects(projectSubTab, projectDateFilter);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete'); }
+      return;
+    } catch (e) {
+      const status = e?.response?.status;
+      if (status === 409) {
+        // Has finance — fall back to soft delete after confirming
+        if (!window.confirm(`Project has financial history. Soft-delete instead?\n\nThe project will disappear from all boards but income/expenses stay in the books.`)) return;
+        try {
+          const r2 = await axios.delete(`${API}/projects/${projectId}`);
+          toast.success(r2.data?.message || 'Project hidden (finance preserved)');
+          fetchSubTabProjects(projectSubTab, projectDateFilter);
+        } catch (err) {
+          toast.error(err?.response?.data?.detail || 'Failed to hide project');
+        }
+      } else {
+        toast.error(e?.response?.data?.detail || 'Failed to delete');
+      }
+    }
   };
 
   const fetchMonthlySchedule = async () => {

@@ -1439,14 +1439,16 @@ async def get_planning_projects_filtered(
     query = {}
     date_field = "created_at"
 
+    # Always exclude soft-deleted projects from planning views
+    deleted_clause = {"$or": [{"is_deleted": {"$exists": False}}, {"is_deleted": False}]}
+
     if planning_status:
         if planning_status == "archived":
-            # Archive tab — show ONLY archived projects, regardless of planning lifecycle status
+            # Archive tab — show ONLY archived (but not soft-deleted) projects
             query["is_archived"] = True
+            query["$or"] = deleted_clause["$or"]
             date_field = "archived_at"
         elif planning_status == "new":
-            # Show projects with planning_status "new" OR projects without planning_status (newly created)
-            # Exclude archived from this tab.
             query["$and"] = [
                 {"$or": [
                     {"planning_status": "new"},
@@ -1456,14 +1458,17 @@ async def get_planning_projects_filtered(
                     {"is_archived": {"$exists": False}},
                     {"is_archived": False},
                 ]},
+                deleted_clause,
             ]
             date_field = "created_at"
         else:
             query["planning_status"] = planning_status
-            # Exclude archived from non-archive tabs
-            query["$or"] = [
-                {"is_archived": {"$exists": False}},
-                {"is_archived": False},
+            query["$and"] = [
+                {"$or": [
+                    {"is_archived": {"$exists": False}},
+                    {"is_archived": False},
+                ]},
+                deleted_clause,
             ]
             if planning_status == "active":
                 date_field = "planning_active_date"
