@@ -2507,7 +2507,7 @@ export default function ProjectDetail() {
                           : 'Send this Final Estimate to CRE for review?\n\nMake sure all scope items and totals are finalised before sending.';
                         if (!window.confirm(msg)) return;
                         try {
-                          await axios.post(`${API}/planning/projects/${id}/final-estimate/send-to-cre`);
+                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/send-to-cre`);
                           toast.success(isResend ? 'Updated Final Estimate sent to CRE' : 'Final Estimate sent to CRE');
                           fetchProject();
                         } catch (err) {
