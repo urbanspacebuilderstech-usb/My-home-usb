@@ -1681,6 +1681,22 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
         </CardHeader>
         <CardContent className="px-3 sm:px-4 pb-3">
           <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-8 gap-1.5 sm:gap-2">
+            {(() => {
+              const totalNet = (inc.total || 0) - (exp.total || 0);
+              return (
+                <div className="rounded-lg p-1.5 sm:p-2 text-center text-white col-span-3 sm:col-span-1" style={{ backgroundColor: '#15803d' }}>
+                  <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
+                  <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-white">
+                    <MaskedValue
+                      value={totalNet}
+                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
+                      className="text-[10px] sm:text-xs font-bold text-white"
+                    />
+                  </p>
+                </div>
+              );
+            })()}
             {Object.keys(MODE_LABELS).filter(m => m !== 'suspense_account').map(mode => {
               const Icon = MODE_ICONS[mode];
               const net = (inc[mode] || 0) - (exp[mode] || 0);
@@ -1707,45 +1723,48 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 </div>
               );
             })}
-            {(() => {
-              const totalNet = (inc.total || 0) - (exp.total || 0);
-              return (
-                <div className="rounded-lg p-1.5 sm:p-2 text-center text-white col-span-3 sm:col-span-1" style={{ backgroundColor: '#15803d' }}>
-                  <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
-                  <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
-                  <p className="text-[10px] sm:text-xs font-bold text-white">
-                    <MaskedValue
-                      value={totalNet}
-                      formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
-                      className="text-[10px] sm:text-xs font-bold text-white"
-                    />
-                  </p>
-                </div>
-              );
-            })()}
           </div>
         </CardContent>
       </Card>
 
-      {/* Expense Category Breakdown - Clickable */}
-      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
-        {EXP_CATEGORIES.map(cat => {
-          const Icon = cat.icon;
-          return (
-            <Card key={cat.key}
-              className={`border cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] ${cat.color}`}
-              onClick={() => handleCategoryClick(cat.key)}
-              data-testid={`exp-cat-${cat.key}`}
-            >
-              <CardContent className="p-2 sm:p-3 text-center">
-                <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 mx-auto mb-0.5 opacity-70" />
-                <p className="text-[10px] sm:text-[11px] font-semibold truncate">{cat.label}</p>
-                <p className="text-sm sm:text-base font-bold mt-0.5"><MaskedValue value={expByCategory[cat.key] || 0} /></p>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+      {/* Expense Category Breakdown - Clickable (red mirror of Financial Overview) */}
+      <Card className="border-l-4 border-l-red-500" style={{ backgroundColor: '#fee2e2' }}>
+        <CardHeader className="pb-2 pt-3 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2" style={{ color: '#b91c1c' }}>
+            <DollarSign className="h-4 w-4" style={{ color: '#b91c1c' }} /> Expense Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-3 sm:px-4 pb-3">
+          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
+            {EXP_CATEGORIES.map((cat, idx) => {
+              const Icon = cat.icon;
+              const isFirst = idx === 0;  // "Overall Expense" → solid dark red
+              return (
+                <div key={cat.key}
+                  className="rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03]"
+                  style={isFirst
+                    ? { backgroundColor: '#b91c1c', borderColor: '#b91c1c', color: '#ffffff' }
+                    : { backgroundColor: '#fee2e2', borderColor: '#fecaca', color: '#b91c1c' }
+                  }
+                  onClick={() => handleCategoryClick(cat.key)}
+                  data-testid={`exp-cat-${cat.key}`}
+                >
+                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-80" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }} />
+                  <p className="text-[9px] sm:text-[10px] font-medium truncate" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}>{cat.label}</p>
+                  <p className="text-[10px] sm:text-xs font-bold" style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}>
+                    <MaskedValue
+                      value={expByCategory[cat.key] || 0}
+                      formatFn={(n) => n > 0 ? fmt(n) : '0'}
+                      style={{ color: isFirst ? '#ffffff' : '#b91c1c' }}
+                      className="text-[10px] sm:text-xs font-bold"
+                    />
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
       </>
       )}
 
