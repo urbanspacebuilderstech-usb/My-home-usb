@@ -42,6 +42,7 @@ const emptyForm = {
 };
 
 export default function OtherAccounts() {
+  const [user, setUser] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [categories, setCategories] = useState(['sub_contractor', 'consultant', 'statutory', 'misc']);
   const [loading, setLoading] = useState(true);
@@ -56,9 +57,13 @@ export default function OtherAccounts() {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/other-accounts`);
-      setAccounts(r.data.accounts || []);
-      setCategories(r.data.categories || []);
+      const [meRes, listRes] = await Promise.all([
+        axios.get(`${API}/auth/me`).catch(() => null),
+        axios.get(`${API}/other-accounts`),
+      ]);
+      if (meRes?.data) setUser(meRes.data);
+      setAccounts(listRes.data.accounts || []);
+      setCategories(listRes.data.categories || []);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to load accounts');
     } finally {
@@ -139,7 +144,7 @@ export default function OtherAccounts() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader />
+      <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>

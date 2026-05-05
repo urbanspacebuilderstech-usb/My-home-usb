@@ -34,6 +34,7 @@ function buildBankText(it) {
 }
 
 export default function DTBoard() {
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState([]);
   const [active, setActive] = useState(null); // selected DT
@@ -45,8 +46,12 @@ export default function DTBoard() {
     setLoading(true);
     try {
       // Reuse cashbook to fetch incomes (DT only)
-      const r = await axios.get(`${API}/accountant/cashbook-filtered`);
-      const items = (r.data?.income_entries || []).filter(e => e.payment_mode === 'direct_transfer' && e.dt_status);
+      const [meRes, listRes] = await Promise.all([
+        axios.get(`${API}/auth/me`).catch(() => null),
+        axios.get(`${API}/accountant/cashbook-filtered`),
+      ]);
+      if (meRes?.data) setUser(meRes.data);
+      const items = (listRes.data?.income_entries || []).filter(e => e.payment_mode === 'direct_transfer' && e.dt_status);
       setList(items);
     } catch (e) {
       toast.error('Failed to load DT requests');
@@ -98,7 +103,7 @@ export default function DTBoard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader />
+      <AppHeader user={user} />
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
