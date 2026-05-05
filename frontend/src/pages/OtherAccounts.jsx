@@ -57,20 +57,20 @@ export default function OtherAccounts() {
   const load = async () => {
     setLoading(true);
     try {
-      const [meRes, listRes] = await Promise.all([
-        axios.get(`${API}/auth/me`).catch(() => null),
-        axios.get(`${API}/other-accounts`),
-      ]);
-      if (meRes?.data) setUser(meRes.data);
-      setAccounts(listRes.data.accounts || []);
-      setCategories(listRes.data.categories || []);
+      const r = await axios.get(`${API}/other-accounts`);
+      setAccounts(r.data.accounts || []);
+      setCategories(r.data.categories || []);
     } catch (e) {
       toast.error(e?.response?.data?.detail || 'Failed to load accounts');
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    // Fetch user separately so a list-API failure doesn't leave the header empty
+    axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => {});
+    load();
+  }, []);
 
   const openCreate = () => {
     setEditing(null);
