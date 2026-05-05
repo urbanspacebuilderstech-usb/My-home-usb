@@ -41,11 +41,12 @@ const ROLE_NAV = {
     { label: 'Procurement', path: '/procurement-board-v2' },
   ],
   planning: [
-    { label: 'Planning Board', path: '/planning-board' },
-    { label: 'Projects', path: '/projects' },
-    { label: 'Vendors', path: '/vendor-management' },
-    { label: 'Contractors', path: '/contractor-management' },
-    { label: 'BOQ', path: '/planning-board?tab=boq' },
+    { label: 'Dashboard', path: '/planning-board' },
+    { label: 'Packages', path: '/packages' },
+    { label: 'Material Vendors', path: '/vendor-management' },
+    { label: 'Labour Contractors', path: '/labour-contractors' },
+    { label: 'RE Templates', path: '/crm/re-projects' },
+    { label: 'Live Map', path: '/live-map' },
   ],
   procurement: [
     { label: 'Procurement', path: '/procurement-board-v2' },
