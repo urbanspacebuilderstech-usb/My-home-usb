@@ -14,7 +14,7 @@ import {
   Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
   Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList
+  Receipt, Banknote, ClipboardList, Copy, RefreshCw
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -71,6 +71,8 @@ export default function CREBoard() {
 
   // Payment Approvals
   const [pendingApprovals, setPendingApprovals] = useState({ advance_verified: [], pending_income: [] });
+  const [feProjects, setFeProjects] = useState([]);
+  const [feShareDialog, setFeShareDialog] = useState({ open: false, project: null, url: '' });
 
   // Payment Collected (ledger)
   const [incomeCollected, setIncomeCollected] = useState([]);
@@ -111,13 +113,14 @@ export default function CREBoard() {
       }
       setUser(userRes.data);
 
-      const [dashboardRes, dealsRes, paymentReqRes, additionalReqRes, incomeRes, approvalsRes] = await Promise.allSettled([
+      const [dashboardRes, dealsRes, paymentReqRes, additionalReqRes, incomeRes, approvalsRes, feRes] = await Promise.allSettled([
         axios.get(`${API}/cre/dashboard`),
         axios.get(`${API}/cre/new-deals`),
         axios.get(`${API}/cre/payment-requests`),
         axios.get(`${API}/cre/additional-payment-requests`),
         axios.get(`${API}/cre/income-collected`),
-        axios.get(`${API}/cre/pending-approvals`)
+        axios.get(`${API}/cre/pending-approvals`),
+        axios.get(`${API}/cre/final-estimates`)
       ]);
 
       if (dashboardRes.status === 'fulfilled') {
@@ -138,6 +141,7 @@ export default function CREBoard() {
       if (additionalReqRes.status === 'fulfilled') setAdditionalPaymentRequests(additionalReqRes.value.data || []);
       if (incomeRes.status === 'fulfilled') setIncomeCollected(incomeRes.value.data || []);
       if (approvalsRes.status === 'fulfilled') setPendingApprovals(approvalsRes.value.data || { advance_verified: [], pending_income: [] });
+      if (feRes.status === 'fulfilled') setFeProjects(feRes.value.data || []);
     } catch (error) {
       if (error.response?.status === 401) window.location.href = '/login';
     } finally {
@@ -271,6 +275,34 @@ export default function CREBoard() {
       toast.success('Project moved to Drawing Stage');
       fetchData(false);
     } catch (error) { toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed'); }
+  };
+
+  // ---------- Final Estimate handlers ----------
+  const handleFeSendToClient = async (project) => {
+    try {
+      const r = await axios.post(`${API}/cre/final-estimates/${project.project_id}/send-to-client`);
+      const url = `${window.location.origin}/fe/${r.data.public_token}`;
+      setFeShareDialog({ open: true, project, url });
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send to client');
+    }
+  };
+
+  const handleFeResend = async (project) => {
+    if (!window.confirm(`Resend Final Estimate to client as Rev ${(project.fe?.revision || 0) + 1}?\n\nMake sure scope items are updated with the requested changes.`)) return;
+    try {
+      const r = await axios.post(`${API}/cre/final-estimates/${project.project_id}/resend`);
+      toast.success(r.data?.message || 'Resent');
+      fetchData(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to resend');
+    }
+  };
+
+  const handleCopyFeLink = (token) => {
+    const url = `${window.location.origin}/fe/${token}`;
+    navigator.clipboard.writeText(url).then(() => toast.success('Link copied'));
   };
 
   const resetForm = () => {
@@ -420,6 +452,9 @@ export default function CREBoard() {
               <TabsTrigger value="new_deals" className="text-xs sm:text-sm" data-testid="tab-new-deals">
                 New Deals {(pendingApprovals.advance_verified?.length || 0) > 0 && <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingApprovals.advance_verified.length}</Badge>}
               </TabsTrigger>
+              <TabsTrigger value="final_estimate" className="text-xs sm:text-sm" data-testid="tab-final-estimate">
+                Final Estimate {feProjects.filter(p => p.fe?.status !== 'approved').length > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{feProjects.filter(p => p.fe?.status !== 'approved').length}</Badge>}
+              </TabsTrigger>
               <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
               <TabsTrigger value="payment_req" className="text-xs sm:text-sm" data-testid="tab-payment-req">
                 Payment Req {(paymentRequests.length + additionalPaymentRequests.length) > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{paymentRequests.length + additionalPaymentRequests.length}</Badge>}
@@ -465,11 +500,107 @@ export default function CREBoard() {
                             </div>
                           </div>
                           <Button className="bg-amber-600 hover:bg-amber-700 shrink-0" size="sm" onClick={() => handleSubmitToPlanning(p.project_id)} data-testid={`send-to-planning-${p.project_id}`}>
-                            <Send className="h-4 w-4 mr-1" />Send to Planning
+                            <ArrowRight className="h-4 w-4 mr-1" />Convert
                           </Button>
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* ==================== TAB 1.5: FINAL ESTIMATE ==================== */}
+          <TabsContent value="final_estimate">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4 text-purple-600" />Final Estimate Review</CardTitle>
+                <p className="text-xs text-gray-500 mt-1">Planning has prepared the Final Estimate. Review, send to client, and track approval.</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                {feProjects.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400">
+                    <FileText className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No Final Estimates pending review</p>
+                  </div>
+                ) : (
+                  <div className="divide-y">
+                    {feProjects.map((p) => {
+                      const fe = p.fe || {};
+                      const statusBadge = (() => {
+                        if (fe.status === 'approved') return { cls: 'bg-green-100 text-green-700', label: 'Client Approved' };
+                        if (fe.status === 'feedback_received') return { cls: 'bg-amber-100 text-amber-700', label: 'Client Feedback' };
+                        if (fe.status === 'pending_client_review') return { cls: 'bg-blue-100 text-blue-700', label: 'Sent to Client' };
+                        if (fe.status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700', label: 'Awaiting Your Action' };
+                        return { cls: 'bg-gray-100 text-gray-700', label: fe.status || 'Draft' };
+                      })();
+                      return (
+                        <div key={p.project_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`fe-card-${p.project_id}`}>
+                          <div className="flex justify-between items-start gap-4 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <h4 className="font-semibold truncate">{p.name}</h4>
+                                <Badge variant="outline" className="text-xs shrink-0">Rev {fe.revision || 0}</Badge>
+                                <Badge className={`text-xs shrink-0 ${statusBadge.cls}`}>{statusBadge.label}</Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                                <span>Client: <span className="font-medium text-gray-700">{p.client_name}</span></span>
+                                {p.client_phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.client_phone}</span>}
+                                {p.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{p.location}</span>}
+                              </div>
+                              {fe.client_feedback && fe.status === 'feedback_received' && (
+                                <div className="mt-2 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                                  <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Client review</p>
+                                  <p className="text-sm text-gray-800 italic">"{fe.client_feedback}"</p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => window.location.href = `/projects/${p.project_id}?tab=scope`}
+                                data-testid={`fe-view-${p.project_id}`}
+                              >
+                                <Eye className="h-3.5 w-3.5 mr-1" /> View
+                              </Button>
+                              {fe.public_token && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCopyFeLink(fe.public_token)}
+                                  data-testid={`fe-copy-link-${p.project_id}`}
+                                  title="Copy public client link"
+                                >
+                                  <Copy className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {fe.status === 'pending_cre_review' && (
+                                <Button
+                                  size="sm"
+                                  className="bg-blue-600 hover:bg-blue-700"
+                                  onClick={() => handleFeSendToClient(p)}
+                                  data-testid={`fe-send-client-${p.project_id}`}
+                                >
+                                  <Send className="h-3.5 w-3.5 mr-1" /> Send for Client Approval
+                                </Button>
+                              )}
+                              {fe.status === 'feedback_received' && (
+                                <Button
+                                  size="sm"
+                                  className="bg-amber-600 hover:bg-amber-700"
+                                  onClick={() => handleFeResend(p)}
+                                  data-testid={`fe-resend-${p.project_id}`}
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5 mr-1" /> Resend (Rev {(fe.revision || 0) + 1})
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>
@@ -953,6 +1084,34 @@ export default function CREBoard() {
             </div>
           )}
           <DialogFooter><Button variant="outline" onClick={() => setViewDialog(false)}>Close</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* FE share dialog — shows the public link after CRE sends to client */}
+      <Dialog open={feShareDialog.open} onOpenChange={(o) => !o && setFeShareDialog({ open: false, project: null, url: '' })}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-blue-600" />Final Estimate sent to client</DialogTitle>
+            <DialogDescription>Share this permanent link with the client. They can view, download, approve, or give feedback.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Project</p>
+              <p className="font-medium">{feShareDialog.project?.name}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Public Link (no expiry)</p>
+              <div className="flex gap-2">
+                <Input readOnly value={feShareDialog.url} className="flex-1 text-xs font-mono" data-testid="fe-share-url" onFocus={(e) => e.target.select()} />
+                <Button size="sm" onClick={() => { navigator.clipboard.writeText(feShareDialog.url); toast.success('Copied'); }} data-testid="fe-share-copy">
+                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFeShareDialog({ open: false, project: null, url: '' })}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -1,0 +1,313 @@
+"""Final Estimate workflow.
+
+State machine (lives in `project.fe.*`):
+    draft
+      → pending_cre_review     (Planning clicks "Send for Approval")
+      → pending_client_review  (CRE clicks "Send for Client Approval"; permanent token issued)
+      → feedback_received      (Client posts feedback through public page)
+      → pending_client_review  (CRE edits & resends; revision +1)
+      → approved               (Client clicks Approve)
+
+Public link is permanent (no expiry) and identifies the latest revision only —
+old revisions are kept in `project.fe.history` but not exposed publicly.
+"""
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from core.deps import get_current_user
+from core.database import db
+from core.models import User, UserRole
+
+router = APIRouter()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────────────
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_fe(project: dict) -> dict:
+    """Return a normalised `fe` block; never mutates the project document."""
+    fe = project.get("fe") or {}
+    return {
+        "status": fe.get("status", "draft"),
+        "revision": fe.get("revision", 0),
+        "public_token": fe.get("public_token"),
+        "sent_to_cre_at": fe.get("sent_to_cre_at"),
+        "sent_to_cre_by": fe.get("sent_to_cre_by"),
+        "sent_to_client_at": fe.get("sent_to_client_at"),
+        "sent_to_client_by": fe.get("sent_to_client_by"),
+        "client_feedback": fe.get("client_feedback"),
+        "client_feedback_at": fe.get("client_feedback_at"),
+        "client_approved_at": fe.get("client_approved_at"),
+        "history": fe.get("history", []),
+    }
+
+
+async def _get_project_or_404(project_id: str) -> dict:
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+async def _get_scope_items(project_id: str) -> List[dict]:
+    items = await db.scope_items.find(
+        {"project_id": project_id},
+        {"_id": 0},
+    ).sort("sort_order", 1).to_list(500)
+    return items
+
+
+async def _notify(user_id: str, title: str, message: str, kind: str, ref_id: str) -> None:
+    await db.notifications.insert_one({
+        "notification_id": f"notif_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "title": title,
+        "message": message,
+        "type": kind,
+        "reference_id": ref_id,
+        "is_read": False,
+        "created_at": _now(),
+    })
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Planning → "Send for Approval"  (push FE into CRE's queue)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/planning/projects/{project_id}/final-estimate/send-to-cre")
+async def send_fe_to_cre(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can submit Final Estimate")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    # Must have at least one scope item before sending
+    scope_count = await db.scope_items.count_documents({"project_id": project_id})
+    if scope_count == 0:
+        raise HTTPException(status_code=400, detail="Add at least one scope item before sending Final Estimate")
+
+    fe["status"] = "pending_cre_review"
+    fe["sent_to_cre_at"] = _now()
+    fe["sent_to_cre_by"] = user.user_id
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "send_to_cre",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": fe["sent_to_cre_at"],
+    }]
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    # Notify all CREs
+    cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+    for c in cres:
+        await _notify(
+            c["user_id"],
+            "Final Estimate ready for review",
+            f"Planning has submitted Final Estimate for {project.get('name', '')}",
+            "final_estimate_ready",
+            project_id,
+        )
+
+    return {"message": "Final Estimate sent to CRE", "fe": fe}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CRE list — projects with FE awaiting CRE/client action
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/cre/final-estimates")
+async def list_cre_final_estimates(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can access this")
+
+    # Surface every project whose FE has been touched (excludes drafts)
+    projects = await db.projects.find(
+        {
+            "fe.status": {"$in": ["pending_cre_review", "pending_client_review", "feedback_received", "approved"]},
+            "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
+        },
+        {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,
+         "location": 1, "total_value": 1, "fe": 1, "created_at": 1},
+    ).sort("fe.sent_to_cre_at", -1).to_list(200)
+
+    return projects
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CRE → "Send for Client Approval"  (issue / refresh permanent token)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/cre/final-estimates/{project_id}/send-to-client")
+async def cre_send_fe_to_client(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can send to client")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    if fe["status"] not in ("pending_cre_review", "feedback_received"):
+        raise HTTPException(status_code=400, detail=f"Cannot send from current status: {fe['status']}")
+
+    if not fe.get("public_token"):
+        fe["public_token"] = uuid.uuid4().hex
+
+    fe["status"] = "pending_client_review"
+    fe["sent_to_client_at"] = _now()
+    fe["sent_to_client_by"] = user.user_id
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "send_to_client",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": fe["sent_to_client_at"],
+    }]
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    return {
+        "message": "Final Estimate sent to client",
+        "public_token": fe["public_token"],
+        "public_url": f"/fe/{fe['public_token']}",
+        "revision": fe["revision"],
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CRE → "Edit & Resend" after feedback  (bumps revision)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.post("/cre/final-estimates/{project_id}/resend")
+async def cre_resend_fe(project_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE can resend")
+
+    project = await _get_project_or_404(project_id)
+    fe = _ensure_fe(project)
+
+    if fe["status"] != "feedback_received":
+        raise HTTPException(status_code=400, detail="Can only resend after feedback received from client")
+
+    fe["revision"] = (fe.get("revision") or 0) + 1
+    fe["status"] = "pending_client_review"
+    fe["sent_to_client_at"] = _now()
+    fe["sent_to_client_by"] = user.user_id
+    fe["client_feedback"] = None  # clear previous review on the public page
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "resend",
+        "revision": fe["revision"],
+        "by": user.user_id,
+        "at": fe["sent_to_client_at"],
+    }]
+
+    await db.projects.update_one({"project_id": project_id}, {"$set": {"fe": fe}})
+
+    return {"message": f"Final Estimate resent (Rev {fe['revision']})", "revision": fe["revision"]}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public client page — view, approve, feedback (no auth)
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get("/public/fe/{token}")
+async def public_view_fe(token: str):
+    project = await db.projects.find_one({"fe.public_token": token}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Invalid link")
+
+    fe = _ensure_fe(project)
+    scope = await _get_scope_items(project["project_id"])
+
+    return {
+        "project_id": project["project_id"],
+        "project_name": project.get("name"),
+        "client_name": project.get("client_name"),
+        "client_phone": project.get("client_phone"),
+        "location": project.get("location"),
+        "total_value": sum((s.get("total_amount") or 0) for s in scope),
+        "scope": scope,
+        "fe_status": fe["status"],
+        "revision": fe["revision"],
+        "sent_at": fe.get("sent_to_client_at"),
+        "approved_at": fe.get("client_approved_at"),
+    }
+
+
+class FeedbackBody(BaseModel):
+    feedback: str
+
+
+@router.post("/public/fe/{token}/feedback")
+async def public_feedback_fe(token: str, body: FeedbackBody):
+    project = await db.projects.find_one({"fe.public_token": token}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Invalid link")
+    fe = _ensure_fe(project)
+    if fe["status"] != "pending_client_review":
+        raise HTTPException(status_code=400, detail="This estimate is no longer accepting feedback")
+
+    text = (body.feedback or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Feedback cannot be empty")
+
+    fe["status"] = "feedback_received"
+    fe["client_feedback"] = text
+    fe["client_feedback_at"] = _now()
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "client_feedback",
+        "revision": fe["revision"],
+        "feedback": text,
+        "at": fe["client_feedback_at"],
+    }]
+    await db.projects.update_one({"project_id": project["project_id"]}, {"$set": {"fe": fe}})
+
+    # Notify all CREs
+    cres = await db.users.find({"role": "cre", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(50)
+    for c in cres:
+        await _notify(
+            c["user_id"],
+            "Client requested revision",
+            f"Client gave feedback on Final Estimate for {project.get('name', '')}",
+            "fe_client_feedback",
+            project["project_id"],
+        )
+
+    return {"message": "Feedback received. The team will review and get back to you."}
+
+
+@router.post("/public/fe/{token}/approve")
+async def public_approve_fe(token: str):
+    project = await db.projects.find_one({"fe.public_token": token}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Invalid link")
+    fe = _ensure_fe(project)
+    if fe["status"] != "pending_client_review":
+        raise HTTPException(status_code=400, detail="This estimate is not awaiting approval")
+
+    fe["status"] = "approved"
+    fe["client_approved_at"] = _now()
+    fe["history"] = (fe.get("history") or []) + [{
+        "action": "client_approve",
+        "revision": fe["revision"],
+        "at": fe["client_approved_at"],
+    }]
+    await db.projects.update_one({"project_id": project["project_id"]}, {"$set": {"fe": fe}})
+
+    # Notify all Planning + CRE
+    targets = await db.users.find(
+        {"role": {"$in": ["planning", "cre"]}, "is_active": True},
+        {"_id": 0, "user_id": 1},
+    ).to_list(100)
+    for t in targets:
+        await _notify(
+            t["user_id"],
+            "Final Estimate approved by client",
+            f"Client approved Final Estimate (Rev {fe['revision']}) for {project.get('name', '')}",
+            "fe_client_approved",
+            project["project_id"],
+        )
+
+    return {"message": "Thank you! The estimate has been approved."}

@@ -55,6 +55,7 @@ import DTBoard from '@/pages/DTBoard';
 import ProspectApp from '@/pages/ProspectApp';
 import PublicQuoteView from '@/pages/PublicQuoteView';
 import PublicPackageView from '@/pages/PublicPackageView';
+import PublicFinalEstimateView from '@/pages/PublicFinalEstimateView';
 import UserApp from '@/pages/UserApp';
 import CRMPreSales from '@/pages/CRMPreSales';
 import CRMSales from '@/pages/CRMSales';
@@ -107,6 +108,7 @@ function AppRouter() {
       <Route path="/setup-password" element={<SetupPassword />} />
       <Route path="/quote/:token" element={<PublicQuoteView />} />
       <Route path="/package/:token" element={<PublicPackageView />} />
+      <Route path="/fe/:token" element={<PublicFinalEstimateView />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />

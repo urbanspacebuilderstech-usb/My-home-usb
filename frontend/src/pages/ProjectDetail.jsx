@@ -2354,12 +2354,67 @@ export default function ProjectDetail() {
 
             {/* ==================== SCOPE TAB ==================== */}
             <TabsContent value="scope" className="p-3 sm:p-6">
+              {/* Final Estimate workflow status banner (visible once flow has started) */}
+              {project?.fe?.status && project.fe.status !== 'draft' && (
+                <div className={`mb-4 rounded-lg border p-3 ${
+                  project.fe.status === 'approved' ? 'bg-green-50 border-green-200' :
+                  project.fe.status === 'feedback_received' ? 'bg-amber-50 border-amber-200' :
+                  project.fe.status === 'pending_client_review' ? 'bg-blue-50 border-blue-200' :
+                  'bg-purple-50 border-purple-200'
+                }`} data-testid="fe-status-banner">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Final Estimate</span>
+                        <Badge variant="outline" className="text-xs">
+                          Rev {project.fe.revision || 0}
+                        </Badge>
+                        <Badge className={`text-xs ${
+                          project.fe.status === 'approved' ? 'bg-green-100 text-green-700' :
+                          project.fe.status === 'feedback_received' ? 'bg-amber-100 text-amber-700' :
+                          project.fe.status === 'pending_client_review' ? 'bg-blue-100 text-blue-700' :
+                          'bg-purple-100 text-purple-700'
+                        }`}>
+                          {project.fe.status === 'pending_cre_review' ? 'Sent to CRE' :
+                           project.fe.status === 'pending_client_review' ? 'Sent to Client' :
+                           project.fe.status === 'feedback_received' ? 'Client Feedback' :
+                           project.fe.status === 'approved' ? 'Client Approved' : project.fe.status}
+                        </Badge>
+                      </div>
+                      {project.fe.client_feedback && project.fe.status === 'feedback_received' && (
+                        <p className="text-sm text-gray-700 mt-2 italic">"{project.fe.client_feedback}"</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
                   <h3 className="text-base sm:text-lg font-bold">Final Estimate</h3>
                   <p className="text-xs sm:text-sm text-gray-500">Define scope items - total becomes project value</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {(user?.role === 'planning' || user?.role === 'super_admin') &&
+                    (!project?.fe?.status || project.fe.status === 'draft') && (
+                    <Button
+                      data-testid="fe-send-to-cre-btn"
+                      size="sm"
+                      className="gap-1 sm:gap-2 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm"
+                      onClick={async () => {
+                        if (!window.confirm('Send this Final Estimate to CRE for review?\n\nMake sure all scope items and totals are finalised before sending.')) return;
+                        try {
+                          await axios.post(`${API}/planning/projects/${id}/final-estimate/send-to-cre`);
+                          toast.success('Final Estimate sent to CRE');
+                          fetchProject();
+                        } catch (err) {
+                          toast.error(err.response?.data?.detail || 'Failed to send');
+                        }
+                      }}
+                    >
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> Send for Approval
+                    </Button>
+                  )}
                   {selectedScopeIds.length > 0 && (
                     <Button 
                       data-testid="bulk-delete-scope-btn"
