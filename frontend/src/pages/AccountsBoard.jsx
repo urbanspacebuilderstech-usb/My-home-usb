@@ -1318,7 +1318,7 @@ function IndirectExpenseSection({ userRole }) {
 }
 
 // ============ CASHBOOK TAB ============
-function CashbookTab({ overview, projects, userRole }) {
+function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const location = useLocation();
   const expenseOnly = (() => {
     const params = new URLSearchParams(location.search);
@@ -1387,6 +1387,7 @@ function CashbookTab({ overview, projects, userRole }) {
       await axios.delete(`${API}/income/${entry.income_id}`);
       toast.success('Income entry deleted');
       fetchCashbook();
+      onRefresh && onRefresh();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to delete income');
     }
@@ -1401,6 +1402,7 @@ function CashbookTab({ overview, projects, userRole }) {
       await axios.delete(`${API}/cashbook/expense/${expType}/${recordId}`);
       toast.success('Expense deleted');
       fetchCashbook();
+      onRefresh && onRefresh();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to delete expense');
     }
@@ -3778,7 +3780,7 @@ export default function AccountsBoard() {
       <main className="max-w-[1400px] mx-auto px-3 md:px-6 pt-3 pb-4">
         <Tabs value={mainTab} onValueChange={setMainTab}>
           <TabsContent value="cashbook">
-            <CashbookTab overview={overview} projects={projects} userRole={user?.role} />
+            <CashbookTab overview={overview} projects={projects} userRole={user?.role} onRefresh={() => fetchAll(false)} />
           </TabsContent>
 
           <TabsContent value="approvals">

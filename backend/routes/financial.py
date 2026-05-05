@@ -58,8 +58,17 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail="Access denied")
     
+    # Income query: same status filter as cashbook — only count approved entries
+    # (or legacy entries with no status field). Pending/rejected belong on the
+    # Approvals page, not the cashbook overview cards.
+    income_status_filter = {"$or": [
+        {"status": "approved"},
+        {"status": {"$exists": False}},
+        {"status": None},
+    ]}
+
     (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries) = await asyncio.gather(
-        db.income.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
+        db.income.find(income_status_filter, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.recorded_expenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.material_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
