@@ -1825,10 +1825,30 @@ export default function ProjectDetail() {
   const pendingApprovalAdditions = (additional_costs || []).filter(a => a.workflow_status === 'pending_approval');
   const pendingApprovalDeductions = (deductions || []).filter(d => d.workflow_status === 'pending_approval');
 
+  // Planning-role users get the Planning module's tabbed header so navigation
+  // is consistent across PlanningBoard and ProjectDetail. Other roles keep
+  // the default AppHeader.
+  const isPlanning = user?.role === 'planning';
+  const planningNav = isPlanning ? [
+    { label: 'Dashboard', value: 'dashboard', icon: 'Building2' },
+    { label: 'Packages', value: 'packages', icon: 'Package' },
+    { label: 'Material Vendors', value: 'material_vendors', icon: 'Truck' },
+    { label: 'Labour Contractors', value: 'labour_contractors', icon: 'Users' },
+    { label: 'RE Templates', value: 're_templates', icon: 'FileText' },
+    { label: 'Live Map', value: 'live_map', icon: 'Radio' },
+  ] : null;
+  const handlePlanningNav = (tab) => {
+    window.location.href = `/planning-board?tab=${tab}`;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
-      <AppHeader user={user} />
+      {isPlanning ? (
+        <AppHeader user={user} customNav={planningNav} activeCustomNav="" onCustomNavChange={handlePlanningNav} />
+      ) : (
+        <AppHeader user={user} />
+      )}
 
       <div className="max-w-[1800px] mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Project Header */}

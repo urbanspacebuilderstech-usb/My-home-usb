@@ -213,7 +213,16 @@ export default function PlanningBoard() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  // Read ?tab=... from URL so deep links from other pages (e.g. ProjectDetail
+  // back-nav) land on the correct module tab.
+  const initialTab = (() => {
+    try {
+      const t = new URLSearchParams(window.location.search).get('tab');
+      const valid = ['dashboard', 'packages', 'material_vendors', 'labour_contractors', 're_templates', 'live_map'];
+      return t && valid.includes(t) ? t : 'dashboard';
+    } catch { return 'dashboard'; }
+  })();
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [dashSubTab, setDashSubTab] = useState('all_projects');
   const [requestSubTab, setRequestSubTab] = useState('site_eng_req');
 
