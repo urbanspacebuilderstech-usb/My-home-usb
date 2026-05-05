@@ -2019,6 +2019,32 @@ async def request_payment(stage_id: str, body: Optional[PaymentRequestBody] = No
         {"stage_id": stage_id},
         {"$set": set_fields}
     )
+
+    # Auto-create a monthly_schedule_entries row so the stage shows up
+    # on the Planning Payment Schedule + new CRE Payment Schedule tab.
+    if body and body.expected_payment_date:
+        try:
+            dt = datetime.strptime(body.expected_payment_date, "%Y-%m-%d")
+            existing = await db.monthly_schedule_entries.find_one(
+                {"stage_id": stage_id, "month": dt.month, "year": dt.year},
+                {"_id": 0, "entry_id": 1},
+            )
+            if not existing:
+                # Remove any old entry for the same stage in another month so it only appears once
+                await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+                await db.monthly_schedule_entries.insert_one({
+                    "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+                    "month": dt.month,
+                    "year": dt.year,
+                    "project_id": stage["project_id"],
+                    "stage_id": stage_id,
+                    "expected_payment_date": body.expected_payment_date,
+                    "added_by": user.user_id,
+                    "added_at": datetime.now(timezone.utc).isoformat(),
+                })
+        except (ValueError, TypeError):
+            # Bad date format — silently skip schedule entry; main request still succeeds
+            pass
     
     # Notify all CRE users about the payment request
     cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(10)

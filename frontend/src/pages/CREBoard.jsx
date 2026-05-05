@@ -83,6 +83,13 @@ export default function CREBoard() {
   // Payment Collected (ledger)
   const [incomeCollected, setIncomeCollected] = useState([]);
 
+  // CRE Payment Schedule tab — month-wise view (mirrors Planning's schedule)
+  const todayPS = new Date();
+  const [psMonth, setPsMonth] = useState(todayPS.getMonth() + 1);
+  const [psYear, setPsYear] = useState(todayPS.getFullYear());
+  const [psData, setPsData] = useState({ entries: [], summary: {} });
+  const [psLoading, setPsLoading] = useState(false);
+
   // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
   const [requestREMode, setRequestREMode] = useState(false);
@@ -107,6 +114,29 @@ export default function CREBoard() {
   const [selectedPackage, setSelectedPackage] = useState(null);
 
   useEffect(() => { fetchData(); }, []);
+
+  // Payment Schedule fetcher (mirrors Planning's monthly schedule)
+  const fetchPaymentSchedule = async (m = psMonth, y = psYear) => {
+    setPsLoading(true);
+    try {
+      const r = await axios.get(`${API}/planning/monthly-schedule`, { params: { month: m, year: y } });
+      setPsData(r.data || { entries: [], summary: {} });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to load payment schedule');
+    } finally {
+      setPsLoading(false);
+    }
+  };
+  useEffect(() => { fetchPaymentSchedule(psMonth, psYear); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [psMonth, psYear]);
+
+  const shiftPsMonth = (delta) => {
+    let m = psMonth + delta;
+    let y = psYear;
+    if (m < 1) { m = 12; y -= 1; }
+    if (m > 12) { m = 1; y += 1; }
+    setPsMonth(m);
+    setPsYear(y);
+  };
 
   const fetchData = async (showLoader = true) => {
     try {
@@ -482,6 +512,9 @@ export default function CREBoard() {
               <TabsTrigger value="pre_construction" className="text-xs sm:text-sm" data-testid="tab-pre-construction">
                 Pre-Construction
               </TabsTrigger>
+              <TabsTrigger value="payment_schedule" className="text-xs sm:text-sm" data-testid="tab-payment-schedule">
+                Payment Schedule
+              </TabsTrigger>
               <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
               <TabsTrigger value="payment_req" className="text-xs sm:text-sm" data-testid="tab-payment-req">
                 Payment Req {(paymentRequests.length + additionalPaymentRequests.length) > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{paymentRequests.length + additionalPaymentRequests.length}</Badge>}
@@ -754,6 +787,118 @@ export default function CREBoard() {
           {/* ==================== TAB 1.6: PRE-CONSTRUCTION ==================== */}
           <TabsContent value="pre_construction">
             <CREPreConstruction embedded />
+          </TabsContent>
+
+          {/* ==================== TAB 1.7: PAYMENT SCHEDULE ==================== */}
+          <TabsContent value="payment_schedule">
+            {(() => {
+              const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const entries = psData.entries || [];
+              const summary = psData.summary || {};
+              const thisMonthCollected = entries.reduce((sum, e) => sum + (e.amount_received || 0), 0);
+              return (
+                <div className="space-y-4">
+                  {/* Month nav */}
+                  <Card>
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-3">
+                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(-1)} data-testid="ps-prev-month">‹ Prev</Button>
+                          <div className="text-center min-w-[140px]">
+                            <p className="text-lg font-bold text-gray-900" data-testid="ps-current-month">{MONTHS[psMonth - 1]} {psYear}</p>
+                            <p className="text-xs text-gray-500">CRE Payment Schedule</p>
+                          </div>
+                          <Button size="sm" variant="outline" onClick={() => shiftPsMonth(1)} data-testid="ps-next-month">Next ›</Button>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={() => fetchPaymentSchedule()} data-testid="ps-refresh">
+                          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Summary cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <Card className="border-l-4 border-l-indigo-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Total Planned</p><p className="text-lg font-bold text-indigo-700">{formatCurrency(summary.total_planned)}</p><p className="text-[10px] text-gray-400">{summary.total_entries || 0} stages</p></CardContent></Card>
+                    <Card className="border-l-4 border-l-green-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">This Month Collected</p><p className="text-lg font-bold text-green-700">{formatCurrency(thisMonthCollected)}</p></CardContent></Card>
+                    <Card className="border-l-4 border-l-red-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Balance</p><p className="text-lg font-bold text-red-700">{formatCurrency(summary.total_balance)}</p></CardContent></Card>
+                    <Card className="border-l-4 border-l-amber-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Pending</p><p className="text-lg font-bold text-amber-700">{(summary.total_entries || 0) - (summary.collected_count || 0)}</p></CardContent></Card>
+                    <Card className="border-l-4 border-l-blue-500"><CardContent className="p-3"><p className="text-[10px] text-gray-500 uppercase font-medium">Collected #</p><p className="text-lg font-bold text-blue-700">{summary.collected_count || 0}</p></CardContent></Card>
+                  </div>
+
+                  {/* Table */}
+                  <Card>
+                    <CardContent className="p-0">
+                      {psLoading ? (
+                        <div className="p-8 text-center text-gray-400"><RefreshCw className="h-5 w-5 animate-spin inline mr-2" /> Loading…</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm" data-testid="cre-payment-schedule-table">
+                            <thead className="bg-gray-50 border-y">
+                              <tr>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Expected Date</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
+                                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {entries.length === 0 ? (
+                                <tr><td colSpan="8" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
+                              ) : entries.map((e) => {
+                                const balance = (e.amount || 0) - (e.amount_received || 0);
+                                const isCollected = e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0;
+                                const isPartial = (e.amount_received || 0) > 0 && balance > 0;
+                                let badge;
+                                if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
+                                else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
+                                else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
+                                else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
+                                return (
+                                  <tr key={e.entry_id || e.stage_id} className="hover:bg-gray-50" data-testid={`ps-row-${e.entry_id || e.stage_id}`}>
+                                    <td className="px-4 py-2.5">
+                                      <p className="font-medium">{e.project_name}</p>
+                                      <p className="text-[11px] text-gray-400">{e.client_name || ''}</p>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
+                                    <td className="px-4 py-2.5 text-xs text-gray-700">
+                                      {e.expected_payment_date ? new Date(e.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                                      {e.is_carryover && <span className="ml-1 text-[10px] text-orange-600">(carryover)</span>}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
+                                    <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(e.amount_received || 0)}</td>
+                                    <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
+                                    <td className="px-4 py-2.5 text-center">{badge}</td>
+                                    <td className="px-4 py-2.5 text-center">
+                                      {!isCollected ? (
+                                        <Button
+                                          size="sm"
+                                          className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
+                                          onClick={() => openCollectDialog({ ...e, stage_id: e.stage_id })}
+                                          data-testid={`ps-collect-${e.entry_id || e.stage_id}`}
+                                        >
+                                          <DollarSign className="h-3.5 w-3.5 mr-1" /> Collect
+                                        </Button>
+                                      ) : (
+                                        <span className="text-[11px] text-gray-400">—</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
           </TabsContent>
 
           {/* ==================== TAB 2: ALL PROJECTS ==================== */}
