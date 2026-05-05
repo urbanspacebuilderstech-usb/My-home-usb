@@ -1570,3 +1570,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/300.pack
+frontend/node_modules/.cache/default-development/302.pack

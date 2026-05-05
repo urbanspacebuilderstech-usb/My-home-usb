@@ -57,12 +57,12 @@ export default function PublicFinalEstimateView() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-amber-600" />
-            <span className="text-sm font-semibold text-gray-700">My Home USB</span>
+    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-6">
+      <div className="bg-white border-b shadow-sm sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <Building2 className="h-5 w-5 text-amber-600 shrink-0" />
+            <span className="text-sm font-semibold text-gray-700 truncate">My Home USB</span>
           </div>
           <Button size="sm" variant="outline" onClick={handleDownload} data-testid="fe-download-btn">
             <Download className="h-3.5 w-3.5 mr-1" /> Download
@@ -70,35 +70,35 @@ export default function PublicFinalEstimateView() {
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-3 sm:space-y-4">
         <Card>
           <CardHeader className="pb-2">
             <div className="flex justify-between items-start gap-3 flex-wrap">
-              <div>
-                <CardTitle className="text-xl text-gray-900">{data.project_name}</CardTitle>
-                <p className="text-sm text-gray-500 mt-0.5">Final Estimate · Revision {data.revision || 0}</p>
+              <div className="min-w-0">
+                <CardTitle className="text-lg sm:text-xl text-gray-900 break-words">{data.project_name}</CardTitle>
+                <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Final Estimate · Revision {data.revision || 0}</p>
               </div>
-              <Badge variant="outline" className="text-xs">
+              <Badge variant="outline" className="text-[10px] sm:text-xs shrink-0">
                 Reference Document
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid sm:grid-cols-3 gap-3 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
               <div>
-                <p className="text-xs text-gray-500 uppercase tracking-wide">Client</p>
-                <p className="font-medium">{data.client_name}</p>
+                <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Client</p>
+                <p className="font-medium break-words">{data.client_name}</p>
               </div>
               {data.client_phone && (
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Phone</p>
-                  <p className="font-medium flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{data.client_phone}</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Phone</p>
+                  <p className="font-medium flex items-center gap-1"><Phone className="h-3.5 w-3.5 shrink-0" />{data.client_phone}</p>
                 </div>
               )}
               {data.location && (
                 <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Location</p>
-                  <p className="font-medium flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{data.location}</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 uppercase tracking-wide">Location</p>
+                  <p className="font-medium flex items-center gap-1"><MapPin className="h-3.5 w-3.5 shrink-0" />{data.location}</p>
                 </div>
               )}
             </div>
@@ -112,7 +112,34 @@ export default function PublicFinalEstimateView() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            {/* Mobile card list (hidden on sm+) */}
+            <div className="sm:hidden divide-y" data-testid="fe-scope-mobile">
+              {(data.scope || []).length === 0 ? (
+                <p className="p-6 text-center text-gray-400 text-sm">No scope items</p>
+              ) : data.scope.map((s, i) => {
+                const rate = s.unit_rate ?? s.rate;
+                const total = s.total_amount ?? s.total;
+                return (
+                  <div key={s.scope_id || i} className="px-4 py-3" data-testid={`fe-scope-mobile-row-${i}`}>
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        <span className="text-[11px] text-gray-400 font-medium shrink-0">#{i + 1}</span>
+                        <p className="font-medium text-sm text-gray-900 break-words">{s.item_name || s.name}</p>
+                      </div>
+                      <p className="font-bold text-amber-700 text-sm shrink-0">{fmt(total)}</p>
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-gray-500 pl-5 flex-wrap">
+                      <span>Qty: <span className="text-gray-700 font-medium">{s.quantity || '-'}</span></span>
+                      <span>Unit: <span className="text-gray-700 font-medium">{s.unit || '-'}</span></span>
+                      <span>Rate: <span className="text-gray-700 font-medium">{rate ? fmt(rate) : '-'}</span></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop / tablet table */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm" data-testid="fe-scope-table">
                 <thead className="bg-gray-50 border-y">
                   <tr>
@@ -146,12 +173,32 @@ export default function PublicFinalEstimateView() {
                 </tfoot>
               </table>
             </div>
+
+            {/* Mobile total (inline, since sticky version is below) */}
+            <div className="sm:hidden bg-amber-50 border-t-2 border-amber-200 px-4 py-3 flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Project Value</span>
+              <span className="text-base font-bold text-amber-700" data-testid="fe-total-mobile">{fmt(data.total_value)}</span>
+            </div>
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-gray-400 pt-2 pb-6">
-          Estimate ref: {data.project_id} · Generated: {data.sent_at ? new Date(data.sent_at).toLocaleDateString() : '-'}
+        <p className="text-center text-[11px] sm:text-xs text-gray-400 pt-2 pb-2">
+          Estimate ref: <span className="font-mono">{data.project_id}</span>
+          {data.sent_at && <> · Sent: {new Date(data.sent_at).toLocaleDateString()}</>}
         </p>
+      </div>
+
+      {/* Sticky total bar — mobile only */}
+      <div className="sm:hidden fixed bottom-0 inset-x-0 bg-white border-t shadow-[0_-2px_8px_rgba(0,0,0,0.05)] z-10">
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-gray-500 uppercase tracking-wide">Total Project Value</p>
+            <p className="text-lg font-bold text-amber-700" data-testid="fe-total-sticky">{fmt(data.total_value)}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={handleDownload} className="text-xs">
+            <Download className="h-3.5 w-3.5 mr-1" /> PDF
+          </Button>
+        </div>
       </div>
     </div>
   );
