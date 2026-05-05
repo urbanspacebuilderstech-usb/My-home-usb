@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import {
-  Hammer, Calendar, CheckCircle2, Clock, RotateCcw, Search,
+  Hammer, Calendar, CheckCircle2, Clock, Search,
   Building2, Phone, MapPin, RefreshCw,
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
@@ -367,27 +367,19 @@ export default function CREPreConstruction({ embedded = false }) {
                       <td className="px-4 py-2.5 text-gray-700">{fmtDateTime(row.scheduled_at)}</td>
                       <td className="px-4 py-2.5 text-gray-700 hidden md:table-cell">{fmtDateTime(row.completed_at)}</td>
                       <td className="px-4 py-2.5">
-                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => openSchedule(row)}
-                            data-testid={`pc-schedule-${row.project_id}`}
-                          >
-                            <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
-                          </Button>
-                          {row.status === 'completed' ? (
+                        {row.status === 'completed' ? (
+                          <span className="text-xs text-gray-400">—</span>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-50"
-                              onClick={() => updateStage(row.project_id, row.stage, { status: 'pending', clear_schedule: true })}
-                              data-testid={`pc-reopen-${row.project_id}`}
+                              className="h-7 px-2 text-xs"
+                              onClick={() => openSchedule(row)}
+                              data-testid={`pc-schedule-${row.project_id}`}
                             >
-                              <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reopen
+                              <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
                             </Button>
-                          ) : (
                             <Button
                               size="sm"
                               className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
@@ -396,8 +388,8 @@ export default function CREPreConstruction({ embedded = false }) {
                             >
                               <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Completed
                             </Button>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
