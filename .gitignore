@@ -1521,3 +1521,13 @@ credentials.json
 .credentials
 frontend/node_modules/.cache/default-development/290.pack
 frontend/node_modules/.cache/default-development/293.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+frontend/node_modules/.cache/default-development/294.pack
