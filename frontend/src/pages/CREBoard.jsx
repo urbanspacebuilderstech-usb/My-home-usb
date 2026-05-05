@@ -16,13 +16,14 @@ import {
   Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
   Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare, Hammer
+  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
+import CREPreConstruction from './CREPreConstruction';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -478,6 +479,9 @@ export default function CREBoard() {
               <TabsTrigger value="final_estimate" className="text-xs sm:text-sm" data-testid="tab-final-estimate">
                 Final Estimate {feProjects.filter(p => p.fe?.status !== 'approved').length > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{feProjects.filter(p => p.fe?.status !== 'approved').length}</Badge>}
               </TabsTrigger>
+              <TabsTrigger value="pre_construction" className="text-xs sm:text-sm" data-testid="tab-pre-construction">
+                Pre-Construction
+              </TabsTrigger>
               <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
               <TabsTrigger value="payment_req" className="text-xs sm:text-sm" data-testid="tab-payment-req">
                 Payment Req {(paymentRequests.length + additionalPaymentRequests.length) > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{paymentRequests.length + additionalPaymentRequests.length}</Badge>}
@@ -747,6 +751,11 @@ export default function CREBoard() {
             })()}
           </TabsContent>
 
+          {/* ==================== TAB 1.6: PRE-CONSTRUCTION ==================== */}
+          <TabsContent value="pre_construction">
+            <CREPreConstruction embedded />
+          </TabsContent>
+
           {/* ==================== TAB 2: ALL PROJECTS ==================== */}
           <TabsContent value="all_projects">
             <Card>
@@ -758,15 +767,6 @@ export default function CREBoard() {
                       <Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" />
                       <Input placeholder="Search projects..." value={projectSearch} onChange={(e) => setProjectSearch(e.target.value)} className="pl-8 h-8 w-48 text-sm" data-testid="project-search" />
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-orange-400 text-orange-700 hover:bg-orange-50"
-                      onClick={() => navigate('/cre/pre-construction')}
-                      data-testid="pre-construction-btn"
-                    >
-                      <Hammer className="h-4 w-4 mr-1" />Pre-Construction
-                    </Button>
                     <Button size="sm" onClick={() => { resetForm(); setCreateDialog(true); }} className="bg-amber-600 hover:bg-amber-700" data-testid="create-project-btn">
                       <Plus className="h-4 w-4 mr-1" />Create Project
                     </Button>
