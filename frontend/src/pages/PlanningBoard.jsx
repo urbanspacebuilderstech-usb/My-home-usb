@@ -450,9 +450,10 @@ export default function PlanningBoard() {
       return;
     } catch (e) {
       const status = e?.response?.status;
-      if (status === 409) {
-        // Has finance — fall back to soft delete after confirming
-        if (!window.confirm(`Project has financial history. Soft-delete instead?\n\nThe project will disappear from all boards but income/expenses stay in the books.`)) return;
+      if (status === 409 || status === 403) {
+        // Either has finance (409) or hard delete not allowed for this role (403)
+        // — fall back to soft delete after confirming
+        if (!window.confirm(`Permanent delete not possible (${status === 409 ? 'has financial history' : 'permission limited'}). Soft-delete instead?\n\nThe project will disappear from all boards but income/expenses stay in the books.`)) return;
         try {
           const r2 = await axios.delete(`${API}/projects/${projectId}`);
           toast.success(r2.data?.message || 'Project hidden (finance preserved)');

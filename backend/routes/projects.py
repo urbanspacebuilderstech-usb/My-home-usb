@@ -1338,8 +1338,13 @@ async def delete_project(project_id: str, hard: bool = False, user: User = Depen
 
     # ----- HARD DELETE path -----
     if hard:
-        if user.role != UserRole.SUPER_ADMIN:
-            raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete a project")
+        # Super Admin can hard-delete any project (subject to finance check below).
+        # Planning can hard-delete only ARCHIVED projects (subject to finance check).
+        if user.role == UserRole.PLANNING:
+            if not bool(project.get("is_archived")):
+                raise HTTPException(status_code=403, detail="Planning can only permanently delete projects that are already archived")
+        elif user.role != UserRole.SUPER_ADMIN:
+            raise HTTPException(status_code=403, detail="Only Super Admin or Planning (archived projects) can permanently delete")
 
         # Refuse if any financial record exists for this project
         finance_collections = [
