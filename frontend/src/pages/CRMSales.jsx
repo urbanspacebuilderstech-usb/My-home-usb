@@ -234,12 +234,15 @@ export default function CRMSales() {
       }
       
       // Intercept: Show CRE-style Convert Deal popup for "Deal Close" (stg_payment_collect)
+      // Lead MUST go through this dialog — backend rejects direct stage moves to stg_payment_collect.
       if (stage?.stage_id === 'stg_payment_collect') {
         const lead = leads.find(l => l.lead_id === leadId);
         if (lead) {
           openConvertDealFromSales(lead);
-          return;
+        } else {
+          toast.error('Could not find lead. Refresh and try again.');
         }
+        return;  // Always block — never let the PATCH happen for Deal Close.
       }
       
       // Intercept: Show follow-up date dialog for "Follow-up"

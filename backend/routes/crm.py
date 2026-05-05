@@ -906,9 +906,13 @@ class LeadStageUpdate(BaseModel):
     office_visit_remarks: Optional[str] = None
     # Rough Estimate fields
     rough_requirement: Optional[str] = None
-    # Stage move remarks (Discussion, Deal Closed, Lost, RE-To Client)
+    # Stage move remarks (Discussion, Deal Closed, RE-To Client, Lost)
     remark: Optional[str] = None
     lost_reason: Optional[str] = None
+    # Internal flag: set to True only when called by the /cre/convert-deal
+    # or /cre/convert-re-project flow which has already collected payment
+    # and created the project. Prevents direct moves to stg_payment_collect.
+    internal_deal_convert: Optional[bool] = False
 
 
 @router.patch("/crm/leads/{lead_id}/stage")
@@ -942,6 +946,16 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     # Block manual moves TO "RE - From Planning" (auto-moved on GM approval)
     if data.stage_id == "stg_re_from_planning":
         raise HTTPException(status_code=400, detail="This stage is auto-populated when GM approves the RE.")
+
+    # Block direct moves TO "Deal Close" (stg_payment_collect). Must come through the
+    # /cre/convert-deal or /cre/convert-re-project flow which atomically collects the
+    # advance payment, creates the project, and notifies the Accountant.
+    # Those endpoints call into this function with an internal bypass token.
+    if data.stage_id == "stg_payment_collect" and not getattr(data, "internal_deal_convert", False):
+        raise HTTPException(
+            status_code=400,
+            detail="Please use 'Deal Close' button which collects the advance payment and sends to Accountant. Direct stage move is not allowed.",
+        )
     
     # Block manual moves TO "New RNR Leads" (auto-distributed only after 14 days)
     if data.stage_id == "stg_new_rnr":
