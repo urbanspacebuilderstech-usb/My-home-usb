@@ -377,7 +377,17 @@ export default function CREPreConstruction({ embedded = false }) {
                           >
                             <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule
                           </Button>
-                          {row.status !== 'completed' ? (
+                          {row.status === 'completed' ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-amber-400 text-amber-700 hover:bg-amber-50"
+                              onClick={() => updateStage(row.project_id, row.stage, { status: 'pending', clear_schedule: true })}
+                              data-testid={`pc-reopen-${row.project_id}`}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reopen
+                            </Button>
+                          ) : (
                             <Button
                               size="sm"
                               className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
@@ -385,16 +395,6 @@ export default function CREPreConstruction({ embedded = false }) {
                               data-testid={`pc-complete-${row.project_id}`}
                             >
                               <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Completed
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => updateStage(row.project_id, row.stage, { status: 'pending' })}
-                              data-testid={`pc-reopen-${row.project_id}`}
-                            >
-                              <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reopen
                             </Button>
                           )}
                         </div>

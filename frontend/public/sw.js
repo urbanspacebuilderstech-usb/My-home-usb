@@ -3,7 +3,7 @@
 //   • index.html / navigations → ALWAYS network (so users get latest chunk hashes after deploy)
 //   • Hashed static assets (.js / .css with content-hash in filename) → cache-first (safe; URL changes on deploy)
 //   • API requests → never intercepted (let app handle auth, errors, retries)
-const CACHE_NAME = 'myhomeusb-v3';
+const CACHE_NAME = 'myhomeusb-v4';
 
 // Install - take over immediately
 self.addEventListener('install', (event) => {
