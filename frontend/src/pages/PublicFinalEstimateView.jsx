@@ -4,10 +4,8 @@ import axios from 'axios';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { CheckCircle2, MessageSquare, Download, Building2, Phone, MapPin, FileText } from 'lucide-react';
+import { Building2, Phone, MapPin, FileText, Download } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -18,9 +16,6 @@ export default function PublicFinalEstimateView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackText, setFeedbackText] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -37,43 +32,7 @@ export default function PublicFinalEstimateView() {
     return () => { mounted = false; };
   }, [token]);
 
-  const handleApprove = async () => {
-    if (!window.confirm('Approve this Final Estimate?\n\nOnce approved, you confirm the scope and total value. The team will proceed with project execution.')) return;
-    setSubmitting(true);
-    try {
-      const r = await axios.post(`${API}/public/fe/${token}/approve`);
-      toast.success(r.data?.message || 'Approved');
-      const refresh = await axios.get(`${API}/public/fe/${token}`);
-      setData(refresh.data);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to approve');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSubmitFeedback = async () => {
-    if (!feedbackText.trim()) {
-      toast.error('Please describe the change you want');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const r = await axios.post(`${API}/public/fe/${token}/feedback`, { feedback: feedbackText.trim() });
-      toast.success(r.data?.message || 'Feedback submitted');
-      setFeedbackOpen(false);
-      setFeedbackText('');
-      const refresh = await axios.get(`${API}/public/fe/${token}`);
-      setData(refresh.data);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to submit feedback');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleDownload = () => {
-    // Print the page (browser → save as PDF) — same UX pattern as RE
     window.print();
   };
 
@@ -97,12 +56,8 @@ export default function PublicFinalEstimateView() {
     </div>
   );
 
-  const isLocked = data.fe_status === 'approved';
-  const showActions = data.fe_status === 'pending_client_review';
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header bar */}
       <div className="bg-white border-b shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
@@ -116,20 +71,6 @@ export default function PublicFinalEstimateView() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-        {/* Status banner */}
-        {isLocked && (
-          <Card className="border-green-300 bg-green-50">
-            <CardContent className="p-4 flex items-center gap-3">
-              <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
-              <div>
-                <p className="font-semibold text-green-800">Approved by you</p>
-                <p className="text-xs text-green-700">{new Date(data.approved_at).toLocaleString()}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Project Info */}
         <Card>
           <CardHeader className="pb-2">
             <div className="flex justify-between items-start gap-3 flex-wrap">
@@ -138,9 +79,7 @@ export default function PublicFinalEstimateView() {
                 <p className="text-sm text-gray-500 mt-0.5">Final Estimate · Revision {data.revision || 0}</p>
               </div>
               <Badge variant="outline" className="text-xs">
-                {data.fe_status === 'pending_client_review' ? 'Awaiting your decision' :
-                 data.fe_status === 'feedback_received' ? 'Revision in progress' :
-                 data.fe_status === 'approved' ? 'Approved' : data.fe_status}
+                Reference Document
               </Badge>
             </div>
           </CardHeader>
@@ -166,7 +105,6 @@ export default function PublicFinalEstimateView() {
           </CardContent>
         </Card>
 
-        {/* Scope items */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -211,70 +149,10 @@ export default function PublicFinalEstimateView() {
           </CardContent>
         </Card>
 
-        {/* Action buttons */}
-        {showActions && (
-          <Card className="bg-amber-50 border-amber-200 print:hidden">
-            <CardContent className="p-4">
-              <p className="text-sm text-gray-700 mb-3">Please review the scope above and choose:</p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700 h-12"
-                  disabled={submitting}
-                  onClick={handleApprove}
-                  data-testid="fe-approve-btn"
-                >
-                  <CheckCircle2 className="h-5 w-5 mr-2" /> Approve & Confirm
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 border-amber-400 text-amber-700 hover:bg-amber-100 h-12"
-                  disabled={submitting}
-                  onClick={() => setFeedbackOpen(true)}
-                  data-testid="fe-feedback-btn"
-                >
-                  <MessageSquare className="h-5 w-5 mr-2" /> Give Feedback
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {data.fe_status === 'feedback_received' && (
-          <Card className="border-amber-300 bg-amber-50">
-            <CardContent className="p-4">
-              <p className="font-semibold text-amber-800">Feedback received</p>
-              <p className="text-sm text-amber-700 mt-1">Our team is preparing a revised estimate. We'll send the updated version shortly.</p>
-            </CardContent>
-          </Card>
-        )}
-
         <p className="text-center text-xs text-gray-400 pt-2 pb-6">
           Estimate ref: {data.project_id} · Generated: {data.sent_at ? new Date(data.sent_at).toLocaleDateString() : '-'}
         </p>
       </div>
-
-      {/* Feedback dialog */}
-      <Dialog open={feedbackOpen} onOpenChange={setFeedbackOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Share your feedback</DialogTitle>
-            <DialogDescription>Let us know what you'd like changed. Our team will update the estimate and send the revised version.</DialogDescription>
-          </DialogHeader>
-          <Textarea
-            rows={5}
-            placeholder="Example: Reduce flooring cost by ₹50,000 / Add false ceiling for kitchen / Use Asian Paints instead of Berger…"
-            value={feedbackText}
-            onChange={(e) => setFeedbackText(e.target.value)}
-            data-testid="fe-feedback-textarea"
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFeedbackOpen(false)} disabled={submitting}>Cancel</Button>
-            <Button onClick={handleSubmitFeedback} disabled={submitting} data-testid="fe-feedback-submit">
-              {submitting ? 'Submitting…' : 'Submit Feedback'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

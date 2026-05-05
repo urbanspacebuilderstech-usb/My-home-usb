@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -14,7 +16,7 @@ import {
   Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
   Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList, Copy, RefreshCw
+  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -44,6 +46,7 @@ const PAYMENT_MODES = [
 ];
 
 export default function CREBoard() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dashboard, setDashboard] = useState({});
@@ -72,7 +75,7 @@ export default function CREBoard() {
   // Payment Approvals
   const [pendingApprovals, setPendingApprovals] = useState({ advance_verified: [], pending_income: [] });
   const [feProjects, setFeProjects] = useState([]);
-  const [feShareDialog, setFeShareDialog] = useState({ open: false, project: null, url: '' });
+  const [reviewDialog, setReviewDialog] = useState({ open: false, project: null, text: '' });
 
   // Payment Collected (ledger)
   const [incomeCollected, setIncomeCollected] = useState([]);
@@ -278,31 +281,31 @@ export default function CREBoard() {
   };
 
   // ---------- Final Estimate handlers ----------
-  const handleFeSendToClient = async (project) => {
+  const handleFeApprove = async (project) => {
+    if (!window.confirm(`Approve Final Estimate (Rev ${project.fe?.revision || 0}) for "${project.name}"?\n\nThis confirms the scope and total. Planning will be notified.`)) return;
     try {
-      const r = await axios.post(`${API}/cre/final-estimates/${project.project_id}/send-to-client`);
-      const url = `${window.location.origin}/fe/${r.data.public_token}`;
-      setFeShareDialog({ open: true, project, url });
+      await axios.post(`${API}/cre/final-estimates/${project.project_id}/approve`);
+      toast.success('Final Estimate approved');
       fetchData(false);
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to send to client');
+      toast.error(err.response?.data?.detail || 'Failed to approve');
     }
   };
 
-  const handleFeResend = async (project) => {
-    if (!window.confirm(`Resend Final Estimate to client as Rev ${(project.fe?.revision || 0) + 1}?\n\nMake sure scope items are updated with the requested changes.`)) return;
+  const handleFeSubmitReview = async () => {
+    const text = (reviewDialog.text || '').trim();
+    if (!text) {
+      toast.error('Please write your review/feedback for Planning');
+      return;
+    }
     try {
-      const r = await axios.post(`${API}/cre/final-estimates/${project.project_id}/resend`);
-      toast.success(r.data?.message || 'Resent');
+      const r = await axios.post(`${API}/cre/final-estimates/${reviewDialog.project.project_id}/review`, { review: text });
+      toast.success(r.data?.message || 'Review sent to Planning');
+      setReviewDialog({ open: false, project: null, text: '' });
       fetchData(false);
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to resend');
+      toast.error(err.response?.data?.detail || 'Failed to send review');
     }
-  };
-
-  const handleCopyFeLink = (token) => {
-    const url = `${window.location.origin}/fe/${token}`;
-    navigator.clipboard.writeText(url).then(() => toast.success('Link copied'));
   };
 
   const resetForm = () => {
@@ -516,7 +519,7 @@ export default function CREBoard() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4 text-purple-600" />Final Estimate Review</CardTitle>
-                <p className="text-xs text-gray-500 mt-1">Planning has prepared the Final Estimate. Review, send to client, and track approval.</p>
+                <p className="text-xs text-gray-500 mt-1">Planning has prepared the Final Estimate. Approve directly or send a Review back to Planning.</p>
               </CardHeader>
               <CardContent className="p-0">
                 {feProjects.length === 0 ? (
@@ -525,82 +528,79 @@ export default function CREBoard() {
                     <p className="text-sm">No Final Estimates pending review</p>
                   </div>
                 ) : (
-                  <div className="divide-y">
-                    {feProjects.map((p) => {
-                      const fe = p.fe || {};
-                      const statusBadge = (() => {
-                        if (fe.status === 'approved') return { cls: 'bg-green-100 text-green-700', label: 'Client Approved' };
-                        if (fe.status === 'feedback_received') return { cls: 'bg-amber-100 text-amber-700', label: 'Client Feedback' };
-                        if (fe.status === 'pending_client_review') return { cls: 'bg-blue-100 text-blue-700', label: 'Sent to Client' };
-                        if (fe.status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700', label: 'Awaiting Your Action' };
-                        return { cls: 'bg-gray-100 text-gray-700', label: fe.status || 'Draft' };
-                      })();
-                      return (
-                        <div key={p.project_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`fe-card-${p.project_id}`}>
-                          <div className="flex justify-between items-start gap-4 flex-wrap">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                <h4 className="font-semibold truncate">{p.name}</h4>
-                                <Badge variant="outline" className="text-xs shrink-0">Rev {fe.revision || 0}</Badge>
-                                <Badge className={`text-xs shrink-0 ${statusBadge.cls}`}>{statusBadge.label}</Badge>
-                              </div>
-                              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                                <span>Client: <span className="font-medium text-gray-700">{p.client_name}</span></span>
-                                {p.client_phone && <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{p.client_phone}</span>}
-                                {p.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{p.location}</span>}
-                              </div>
-                              {fe.client_feedback && fe.status === 'feedback_received' && (
-                                <div className="mt-2 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                                  <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Client review</p>
-                                  <p className="text-sm text-gray-800 italic">"{fe.client_feedback}"</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="fe-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Project</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Client</th>
+                          <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Rev</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="text-left px-3 py-2 text-xs font-medium text-gray-500 uppercase">Reviews</th>
+                          <th className="text-center px-3 py-2 text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {feProjects.map((p) => {
+                          const fe = p.fe || {};
+                          const reviewCount = (fe.reviews || []).length;
+                          const statusBadge = (() => {
+                            if (fe.status === 'approved') return { cls: 'bg-green-100 text-green-700', label: 'Approved' };
+                            if (fe.status === 'review_pending') return { cls: 'bg-amber-100 text-amber-700', label: 'Review Sent' };
+                            if (fe.status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700', label: 'Awaiting You' };
+                            return { cls: 'bg-gray-100 text-gray-700', label: fe.status || 'Draft' };
+                          })();
+                          const canAct = fe.status === 'pending_cre_review';
+                          return (
+                            <tr key={p.project_id} className="hover:bg-gray-50" data-testid={`fe-row-${p.project_id}`}>
+                              <td className="px-3 py-2 font-medium">{p.name}</td>
+                              <td className="px-3 py-2 text-xs">
+                                <p className="font-medium text-gray-700">{p.client_name}</p>
+                                {p.client_phone && <p className="text-gray-500 text-[11px]">{p.client_phone}</p>}
+                              </td>
+                              <td className="px-3 py-2 text-center"><Badge variant="outline" className="text-xs">{fe.revision || 0}</Badge></td>
+                              <td className="px-3 py-2"><Badge className={`text-xs ${statusBadge.cls}`}>{statusBadge.label}</Badge></td>
+                              <td className="px-3 py-2 text-xs">{reviewCount > 0 ? <span className="text-amber-700 font-medium">{reviewCount} review{reviewCount > 1 ? 's' : ''}</span> : <span className="text-gray-400">—</span>}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 px-2"
+                                    onClick={() => navigate(`/cre/final-estimate/${p.project_id}`)}
+                                    data-testid={`fe-view-${p.project_id}`}
+                                    title="View Final Estimate"
+                                  >
+                                    <Eye className="h-3.5 w-3.5 mr-1" /> View
+                                  </Button>
+                                  {canAct && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        className="h-7 px-2 bg-green-600 hover:bg-green-700"
+                                        onClick={() => handleFeApprove(p)}
+                                        data-testid={`fe-approve-${p.project_id}`}
+                                      >
+                                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-7 px-2 border-amber-400 text-amber-700 hover:bg-amber-50"
+                                        onClick={() => setReviewDialog({ open: true, project: p, text: '' })}
+                                        data-testid={`fe-review-${p.project_id}`}
+                                      >
+                                        <MessageSquare className="h-3.5 w-3.5 mr-1" /> Review
+                                      </Button>
+                                    </>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => window.location.href = `/projects/${p.project_id}?tab=scope`}
-                                data-testid={`fe-view-${p.project_id}`}
-                              >
-                                <Eye className="h-3.5 w-3.5 mr-1" /> View
-                              </Button>
-                              {fe.public_token && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleCopyFeLink(fe.public_token)}
-                                  data-testid={`fe-copy-link-${p.project_id}`}
-                                  title="Copy public client link"
-                                >
-                                  <Copy className="h-3.5 w-3.5" />
-                                </Button>
-                              )}
-                              {fe.status === 'pending_cre_review' && (
-                                <Button
-                                  size="sm"
-                                  className="bg-blue-600 hover:bg-blue-700"
-                                  onClick={() => handleFeSendToClient(p)}
-                                  data-testid={`fe-send-client-${p.project_id}`}
-                                >
-                                  <Send className="h-3.5 w-3.5 mr-1" /> Send for Client Approval
-                                </Button>
-                              )}
-                              {fe.status === 'feedback_received' && (
-                                <Button
-                                  size="sm"
-                                  className="bg-amber-600 hover:bg-amber-700"
-                                  onClick={() => handleFeResend(p)}
-                                  data-testid={`fe-resend-${p.project_id}`}
-                                >
-                                  <RefreshCw className="h-3.5 w-3.5 mr-1" /> Resend (Rev {(fe.revision || 0) + 1})
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </CardContent>
@@ -1087,30 +1087,34 @@ export default function CREBoard() {
         </DialogContent>
       </Dialog>
 
-      {/* FE share dialog — shows the public link after CRE sends to client */}
-      <Dialog open={feShareDialog.open} onOpenChange={(o) => !o && setFeShareDialog({ open: false, project: null, url: '' })}>
+      {/* CRE → Review dialog (sent back to Planning Department) */}
+      <Dialog open={reviewDialog.open} onOpenChange={(o) => !o && setReviewDialog({ open: false, project: null, text: '' })}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-blue-600" />Final Estimate sent to client</DialogTitle>
-            <DialogDescription>Share this permanent link with the client. They can view, download, approve, or give feedback.</DialogDescription>
+            <DialogTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-amber-600" />Review for Planning Department</DialogTitle>
+            <DialogDescription>Your review will be sent to the Planning Department. They will revise the estimate and resend.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <p className="text-xs text-gray-500 mb-1">Project</p>
-              <p className="font-medium">{feShareDialog.project?.name}</p>
+              <p className="font-medium">{reviewDialog.project?.name}</p>
+              <p className="text-xs text-gray-500">Rev {reviewDialog.project?.fe?.revision || 0} · Review #{((reviewDialog.project?.fe?.reviews || []).length) + 1}</p>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1">Public Link (no expiry)</p>
-              <div className="flex gap-2">
-                <Input readOnly value={feShareDialog.url} className="flex-1 text-xs font-mono" data-testid="fe-share-url" onFocus={(e) => e.target.select()} />
-                <Button size="sm" onClick={() => { navigator.clipboard.writeText(feShareDialog.url); toast.success('Copied'); }} data-testid="fe-share-copy">
-                  <Copy className="h-3.5 w-3.5 mr-1" /> Copy
-                </Button>
-              </div>
+              <Textarea
+                rows={5}
+                placeholder="What needs to change? Example: Reduce flooring cost by ₹50,000 / Add false ceiling for kitchen / Use Asian Paints instead of Berger…"
+                value={reviewDialog.text}
+                onChange={(e) => setReviewDialog(d => ({ ...d, text: e.target.value }))}
+                data-testid="fe-review-textarea"
+              />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFeShareDialog({ open: false, project: null, url: '' })}>Done</Button>
+            <Button variant="outline" onClick={() => setReviewDialog({ open: false, project: null, text: '' })}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleFeSubmitReview} data-testid="fe-review-submit">
+              <Send className="h-4 w-4 mr-1" /> Send to Planning
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

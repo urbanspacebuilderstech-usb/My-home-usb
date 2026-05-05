@@ -2358,9 +2358,9 @@ export default function ProjectDetail() {
               {project?.fe?.status && project.fe.status !== 'draft' && (
                 <div className={`mb-4 rounded-lg border p-3 ${
                   project.fe.status === 'approved' ? 'bg-green-50 border-green-200' :
-                  project.fe.status === 'feedback_received' ? 'bg-amber-50 border-amber-200' :
-                  project.fe.status === 'pending_client_review' ? 'bg-blue-50 border-blue-200' :
-                  'bg-purple-50 border-purple-200'
+                  project.fe.status === 'review_pending' ? 'bg-amber-50 border-amber-200' :
+                  project.fe.status === 'pending_cre_review' ? 'bg-purple-50 border-purple-200' :
+                  'bg-gray-50 border-gray-200'
                 }`} data-testid="fe-status-banner">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex-1 min-w-0">
@@ -2371,21 +2371,34 @@ export default function ProjectDetail() {
                         </Badge>
                         <Badge className={`text-xs ${
                           project.fe.status === 'approved' ? 'bg-green-100 text-green-700' :
-                          project.fe.status === 'feedback_received' ? 'bg-amber-100 text-amber-700' :
-                          project.fe.status === 'pending_client_review' ? 'bg-blue-100 text-blue-700' :
-                          'bg-purple-100 text-purple-700'
+                          project.fe.status === 'review_pending' ? 'bg-amber-100 text-amber-700' :
+                          project.fe.status === 'pending_cre_review' ? 'bg-purple-100 text-purple-700' :
+                          'bg-gray-100 text-gray-700'
                         }`}>
                           {project.fe.status === 'pending_cre_review' ? 'Sent to CRE' :
-                           project.fe.status === 'pending_client_review' ? 'Sent to Client' :
-                           project.fe.status === 'feedback_received' ? 'Client Feedback' :
-                           project.fe.status === 'approved' ? 'Client Approved' : project.fe.status}
+                           project.fe.status === 'review_pending' ? 'Review from CRE — Action needed' :
+                           project.fe.status === 'approved' ? 'Approved by CRE' : project.fe.status}
                         </Badge>
                       </div>
-                      {project.fe.client_feedback && project.fe.status === 'feedback_received' && (
-                        <p className="text-sm text-gray-700 mt-2 italic">"{project.fe.client_feedback}"</p>
-                      )}
                     </div>
                   </div>
+
+                  {/* Review history list (Review 1, Review 2, ...) */}
+                  {Array.isArray(project.fe.reviews) && project.fe.reviews.length > 0 && (
+                    <div className="mt-3 space-y-2" data-testid="fe-reviews-list">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Reviews from CRE</p>
+                      {project.fe.reviews.map((r, i) => (
+                        <div key={i} className="rounded border border-amber-200 bg-white px-3 py-2" data-testid={`fe-review-item-${r.review_no}`}>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <Badge className="bg-amber-200 text-amber-900 text-[10px]">Review #{r.review_no}</Badge>
+                            <Badge variant="outline" className="text-[10px]">on Rev {r.revision}</Badge>
+                            <span className="text-[10px] text-gray-500 ml-auto">{new Date(r.at).toLocaleString()}</span>
+                          </div>
+                          <p className="text-sm text-gray-800 italic">"{r.text}"</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2396,28 +2409,32 @@ export default function ProjectDetail() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(user?.role === 'planning' || user?.role === 'super_admin') &&
-                    (!project?.fe?.status || project.fe.status === 'draft') && (
+                    (!project?.fe?.status || project.fe.status === 'draft' || project.fe.status === 'review_pending') && (
                     <Button
                       data-testid="fe-send-to-cre-btn"
                       size="sm"
                       className="gap-1 sm:gap-2 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm"
                       onClick={async () => {
-                        if (!window.confirm('Send this Final Estimate to CRE for review?\n\nMake sure all scope items and totals are finalised before sending.')) return;
+                        const isResend = project.fe?.status === 'review_pending';
+                        const msg = isResend
+                          ? `Resend updated Final Estimate to CRE? This will be marked as Rev ${(project.fe?.revision || 0) + 1}.`
+                          : 'Send this Final Estimate to CRE for review?\n\nMake sure all scope items and totals are finalised before sending.';
+                        if (!window.confirm(msg)) return;
                         try {
                           await axios.post(`${API}/planning/projects/${id}/final-estimate/send-to-cre`);
-                          toast.success('Final Estimate sent to CRE');
+                          toast.success(isResend ? 'Updated Final Estimate sent to CRE' : 'Final Estimate sent to CRE');
                           fetchProject();
                         } catch (err) {
                           const status = err.response?.status;
-                          const msg = err.response?.data?.detail
+                          const msg2 = err.response?.data?.detail
                             || (status === 401 ? 'Your session expired. Please log in again.' : null)
                             || (status === 403 ? 'You do not have permission to send Final Estimate.' : null)
                             || `Failed to send (HTTP ${status || 'unknown'})`;
-                          toast.error(msg);
+                          toast.error(msg2);
                         }
                       }}
                     >
-                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> Send for Approval
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> {project.fe?.status === 'review_pending' ? 'Resend for Approval' : 'Send for Approval'}
                     </Button>
                   )}
                   {selectedScopeIds.length > 0 && (
