@@ -442,9 +442,13 @@ async def delete_cashbook_expense(expense_type: str, record_id: str, user: User 
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant can delete expenses")
 
-    # Probe order: most specific collections first
+    # Probe order: most specific collections first. Each collection has its
+    # own primary id field — we try every candidate so the unified frontend
+    # `expense_id` always resolves regardless of source.
     candidates = [
         (db.material_requests, "request_id"),
+        (db.material_requests, "expense_id"),
+        (db.labour_expenses, "labour_expense_id"),
         (db.labour_expenses, "expense_id"),
         (db.recorded_expenses, "expense_id"),
     ]
@@ -2826,15 +2830,37 @@ async def get_cashbook_filtered(
     for i in incomes:
         i["project_name"] = project_map.get(i.get("project_id"), "Unknown")
 
-    # Build all expenses list
+    # Build all expenses list — every row gets a unified `expense_id` so the
+    # frontend has a single field to send back when deleting, regardless of
+    # which collection it came from.
     all_expenses = []
     for e in recorded_exps:
-        all_expenses.append({**e, "expense_type": e.get("category", "other"), "project_name": project_map.get(e.get("project_id"), ""), "source": e.get("source") or ("approval" if e.get("approval_id") or e.get("from_approval") else "manual")})
+        all_expenses.append({
+            **e,
+            "expense_id": e.get("expense_id") or str(e.get("_id", "")),
+            "expense_type": e.get("category", "other"),
+            "project_name": project_map.get(e.get("project_id"), ""),
+            "source": e.get("source") or ("approval" if e.get("approval_id") or e.get("from_approval") else "manual"),
+        })
     for l in labour_exps:
-        all_expenses.append({**l, "expense_type": "labour", "amount": l.get("total_amount", 0), "project_name": project_map.get(l.get("project_id"), ""), "source": "approval"})
+        all_expenses.append({
+            **l,
+            "expense_id": l.get("labour_expense_id") or l.get("expense_id"),
+            "expense_type": "labour",
+            "amount": l.get("total_amount", 0),
+            "project_name": project_map.get(l.get("project_id"), ""),
+            "source": "approval",
+        })
     for m in material_reqs:
         amt = m.get("estimated_price", 0) or m.get("final_price", 0)
-        all_expenses.append({**m, "expense_type": "material", "amount": amt, "project_name": project_map.get(m.get("project_id"), ""), "source": "approval"})
+        all_expenses.append({
+            **m,
+            "expense_id": m.get("request_id") or m.get("expense_id"),
+            "expense_type": "material",
+            "amount": amt,
+            "project_name": project_map.get(m.get("project_id"), ""),
+            "source": "approval",
+        })
 
     all_expenses.sort(key=lambda x: x.get("created_at", ""), reverse=True)
 
