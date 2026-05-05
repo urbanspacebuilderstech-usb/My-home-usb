@@ -2408,7 +2408,12 @@ export default function ProjectDetail() {
                           toast.success('Final Estimate sent to CRE');
                           fetchProject();
                         } catch (err) {
-                          toast.error(err.response?.data?.detail || 'Failed to send');
+                          const status = err.response?.status;
+                          const msg = err.response?.data?.detail
+                            || (status === 401 ? 'Your session expired. Please log in again.' : null)
+                            || (status === 403 ? 'You do not have permission to send Final Estimate.' : null)
+                            || `Failed to send (HTTP ${status || 'unknown'})`;
+                          toast.error(msg);
                         }
                       }}
                     >
