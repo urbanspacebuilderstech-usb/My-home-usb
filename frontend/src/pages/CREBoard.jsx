@@ -647,7 +647,6 @@ export default function CREBoard() {
                           const fe = p.fe || {};
                           const reviewCount = (fe.reviews || []).length;
                           const sb = statusBadgeFor(fe.status);
-                          const canAct = fe.status === 'pending_cre_review';
                           return (
                             <div
                               key={p.project_id}
@@ -718,27 +717,23 @@ export default function CREBoard() {
                                       <RefreshCw className="h-4 w-4 mr-1" /> Revision
                                     </Button>
                                   )}
-                                  {canAct && (
-                                    <>
-                                      <Button
-                                        size="sm"
-                                        className="bg-green-600 hover:bg-green-700"
-                                        onClick={() => handleFeApprove(p)}
-                                        data-testid={`fe-approve-${p.project_id}`}
-                                      >
-                                        <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="border-amber-400 text-amber-700 hover:bg-amber-50"
-                                        onClick={() => setReviewDialog({ open: true, project: p, text: '' })}
-                                        data-testid={`fe-review-${p.project_id}`}
-                                      >
-                                        <MessageSquare className="h-4 w-4 mr-1" /> Review
-                                      </Button>
-                                    </>
-                                  )}
+                                  <Button
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700"
+                                    onClick={() => handleFeApprove(p)}
+                                    data-testid={`fe-approve-${p.project_id}`}
+                                  >
+                                    <CheckCircle2 className="h-4 w-4 mr-1" /> Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-amber-400 text-amber-700 hover:bg-amber-50"
+                                    onClick={() => setReviewDialog({ open: true, project: p, text: '' })}
+                                    data-testid={`fe-review-${p.project_id}`}
+                                  >
+                                    <MessageSquare className="h-4 w-4 mr-1" /> Review
+                                  </Button>
                                 </div>
                               </div>
                             </div>

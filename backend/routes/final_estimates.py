@@ -159,7 +159,8 @@ async def cre_approve_fe(project_id: str, user: User = Depends(get_current_user)
     project = await _get_project_or_404(project_id)
     fe = _ensure_fe(project)
 
-    if fe["status"] not in ("pending_cre_review",):
+    # Approve allowed from any non-final status the FE moves through
+    if fe["status"] not in ("pending_cre_review", "pending_client_review", "feedback_received", "review_pending"):
         raise HTTPException(status_code=400, detail=f"Cannot approve from status: {fe['status']}")
 
     fe["status"] = "approved"
@@ -205,8 +206,10 @@ async def cre_submit_review(project_id: str, body: ReviewBody, user: User = Depe
     project = await _get_project_or_404(project_id)
     fe = _ensure_fe(project)
 
-    if fe["status"] not in ("pending_cre_review",):
-        raise HTTPException(status_code=400, detail=f"Cannot review from status: {fe['status']}")
+    # Review allowed any time the FE is "in flight" — but never on draft or already-approved
+    # (use the Revision flow for post-approval changes).
+    if fe["status"] not in ("pending_cre_review", "pending_client_review", "feedback_received", "review_pending"):
+        raise HTTPException(status_code=400, detail=f"Cannot review from status: {fe['status']}. Use Revision instead if the FE is already approved.")
 
     review_index = len(fe.get("reviews", [])) + 1
     new_review = {
