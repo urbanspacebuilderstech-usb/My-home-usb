@@ -1599,3 +1599,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/304.pack
+frontend/node_modules/.cache/default-development/305.pack

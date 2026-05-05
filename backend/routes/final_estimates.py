@@ -134,10 +134,11 @@ async def list_cre_final_estimates(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only CRE can access this")
 
     # Surface every project whose FE has been touched (excludes drafts).
-    # Includes review_pending so CRE can still see what they sent back to Planning.
+    # Includes review_pending so CRE can still see what they sent back to Planning,
+    # and pending_client_review / feedback_received so CRE can track in-flight client reviews.
     projects = await db.projects.find(
         {
-            "fe.status": {"$in": ["pending_cre_review", "review_pending", "approved"]},
+            "fe.status": {"$in": ["pending_cre_review", "review_pending", "approved", "pending_client_review", "feedback_received"]},
             "$or": [{"is_archived": {"$exists": False}}, {"is_archived": False}],
         },
         {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "client_phone": 1,

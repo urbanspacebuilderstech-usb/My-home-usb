@@ -521,6 +521,7 @@ export default function CREBoard() {
               const counts = {
                 awaiting: feProjects.filter(p => p.fe?.status === 'pending_cre_review').length,
                 in_revision: feProjects.filter(p => p.fe?.status === 'review_pending').length,
+                sent_to_client: feProjects.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status)).length,
                 approved: feProjects.filter(p => p.fe?.status === 'approved').length,
                 all: feProjects.length,
               };
@@ -528,6 +529,7 @@ export default function CREBoard() {
                 switch (feActiveTab) {
                   case 'awaiting': return feProjects.filter(p => p.fe?.status === 'pending_cre_review');
                   case 'in_revision': return feProjects.filter(p => p.fe?.status === 'review_pending');
+                  case 'sent_to_client': return feProjects.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status));
                   case 'approved': return feProjects.filter(p => p.fe?.status === 'approved');
                   default: return feProjects;
                 }
@@ -536,13 +538,15 @@ export default function CREBoard() {
                 if (status === 'approved') return { cls: 'bg-green-100 text-green-700 border-green-200', label: 'Approved' };
                 if (status === 'review_pending') return { cls: 'bg-amber-100 text-amber-700 border-amber-200', label: 'In Revision @ Planning' };
                 if (status === 'pending_cre_review') return { cls: 'bg-purple-100 text-purple-700 border-purple-200', label: 'Awaiting You' };
+                if (status === 'pending_client_review') return { cls: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Sent to Client' };
+                if (status === 'feedback_received') return { cls: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Client Feedback' };
                 return { cls: 'bg-gray-100 text-gray-700 border-gray-200', label: status || 'Draft' };
               };
 
               return (
                 <div className="space-y-4">
                   {/* Status Summary Cards */}
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
                     <Card
                       className={`cursor-pointer transition-all ${feActiveTab === 'awaiting' ? 'ring-2 ring-purple-500' : 'hover:shadow-sm'}`}
                       onClick={() => setFeActiveTab('awaiting')}
@@ -563,6 +567,17 @@ export default function CREBoard() {
                         <RefreshCw className="h-6 w-6 mx-auto mb-1 text-amber-600" />
                         <p className="text-2xl font-bold text-amber-700">{counts.in_revision}</p>
                         <p className="text-xs text-amber-600">In Revision @ Planning</p>
+                      </CardContent>
+                    </Card>
+                    <Card
+                      className={`cursor-pointer transition-all ${feActiveTab === 'sent_to_client' ? 'ring-2 ring-blue-500' : 'hover:shadow-sm'}`}
+                      onClick={() => setFeActiveTab('sent_to_client')}
+                      data-testid="fe-status-sent-to-client"
+                    >
+                      <CardContent className="p-4 text-center">
+                        <Send className="h-6 w-6 mx-auto mb-1 text-blue-600" />
+                        <p className="text-2xl font-bold text-blue-700">{counts.sent_to_client}</p>
+                        <p className="text-xs text-blue-600">Sent to Client</p>
                       </CardContent>
                     </Card>
                     <Card
@@ -596,6 +611,7 @@ export default function CREBoard() {
                         <FileText className="h-4 w-4 text-purple-600" />
                         Final Estimate — {feActiveTab === 'awaiting' ? 'Awaiting You'
                           : feActiveTab === 'in_revision' ? 'In Revision @ Planning'
+                          : feActiveTab === 'sent_to_client' ? 'Sent to Client'
                           : feActiveTab === 'approved' ? 'Approved'
                           : 'All'}
                       </CardTitle>
@@ -616,7 +632,7 @@ export default function CREBoard() {
                           return (
                             <div
                               key={p.project_id}
-                              className={`p-4 hover:bg-gray-50 transition-all ${fe.status === 'approved' ? 'border-l-4 border-l-green-500 bg-green-50/30' : fe.status === 'pending_cre_review' ? 'border-l-4 border-l-purple-400' : ''}`}
+                              className={`p-4 hover:bg-gray-50 transition-all ${fe.status === 'approved' ? 'border-l-4 border-l-green-500 bg-green-50/30' : fe.status === 'pending_cre_review' ? 'border-l-4 border-l-purple-400' : fe.status === 'pending_client_review' ? 'border-l-4 border-l-blue-400' : fe.status === 'feedback_received' ? 'border-l-4 border-l-orange-400' : ''}`}
                               data-testid={`fe-project-${p.project_id}`}
                             >
                               <div className="flex items-start justify-between gap-3 flex-wrap">
