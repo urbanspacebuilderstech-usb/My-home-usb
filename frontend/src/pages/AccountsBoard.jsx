@@ -1686,20 +1686,21 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
               const net = (inc[mode] || 0) - (exp[mode] || 0);
               return (
                 <div key={mode}
-                  className={`rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03] ${MODE_COLORS[mode]}`}
+                  className="rounded-lg border p-1.5 sm:p-2 text-center cursor-pointer transition-all hover:shadow-md hover:scale-[1.03]"
+                  style={{ backgroundColor: '#dcfce7', borderColor: '#bbf7d0', color: '#15803d' }}
                   onClick={() => handleModeClick(mode)}
                   data-testid={`mode-card-${mode}`}
                 >
-                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" />
-                  <p className="text-[9px] sm:text-[10px] font-medium truncate">{MODE_LABELS[mode]}</p>
+                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5 opacity-70" style={{ color: '#15803d' }} />
+                  <p className="text-[9px] sm:text-[10px] font-medium truncate" style={{ color: '#15803d' }}>{MODE_LABELS[mode]}</p>
                   <p
                     className="text-[10px] sm:text-xs font-bold"
-                    style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#6b7280' }}
+                    style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#15803d' }}
                   >
                     <MaskedValue
                       value={net}
                       formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
-                      style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#6b7280' }}
+                      style={{ color: net > 0 ? '#15803d' : net < 0 ? '#dc2626' : '#15803d' }}
                       className="text-[10px] sm:text-xs font-bold"
                     />
                   </p>
@@ -1709,15 +1710,14 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
             {(() => {
               const totalNet = (inc.total || 0) - (exp.total || 0);
               return (
-                <div className="rounded-lg border p-1.5 sm:p-2 text-center bg-gray-900 text-white col-span-3 sm:col-span-1">
+                <div className="rounded-lg p-1.5 sm:p-2 text-center text-white col-span-3 sm:col-span-1" style={{ backgroundColor: '#15803d' }}>
                   <DollarSign className="h-3 w-3 sm:h-3.5 sm:w-3.5 mx-auto mb-0.5" />
                   <p className="text-[9px] sm:text-[10px] font-medium">Total</p>
-                  <p className="text-[10px] sm:text-xs font-bold" style={{ color: totalNet > 0 ? '#86efac' : totalNet < 0 ? '#fca5a5' : '#d1d5db' }}>
+                  <p className="text-[10px] sm:text-xs font-bold text-white">
                     <MaskedValue
                       value={totalNet}
                       formatFn={(n) => n > 0 ? `+${fmt(n)}` : n < 0 ? `-${fmt(Math.abs(n))}` : '0'}
-                      style={{ color: totalNet > 0 ? '#86efac' : totalNet < 0 ? '#fca5a5' : '#d1d5db' }}
-                      className="text-[10px] sm:text-xs font-bold"
+                      className="text-[10px] sm:text-xs font-bold text-white"
                     />
                   </p>
                 </div>
