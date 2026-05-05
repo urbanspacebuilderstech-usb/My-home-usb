@@ -1309,13 +1309,14 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Planning can only delete projects that are still in planning stage
+    # Planning can delete projects that are still in planning stage OR archived
     if user.role == UserRole.PLANNING:
         allowed_statuses = ["in_planning", "planning", "draft", "pending"]
         project_status = project.get("status", "").lower()
         project_stage = project.get("project_stage", "").lower()
-        if project_status not in allowed_statuses and project_stage not in allowed_statuses:
-            raise HTTPException(status_code=403, detail="Planning can only delete projects in planning/draft stage")
+        is_archived = bool(project.get("is_archived"))
+        if not is_archived and project_status not in allowed_statuses and project_stage not in allowed_statuses:
+            raise HTTPException(status_code=403, detail="Planning can only delete projects in planning/draft stage or archived projects")
     
     # Delete related data
     await db.scope_items.delete_many({"project_id": project_id})
@@ -1326,6 +1327,61 @@ async def delete_project(project_id: str, user: User = Depends(get_current_user)
     
     await create_audit_log(user.user_id, "delete", "project", project_id, {"deleted_by_role": user.role})
     return {"message": "Project and all related data deleted"}
+
+
+# ==================== ARCHIVE / UNARCHIVE PROJECT ====================
+
+@router.post("/projects/{project_id}/archive")
+async def archive_project(project_id: str, user: User = Depends(get_current_user)):
+    """Archive a project. Anyone with project-edit access can archive — Super Admin,
+    Planning, GM, PM, Accountant. Archived projects move to the dedicated Archive tab
+    and are excluded from the regular New / Current / Delivered tabs.
+    Archived projects can ONLY be deleted by Planning or Super Admin (see DELETE endpoint).
+    """
+    archive_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER,
+                     UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]
+    if user.role not in archive_roles:
+        raise HTTPException(status_code=403, detail="You don't have permission to archive projects")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("is_archived"):
+        return {"message": "Project already archived", "archived": True}
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {
+            "is_archived": True,
+            "archived_at": now,
+            "archived_by": user.user_id,
+            "archived_by_name": user.name,
+        }},
+    )
+    await create_audit_log(user.user_id, "archive", "project", project_id, {"archived_by_role": user.role})
+    return {"message": "Project archived", "archived": True}
+
+
+@router.post("/projects/{project_id}/unarchive")
+async def unarchive_project(project_id: str, user: User = Depends(get_current_user)):
+    """Restore an archived project back to its previous tab."""
+    archive_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER,
+                     UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]
+    if user.role not in archive_roles:
+        raise HTTPException(status_code=403, detail="You don't have permission to unarchive projects")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$unset": {"archived_at": "", "archived_by": "", "archived_by_name": ""},
+         "$set": {"is_archived": False}},
+    )
+    await create_audit_log(user.user_id, "unarchive", "project", project_id, {})
+    return {"message": "Project restored", "archived": False}
 
 
 # ==================== PROJECT PACKAGE MATERIALS ====================

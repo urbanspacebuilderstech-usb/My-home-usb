@@ -412,6 +412,33 @@ export default function PlanningBoard() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
   };
 
+  const handleArchiveProject = async (projectId, projectName) => {
+    if (!window.confirm(`Archive project "${projectName}"?\n\nIt will move to the Archive Projects tab and be hidden from New / Current / Delivered tabs. You can restore it any time.`)) return;
+    try {
+      await axios.post(`${API}/projects/${projectId}/archive`);
+      toast.success('Project archived');
+      fetchSubTabProjects(projectSubTab, projectDateFilter);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to archive'); }
+  };
+
+  const handleUnarchiveProject = async (projectId, projectName) => {
+    if (!window.confirm(`Restore project "${projectName}"? It will move back to its original tab.`)) return;
+    try {
+      await axios.post(`${API}/projects/${projectId}/unarchive`);
+      toast.success('Project restored');
+      fetchSubTabProjects(projectSubTab, projectDateFilter);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to restore'); }
+  };
+
+  const handleDeleteArchivedProject = async (projectId, projectName) => {
+    if (!window.confirm(`PERMANENTLY DELETE archived project "${projectName}"?\n\nAll scope items, payments, and additional costs will also be removed. This cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/projects/${projectId}`);
+      toast.success('Project deleted permanently');
+      fetchSubTabProjects(projectSubTab, projectDateFilter);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to delete'); }
+  };
+
   const fetchMonthlySchedule = async () => {
     try {
       setScheduleLoading(true);
@@ -904,7 +931,8 @@ export default function PlanningBoard() {
                   {[
                     { key: 'new', label: 'New Projects', color: 'blue' },
                     { key: 'active', label: 'Current Projects', color: 'green' },
-                    { key: 'delivered', label: 'Delivered Projects', color: 'purple' }
+                    { key: 'delivered', label: 'Delivered Projects', color: 'purple' },
+                    { key: 'archived', label: 'Archive Projects', color: 'gray' }
                   ].map(tab => (
                     <button
                       key={tab.key}
@@ -1009,7 +1037,7 @@ export default function PlanningBoard() {
                           );
                           if (filtered.length === 0) return (
                             <tr><td colSpan="7" className="p-8 text-center text-gray-400">
-                              {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : 'No delivered projects'}
+                              {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
                             </td></tr>
                           );
                           return filtered.map((p) => (
@@ -1026,6 +1054,7 @@ export default function PlanningBoard() {
                                 {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
                                  projectSubTab === 'active' && p.planning_active_date ? new Date(p.planning_active_date).toLocaleDateString('en-IN') :
                                  projectSubTab === 'delivered' && p.planning_delivered_date ? new Date(p.planning_delivered_date).toLocaleDateString('en-IN') :
+                                 projectSubTab === 'archived' && p.archived_at ? new Date(p.archived_at).toLocaleDateString('en-IN') :
                                  p.created_at ? new Date(p.created_at).toLocaleDateString('en-IN') : '-'}
                               </td>
                               <td className="px-4 py-2.5">
@@ -1052,6 +1081,42 @@ export default function PlanningBoard() {
                                     >
                                       <Check className="h-3 w-3 mr-1" />Mark Delivered
                                     </Button>
+                                  )}
+                                  {projectSubTab !== 'archived' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-amber-700 hover:bg-amber-50"
+                                      onClick={() => handleArchiveProject(p.project_id, p.name)}
+                                      data-testid={`archive-${p.project_id}`}
+                                      title="Archive project"
+                                    >
+                                      📦 Archive
+                                    </Button>
+                                  )}
+                                  {projectSubTab === 'archived' && (
+                                    <>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="h-7 text-xs text-emerald-700 hover:bg-emerald-50"
+                                        onClick={() => handleUnarchiveProject(p.project_id, p.name)}
+                                        data-testid={`unarchive-${p.project_id}`}
+                                      >
+                                        ↩ Restore
+                                      </Button>
+                                      {(user?.role === 'planning' || user?.role === 'super_admin') && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-7 text-xs text-red-600 hover:bg-red-50"
+                                          onClick={() => handleDeleteArchivedProject(p.project_id, p.name)}
+                                          data-testid={`delete-archived-${p.project_id}`}
+                                        >
+                                          🗑 Delete
+                                        </Button>
+                                      )}
+                                    </>
                                   )}
                                 </div>
                               </td>
