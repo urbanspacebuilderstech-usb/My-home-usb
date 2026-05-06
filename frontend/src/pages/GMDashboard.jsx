@@ -44,6 +44,9 @@ const GMDashboard = () => {
   const [accountantRequests, setAccountantRequests] = useState([]);
   const [suspenseRequests, setSuspenseRequests] = useState([]);
   const [designApprovals, setDesignApprovals] = useState([]);
+  const [feProjects, setFeProjects] = useState([]);
+  const [feRejectDialog, setFeRejectDialog] = useState({ open: false, project: null, reason: '' });
+  const [feBusy, setFeBusy] = useState(false);
   
   // Approval Dialog
   const [approvalDialog, setApprovalDialog] = useState(false);
@@ -74,7 +77,7 @@ const GMDashboard = () => {
   const fetchAllData = async (showLoading = true) => {
     try {
       if (showLoading) setLoading(true);
-      const [userRes, projectsRes, reProjectsRes, materialReqRes, labourReqRes, paymentReqRes, suspenseRes, designRes] = await Promise.all([
+      const [userRes, projectsRes, reProjectsRes, materialReqRes, labourReqRes, paymentReqRes, suspenseRes, designRes, feRes] = await Promise.all([
         axios.get(`${API}/auth/me`),
         axios.get(`${API}/projects`).catch(() => ({ data: [] })),
         axios.get(`${API}/crm/re-projects`).catch(() => ({ data: [] })),
@@ -82,7 +85,8 @@ const GMDashboard = () => {
         axios.get(`${API}/site-engineer/labour-requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/work-orders/payment-requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/financial/suspense`).catch(() => ({ data: [] })),
-        axios.get(`${API}/architect/pending-approvals`).catch(() => ({ data: [] }))
+        axios.get(`${API}/architect/pending-approvals`).catch(() => ({ data: [] })),
+        axios.get(`${API}/gm/final-estimates`).catch(() => ({ data: [] }))
       ]);
       
       if (!['general_manager', 'super_admin'].includes(userRes.data.role)) {
@@ -99,6 +103,7 @@ const GMDashboard = () => {
       setPaymentRequests(paymentReqRes.data || []);
       setSuspenseRequests(suspenseRes.data || []);
       setDesignApprovals(designRes.data || []);
+      setFeProjects(feRes.data || []);
       
       // Calculate stats - RE projects pending approval have status 're_submitted'
       const pendingREApprovals = (reProjectsRes.data || []).filter(p => p.status === 're_submitted').length;
@@ -107,6 +112,7 @@ const GMDashboard = () => {
       const pendingPayments = (paymentReqRes.data || []).filter(p => p.status === 'pending').length;
       const pendingSuspense = (suspenseRes.data || []).filter(s => s.status === 'pending_approval').length;
       const pendingDesignApprovals = (designRes.data || []).length;
+      const pendingFEApprovals = (feRes.data || []).filter(p => (p.fe?.status === 'pending_gm_review')).length;
       
       setStats({
         totalProjects: (projectsRes.data || []).length,
@@ -118,6 +124,7 @@ const GMDashboard = () => {
         pendingPayments,
         pendingSuspense,
         pendingDesignApprovals,
+        pendingFEApprovals,
         completedProjects: (projectsRes.data || []).filter(p => p.status === 'completed').length
       });
       
@@ -455,6 +462,12 @@ const GMDashboard = () => {
               <FileText className="h-4 w-4" /> Design
               {stats.pendingDesignApprovals > 0 && (
                 <Badge className="bg-purple-500 text-white text-xs ml-1">{stats.pendingDesignApprovals}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="final_estimate" className="flex items-center gap-2" data-testid="gm-tab-final-estimate">
+              <Calculator className="h-4 w-4" /> Final Estimate
+              {stats.pendingFEApprovals > 0 && (
+                <Badge className="bg-blue-500 text-white text-xs ml-1">{stats.pendingFEApprovals}</Badge>
               )}
             </TabsTrigger>
           </TabsList>
@@ -977,8 +990,140 @@ const GMDashboard = () => {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ==================== FINAL ESTIMATE TAB ==================== */}
+          <TabsContent value="final_estimate" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Calculator className="h-5 w-5 text-blue-600" /> Final Estimates — Pending GM Approval
+                </CardTitle>
+                <p className="text-sm text-gray-500">Review and approve/reject Final Estimates submitted by Planning. Approved FEs move to CRE. Rejections return to Planning with your reason.</p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {feProjects.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8" data-testid="fe-empty">No Final Estimates pending review.</p>
+                  ) : (
+                    feProjects.map(p => {
+                      const fe = p.fe || {};
+                      const isRejected = fe.status === 'rejected_by_gm';
+                      return (
+                        <div key={p.project_id} className="border rounded-lg p-4 hover:shadow-sm transition-shadow" data-testid={`fe-card-${p.project_id}`}>
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-semibold">{p.name}</h4>
+                                <Badge variant="outline" className="text-xs">Rev {fe.revision || 0}</Badge>
+                                <Badge className={isRejected ? 'bg-red-100 text-red-700 text-xs' : 'bg-blue-100 text-blue-700 text-xs'}>
+                                  {isRejected ? 'Rejected — Awaiting Re-submission' : 'Pending GM Review'}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {p.client_name || 'Client'} {p.client_phone ? `· ${p.client_phone}` : ''} {p.location ? `· ${p.location}` : ''}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                Submitted: {fe.sent_to_gm_at ? new Date(fe.sent_to_gm_at).toLocaleString() : '—'}
+                              </p>
+                              {isRejected && (fe.gm_rejections || []).length > 0 && (
+                                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                                  <span className="font-semibold text-red-600">Your last rejection:</span> <span className="text-gray-700">{fe.gm_rejections[fe.gm_rejections.length - 1].reason}</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <Button size="sm" variant="outline" onClick={() => window.open(`/project/${p.project_id}`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
+                                <Eye className="h-3.5 w-3.5 mr-1" /> View FE
+                              </Button>
+                              {!isRejected && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700"
+                                    disabled={feBusy}
+                                    data-testid={`fe-approve-${p.project_id}`}
+                                    onClick={async () => {
+                                      if (!window.confirm(`Approve Final Estimate for "${p.name}"?\n\nThis will send it to CRE for review.`)) return;
+                                      setFeBusy(true);
+                                      try {
+                                        await axios.post(`${API}/gm/final-estimates/${p.project_id}/approve`);
+                                        toast.success('Final Estimate approved and sent to CRE');
+                                        fetchDashboardData(false);
+                                      } catch (err) {
+                                        toast.error(err.response?.data?.detail || 'Failed to approve');
+                                      } finally { setFeBusy(false); }
+                                    }}
+                                  >
+                                    <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={feBusy}
+                                    data-testid={`fe-reject-${p.project_id}`}
+                                    onClick={() => setFeRejectDialog({ open: true, project: p, reason: '' })}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5 mr-1" /> Reject
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </main>
+
+      {/* FE Reject Dialog */}
+      <Dialog open={feRejectDialog.open} onOpenChange={(o) => !o && setFeRejectDialog({ open: false, project: null, reason: '' })}>
+        <DialogContent className="max-w-md" data-testid="fe-reject-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" /> Reject Final Estimate
+            </DialogTitle>
+            <DialogDescription>
+              Project: <b>{feRejectDialog.project?.name}</b> · Rev {feRejectDialog.project?.fe?.revision || 0}. Rejection reason is visible to Planning so they can fix and re-submit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label>Rejection reason <span className="text-red-500">*</span></Label>
+            <Textarea
+              rows={5}
+              value={feRejectDialog.reason}
+              onChange={(e) => setFeRejectDialog({ ...feRejectDialog, reason: e.target.value })}
+              placeholder="e.g., Scope item quantities do not match the site measurements. Please correct and re-submit."
+              data-testid="fe-reject-reason-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFeRejectDialog({ open: false, project: null, reason: '' })}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={!feRejectDialog.reason.trim() || feBusy}
+              data-testid="fe-reject-submit-btn"
+              onClick={async () => {
+                setFeBusy(true);
+                try {
+                  await axios.post(`${API}/gm/final-estimates/${feRejectDialog.project.project_id}/reject`, { reason: feRejectDialog.reason.trim() });
+                  toast.success('Final Estimate rejected — sent back to Planning');
+                  setFeRejectDialog({ open: false, project: null, reason: '' });
+                  fetchDashboardData(false);
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to reject');
+                } finally { setFeBusy(false); }
+              }}
+            >
+              Reject &amp; Send Back
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Approval Dialog with APPROVE confirmation */}
       <Dialog 

@@ -720,6 +720,10 @@ class AdditionalCostItem(BaseModel):
     cost_id: str = Field(default_factory=lambda: f"ac_{uuid.uuid4().hex[:12]}")
     project_id: str
     description: str  # e.g., "Extra flooring", "Additional electrical"
+    # Itemised fields (new — used for FE-stage additions). qty * price = estimated_amount.
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
     estimated_amount: float
     actual_amount: float = 0
     income_received: float = 0
@@ -751,6 +755,10 @@ class DeductionItem(BaseModel):
     deduction_id: str = Field(default_factory=lambda: f"ded_{uuid.uuid4().hex[:12]}")
     project_id: str
     description: str  # e.g., "Penalty", "Discount", "Adjustment"
+    # Itemised fields (new — used for FE-stage deductions). qty * price = amount.
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
     amount: float
     status: str = "pending"  # pending, approved, rejected
     workflow_status: str = "approved"  # No approval needed - directly approved

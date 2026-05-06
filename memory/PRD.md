@@ -13,6 +13,24 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 6, 2026 — Final Estimate → GM Approval Workflow
+- **Backend** (`/app/backend/routes/final_estimates.py`): State machine extended with a GM step.
+  - New states: `pending_gm_review`, `rejected_by_gm` (with rejection history).
+  - New endpoints:
+    - `POST /api/planning/projects/{id}/final-estimate/submit-to-gm` — Planning submits (legacy `send-to-cre` aliased to same function so old UI calls still work).
+    - `GET /api/gm/final-estimates` — GM queue (shows pending + rejected pending re-submission).
+    - `POST /api/gm/final-estimates/{id}/approve` — GM approves → `pending_cre_review`, notifies CRE.
+    - `POST /api/gm/final-estimates/{id}/reject` — body `{reason}` — returns to Planning with reason banner.
+    - `GET /api/projects/{id}/fe-total` — returns `{final_estimate_total, additional_total, deduction_total, grand_total}`.
+  - Revision bumps correctly on Planning re-submit after GM rejection OR CRE review.
+- **Models** (`/app/backend/core/models.py`, `/app/backend/routes/projects.py`): Added optional `name`, `qty`, `price` to `AdditionalCostItem` and `DeductionItem` + all Create/Update/Bulk input models. Backwards compatible — old records continue to work via `description`/`estimated_amount`/`amount`.
+- **Frontend Planning** (`ProjectDetail.jsx`): Status banner now handles `pending_gm_review` + `rejected_by_gm`; rejection reason appears in-banner so Planning sees exactly what to fix. Button renamed "Submit to GM" / "Re-submit to GM"; calls the new endpoint. Live **Total Final Estimate Cost** card added: `(Scope + Additional) − Deductions = Grand Total` with per-component breakdown.
+- **Frontend GM** (`GMDashboard.jsx`): New **Final Estimate** tab with badge count. Cards show project, revision, status, client info, submit date, and previous rejection reason (if any). Approve / Reject actions. Reject dialog requires a reason.
+- **Tested via curl end-to-end**: Planning submit → GM list (1) → GM reject with reason → status `rejected_by_gm` → Planning re-submit (rev 0 → 1) → GM approve → `pending_cre_review` → CRE list includes project (2). `fe-total` returned correct breakdown.
+
+### ⚠️ Deferred for next session
+Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving Additional Cost + Deductions UI **inside** the FE tab as sub-tabs with Name/Qty/Price/Total columns + removing the standalone top-level tabs) is still pending. Backend supports the new fields; I flagged the full UI refactor because it's a ~400-line restructure of `ProjectDetail.jsx` that would exceed my context budget in one go. Please say "continue merge" in the next session and I'll ship it as focused follow-up work.
+
 ### Session — May 6, 2026 — Alternative Phone field on Sales/Pre-Sales leads
 - **Backend** (`/app/backend/routes/crm.py`):
   - Added `alternative_phone: Optional[str]` to `Lead`, `LeadCreate`, `AdminLeadCreate`, and `LeadUpdateInput` models — persisted on POST/PATCH.

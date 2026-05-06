@@ -1810,6 +1810,9 @@ class AdditionalCostCreate(BaseModel):
     project_id: str
     description: str
     estimated_amount: float
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 class AdditionalCostUpdate(BaseModel):
@@ -1818,6 +1821,9 @@ class AdditionalCostUpdate(BaseModel):
     actual_amount: Optional[float] = None
     income_received: Optional[float] = None
     status: Optional[str] = None
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 @router.get("/projects/{project_id}/comprehensive")
@@ -2437,7 +2443,10 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
     cost = AdditionalCostItem(
         project_id=cost_input.project_id,
         description=cost_input.description,
-        estimated_amount=cost_input.estimated_amount
+        estimated_amount=cost_input.estimated_amount,
+        name=cost_input.name,
+        qty=cost_input.qty,
+        price=cost_input.price,
     )
     
     cost_dict = cost.model_dump()
@@ -2642,6 +2651,9 @@ class DeductionCreate(BaseModel):
     description: str
     amount: float
     remarks: Optional[str] = None
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 class DeductionUpdate(BaseModel):
@@ -2649,6 +2661,9 @@ class DeductionUpdate(BaseModel):
     amount: Optional[float] = None
     status: Optional[str] = None
     remarks: Optional[str] = None
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 @router.get("/projects/{project_id}/deductions")
@@ -2669,7 +2684,10 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
         project_id=deduction_input.project_id,
         description=deduction_input.description,
         amount=deduction_input.amount,
-        remarks=deduction_input.remarks
+        remarks=deduction_input.remarks,
+        name=deduction_input.name,
+        qty=deduction_input.qty,
+        price=deduction_input.price,
     )
     
     deduction_dict = deduction.model_dump()
@@ -2732,6 +2750,9 @@ class BulkPaymentCreate(BaseModel):
 class BulkAdditionInput(BaseModel):
     description: str
     estimated_amount: float
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 class BulkAdditionCreate(BaseModel):
@@ -2743,6 +2764,9 @@ class BulkDeductionInput(BaseModel):
     description: str
     amount: float
     remarks: Optional[str] = None
+    name: Optional[str] = None
+    qty: Optional[float] = None
+    price: Optional[float] = None
 
 
 class BulkDeductionCreate(BaseModel):
@@ -2863,6 +2887,9 @@ async def create_bulk_additions(
             project_id=data.project_id,
             description=item.description,
             estimated_amount=item.estimated_amount,
+            name=item.name,
+            qty=item.qty,
+            price=item.price,
             workflow_status="approved",
             created_by=user.user_id
         )
@@ -2896,6 +2923,9 @@ async def create_bulk_deductions(
             description=item.description,
             amount=item.amount,
             remarks=item.remarks,
+            name=item.name,
+            qty=item.qty,
+            price=item.price,
             workflow_status="approved",
             created_by=user.user_id
         )

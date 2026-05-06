@@ -2375,6 +2375,8 @@ export default function ProjectDetail() {
                   project.fe.status === 'approved' ? 'bg-green-50 border-green-200' :
                   project.fe.status === 'review_pending' ? 'bg-amber-50 border-amber-200' :
                   project.fe.status === 'pending_cre_review' ? 'bg-purple-50 border-purple-200' :
+                  project.fe.status === 'pending_gm_review' ? 'bg-blue-50 border-blue-200' :
+                  project.fe.status === 'rejected_by_gm' ? 'bg-red-50 border-red-200' :
                   'bg-gray-50 border-gray-200'
                 }`} data-testid="fe-status-banner">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -2388,13 +2390,24 @@ export default function ProjectDetail() {
                           project.fe.status === 'approved' ? 'bg-green-100 text-green-700' :
                           project.fe.status === 'review_pending' ? 'bg-amber-100 text-amber-700' :
                           project.fe.status === 'pending_cre_review' ? 'bg-purple-100 text-purple-700' :
+                          project.fe.status === 'pending_gm_review' ? 'bg-blue-100 text-blue-700' :
+                          project.fe.status === 'rejected_by_gm' ? 'bg-red-100 text-red-700' :
                           'bg-gray-100 text-gray-700'
                         }`}>
-                          {project.fe.status === 'pending_cre_review' ? 'Sent to CRE' :
+                          {project.fe.status === 'pending_gm_review' ? 'Pending GM Approval' :
+                           project.fe.status === 'rejected_by_gm' ? 'Rejected by GM — Action needed' :
+                           project.fe.status === 'pending_cre_review' ? 'Sent to CRE' :
                            project.fe.status === 'review_pending' ? 'Review from CRE — Action needed' :
                            project.fe.status === 'approved' ? 'Approved by CRE' : project.fe.status}
                         </Badge>
                       </div>
+                      {project.fe.status === 'rejected_by_gm' && (project.fe.gm_rejections || []).length > 0 && (
+                        <div className="mt-2 p-2 rounded bg-white border border-red-200" data-testid="fe-gm-rejection-reason">
+                          <div className="text-[11px] font-semibold text-red-600 mb-0.5">GM Rejection Reason (Rev {project.fe.gm_rejections[project.fe.gm_rejections.length - 1].revision}):</div>
+                          <div className="text-xs text-gray-700 whitespace-pre-wrap">{project.fe.gm_rejections[project.fe.gm_rejections.length - 1].reason}</div>
+                          <div className="text-[10px] text-gray-400 mt-1">— {project.fe.gm_rejections[project.fe.gm_rejections.length - 1].by_name || 'GM'} · {new Date(project.fe.gm_rejections[project.fe.gm_rejections.length - 1].at).toLocaleString()}</div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -2510,32 +2523,32 @@ export default function ProjectDetail() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(user?.role === 'planning' || user?.role === 'super_admin') &&
-                    (!project?.fe?.status || project.fe.status === 'draft' || project.fe.status === 'review_pending') && (
+                    (!project?.fe?.status || project.fe.status === 'draft' || project.fe.status === 'review_pending' || project.fe.status === 'rejected_by_gm') && (
                     <Button
-                      data-testid="fe-send-to-cre-btn"
+                      data-testid="fe-submit-to-gm-btn"
                       size="sm"
-                      className="gap-1 sm:gap-2 bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm"
+                      className="gap-1 sm:gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm"
                       onClick={async () => {
-                        const isResend = project.fe?.status === 'review_pending';
+                        const isResend = project.fe?.status === 'review_pending' || project.fe?.status === 'rejected_by_gm';
                         const msg = isResend
-                          ? `Resend updated Final Estimate to CRE? This will be marked as Rev ${(project.fe?.revision || 0) + 1}.`
-                          : 'Send this Final Estimate to CRE for review?\n\nMake sure all scope items and totals are finalised before sending.';
+                          ? `Re-submit updated Final Estimate to GM? This will be marked as Rev ${(project.fe?.revision || 0) + 1}.`
+                          : 'Submit this Final Estimate to GM for approval?\n\nFinal Estimate + Additional Costs − Deductions. Make sure totals are finalised.';
                         if (!window.confirm(msg)) return;
                         try {
-                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/send-to-cre`);
-                          toast.success(isResend ? 'Updated Final Estimate sent to CRE' : 'Final Estimate sent to CRE');
+                          await axios.post(`${API}/planning/projects/${projectId}/final-estimate/submit-to-gm`);
+                          toast.success(isResend ? 'Updated Final Estimate sent to GM' : 'Final Estimate sent to GM for approval');
                           fetchProject();
                         } catch (err) {
                           const status = err.response?.status;
                           const msg2 = err.response?.data?.detail
                             || (status === 401 ? 'Your session expired. Please log in again.' : null)
-                            || (status === 403 ? 'You do not have permission to send Final Estimate.' : null)
-                            || `Failed to send (HTTP ${status || 'unknown'})`;
+                            || (status === 403 ? 'You do not have permission to submit Final Estimate.' : null)
+                            || `Failed to submit (HTTP ${status || 'unknown'})`;
                           toast.error(msg2);
                         }
                       }}
                     >
-                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> {project.fe?.status === 'review_pending' ? 'Resend for Approval' : 'Send for Approval'}
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" /> {(project.fe?.status === 'review_pending' || project.fe?.status === 'rejected_by_gm') ? 'Re-submit to GM' : 'Submit to GM'}
                     </Button>
                   )}
                   {selectedScopeIds.length > 0 && (
@@ -2910,6 +2923,37 @@ export default function ProjectDetail() {
                   )}
                 </table>
               </div>
+
+              {/* ---- Live FE Grand Total: (Scope + Additional) − Deductions ---- */}
+              {scope_items.length > 0 && (() => {
+                const feTotal = summary?.scope_total || 0;
+                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
+                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
+                const grand = feTotal + addTotal - dedTotal;
+                return (
+                  <div className="mt-4 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-4" data-testid="fe-grand-total-card">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-3">
+                      <div>
+                        <div className="text-gray-500">Final Estimate</div>
+                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-emerald-600">+ Additional</div>
+                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-red-600">− Deductions</div>
+                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
+                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
+                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </TabsContent>
 
             {/* ==================== PROJECT STAGES TAB ==================== */}
