@@ -265,11 +265,14 @@ export default function PlanningBoard() {
   const [contractorSearch, setContractorSearch] = useState('');
   const [contractorDialog, setContractorDialog] = useState(false);
   const [editingContractor, setEditingContractor] = useState(null);
-  const [contractorForm, setContractorForm] = useState({ name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '' });
+  const [contractorForm, setContractorForm] = useState({ name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '', daily_rate_skilled: '', daily_rate_semi_skilled: '', daily_rate_unskilled: '', is_locked: false });
   // Contractor Types tab
   const [contractorSubTab, setContractorSubTab] = useState('contractors');
   const [contractorTypes, setContractorTypes] = useState([]);
   const [typeDialog, setTypeDialog] = useState({ open: false, editing: null, name: '', description: '' });
+  const [typeViewDialog, setTypeViewDialog] = useState({ open: false, type: null });
+  // Tabbed Add/Edit Contractor dialog
+  const [contractorTabIdx, setContractorTabIdx] = useState('basic');
 
   // Suppliers
   const [vendors, setVendors] = useState([]);
@@ -581,15 +584,42 @@ export default function PlanningBoard() {
   // === CONTRACTOR HANDLERS ===
   const openContractorDialog = (c = null) => {
     setEditingContractor(c);
-    setContractorForm(c ? { name: c.name, work_types: c.work_types || [], phone: c.phone || '', email: c.email || '', address: c.address || '', bank_name: c.bank_name || '', account_number: c.account_number || '', ifsc_code: c.ifsc_code || '' } : { name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '' });
+    setContractorForm(c ? {
+      name: c.name,
+      work_types: c.work_types || [],
+      phone: c.phone || '',
+      email: c.email || '',
+      address: c.address || '',
+      bank_name: c.bank_name || '',
+      account_number: c.account_number || '',
+      ifsc_code: c.ifsc_code || '',
+      daily_rate_skilled: c.daily_rate_skilled || '',
+      daily_rate_semi_skilled: c.daily_rate_semi_skilled || '',
+      daily_rate_unskilled: c.daily_rate_unskilled || '',
+      is_locked: c.is_locked || false,
+    } : { name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '', daily_rate_skilled: '', daily_rate_semi_skilled: '', daily_rate_unskilled: '', is_locked: false });
+    setContractorTabIdx('basic');
     setContractorDialog(true);
   };
   const handleSaveContractor = async () => {
     if (!contractorForm.name.trim()) { toast.error('Name required'); return; }
     try {
-      if (editingContractor) { await axios.patch(`${API}/labour-contractors/${editingContractor.contractor_id}`, contractorForm); toast.success('Updated'); }
-      else { await axios.post(`${API}/labour-contractors`, contractorForm); toast.success('Created'); }
+      const payload = {
+        ...contractorForm,
+        daily_rate_skilled: contractorForm.daily_rate_skilled ? parseFloat(contractorForm.daily_rate_skilled) : null,
+        daily_rate_semi_skilled: contractorForm.daily_rate_semi_skilled ? parseFloat(contractorForm.daily_rate_semi_skilled) : null,
+        daily_rate_unskilled: contractorForm.daily_rate_unskilled ? parseFloat(contractorForm.daily_rate_unskilled) : null,
+      };
+      if (editingContractor) { await axios.patch(`${API}/labour-contractors/${editingContractor.contractor_id}`, payload); toast.success('Updated'); }
+      else { await axios.post(`${API}/labour-contractors`, payload); toast.success('Created'); }
       setContractorDialog(false); fetchContractors();
+    } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
+  };
+  const handleToggleLockContractor = async (c) => {
+    try {
+      await axios.patch(`${API}/labour-contractors/${c.contractor_id}`, { is_locked: !c.is_locked });
+      toast.success(c.is_locked ? 'Unlocked' : 'Locked');
+      fetchContractors();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
   };
   const handleDeleteContractor = async (c) => {
