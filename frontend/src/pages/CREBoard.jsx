@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -56,6 +56,11 @@ export default function CREBoard() {
   const [packages, setPackages] = useState([]);
   const [projects, setProjects] = useState([]);
   const [activeTab, setActiveTab] = useState('new_deals');
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(t);
+  }, [searchParams]);
 
   // New Deals
   const [newDeals, setNewDeals] = useState([]);

@@ -1859,7 +1859,20 @@ export default function ProjectDetail() {
         {/* Project Header */}
         <div className="mb-4 sm:mb-8">
           <div className="flex items-start gap-2 sm:gap-3 mb-2 sm:mb-4">
-            <Button variant="ghost" size="icon" onClick={() => window.location.href = isPlanning ? '/planning-board' : '/projects'} className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                // Role-aware back: CRE returns to CRE Board's All Projects tab,
+                // Planning to its dashboard, everyone else falls back to /projects.
+                let dest = '/projects';
+                if (isPlanning) dest = '/planning-board';
+                else if (user?.role === 'cre') dest = '/cre-board?tab=all_projects';
+                else if (user?.role === 'super_admin') dest = '/projects';
+                window.location.href = dest;
+              }}
+              className="h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
+            >
               <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
             <div className="flex-1 min-w-0">
