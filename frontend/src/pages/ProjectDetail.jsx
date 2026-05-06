@@ -2143,9 +2143,6 @@ export default function ProjectDetail() {
                 <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
                   Labours
                 </TabsTrigger>
-                <TabsTrigger value="work-orders" className="data-[state=active]:border-b-2 data-[state=active]:border-violet-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-work-orders">
-                  Work Orders
-                </TabsTrigger>
                 {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Payments
                 </TabsTrigger>}
