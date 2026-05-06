@@ -266,6 +266,10 @@ export default function PlanningBoard() {
   const [contractorDialog, setContractorDialog] = useState(false);
   const [editingContractor, setEditingContractor] = useState(null);
   const [contractorForm, setContractorForm] = useState({ name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '' });
+  // Contractor Types tab
+  const [contractorSubTab, setContractorSubTab] = useState('contractors');
+  const [contractorTypes, setContractorTypes] = useState([]);
+  const [typeDialog, setTypeDialog] = useState({ open: false, editing: null, name: '', description: '' });
 
   // Suppliers
   const [vendors, setVendors] = useState([]);
@@ -349,7 +353,7 @@ export default function PlanningBoard() {
       handleDashSubTabChange(dashSubTab);
     }
     if (tab === 'material_vendors' && vendors.length === 0) fetchVendors();
-    if (tab === 'labour_contractors' && contractors.length === 0) fetchContractors();
+    if (tab === 'labour_contractors' && contractors.length === 0) { fetchContractors(); fetchContractorTypes(); }
     if (tab === 're_templates') fetchTemplates();
     if (tab === 'packages') fetchPackages();
   };
@@ -477,6 +481,36 @@ export default function PlanningBoard() {
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
   const fetchContractors = async () => { try { const r = await axios.get(`${API}/labour-contractors`); setContractors(r.data); } catch {} };
+  const fetchContractorTypes = async () => { try { const r = await axios.get(`${API}/contractor-types`); setContractorTypes(r.data); } catch {} };
+  const handleSaveType = async () => {
+    const name = (typeDialog.name || '').trim();
+    if (!name) { toast.error('Name required'); return; }
+    try {
+      if (typeDialog.editing) {
+        await axios.patch(`${API}/contractor-types/${typeDialog.editing.type_id}`, { name, description: typeDialog.description });
+        toast.success('Updated');
+      } else {
+        await axios.post(`${API}/contractor-types`, { name, description: typeDialog.description });
+        toast.success('Created');
+      }
+      setTypeDialog({ open: false, editing: null, name: '', description: '' });
+      fetchContractorTypes();
+      fetchContractors();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed');
+    }
+  };
+  const handleDeleteType = async (t) => {
+    if (!window.confirm(`Delete contractor type "${t.name}"? It will be removed from ${t.contractor_count || 0} contractor(s).`)) return;
+    try {
+      await axios.delete(`${API}/contractor-types/${t.type_id}`);
+      toast.success('Deleted');
+      fetchContractorTypes();
+      fetchContractors();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed');
+    }
+  };
   const fetchVendors = async () => {
     if (vendorLoading) return;
     setVendorLoading(true);
@@ -1483,6 +1517,66 @@ export default function PlanningBoard() {
 
           {/* ==================== LABOUR CONTRACTORS ==================== */}
           <TabsContent value="labour_contractors">
+            <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="contractor-subtabs">
+              <button
+                onClick={() => setContractorSubTab('contractors')}
+                className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${contractorSubTab === 'contractors' ? 'bg-amber-50 text-amber-700 border border-amber-300' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                data-testid="contractor-subtab-contractors"
+              >
+                Contractors <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{filteredContractors.length}</Badge>
+              </button>
+              <button
+                onClick={() => setContractorSubTab('types')}
+                className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${contractorSubTab === 'types' ? 'bg-amber-50 text-amber-700 border border-amber-300' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                data-testid="contractor-subtab-types"
+              >
+                Contractor Types <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{contractorTypes.length}</Badge>
+              </button>
+            </div>
+
+            {contractorSubTab === 'types' ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <CardTitle className="text-base flex items-center gap-2"><Users className="h-4 w-4 text-amber-600" />Contractor Types ({contractorTypes.length})</CardTitle>
+                    <Button size="sm" onClick={() => setTypeDialog({ open: true, editing: null, name: '', description: '' })} className="bg-amber-600 hover:bg-amber-700" data-testid="add-type-btn"><Plus className="h-4 w-4 mr-1" />Add Type</Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="contractor-types-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Contractors</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {contractorTypes.length === 0 ? (
+                          <tr><td colSpan="4" className="p-8 text-center text-gray-400">No contractor types yet. Click "Add Type" to create one.</td></tr>
+                        ) : contractorTypes.map(t => (
+                          <tr key={t.type_id} className="hover:bg-gray-50" data-testid={`type-row-${t.type_id}`}>
+                            <td className="px-4 py-2.5 font-medium">{t.name}</td>
+                            <td className="px-4 py-2.5 text-gray-600 text-xs">{t.description || '-'}</td>
+                            <td className="px-4 py-2.5 text-center">
+                              <Badge className="bg-amber-50 text-amber-700">{t.contractor_count || 0}</Badge>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex justify-center gap-1">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setTypeDialog({ open: true, editing: t, name: t.name, description: t.description || '' })} data-testid={`edit-type-${t.type_id}`}><Edit className="h-3 w-3" /></Button>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteType(t)} data-testid={`delete-type-${t.type_id}`}><Trash2 className="h-3 w-3" /></Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1522,6 +1616,7 @@ export default function PlanningBoard() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* ==================== RE TEMPLATES ==================== */}
@@ -1661,7 +1756,7 @@ export default function PlanningBoard() {
               <div><Label>Email</Label><Input value={contractorForm.email} onChange={(e) => setContractorForm({ ...contractorForm, email: e.target.value })} className="mt-1" /></div>
             </div>
             <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" /></div>
-            <div><Label>Work Types</Label><div className="flex flex-wrap gap-2 mt-1">{WORK_TYPES.map(wt => (<button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t=>t!==wt) : [...contractorForm.work_types, wt] })}>{wt}</button>))}</div></div>
+            <div><Label>Work Types</Label><div className="flex flex-wrap gap-2 mt-1">{(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (<button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t=>t!==wt) : [...contractorForm.work_types, wt] })}>{wt}</button>))}{contractorTypes.length === 0 && <p className="text-[11px] text-gray-400 italic w-full">Tip: Add custom types under "Contractor Types" tab.</p>}</div></div>
             <div className="grid grid-cols-3 gap-3">
               <div><Label className="text-xs">Bank</Label><Input value={contractorForm.bank_name} onChange={(e) => setContractorForm({ ...contractorForm, bank_name: e.target.value })} className="mt-1 text-xs" /></div>
               <div><Label className="text-xs">Account No.</Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} className="mt-1 text-xs" /></div>
@@ -1895,6 +1990,29 @@ export default function PlanningBoard() {
       </Dialog>
 
       <MobileBottomNav user={user} />
+
+      {/* Contractor Type dialog (add / edit) */}
+      <Dialog open={typeDialog.open} onOpenChange={(o) => !o && setTypeDialog({ open: false, editing: null, name: '', description: '' })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{typeDialog.editing ? 'Edit Contractor Type' : 'Add Contractor Type'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Name <span className="text-red-500">*</span></Label>
+              <Input value={typeDialog.name} onChange={(e) => setTypeDialog(t => ({ ...t, name: e.target.value }))} placeholder="e.g., Mason, Plumber" data-testid="type-name-input" />
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea rows={3} value={typeDialog.description} onChange={(e) => setTypeDialog(t => ({ ...t, description: e.target.value }))} placeholder="Optional notes about this contractor type" data-testid="type-description-input" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTypeDialog({ open: false, editing: null, name: '', description: '' })}>Cancel</Button>
+            <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleSaveType} data-testid="type-save-btn">{typeDialog.editing ? 'Update' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

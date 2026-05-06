@@ -2103,3 +2103,111 @@ async def delete_labour_contractor(contractor_id: str, user: User = Depends(get_
     return {"message": "Labour contractor deleted"}
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Contractor Types — manage custom labour contractor categories
+# Stored in collection `contractor_types` with shape:
+#   { type_id, name, description, created_by, created_at, is_active }
+# ──────────────────────────────────────────────────────────────────────────────
+class ContractorTypeInput(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+
+@router.get("/contractor-types")
+async def list_contractor_types(user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    types = await db.contractor_types.find({"is_active": True}, {"_id": 0}).sort("name", 1).to_list(500)
+
+    # Attach live count of contractors per type (matches against work_types)
+    contractors = await db.labour_contractors.find({"is_active": True}, {"_id": 0, "work_types": 1}).to_list(2000)
+    counts = {}
+    for c in contractors:
+        for w in (c.get("work_types") or []):
+            counts[w] = counts.get(w, 0) + 1
+    for t in types:
+        t["contractor_count"] = counts.get(t["name"], 0)
+    return types
+
+
+@router.post("/contractor-types")
+async def create_contractor_type(body: ContractorTypeInput, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can create contractor types")
+
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    existing = await db.contractor_types.find_one({"name": name, "is_active": True})
+    if existing:
+        raise HTTPException(status_code=400, detail="Contractor type already exists")
+
+    doc = {
+        "type_id": f"ctype_{uuid.uuid4().hex[:12]}",
+        "name": name,
+        "description": (body.description or "").strip(),
+        "created_by": user.user_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "is_active": True,
+    }
+    await db.contractor_types.insert_one(doc)
+    return {"type_id": doc["type_id"], "message": "Contractor type created"}
+
+
+@router.patch("/contractor-types/{type_id}")
+async def update_contractor_type(type_id: str, body: ContractorTypeInput, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can update contractor types")
+
+    existing = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contractor type not found")
+
+    new_name = (body.name or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    # If renamed, propagate to all contractors using this type
+    if new_name != existing["name"]:
+        await db.labour_contractors.update_many(
+            {"work_types": existing["name"]},
+            {"$set": {"work_types.$[el]": new_name}},
+            array_filters=[{"el": existing["name"]}],
+        )
+
+    await db.contractor_types.update_one(
+        {"type_id": type_id},
+        {"$set": {
+            "name": new_name,
+            "description": (body.description or "").strip(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Contractor type updated"}
+
+
+@router.delete("/contractor-types/{type_id}")
+async def delete_contractor_type(type_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Planning can delete contractor types")
+
+    existing = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contractor type not found")
+
+    # Don't hard-delete; soft delete and remove from contractors' work_types
+    await db.labour_contractors.update_many(
+        {"work_types": existing["name"]},
+        {"$pull": {"work_types": existing["name"]}},
+    )
+    await db.contractor_types.update_one(
+        {"type_id": type_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Contractor type deleted"}
+
+
+
