@@ -13,6 +13,16 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 6, 2026 — Alternative Phone field on Sales/Pre-Sales leads
+- **Backend** (`/app/backend/routes/crm.py`):
+  - Added `alternative_phone: Optional[str]` to `Lead`, `LeadCreate`, `AdminLeadCreate`, and `LeadUpdateInput` models — persisted on POST/PATCH.
+  - Added `alternative_phone` to lead search regex on both Pre-Sales and Sales list endpoints (skipped dedup query to avoid false-positive imports).
+- **Frontend** — Alternative Phone input added on:
+  - `MarketingBoard.jsx` Add-Lead dialog (`new-lead-alt-phone`).
+  - `CRMPreSales.jsx` Add-Lead and Edit-Lead dialogs (`lead-alt-phone`, `edit-lead-alt-phone`) + lead detail card now shows alt number with "(alt)" tag.
+  - `CRMSales.jsx` Edit-Lead dialog (`edit-alt-phone`) + lead detail grid shows "Alt. Phone".
+- **Tested via curl**: created → persisted → searchable → PATCH-updated → returned correctly. All 4 places work end-to-end.
+
 ### Session — May 6, 2026 — Sales / Pre-Sales Role Transfer (with full pipeline migration)
 - **Backend** (`/app/backend/routes/crm.py`): 3 new Super-Admin-only endpoints
   - `GET /api/admin/transfer-sales-role/preview/{from_user_id}` → returns counts (total/open/closed leads, sales_leads, RE projects) + list of eligible target users (any active user without sales/pre_sales role).

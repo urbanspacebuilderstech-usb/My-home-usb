@@ -60,7 +60,7 @@ export default function CRMSales() {
   const [selectedREProject, setSelectedREProject] = useState(null);
   const [reRevisions, setReRevisions] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {} });
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', alternative_phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {} });
   const [customFields, setCustomFields] = useState([]);
   const [summary, setSummary] = useState('');
   const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
@@ -823,6 +823,7 @@ export default function CRMSales() {
       name: lead.name || '',
       email: lead.email || '',
       phone: lead.phone || '',
+      alternative_phone: lead.alternative_phone || '',
       source: lead.source || 'other',
       address: lead.address || '',
       city: lead.city || '',
@@ -1872,6 +1873,7 @@ export default function CRMSales() {
                   <div className="grid grid-cols-2 gap-3">
                     {selectedLead.email && (<div><Label className="text-xs text-gray-500">Email</Label><p className="text-sm flex items-center gap-1"><Mail className="h-3 w-3 text-gray-400" /> {selectedLead.email}</p></div>)}
                     {selectedLead.phone && (<div><Label className="text-xs text-gray-500">Phone</Label><p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-gray-400" /> {selectedLead.phone}</p></div>)}
+                    {selectedLead.alternative_phone && (<div><Label className="text-xs text-gray-500">Alt. Phone</Label><p className="text-sm flex items-center gap-1"><Phone className="h-3 w-3 text-gray-300" /> {selectedLead.alternative_phone}</p></div>)}
                     {selectedLead.address && (<div className="col-span-2"><Label className="text-xs text-gray-500">Address</Label><p className="text-sm">{[selectedLead.address, selectedLead.city, selectedLead.location].filter(Boolean).join(', ')}</p></div>)}
                     {selectedLead.sqft && (<div><Label className="text-xs text-gray-500">Area</Label><p className="text-sm">{selectedLead.sqft}</p></div>)}
                     {selectedLead.source && (<div><Label className="text-xs text-gray-500">Source</Label><p className="text-sm">{selectedLead.source}</p></div>)}
@@ -2182,6 +2184,10 @@ export default function CRMSales() {
             <div>
               <Label className="text-xs">Phone</Label>
               <Input value={editForm.phone} onChange={(e) => setEditForm({...editForm, phone: e.target.value})} className="text-sm" data-testid="edit-phone" />
+            </div>
+            <div>
+              <Label className="text-xs">Alternative Phone</Label>
+              <Input value={editForm.alternative_phone} onChange={(e) => setEditForm({...editForm, alternative_phone: e.target.value})} className="text-sm" placeholder="Optional secondary number" data-testid="edit-alt-phone" />
             </div>
             <div className="col-span-2">
               <Label className="text-xs">Address</Label>

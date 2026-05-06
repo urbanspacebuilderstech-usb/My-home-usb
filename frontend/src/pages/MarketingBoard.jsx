@@ -135,6 +135,7 @@ export default function MarketingBoard() {
     name: '',
     email: '',
     phone: '',
+    alternative_phone: '',
     source: 'other',
     city: '',
     sqft: '',
@@ -681,6 +682,7 @@ export default function MarketingBoard() {
         name: newLeadForm.name,
         email: newLeadForm.email || '',
         phone: newLeadForm.phone || '',
+        alternative_phone: newLeadForm.alternative_phone || '',
         source: newLeadForm.source,
         city: newLeadForm.city || '',
         sqft: newLeadForm.sqft ? parseInt(newLeadForm.sqft) : null,
@@ -696,6 +698,7 @@ export default function MarketingBoard() {
         name: '',
         email: '',
         phone: '',
+        alternative_phone: '',
         source: 'other',
         city: '',
         sqft: '',
@@ -3117,6 +3120,16 @@ export default function MarketingBoard() {
                   onChange={(e) => setNewLeadForm(p => ({ ...p, phone: e.target.value }))}
                   placeholder="Phone number"
                   data-testid="new-lead-phone"
+                />
+              </div>
+
+              <div>
+                <Label>Alternative Phone</Label>
+                <Input
+                  value={newLeadForm.alternative_phone}
+                  onChange={(e) => setNewLeadForm(p => ({ ...p, alternative_phone: e.target.value }))}
+                  placeholder="Optional secondary number"
+                  data-testid="new-lead-alt-phone"
                 />
               </div>
               

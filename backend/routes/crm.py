@@ -145,6 +145,7 @@ class Lead(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
+    alternative_phone: Optional[str] = None
     source: str = "other"
     source_detail: Optional[str] = None  # e.g., Sheet tab name, campaign name
     
@@ -720,7 +721,8 @@ async def get_pre_sales_leads(
         search_conditions = [
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}}
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"alternative_phone": {"$regex": search, "$options": "i"}}
         ]
         query = {"$and": [query, {"$or": search_conditions}]}
     if date_from:
@@ -740,6 +742,7 @@ class LeadCreate(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
+    alternative_phone: Optional[str] = None
     source: LeadSource = LeadSource.OTHER
     source_detail: Optional[str] = None
     address: Optional[str] = None
@@ -811,6 +814,7 @@ class AdminLeadCreate(BaseModel):
     name: str
     email: Optional[str] = ""
     phone: Optional[str] = ""
+    alternative_phone: Optional[str] = ""
     source: str = "other"
     city: Optional[str] = ""
     sqft: Optional[int] = None
@@ -858,6 +862,7 @@ async def create_lead_admin(data: AdminLeadCreate, user: User = Depends(get_curr
         name=data.name,
         email=data.email or "",
         phone=data.phone or "",
+        alternative_phone=data.alternative_phone or "",
         source=data.source,
         current_stage_id=first_stage["stage_id"],
         stage_type=stage_type,
@@ -1290,6 +1295,7 @@ class LeadUpdateInput(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    alternative_phone: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -2252,7 +2258,8 @@ async def get_sales_leads(
         search_conditions = [
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
-            {"phone": {"$regex": search, "$options": "i"}}
+            {"phone": {"$regex": search, "$options": "i"}},
+            {"alternative_phone": {"$regex": search, "$options": "i"}}
         ]
         # Use $and to combine with existing filters
         query = {"$and": [query, {"$or": search_conditions}]}

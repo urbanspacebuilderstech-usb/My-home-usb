@@ -108,6 +108,7 @@ export default function CRMPreSales() {
     name: '',
     email: '',
     phone: '',
+    alternative_phone: '',
     source: 'other',
     address: '',
     city: '',
@@ -122,6 +123,7 @@ export default function CRMPreSales() {
     name: '',
     email: '',
     phone: '',
+    alternative_phone: '',
     source: 'other',
     address: '',
     city: '',
@@ -235,7 +237,7 @@ export default function CRMPreSales() {
 
   const resetLeadForm = () => {
     setLeadForm({
-      name: '', email: '', phone: '', source: 'other',
+      name: '', email: '', phone: '', alternative_phone: '', source: 'other',
       address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {}
     });
   };
@@ -1299,6 +1301,16 @@ export default function CRMPreSales() {
                 placeholder="+91 9876543210"
               />
             </div>
+
+            <div>
+              <Label>Alternative Phone</Label>
+              <Input
+                value={leadForm.alternative_phone}
+                onChange={(e) => setLeadForm({...leadForm, alternative_phone: e.target.value})}
+                placeholder="Optional secondary number"
+                data-testid="lead-alt-phone"
+              />
+            </div>
             
             <div className="col-span-2">
               <Label>Address</Label>
@@ -1613,6 +1625,12 @@ export default function CRMPreSales() {
                       <div className="flex items-center gap-2">
                         <Phone className="h-4 w-4 text-gray-400" />
                         <span className="text-sm">{selectedLead.phone}</span>
+                      </div>
+                    )}
+                    {selectedLead.alternative_phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4 text-gray-300" />
+                        <span className="text-sm text-gray-600">{selectedLead.alternative_phone} <span className="text-[10px] text-gray-400 ml-1">(alt)</span></span>
                       </div>
                     )}
                     {(selectedLead.address || selectedLead.city || selectedLead.location) && (
@@ -2204,6 +2222,16 @@ export default function CRMPreSales() {
                 onChange={(e) => setEditLeadForm({...editLeadForm, phone: e.target.value})}
                 placeholder="+91 9876543210"
                 data-testid="edit-lead-phone"
+              />
+            </div>
+
+            <div>
+              <Label>Alternative Phone</Label>
+              <Input
+                value={editLeadForm.alternative_phone}
+                onChange={(e) => setEditLeadForm({...editLeadForm, alternative_phone: e.target.value})}
+                placeholder="Optional secondary number"
+                data-testid="edit-lead-alt-phone"
               />
             </div>
             
@@ -2919,4 +2947,3 @@ function PackageLinkShareDialog({ state, onClose, currentStageId, onMoveToPackag
     </Dialog>
   );
 }
-
