@@ -28,7 +28,7 @@ import {
   Zap, BarChart3, ArrowRight, Phone, Mail, Clock, CheckCircle,
   User, ChevronRight, Filter, Search, Layers, Edit2, Eye, X,
   Calendar, FileText, Building2, MapPin, ChevronDown, ArrowUpRight,
-  FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check, Trash2, ArrowUpDown
+  FileSpreadsheet, Link, Unlink, Plus, Table, Download, AlertCircle, Check, Trash2, ArrowUpDown, ArrowRightLeft, ShieldAlert
 } from 'lucide-react';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -857,6 +857,53 @@ export default function MarketingBoard() {
     setPersonFilter({ date_from: '', date_to: '', source: '', stage: '' });
   };
 
+  // ===== Role Transfer (Pre-Sales / Sales handover) =====
+  const [transferDialog, setTransferDialog] = useState({ open: false, step: 1, member: null });
+  const [transferPreview, setTransferPreview] = useState(null);
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferForm, setTransferForm] = useState({ to_user_id: '', reason: '', confirm_password: '', acknowledged: false });
+
+  const openTransferDialog = async (member, role) => {
+    setTransferDialog({ open: true, step: 1, member: { ...member, role } });
+    setTransferForm({ to_user_id: '', reason: '', confirm_password: '', acknowledged: false });
+    setTransferPreview(null);
+    setTransferLoading(true);
+    try {
+      const res = await axios.get(`${API}/api/admin/transfer-sales-role/preview/${member.user_id}`);
+      setTransferPreview(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to load transfer preview');
+      setTransferDialog({ open: false, step: 1, member: null });
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
+  const handleTransferSubmit = async () => {
+    if (!transferForm.to_user_id) { toast.error('Pick a target user'); return; }
+    if (!transferForm.reason.trim()) { toast.error('Reason is required'); return; }
+    if (!transferForm.confirm_password) { toast.error('Enter your Super Admin password'); return; }
+    if (!transferForm.acknowledged) { toast.error('Confirm you understand this is irreversible'); return; }
+    setTransferLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/admin/transfer-sales-role`, {
+        from_user_id: transferDialog.member.user_id,
+        to_user_id: transferForm.to_user_id,
+        reason: transferForm.reason.trim(),
+        confirm_password: transferForm.confirm_password,
+      });
+      toast.success(`Transferred ${res.data.leads_transferred} leads. ${transferDialog.member.name} is now in Employees.`);
+      setTransferDialog({ open: false, step: 1, member: null });
+      // Reload dashboard
+      if (typeof fetchDashboard === 'function') fetchDashboard();
+      else window.location.reload();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Transfer failed');
+    } finally {
+      setTransferLoading(false);
+    }
+  };
+
   const getStageStats = (leads) => {
     const stats = {};
     leads.forEach(lead => {
@@ -1152,9 +1199,14 @@ export default function MarketingBoard() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'pre_sales')}>
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              <div className="inline-flex items-center gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'pre_sales')} data-testid={`view-pre-sales-${member.user_id}`}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="Transfer role + leads to another user" onClick={() => openTransferDialog(member, 'pre_sales')} data-testid={`transfer-pre-sales-${member.user_id}`}>
+                                  <ArrowRightLeft className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1218,9 +1270,14 @@ export default function MarketingBoard() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'sales')}>
-                                <Eye className="h-4 w-4" />
-                              </Button>
+                              <div className="inline-flex items-center gap-1">
+                                <Button variant="ghost" size="sm" onClick={() => openPersonView(member, 'sales')} data-testid={`view-sales-${member.user_id}`}>
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="sm" className="text-amber-600 hover:bg-amber-50" title="Transfer role + leads to another user" onClick={() => openTransferDialog(member, 'sales')} data-testid={`transfer-sales-${member.user_id}`}>
+                                  <ArrowRightLeft className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -3169,6 +3226,119 @@ export default function MarketingBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ======================== ROLE TRANSFER DIALOG ======================== */}
+      <Dialog open={transferDialog.open} onOpenChange={(o) => !o && setTransferDialog({ open: false, step: 1, member: null })}>
+        <DialogContent className="max-w-2xl" data-testid="transfer-role-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-5 w-5 text-amber-600" />
+              Transfer Role &amp; Leads — {transferDialog.member?.name || ''}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Move every lead, follow-up, and remark from this {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'} person to another user. <span className="text-red-600 font-semibold">This action is irreversible.</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferLoading && !transferPreview ? (
+            <p className="text-sm text-gray-400 text-center py-10">Loading preview…</p>
+          ) : !transferPreview ? (
+            <p className="text-sm text-gray-400 text-center py-10">No data.</p>
+          ) : transferDialog.step === 1 ? (
+            <div className="space-y-5">
+              {/* Counts preview */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="p-3 rounded-md border bg-blue-50/60" data-testid="preview-total-leads"><p className="text-[10px] text-blue-700 uppercase">Total Leads</p><p className="text-2xl font-bold text-blue-900">{transferPreview.counts.total_leads}</p></div>
+                <div className="p-3 rounded-md border bg-emerald-50/60" data-testid="preview-open-leads"><p className="text-[10px] text-emerald-700 uppercase">Open</p><p className="text-2xl font-bold text-emerald-900">{transferPreview.counts.open_leads}</p></div>
+                <div className="p-3 rounded-md border bg-gray-50" data-testid="preview-closed-leads"><p className="text-[10px] text-gray-700 uppercase">Closed</p><p className="text-2xl font-bold text-gray-900">{transferPreview.counts.closed_leads}</p><p className="text-[9px] text-gray-500">commission stays</p></div>
+                <div className="p-3 rounded-md border bg-purple-50/60" data-testid="preview-sales-leads"><p className="text-[10px] text-purple-700 uppercase">Sales (CRM-B)</p><p className="text-2xl font-bold text-purple-900">{transferPreview.counts.sales_leads}</p></div>
+              </div>
+
+              {/* Target picker */}
+              <div>
+                <Label>Transfer to <span className="text-red-500">*</span></Label>
+                <Select value={transferForm.to_user_id} onValueChange={(v) => setTransferForm({ ...transferForm, to_user_id: v })}>
+                  <SelectTrigger className="mt-1" data-testid="transfer-target-select">
+                    <SelectValue placeholder={`Pick a user (${transferPreview.eligible_targets.length} eligible)`} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {transferPreview.eligible_targets.map(u => (
+                      <SelectItem key={u.user_id} value={u.user_id} data-testid={`target-${u.user_id}`}>
+                        <span className="font-medium">{u.name}</span>
+                        <span className="text-xs text-gray-500 ml-2">({u.role || 'no role'} · {u.email})</span>
+                      </SelectItem>
+                    ))}
+                    {transferPreview.eligible_targets.length === 0 && (
+                      <div className="p-4 text-xs text-gray-400 text-center">No eligible users. HR must first create a user without sales/pre-sales role.</div>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-gray-500 mt-1">Showing all active users without an existing Sales or Pre-Sales role.</p>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <Label>Reason for transfer <span className="text-red-500">*</span></Label>
+                <Input value={transferForm.reason} onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })} placeholder="e.g., Kalvirayan moving to Sales role; Bhuvaneshwari taking over Pre-Sales" className="mt-1" data-testid="transfer-reason-input" />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-4 rounded-md bg-red-50 border border-red-200" data-testid="transfer-confirm-banner">
+                <div className="flex gap-2">
+                  <ShieldAlert className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                  <div className="text-xs text-red-800 space-y-1.5">
+                    <p className="font-semibold text-sm">Confirm transfer — this is irreversible.</p>
+                    <p>• <b>{transferPreview.counts.total_leads}</b> leads ({transferPreview.counts.open_leads} open, {transferPreview.counts.closed_leads} closed) will move from <b>{transferDialog.member?.name}</b> to <b>{(transferPreview.eligible_targets.find(u => u.user_id === transferForm.to_user_id) || {}).name}</b>.</p>
+                    <p>• <b>{transferDialog.member?.name}</b> will lose the {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'} role and become an Employee (HR must re-assign).</p>
+                    <p>• Closed-deal commissions stay attributed to <b>{transferDialog.member?.name}</b> — only future deals belong to the new owner.</p>
+                    <p>• Public Quote/Package URLs keep the original "prepared by" stamp; new responses route to the new owner.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <Label>Re-enter your Super Admin password <span className="text-red-500">*</span></Label>
+                <Input type="password" value={transferForm.confirm_password} onChange={(e) => setTransferForm({ ...transferForm, confirm_password: e.target.value })} className="mt-1" placeholder="Your password" data-testid="transfer-password-input" />
+              </div>
+
+              <div className="flex items-start gap-2">
+                <input type="checkbox" id="transfer-ack" className="mt-1" checked={transferForm.acknowledged} onChange={(e) => setTransferForm({ ...transferForm, acknowledged: e.target.checked })} data-testid="transfer-ack-checkbox" />
+                <Label htmlFor="transfer-ack" className="text-xs cursor-pointer">I understand this transfer is irreversible. {transferDialog.member?.name}'s entire pipeline will move and they will lose dashboard access until HR assigns a new role.</Label>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            {transferDialog.step === 1 ? (
+              <>
+                <Button variant="outline" onClick={() => setTransferDialog({ open: false, step: 1, member: null })}>Cancel</Button>
+                <Button
+                  className="bg-amber-600 hover:bg-amber-700"
+                  disabled={!transferForm.to_user_id || !transferForm.reason.trim() || transferLoading}
+                  onClick={() => setTransferDialog(d => ({ ...d, step: 2 }))}
+                  data-testid="transfer-next-btn"
+                >
+                  Next: Confirm <ArrowRight className="h-4 w-4 ml-1" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setTransferDialog(d => ({ ...d, step: 1 }))}>Back</Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700"
+                  disabled={!transferForm.confirm_password || !transferForm.acknowledged || transferLoading}
+                  onClick={handleTransferSubmit}
+                  data-testid="transfer-confirm-btn"
+                >
+                  {transferLoading ? 'Transferring…' : 'Transfer Now'}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileBottomNav user={user} />
     </div>
   );

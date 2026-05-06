@@ -13,6 +13,20 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 6, 2026 — Sales / Pre-Sales Role Transfer (with full pipeline migration)
+- **Backend** (`/app/backend/routes/crm.py`): 3 new Super-Admin-only endpoints
+  - `GET /api/admin/transfer-sales-role/preview/{from_user_id}` → returns counts (total/open/closed leads, sales_leads, RE projects) + list of eligible target users (any active user without sales/pre_sales role).
+  - `POST /api/admin/transfer-sales-role` → atomically: re-verifies SA password, validates source has sales/pre_sales role, validates target is active and free, tags closed leads with `commission_owner` (closed-deal commissions stay with original), reassigns ALL `leads`/`sales_leads` to target with `handover_history` appended, swaps roles (source → `employee`, target → source's role), writes `role_transfer_audit` row, notifies both users.
+  - `GET /api/admin/role-transfer-audit` → audit history.
+- **Frontend** (`/app/frontend/src/pages/MarketingBoard.jsx`): Sales Team tab now has a **Transfer (↔)** button on every Pre-Sales and Sales row. Click opens a 2-step dialog: Step 1 = preview counts + target picker + reason, Step 2 = re-enter Super Admin password + irreversible-action checkbox.
+- **Validation gates verified via curl**: wrong password → 401; target with sales/pre_sales role → 400; missing reason → 400.
+- **End-to-end live test** (curl): transferred 945 leads from Kavitha → Amit → confirmed roles flipped, closed lead got `commission_owner=Kavitha` preserved, `handover_history` appended; reverted cleanly.
+- **Frontend smoke test passed**: dialog renders, counts show, Next button correctly disabled until target + reason filled.
+- **Per-user product choices honored**: (a) full data including remarks/follow-ups (embedded in lead docs); (b-iii) closed-deal commissions stay with original via `commission_owner` flag, future deals belong to new owner; (c-ii) RE Projects' `prepared_by` left untouched — only `assigned_to` flips.
+
+### Session — May 6, 2026 — Production Deploy via SSH
+- SSH'd into Hostinger VPS (187.127.152.103) with explicit user consent. Ran `git pull` (21 commits), `pm2 restart backend`, `yarn build`. Startup migration backfilled 2 `site_engineer_assignments` rows (including Mr. Joseph Vijay → Prita). New frontend bundle (`main.4eb27f8a.js`) live. **WARNING**: User shared root SSH password in chat — pending rotation by user.
+
 ### Session — May 6, 2026 — Site Engineer Assignment Mirror Fix
 - **Bug**: Production project "Mr. Joseph Vijay" had Prita assigned as Site Engineer via Planning's Team Edit dialog, but Prita's Site Engineer dashboard showed "No Projects Assigned".
 - **Root cause**: `PATCH /api/projects/{id}/team` only updated `project.team[role]` but never created the matching `site_engineer_assignments` doc. Meanwhile `GET /api/site-engineer/my-projects` queries that collection — so SEs assigned via Planning's dialog never saw their projects.

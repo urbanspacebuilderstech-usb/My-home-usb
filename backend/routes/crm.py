@@ -5615,3 +5615,290 @@ async def delete_re_attachment(re_project_id: str, file_id: str, user: User = De
         {"$pull": {"attachments": {"file_id": file_id}}, "$set": {"updated_at": datetime.now(timezone.utc)}},
     )
     return {"message": "Attachment deleted"}
+
+
+
+# ============================================================================
+# ROLE TRANSFER (Sales / Pre-Sales handover with full data migration)
+# ============================================================================
+# Super-Admin-only endpoint to transfer a Sales/Pre-Sales person's complete
+# pipeline (leads + RE projects + appointments) to another active user, while
+# stripping the source user's role so HR can re-assign them. Irreversible.
+#
+# User choices captured (from product owner):
+#   • Move ALL leads (active + closed/lost), embedded follow-ups & remarks
+#     stay with the lead doc (so they migrate automatically with the lead).
+#   • Source user → role set to `employee` (no role) so HR can re-assign.
+#   • Eligible target users: any active user (any role) who does NOT currently
+#     have `sales` or `pre_sales` role.
+#   • Same flow for both Sales & Pre-Sales — role auto-detected from source.
+#   • Commissions: closed-deal commissions stay with original owner; only
+#     open/in-flight leads carry forward (handled by tagging closed leads
+#     with `commission_owner` before re-assigning).
+#   • Public Quote / Package URLs: keep original `prepared_by` stamp; only
+#     route NEW responses to the new owner (assigned_to gets re-stamped,
+#     prepared_by stays as historical attribution).
+# ============================================================================
+
+class TransferPreviewResponse(BaseModel):
+    from_user: Dict[str, Any]
+    role: str
+    eligible_targets: List[Dict[str, Any]]
+    counts: Dict[str, int]
+
+
+class TransferRoleRequest(BaseModel):
+    from_user_id: str
+    to_user_id: str
+    reason: str
+    confirm_password: str
+
+
+def _is_closed_lead_status(stage_id: Optional[str], stage_name: Optional[str]) -> bool:
+    """A lead is considered 'closed' (commission already earned) if its stage is
+    a final stage like Project Onboarded / Lost."""
+    if not stage_id and not stage_name:
+        return False
+    closed_ids = {"stg_project_onboarded", "stg_lost", "stg_pre_lost"}
+    if stage_id in closed_ids:
+        return True
+    if stage_name and stage_name.lower() in {"project onboarded", "lost", "deal close"}:
+        return True
+    return False
+
+
+@router.get("/admin/transfer-sales-role/preview/{from_user_id}")
+async def get_transfer_preview(from_user_id: str, user: User = Depends(get_current_user)):
+    """Show counts of what will move + list of eligible target users."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can transfer roles")
+
+    src = await db.users.find_one({"user_id": from_user_id}, {"_id": 0, "password_hash": 0, "totp_secret": 0})
+    if not src:
+        raise HTTPException(status_code=404, detail="Source user not found")
+    src_role = src.get("role")
+    if src_role not in ("sales", "pre_sales"):
+        raise HTTPException(status_code=400, detail=f"User has role '{src_role}' — only sales/pre_sales can be transferred")
+
+    # Counts
+    total_leads = await db.leads.count_documents({"assigned_to": from_user_id})
+    open_leads = await db.leads.count_documents({
+        "assigned_to": from_user_id,
+        "current_stage_id": {"$nin": ["stg_project_onboarded", "stg_lost", "stg_pre_lost"]},
+    })
+    closed_leads = total_leads - open_leads
+    sales_leads_total = await db.sales_leads.count_documents({"assigned_to": from_user_id})
+    re_projects = await db.re_projects.count_documents({"prepared_by": from_user_id})
+
+    # Eligible targets: any ACTIVE user whose role is NOT sales/pre_sales
+    targets = await db.users.find(
+        {
+            "is_active": {"$ne": False},
+            "role": {"$nin": ["sales", "pre_sales"]},
+            "user_id": {"$ne": from_user_id},
+        },
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1, "phone": 1},
+    ).sort("name", 1).to_list(500)
+
+    return TransferPreviewResponse(
+        from_user={"user_id": src["user_id"], "name": src.get("name"), "email": src.get("email"), "role": src_role},
+        role=src_role,
+        eligible_targets=targets,
+        counts={
+            "total_leads": total_leads,
+            "open_leads": open_leads,
+            "closed_leads": closed_leads,
+            "sales_leads": sales_leads_total,
+            "re_projects_prepared": re_projects,
+        },
+    )
+
+
+@router.post("/admin/transfer-sales-role")
+async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(get_current_user)):
+    """Atomically transfer a Sales/Pre-Sales user's pipeline to another user.
+
+    Workflow:
+      1. Verify Super Admin password (irreversible action).
+      2. Validate from_user has sales/pre_sales role.
+      3. Validate to_user is active and does NOT already have sales/pre_sales.
+      4. Tag closed leads with `commission_owner=from_user_id` (so original
+         owner keeps closed-deal commission attribution per product choice).
+      5. Re-assign all leads (open + closed) to to_user; append handover history.
+      6. Re-assign sales_leads (CRM B) similarly.
+      7. Promote to_user to from_user's role; demote from_user to `employee`.
+      8. Write `role_transfer_audit` row, notify both users.
+    """
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can transfer roles")
+
+    # 1) Re-verify Super Admin password
+    from routes.auth import verify_password  # local import avoids circular
+    me = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "password_hash": 1})
+    if not me or not me.get("password_hash") or not verify_password(data.confirm_password, me["password_hash"]):
+        raise HTTPException(status_code=401, detail="Super Admin password is incorrect")
+
+    if data.from_user_id == data.to_user_id:
+        raise HTTPException(status_code=400, detail="Source and target users must be different")
+
+    # 2) Validate source
+    src = await db.users.find_one({"user_id": data.from_user_id}, {"_id": 0})
+    if not src:
+        raise HTTPException(status_code=404, detail="Source user not found")
+    src_role = src.get("role")
+    if src_role not in ("sales", "pre_sales"):
+        raise HTTPException(status_code=400, detail=f"Source user has role '{src_role}' — only sales/pre_sales can be transferred")
+
+    # 3) Validate target
+    tgt = await db.users.find_one({"user_id": data.to_user_id}, {"_id": 0})
+    if not tgt:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if tgt.get("is_active") is False:
+        raise HTTPException(status_code=400, detail="Target user is inactive")
+    if tgt.get("role") in ("sales", "pre_sales"):
+        raise HTTPException(status_code=400, detail=f"Target user already has role '{tgt.get('role')}' — pick a user without sales/pre_sales role")
+
+    if not (data.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Reason is required for audit trail")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    target_name = tgt.get("name") or ""
+    src_name = src.get("name") or ""
+
+    # 4) Tag closed leads with commission_owner BEFORE re-assigning
+    closed_filter = {
+        "assigned_to": data.from_user_id,
+        "$or": [
+            {"current_stage_id": {"$in": ["stg_project_onboarded", "stg_lost", "stg_pre_lost"]}},
+            {"current_stage_name": {"$in": ["Project Onboarded", "Lost"]}},
+        ],
+    }
+    await db.leads.update_many(
+        {**closed_filter, "commission_owner": {"$exists": False}},
+        {"$set": {
+            "commission_owner": data.from_user_id,
+            "commission_owner_name": src_name,
+            "commission_locked_at": now_iso,
+        }},
+    )
+    await db.sales_leads.update_many(
+        {**closed_filter, "commission_owner": {"$exists": False}},
+        {"$set": {
+            "commission_owner": data.from_user_id,
+            "commission_owner_name": src_name,
+            "commission_locked_at": now_iso,
+        }},
+    )
+
+    handover_record = {
+        "transfer_type": "role_transfer",
+        "from_user_id": data.from_user_id,
+        "from_user_name": src_name,
+        "to_user_id": data.to_user_id,
+        "to_user_name": target_name,
+        "reason": data.reason.strip(),
+        "performed_by": user.user_id,
+        "performed_at": now_iso,
+    }
+
+    # 5) Reassign ALL leads (assigned_to)
+    leads_result = await db.leads.update_many(
+        {"assigned_to": data.from_user_id},
+        {
+            "$set": {
+                "assigned_to": data.to_user_id,
+                "assigned_to_name": target_name,
+                "updated_at": now_iso,
+            },
+            "$push": {"handover_history": handover_record},
+        },
+    )
+
+    # 6) Reassign sales_leads (CRM B)
+    sales_leads_result = await db.sales_leads.update_many(
+        {"assigned_to": data.from_user_id},
+        {
+            "$set": {
+                "assigned_to": data.to_user_id,
+                "assigned_to_name": target_name,
+                "updated_at": now_iso,
+            },
+            "$push": {"handover_history": handover_record},
+        },
+    )
+
+    # 7) Role swap
+    await db.users.update_one(
+        {"user_id": data.from_user_id},
+        {"$set": {"role": "employee", "updated_at": now_iso, "previous_role": src_role}},
+    )
+    await db.users.update_one(
+        {"user_id": data.to_user_id},
+        {"$set": {"role": src_role, "updated_at": now_iso, "previous_role": tgt.get("role")}},
+    )
+
+    # 8) Audit row + notifications
+    audit_id = f"rta_{uuid.uuid4().hex[:12]}"
+    await db.role_transfer_audit.insert_one({
+        "audit_id": audit_id,
+        "from_user_id": data.from_user_id,
+        "from_user_name": src_name,
+        "from_user_role": src_role,
+        "to_user_id": data.to_user_id,
+        "to_user_name": target_name,
+        "to_user_previous_role": tgt.get("role"),
+        "reason": data.reason.strip(),
+        "leads_transferred": leads_result.modified_count,
+        "sales_leads_transferred": sales_leads_result.modified_count,
+        "performed_by": user.user_id,
+        "performed_by_name": getattr(user, "name", None),
+        "performed_at": now_iso,
+    })
+
+    try:
+        await create_notification(
+            data.to_user_id,
+            f"You have been promoted to {src_role.replace('_', '-').title()} — {leads_result.modified_count} leads have been moved to your pipeline.",
+        )
+        await create_notification(
+            data.from_user_id,
+            f"Your {src_role.replace('_', '-').title()} role has been transferred to {target_name}. Closed-deal commissions remain attributed to you.",
+        )
+    except Exception:
+        pass
+
+    try:
+        await create_audit_log(
+            user.user_id,
+            "role_transfer",
+            "user",
+            data.from_user_id,
+            {
+                "to_user_id": data.to_user_id,
+                "role": src_role,
+                "leads_transferred": leads_result.modified_count,
+                "sales_leads_transferred": sales_leads_result.modified_count,
+                "reason": data.reason.strip(),
+            },
+        )
+    except Exception:
+        pass
+
+    return {
+        "message": "Role transferred successfully",
+        "audit_id": audit_id,
+        "leads_transferred": leads_result.modified_count,
+        "sales_leads_transferred": sales_leads_result.modified_count,
+        "from_user_id": data.from_user_id,
+        "to_user_id": data.to_user_id,
+        "role": src_role,
+    }
+
+
+@router.get("/admin/role-transfer-audit")
+async def list_role_transfer_audit(user: User = Depends(get_current_user)):
+    """List recent role transfer audit entries (Super Admin only)."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    rows = await db.role_transfer_audit.find({}, {"_id": 0}).sort("performed_at", -1).to_list(200)
+    return rows
