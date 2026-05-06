@@ -3282,6 +3282,7 @@ class ChequeCreate(BaseModel):
     party_name: str
     party_type: str
     project_id: Optional[str] = None
+    income_id: Optional[str] = None
     is_post_dated: bool = False
     reminder_date: Optional[datetime] = None
     remarks: Optional[str] = None
@@ -3327,7 +3328,10 @@ async def create_cheque(cheque: ChequeCreate, user: User = Depends(get_current_u
         cheque_dict["reminder_date"] = cheque_dict["reminder_date"].isoformat()
     cheque_dict["created_at"] = cheque_dict["created_at"].isoformat()
     cheque_dict["updated_at"] = cheque_dict["updated_at"].isoformat()
-    
+    # Link to income if provided so the approval dialog can pull it back
+    if cheque.income_id:
+        cheque_dict["income_id"] = cheque.income_id
+
     await db.cheques.insert_one(cheque_dict)
     return cheque_record
 

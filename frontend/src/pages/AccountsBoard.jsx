@@ -2966,6 +2966,47 @@ function ApprovalsTab() {
 
   const [projectCheques, setProjectCheques] = useState([]);
   const [chequeVerifications, setChequeVerifications] = useState({});
+  // Inline "Add Cheque Detail" form for accountant when cheque records are missing
+  const [newCheque, setNewCheque] = useState({ cheque_number: '', bank_name: '', cheque_date: '', adding: false });
+
+  const handleAddMissingCheque = async () => {
+    const inc = reviewDialog.income;
+    if (!inc) return;
+    if (!newCheque.cheque_number.trim()) {
+      toast.error('Cheque number is required');
+      return;
+    }
+    setNewCheque(c => ({ ...c, adding: true }));
+    try {
+      // cheque_date defaults to today (datetime field is required by Pydantic model)
+      const cheque_date = newCheque.cheque_date
+        ? new Date(newCheque.cheque_date + 'T00:00:00').toISOString()
+        : new Date().toISOString();
+      const payload = {
+        cheque_number: newCheque.cheque_number.trim(),
+        bank_name: newCheque.bank_name.trim() || 'Not specified',
+        amount: inc.amount,
+        cheque_date,
+        cheque_type: 'incoming',
+        party_name: inc.client_name || inc.party_name || 'Client',
+        party_type: 'client',
+        project_id: inc.project_id,
+        income_id: inc.income_id,
+      };
+      await axios.post(`${API}/accountant/cheques`, payload);
+      toast.success('Cheque added — visible to CRE Cheque Mgmt + project page');
+      // Re-fetch cheques bound to this income
+      const res = await axios.get(`${API}/approvals/income/${inc.income_id}/cheques`);
+      setProjectCheques(res.data.cheques || []);
+      const verMap = {};
+      (res.data.cheques || []).forEach(c => { verMap[c.cheque_id] = ''; });
+      setChequeVerifications(verMap);
+      setNewCheque({ cheque_number: '', bank_name: '', cheque_date: '', adding: false });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to add cheque');
+      setNewCheque(c => ({ ...c, adding: false }));
+    }
+  };
 
   const openReviewDialog = async (income) => {
     const mode = classifyMode(income.payment_mode);
@@ -3358,7 +3399,57 @@ function ApprovalsTab() {
                 <div data-testid="review-cheque-section">
                   <Label className="text-sm font-semibold mb-2 block">Cheque Verification ({projectCheques.length} cheque{projectCheques.length !== 1 ? 's' : ''})</Label>
                   {projectCheques.length === 0 && (
-                    <p className="text-sm text-amber-600 italic py-2">No cheque records found. You can still approve with a note.</p>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2" data-testid="add-missing-cheque-form">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-xs text-amber-700">
+                          No cheque records found. CRE missed adding cheque details. Add them now — the cheque will appear in CRE's Cheque Management and the project page.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div>
+                          <Label className="text-[11px] text-gray-600">Cheque Number<span className="text-red-500">*</span></Label>
+                          <Input
+                            value={newCheque.cheque_number}
+                            onChange={(e) => setNewCheque({ ...newCheque, cheque_number: e.target.value })}
+                            placeholder="e.g., 123456"
+                            className="h-8 text-sm"
+                            disabled={newCheque.adding}
+                            data-testid="add-cheque-number-input"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-gray-600">Bank Name</Label>
+                          <Input
+                            value={newCheque.bank_name}
+                            onChange={(e) => setNewCheque({ ...newCheque, bank_name: e.target.value })}
+                            placeholder="e.g., BOI"
+                            className="h-8 text-sm"
+                            disabled={newCheque.adding}
+                            data-testid="add-cheque-bank-input"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-gray-600">Cheque Date <span className="text-gray-400">(opt)</span></Label>
+                          <Input
+                            type="date"
+                            value={newCheque.cheque_date}
+                            onChange={(e) => setNewCheque({ ...newCheque, cheque_date: e.target.value })}
+                            className="h-8 text-sm"
+                            disabled={newCheque.adding}
+                            data-testid="add-cheque-date-input"
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="bg-amber-600 hover:bg-amber-700 h-8"
+                        onClick={handleAddMissingCheque}
+                        disabled={newCheque.adding}
+                        data-testid="add-cheque-submit-btn"
+                      >
+                        {newCheque.adding ? 'Adding…' : '+ Add Cheque Detail'}
+                      </Button>
+                    </div>
                   )}
                   <div className="space-y-3">
                     {projectCheques.map((cheque, idx) => (
