@@ -1229,14 +1229,22 @@ export default function PlanningBoard() {
                               <tr><td colSpan="7" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
                             ) : (monthlySchedule.entries || []).map((e) => {
                               const balance = (e.amount || 0) - (e.amount_received || 0);
+                              const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                               const stageStatusConfig = { pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' }, partial: { label: 'Partially', cls: 'bg-amber-100 text-amber-700' }, paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' }, collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' } };
-                              const cfg = stageStatusConfig[e.status] || stageStatusConfig.pending;
+                              const cfg = hasPendingApproval
+                                ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
+                                : (stageStatusConfig[e.status] || stageStatusConfig.pending);
                               return (
                                 <tr key={e.entry_id} className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
                                   <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
                                   <td className="px-4 py-2.5 text-sm">{e.stage_name}</td>
                                   <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
-                                  <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(e.amount_received || 0)}</td>
+                                  <td className="px-4 py-2.5 text-right text-green-600">
+                                    {formatCurrency(e.amount_received || 0)}
+                                    {(e.pending_approval_amount || 0) > 0 && (
+                                      <p className="text-[10px] text-orange-600">+{formatCurrency(e.pending_approval_amount)} pending</p>
+                                    )}
+                                  </td>
                                   <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
                                   <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge></td>
                                   <td className="px-4 py-2.5 text-center"><Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button></td>

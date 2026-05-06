@@ -1725,12 +1725,31 @@ async def get_monthly_schedule(
     if pid_set:
         proj_docs = await db.projects.find({"project_id": {"$in": pid_set}}, {"_id": 0, "project_id": 1, "name": 1, "client_name": 1, "total_value": 1}).to_list(1000)
         project_cache = {p["project_id"]: p for p in proj_docs}
+
+    # Pending-approval income roll-up per stage (so CRE can hide Collect button until Accountant approves)
+    pending_by_stage = {}
+    if stage_ids:
+        pending_inc = await db.income.aggregate([
+            {"$match": {"status": "pending_approval", "category": "payment_collection"}},
+            {"$group": {
+                "_id": {"project_id": "$project_id", "stage": "$stage"},
+                "total": {"$sum": "$amount"},
+                "count": {"$sum": 1},
+            }},
+        ]).to_list(5000)
+        # Map by stage_id: lookup via stages_map (stage label/name)
+        for item in pending_inc:
+            key = (item["_id"]["project_id"], item["_id"]["stage"])
+            pending_by_stage[key] = {"total": item["total"], "count": item["count"]}
     
     for entry in all_entries:
         stage = stages_map.get(entry["stage_id"])
         if not stage:
             continue
         proj = project_cache.get(entry.get("project_id"), {})
+        stage_label = stage.get("stage_label", stage.get("stage_name", ""))
+        pkey = (entry.get("project_id"), stage_label)
+        pending = pending_by_stage.get(pkey, {"total": 0, "count": 0})
         enriched.append({
             **entry,
             "stage_name": stage.get("stage_name", ""),
@@ -1738,6 +1757,8 @@ async def get_monthly_schedule(
             "percentage": stage.get("percentage", 0),
             "amount": stage.get("amount", 0),
             "amount_received": stage.get("amount_received", 0),
+            "pending_approval_amount": pending["total"],
+            "pending_approval_count": pending["count"],
             "stage_status": stage.get("status", "pending"),
             "workflow_status": stage.get("workflow_status", "approved"),
             "due_date": stage.get("due_date"),

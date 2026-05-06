@@ -1007,10 +1007,13 @@ export default function CREBoard() {
                                 <tr><td colSpan="8" className="p-8 text-center text-gray-400">No payments scheduled for {MONTHS[psMonth - 1]} {psYear}.</td></tr>
                               ) : entries.map((e) => {
                                 const balance = (e.amount || 0) - (e.amount_received || 0);
-                                const isCollected = e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0;
-                                const isPartial = (e.amount_received || 0) > 0 && balance > 0;
+                                const pendingApprovalAmt = e.pending_approval_amount || 0;
+                                const hasPendingApproval = (e.pending_approval_count || 0) > 0;
+                                const isCollected = !hasPendingApproval && (e.stage_status === 'paid' || e.stage_status === 'collected' || balance <= 0);
+                                const isPartial = !hasPendingApproval && (e.amount_received || 0) > 0 && balance > 0;
                                 let badge;
-                                if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
+                                if (hasPendingApproval) badge = <Badge className="bg-orange-100 text-orange-700 text-[11px]">Pending Accountant Approval</Badge>;
+                                else if (isCollected) badge = <Badge className="bg-green-100 text-green-700 text-[11px]">Collected</Badge>;
                                 else if (isPartial) badge = <Badge className="bg-amber-100 text-amber-700 text-[11px]">Partial</Badge>;
                                 else if (e.workflow_status === 'requested') badge = <Badge className="bg-purple-100 text-purple-700 text-[11px]">Planning Requested</Badge>;
                                 else badge = <Badge className="bg-gray-100 text-gray-700 text-[11px]">Pending</Badge>;
@@ -1026,11 +1029,20 @@ export default function CREBoard() {
                                       {e.is_carryover && <span className="ml-1 text-[10px] text-orange-600">(carryover)</span>}
                                     </td>
                                     <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(e.amount)}</td>
-                                    <td className="px-4 py-2.5 text-right text-green-600">{formatCurrency(e.amount_received || 0)}</td>
+                                    <td className="px-4 py-2.5 text-right text-green-600">
+                                      {formatCurrency(e.amount_received || 0)}
+                                      {pendingApprovalAmt > 0 && (
+                                        <p className="text-[10px] text-orange-600">+{formatCurrency(pendingApprovalAmt)} pending</p>
+                                      )}
+                                    </td>
                                     <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
                                     <td className="px-4 py-2.5 text-center">{badge}</td>
                                     <td className="px-4 py-2.5 text-center">
-                                      {!isCollected ? (
+                                      {isCollected ? (
+                                        <span className="text-[11px] text-gray-400">—</span>
+                                      ) : hasPendingApproval ? (
+                                        <span className="text-[11px] text-orange-600 font-medium">Awaiting approval</span>
+                                      ) : (
                                         <Button
                                           size="sm"
                                           className="h-7 px-2 text-xs bg-green-600 hover:bg-green-700"
@@ -1039,8 +1051,6 @@ export default function CREBoard() {
                                         >
                                           <DollarSign className="h-3.5 w-3.5 mr-1" /> Collect
                                         </Button>
-                                      ) : (
-                                        <span className="text-[11px] text-gray-400">—</span>
                                       )}
                                     </td>
                                   </tr>
