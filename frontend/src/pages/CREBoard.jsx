@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
@@ -61,6 +61,58 @@ export default function CREBoard() {
     const t = searchParams.get('tab');
     if (t) setActiveTab(t);
   }, [searchParams]);
+
+  // ─── Global Meta-style Date Range Filter (applies to all tabs + KPI cards) ───
+  const computeRange = (preset) => {
+    const now = new Date();
+    const start = new Date(now); start.setHours(0, 0, 0, 0);
+    const end = new Date(now); end.setHours(23, 59, 59, 999);
+    let from = null, to = null;
+    switch (preset) {
+      case 'today':
+        from = start; to = end; break;
+      case 'yesterday':
+        from = new Date(start); from.setDate(start.getDate() - 1);
+        to = new Date(end); to.setDate(end.getDate() - 1); break;
+      case 'last_7_days':
+        from = new Date(start); from.setDate(start.getDate() - 6); to = end; break;
+      case 'last_30_days':
+        from = new Date(start); from.setDate(start.getDate() - 29); to = end; break;
+      case 'this_month':
+        from = new Date(start.getFullYear(), start.getMonth(), 1);
+        to = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999); break;
+      case 'last_month':
+        from = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+        to = new Date(start.getFullYear(), start.getMonth(), 0, 23, 59, 59, 999); break;
+      case 'this_year':
+        from = new Date(start.getFullYear(), 0, 1);
+        to = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999); break;
+      default:
+        from = null; to = null;
+    }
+    return { from, to };
+  };
+  const [datePreset, setDatePreset] = useState('this_month');
+  const [customRange, setCustomRange] = useState({ from: '', to: '' });
+  const dateRange = useMemo(() => {
+    if (datePreset === 'custom') {
+      const f = customRange.from ? new Date(customRange.from) : null;
+      const t = customRange.to ? new Date(customRange.to + 'T23:59:59.999') : null;
+      return { from: f, to: t };
+    }
+    if (datePreset === 'all') return { from: null, to: null };
+    return computeRange(datePreset);
+  }, [datePreset, customRange]);
+
+  const inDateRange = useCallback((dateInput) => {
+    if (!dateRange.from && !dateRange.to) return true;
+    if (!dateInput) return false;
+    const d = new Date(dateInput);
+    if (Number.isNaN(d.getTime())) return false;
+    if (dateRange.from && d < dateRange.from) return false;
+    if (dateRange.to && d > dateRange.to) return false;
+    return true;
+  }, [dateRange]);
 
   // New Deals
   const [newDeals, setNewDeals] = useState([]);
@@ -452,10 +504,16 @@ export default function CREBoard() {
   };
 
   const filteredProjects = projects.filter(p => {
+    if (!inDateRange(p.created_at)) return false;
     if (!projectSearch) return true;
     const s = projectSearch.toLowerCase();
     return (p.name || '').toLowerCase().includes(s) || (p.client_name || '').toLowerCase().includes(s) || (p.location || '').toLowerCase().includes(s);
   });
+
+  const projectsInRange = useMemo(() => projects.filter(p => inDateRange(p.created_at)), [projects, inDateRange]);
+  const incomeInRange = useMemo(() => incomeCollected.filter(i => inDateRange(i.payment_date || i.created_at)), [incomeCollected, inDateRange]);
+  const totalCollected = incomeInRange.reduce((s, i) => s + (i.amount || 0), 0);
+  const totalValueInRange = projectsInRange.reduce((s, p) => s + (p.total_value || 0), 0);
 
   if (loading && !user) {
     return (
@@ -470,7 +528,6 @@ export default function CREBoard() {
     );
   }
 
-  const totalCollected = incomeCollected.reduce((s, i) => s + (i.amount || 0), 0);
   const pendingCount = (pendingApprovals.advance_verified?.length || 0) + (pendingApprovals.pending_income?.length || 0);
 
   return (
@@ -478,18 +535,78 @@ export default function CREBoard() {
       <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
+        {/* Global Date Range Filter — applies to all tabs + KPI cards */}
+        {(() => {
+          const presets = [
+            { key: 'today', label: 'Today' },
+            { key: 'yesterday', label: 'Yesterday' },
+            { key: 'last_7_days', label: 'Last 7 Days' },
+            { key: 'last_30_days', label: 'Last 30 Days' },
+            { key: 'this_month', label: 'This Month' },
+            { key: 'last_month', label: 'Last Month' },
+            { key: 'this_year', label: 'This Year' },
+            { key: 'all', label: 'All Time' },
+            { key: 'custom', label: 'Custom Range' },
+          ];
+          return (
+            <div className="bg-white border rounded-lg shadow-sm p-2.5 mb-4 flex items-center gap-2 flex-wrap" data-testid="cre-date-range-filter">
+              <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500 mr-1">
+                Date:
+              </span>
+              {presets.map(p => (
+                <button
+                  key={p.key}
+                  onClick={() => setDatePreset(p.key)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    datePreset === p.key
+                      ? 'bg-amber-50 text-amber-700 border-amber-300'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                  data-testid={`date-preset-${p.key}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+              {datePreset === 'custom' && (
+                <div className="flex items-center gap-1.5 ml-1">
+                  <Input
+                    type="date"
+                    value={customRange.from}
+                    onChange={(e) => setCustomRange(r => ({ ...r, from: e.target.value }))}
+                    className="h-7 text-xs w-36"
+                    data-testid="date-custom-from"
+                  />
+                  <span className="text-xs text-gray-400">→</span>
+                  <Input
+                    type="date"
+                    value={customRange.to}
+                    onChange={(e) => setCustomRange(r => ({ ...r, to: e.target.value }))}
+                    className="h-7 text-xs w-36"
+                    data-testid="date-custom-to"
+                  />
+                </div>
+              )}
+              {dateRange.from && (
+                <span className="ml-auto text-[11px] text-gray-500">
+                  {dateRange.from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} → {dateRange.to ? dateRange.to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'now'}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
           <Card className="border-l-4 border-l-amber-500" data-testid="card-total-projects">
             <CardContent className="p-3">
               <p className="text-xs text-gray-500 mb-1">Total Projects</p>
-              <p className="text-2xl font-bold text-gray-800">{dashboard.total_ongoing || projects.length || 0}</p>
+              <p className="text-2xl font-bold text-gray-800">{projectsInRange.length}</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-green-500" data-testid="card-total-value">
             <CardContent className="p-3">
               <p className="text-xs text-gray-500 mb-1">Total Value</p>
-              <p className="text-lg font-bold text-green-700">{formatCurrency(dashboard.total_project_value)}</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(totalValueInRange)}</p>
             </CardContent>
           </Card>
           <Card className="border-l-4 border-l-blue-500" data-testid="card-collected">
@@ -501,7 +618,7 @@ export default function CREBoard() {
           <Card className="border-l-4 border-l-orange-500" data-testid="card-pending">
             <CardContent className="p-3">
               <p className="text-xs text-gray-500 mb-1">Pending Actions</p>
-              <p className="text-2xl font-bold text-orange-700">{(pendingApprovals.advance_verified?.length || 0) + paymentRequests.length}</p>
+              <p className="text-2xl font-bold text-orange-700">{(pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at)).length + (paymentRequests || []).filter(r => inDateRange(r.requested_at || r.created_at)).length}</p>
             </CardContent>
           </Card>
         </div>
@@ -511,7 +628,10 @@ export default function CREBoard() {
           <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <TabsList className="bg-white border shadow-sm">
               <TabsTrigger value="new_deals" className="text-xs sm:text-sm" data-testid="tab-new-deals">
-                New Deals {(pendingApprovals.advance_verified?.length || 0) > 0 && <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{pendingApprovals.advance_verified.length}</Badge>}
+                New Deals {(() => {
+                  const c = (pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at)).length;
+                  return c > 0 ? <Badge className="ml-1 bg-yellow-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{c}</Badge> : null;
+                })()}
               </TabsTrigger>
               <TabsTrigger value="final_estimate" className="text-xs sm:text-sm" data-testid="tab-final-estimate">
                 Final Estimate {feProjects.filter(p => p.fe?.status !== 'approved').length > 0 && <Badge className="ml-1 bg-purple-500 text-white text-xs h-5 min-w-5 flex items-center justify-center rounded-full">{feProjects.filter(p => p.fe?.status !== 'approved').length}</Badge>}
@@ -543,14 +663,19 @@ export default function CREBoard() {
                 <p className="text-xs text-gray-500 mt-1">Projects automatically arrive here once Accountant verifies the advance payment. Click "Send to Planning" to hand over.</p>
               </CardHeader>
               <CardContent className="p-0">
-                {(!pendingApprovals.advance_verified || pendingApprovals.advance_verified.length === 0) ? (
-                  <div className="p-8 text-center text-gray-400">
-                    <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No new deals waiting for handover</p>
-                  </div>
-                ) : (
+                {(() => {
+                  const dealsInRange = (pendingApprovals.advance_verified || []).filter(p => inDateRange(p.advance_verified_at || p.created_at));
+                  if (dealsInRange.length === 0) {
+                    return (
+                      <div className="p-8 text-center text-gray-400">
+                        <Target className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No new deals waiting for handover</p>
+                      </div>
+                    );
+                  }
+                  return (
                   <div className="divide-y">
-                    {pendingApprovals.advance_verified.map((p) => (
+                    {dealsInRange.map((p) => (
                       <div key={p.project_id} className="p-4 hover:bg-gray-50 transition-colors" data-testid={`deal-card-${p.project_id}`}>
                         <div className="flex justify-between items-start gap-4">
                           <div className="flex-1 min-w-0">
@@ -572,7 +697,8 @@ export default function CREBoard() {
                       </div>
                     ))}
                   </div>
-                )}
+                  );
+                })()}
               </CardContent>
             </Card>
           </TabsContent>
@@ -580,20 +706,25 @@ export default function CREBoard() {
           {/* ==================== TAB 1.5: FINAL ESTIMATE ==================== */}
           <TabsContent value="final_estimate">
             {(() => {
+              // Apply global date filter against fe.sent_to_cre_at (when set) or created_at
+              const feInRange = feProjects.filter(p => {
+                const dt = p.fe?.sent_to_cre_at || p.created_at;
+                return inDateRange(dt);
+              });
               const counts = {
-                awaiting: feProjects.filter(p => p.fe?.status === 'pending_cre_review').length,
-                in_revision: feProjects.filter(p => p.fe?.status === 'review_pending').length,
-                sent_to_client: feProjects.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status)).length,
-                approved: feProjects.filter(p => p.fe?.status === 'approved').length,
-                all: feProjects.length,
+                awaiting: feInRange.filter(p => p.fe?.status === 'pending_cre_review').length,
+                in_revision: feInRange.filter(p => p.fe?.status === 'review_pending').length,
+                sent_to_client: feInRange.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status)).length,
+                approved: feInRange.filter(p => p.fe?.status === 'approved').length,
+                all: feInRange.length,
               };
               const filtered = (() => {
                 switch (feActiveTab) {
-                  case 'awaiting': return feProjects.filter(p => p.fe?.status === 'pending_cre_review');
-                  case 'in_revision': return feProjects.filter(p => p.fe?.status === 'review_pending');
-                  case 'sent_to_client': return feProjects.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status));
-                  case 'approved': return feProjects.filter(p => p.fe?.status === 'approved');
-                  default: return feProjects;
+                  case 'awaiting': return feInRange.filter(p => p.fe?.status === 'pending_cre_review');
+                  case 'in_revision': return feInRange.filter(p => p.fe?.status === 'review_pending');
+                  case 'sent_to_client': return feInRange.filter(p => ['pending_client_review', 'feedback_received'].includes(p.fe?.status));
+                  case 'approved': return feInRange.filter(p => p.fe?.status === 'approved');
+                  default: return feInRange;
                 }
               })();
               const statusBadgeFor = (status) => {
@@ -799,7 +930,11 @@ export default function CREBoard() {
           <TabsContent value="payment_schedule">
             {(() => {
               const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const entries = psData.entries || [];
+              const allEntries = psData.entries || [];
+              // Apply global date filter to entries (by expected_payment_date)
+              const entries = (dateRange.from || dateRange.to)
+                ? allEntries.filter(e => inDateRange(e.expected_payment_date))
+                : allEntries;
               const summary = psData.summary || {};
               const thisMonthCollected = entries.reduce((sum, e) => sum + (e.amount_received || 0), 0);
               return (
