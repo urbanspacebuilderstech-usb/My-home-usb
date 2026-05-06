@@ -5209,6 +5209,13 @@ export default function ProjectDetail() {
 
                   {/* LABOUR REQUESTS SUB-TAB */}
                   <TabsContent value="requests" className="mt-4">
+                    <div className="flex items-center justify-end mb-3">
+                      {(user?.role === 'super_admin' || user?.role === 'planning' || user?.role === 'project_manager' || user?.role === 'cre') && (
+                        <Button size="sm" onClick={() => openWoDialog()} className="bg-violet-600 hover:bg-violet-700" data-testid="requests-create-wo-btn">
+                          <Plus className="h-3.5 w-3.5 mr-1" />Create Work Order
+                        </Button>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4" data-testid="labours-summary">
                       <div className="rounded-lg p-3 text-center border bg-gray-50">
                         <p className="text-xl font-bold">{laboursData?.summary?.total || 0}</p>
