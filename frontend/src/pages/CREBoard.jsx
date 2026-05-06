@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
+import { DayPicker } from 'react-day-picker';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -16,7 +18,7 @@ import {
   Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
   Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare
+  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare, X
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
@@ -62,47 +64,20 @@ export default function CREBoard() {
     if (t) setActiveTab(t);
   }, [searchParams]);
 
-  // ─── Global Meta-style Date Range Filter (applies to all tabs + KPI cards) ───
-  const computeRange = (preset) => {
+  // ─── Global Meta-style Date Range Filter (Sales/Pre-Sales-style popover) ───
+  const [dateFrom, setDateFrom] = useState(() => {
+    // default: This Month start
     const now = new Date();
-    const start = new Date(now); start.setHours(0, 0, 0, 0);
-    const end = new Date(now); end.setHours(23, 59, 59, 999);
-    let from = null, to = null;
-    switch (preset) {
-      case 'today':
-        from = start; to = end; break;
-      case 'yesterday':
-        from = new Date(start); from.setDate(start.getDate() - 1);
-        to = new Date(end); to.setDate(end.getDate() - 1); break;
-      case 'last_7_days':
-        from = new Date(start); from.setDate(start.getDate() - 6); to = end; break;
-      case 'last_30_days':
-        from = new Date(start); from.setDate(start.getDate() - 29); to = end; break;
-      case 'this_month':
-        from = new Date(start.getFullYear(), start.getMonth(), 1);
-        to = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999); break;
-      case 'last_month':
-        from = new Date(start.getFullYear(), start.getMonth() - 1, 1);
-        to = new Date(start.getFullYear(), start.getMonth(), 0, 23, 59, 59, 999); break;
-      case 'this_year':
-        from = new Date(start.getFullYear(), 0, 1);
-        to = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999); break;
-      default:
-        from = null; to = null;
-    }
-    return { from, to };
-  };
-  const [datePreset, setDatePreset] = useState('this_month');
-  const [customRange, setCustomRange] = useState({ from: '', to: '' });
-  const dateRange = useMemo(() => {
-    if (datePreset === 'custom') {
-      const f = customRange.from ? new Date(customRange.from) : null;
-      const t = customRange.to ? new Date(customRange.to + 'T23:59:59.999') : null;
-      return { from: f, to: t };
-    }
-    if (datePreset === 'all') return { from: null, to: null };
-    return computeRange(datePreset);
-  }, [datePreset, customRange]);
+    return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  });
+  const [dateTo, setDateTo] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+  });
+  const dateRange = useMemo(() => ({
+    from: dateFrom ? new Date(dateFrom + 'T00:00:00') : null,
+    to: dateTo ? new Date(dateTo + 'T23:59:59.999') : (dateFrom ? new Date(dateFrom + 'T23:59:59.999') : null),
+  }), [dateFrom, dateTo]);
 
   const inDateRange = useCallback((dateInput) => {
     if (!dateRange.from && !dateRange.to) return true;
@@ -535,65 +510,92 @@ export default function CREBoard() {
       <AppHeader user={user} />
 
       <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
-        {/* Global Date Range Filter — applies to all tabs + KPI cards */}
-        {(() => {
-          const presets = [
-            { key: 'today', label: 'Today' },
-            { key: 'yesterday', label: 'Yesterday' },
-            { key: 'last_7_days', label: 'Last 7 Days' },
-            { key: 'last_30_days', label: 'Last 30 Days' },
-            { key: 'this_month', label: 'This Month' },
-            { key: 'last_month', label: 'Last Month' },
-            { key: 'this_year', label: 'This Year' },
-            { key: 'all', label: 'All Time' },
-            { key: 'custom', label: 'Custom Range' },
-          ];
-          return (
-            <div className="bg-white border rounded-lg shadow-sm p-2.5 mb-4 flex items-center gap-2 flex-wrap" data-testid="cre-date-range-filter">
-              <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500 mr-1">
-                Date:
-              </span>
-              {presets.map(p => (
-                <button
-                  key={p.key}
-                  onClick={() => setDatePreset(p.key)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    datePreset === p.key
-                      ? 'bg-amber-50 text-amber-700 border-amber-300'
-                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                  }`}
-                  data-testid={`date-preset-${p.key}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-              {datePreset === 'custom' && (
-                <div className="flex items-center gap-1.5 ml-1">
-                  <Input
-                    type="date"
-                    value={customRange.from}
-                    onChange={(e) => setCustomRange(r => ({ ...r, from: e.target.value }))}
-                    className="h-7 text-xs w-36"
-                    data-testid="date-custom-from"
+        {/* Global Date Range Filter — Meta Ads-style popover (matches Sales/Pre-Sales) */}
+        <div className="flex items-center gap-2 mb-4" data-testid="cre-date-range-filter">
+          <span className="text-[11px] uppercase font-semibold tracking-wide text-gray-500 mr-1">Date:</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={`h-9 text-xs gap-1.5 rounded-lg shadow-sm ${dateFrom ? 'bg-amber-50 border-amber-400 text-amber-700 font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}
+                data-testid="cre-date-filter-btn"
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                {dateFrom ? (
+                  dateTo && dateFrom !== dateTo ? (
+                    `${new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} - ${new Date(dateTo).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}`
+                  ) : (
+                    new Date(dateFrom).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                  )
+                ) : 'All Time'}
+                {dateFrom && (
+                  <X
+                    className="h-3 w-3 ml-1 opacity-50 hover:opacity-100"
+                    onClick={(e) => { e.stopPropagation(); setDateFrom(''); setDateTo(''); }}
                   />
-                  <span className="text-xs text-gray-400">→</span>
-                  <Input
-                    type="date"
-                    value={customRange.to}
-                    onChange={(e) => setCustomRange(r => ({ ...r, to: e.target.value }))}
-                    className="h-7 text-xs w-36"
-                    data-testid="date-custom-to"
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0 rounded-xl shadow-xl border-0" align="start">
+              <div className="flex">
+                <div className="w-32 border-r bg-gray-50 p-2 space-y-0.5 rounded-l-xl">
+                  {[
+                    { label: 'Today', fn: () => { const d = new Date().toISOString().split('T')[0]; setDateFrom(d); setDateTo(d); } },
+                    { label: 'Yesterday', fn: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = d.toISOString().split('T')[0]; setDateFrom(s); setDateTo(s); } },
+                    { label: 'Last 7 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(s.getDate() - 6); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+                    { label: 'Last 30 Days', fn: () => { const e = new Date(); const s = new Date(); s.setDate(s.getDate() - 29); setDateFrom(s.toISOString().split('T')[0]); setDateTo(e.toISOString().split('T')[0]); } },
+                    { label: 'This Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]); } },
+                    { label: 'Last Month', fn: () => { const now = new Date(); setDateFrom(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]); setDateTo(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0]); } },
+                    { label: 'This Year', fn: () => { const y = new Date().getFullYear(); setDateFrom(new Date(y, 0, 1).toISOString().split('T')[0]); setDateTo(new Date(y, 11, 31).toISOString().split('T')[0]); } },
+                    { label: 'All Time', fn: () => { setDateFrom(''); setDateTo(''); } },
+                  ].map(p => (
+                    <button
+                      key={p.label}
+                      onClick={p.fn}
+                      className={`w-full text-left text-xs px-2.5 py-1.5 rounded-lg transition-colors ${p.label === 'All Time' ? 'text-red-500 hover:bg-red-50 mt-2' : 'text-gray-700 hover:bg-amber-50 hover:text-amber-700'}`}
+                      data-testid={`cre-date-preset-${p.label.toLowerCase().replace(/\s/g, '-')}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="p-3">
+                  <DayPicker
+                    mode="range"
+                    selected={dateFrom ? { from: new Date(dateFrom + 'T00:00:00'), to: dateTo ? new Date(dateTo + 'T00:00:00') : new Date(dateFrom + 'T00:00:00') } : undefined}
+                    onSelect={(range) => {
+                      if (range?.from) {
+                        const from = range.from.toLocaleDateString('en-CA');
+                        const to = range.to ? range.to.toLocaleDateString('en-CA') : '';
+                        setDateFrom(from);
+                        setDateTo(from === to ? '' : to || from);
+                      } else {
+                        setDateFrom('');
+                        setDateTo('');
+                      }
+                    }}
+                    classNames={{
+                      months: 'flex gap-4', month: 'space-y-3',
+                      caption: 'flex justify-center relative items-center h-8',
+                      caption_label: 'text-sm font-semibold text-gray-800',
+                      nav_button: 'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 inline-flex items-center justify-center rounded-lg hover:bg-gray-100',
+                      table: 'w-full border-collapse', head_row: 'flex',
+                      head_cell: 'text-gray-400 rounded-md w-8 font-normal text-[10px] uppercase',
+                      row: 'flex w-full mt-1', cell: 'relative p-0 text-center text-sm',
+                      day: 'h-8 w-8 p-0 font-normal text-xs rounded-lg hover:bg-amber-50 transition-colors inline-flex items-center justify-center',
+                      day_selected: 'bg-amber-600 text-white hover:bg-amber-700 font-medium',
+                      day_today: 'bg-gray-100 font-semibold text-amber-600',
+                      day_range_middle: 'bg-amber-50 text-amber-700 rounded-none',
+                      day_range_start: 'bg-amber-600 text-white rounded-l-lg rounded-r-none',
+                      day_range_end: 'bg-amber-600 text-white rounded-r-lg rounded-l-none',
+                      day_outside: 'text-gray-300',
+                    }}
                   />
                 </div>
-              )}
-              {dateRange.from && (
-                <span className="ml-auto text-[11px] text-gray-500">
-                  {dateRange.from.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} → {dateRange.to ? dateRange.to.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'now'}
-                </span>
-              )}
-            </div>
-          );
-        })()}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
 
         {/* Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
