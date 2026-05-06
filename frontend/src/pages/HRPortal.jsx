@@ -266,7 +266,7 @@ export default function HRPortal() {
       }
       setImportDialog(false);
       setImportData([]);
-      fetchStaff();
+      fetchData(false);
     } catch (err) {
       toast.error('Import failed: ' + (err.response?.data?.detail || err.message));
     }
