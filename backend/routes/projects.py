@@ -3288,7 +3288,16 @@ async def get_project_team(project_id: str, user: User = Depends(get_current_use
 
 @router.patch("/projects/{project_id}/team")
 async def update_project_team(project_id: str, request: Request, user: User = Depends(get_current_user)):
-    """Assign team members to a project by role"""
+    """Assign team members to a project by role.
+
+    Side-effects:
+    • Updates `project.team[role]` map (legacy field used by ProjectDetail UI).
+    • Mirrors site_engineer / sr_site_engineer / associate_pm assignments into the
+      `site_engineer_assignments` collection so the Site Engineer / Sr SE / Associate PM
+      dashboards (`GET /api/site-engineer/my-projects`) actually show the project.
+    • Deactivates the previous user's assignment for that role on the project.
+    • Sends an in-app notification to the newly-assigned user.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Planning/Admin can assign team")
     
@@ -3298,8 +3307,11 @@ async def update_project_team(project_id: str, request: Request, user: User = De
 
     body = await request.json()
     valid_roles = ["architect", "project_manager", "sr_site_engineer", "site_engineer", "cre", "qc", "procurement"]
-    
-    team = project.get("team", {})
+    # Roles that must mirror into `site_engineer_assignments`
+    SE_LIKE_ROLES = {"site_engineer", "sr_site_engineer", "associate_pm"}
+
+    existing_team = project.get("team", {}) or {}
+    team = dict(existing_team)
     for role in valid_roles:
         if role in body:
             team[role] = body[role] if body[role] else None
@@ -3308,6 +3320,69 @@ async def update_project_team(project_id: str, request: Request, user: User = De
         {"project_id": project_id},
         {"$set": {"team": team, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
+
+    # Mirror SE-like role changes into site_engineer_assignments + notify
+    project_name = project.get("name") or project.get("project_name") or project_id
+    for role in valid_roles:
+        if role not in SE_LIKE_ROLES or role not in body:
+            continue
+        old_user_id = existing_team.get(role)
+        new_user_id = team.get(role)
+
+        # 1) Deactivate old assignment when the role-assignee changes
+        if old_user_id and old_user_id != new_user_id:
+            await db.site_engineer_assignments.update_many(
+                {"project_id": project_id, "user_id": old_user_id, "is_active": True},
+                {"$set": {
+                    "is_active": False,
+                    "removed_by": user.user_id,
+                    "removed_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+
+        # 2) Ensure an active assignment exists for the new user (idempotent — also backfills legacy)
+        if new_user_id:
+            target_user = await db.users.find_one({"user_id": new_user_id}, {"_id": 0, "user_id": 1, "name": 1, "role": 1})
+            if not target_user:
+                continue
+            existing_assignment = await db.site_engineer_assignments.find_one({
+                "project_id": project_id,
+                "user_id": new_user_id,
+                "is_active": True,
+            }, {"_id": 0})
+            if not existing_assignment:
+                await db.site_engineer_assignments.insert_one({
+                    "assignment_id": f"sea_{uuid.uuid4().hex[:12]}",
+                    "user_id": new_user_id,
+                    "user_name": target_user.get("name", ""),
+                    "user_role": target_user.get("role", role),
+                    "project_id": project_id,
+                    "project_name": project_name,
+                    "assigned_by": user.user_id,
+                    "assigned_by_name": getattr(user, "name", None),
+                    "is_active": True,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+                # Maintain legacy shortcut for site_engineer role
+                if role == "site_engineer":
+                    await db.projects.update_one(
+                        {"project_id": project_id},
+                        {"$set": {"assigned_se": new_user_id, "assigned_se_name": target_user.get("name", "")}},
+                    )
+                # Notify only on a true change (skip when backfilling the same user)
+                if old_user_id != new_user_id:
+                    try:
+                        await create_notification(new_user_id, f"You have been assigned to project: {project_name}")
+                    except Exception:
+                        pass
+
+        # 3) If new_user_id is None and old_user_id existed, also clear legacy shortcut for site_engineer
+        if role == "site_engineer" and old_user_id and not new_user_id:
+            await db.projects.update_one(
+                {"project_id": project_id},
+                {"$unset": {"assigned_se": "", "assigned_se_name": ""}},
+            )
+
     return {"message": "Team updated"}
 
 

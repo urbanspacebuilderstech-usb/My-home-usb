@@ -313,6 +313,61 @@ async def startup_init():
             logger.info("Sales stage migration completed")
         except Exception as e:
             logger.warning(f"Sales stage migration failed (non-fatal): {e}")
+
+        # Backfill `site_engineer_assignments` for projects that have legacy
+        # `team.site_engineer / sr_site_engineer / associate_pm` set but no
+        # corresponding active assignment doc. Required so SE dashboards (`my-projects`)
+        # show projects assigned via /api/projects/{id}/team before this fix landed.
+        try:
+            backfill_count = 0
+            SE_LIKE_ROLES = ("site_engineer", "sr_site_engineer", "associate_pm")
+            cursor = startup_db.projects.find(
+                {"team": {"$type": "object"}, "is_deleted": {"$ne": True}},
+                {"_id": 0, "project_id": 1, "name": 1, "project_name": 1, "team": 1},
+            )
+            async for proj in cursor:
+                team = proj.get("team") or {}
+                project_id = proj.get("project_id")
+                project_name = proj.get("name") or proj.get("project_name") or project_id
+                if not project_id:
+                    continue
+                for role in SE_LIKE_ROLES:
+                    uid = team.get(role)
+                    if not uid:
+                        continue
+                    has_assignment = await startup_db.site_engineer_assignments.find_one(
+                        {"project_id": project_id, "user_id": uid, "is_active": True},
+                        {"_id": 1},
+                    )
+                    if has_assignment:
+                        continue
+                    target_user = await startup_db.users.find_one(
+                        {"user_id": uid}, {"_id": 0, "name": 1, "role": 1}
+                    )
+                    if not target_user:
+                        continue
+                    await startup_db.site_engineer_assignments.insert_one({
+                        "assignment_id": f"sea_{uuid.uuid4().hex[:12]}",
+                        "user_id": uid,
+                        "user_name": target_user.get("name", ""),
+                        "user_role": target_user.get("role", role),
+                        "project_id": project_id,
+                        "project_name": project_name,
+                        "assigned_by": "system_backfill",
+                        "assigned_by_name": "System Backfill",
+                        "is_active": True,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    if role == "site_engineer":
+                        await startup_db.projects.update_one(
+                            {"project_id": project_id},
+                            {"$set": {"assigned_se": uid, "assigned_se_name": target_user.get("name", "")}},
+                        )
+                    backfill_count += 1
+            if backfill_count:
+                logger.info(f"Backfilled {backfill_count} site_engineer_assignments from project.team data")
+        except Exception as e:
+            logger.warning(f"SE assignment backfill failed (non-fatal): {e}")
     except Exception as e:
         logger.warning(f"Auto-seed failed (non-fatal): {e}")
 

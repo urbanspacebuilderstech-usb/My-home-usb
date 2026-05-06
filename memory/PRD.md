@@ -13,6 +13,13 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 6, 2026 — Site Engineer Assignment Mirror Fix
+- **Bug**: Production project "Mr. Joseph Vijay" had Prita assigned as Site Engineer via Planning's Team Edit dialog, but Prita's Site Engineer dashboard showed "No Projects Assigned".
+- **Root cause**: `PATCH /api/projects/{id}/team` only updated `project.team[role]` but never created the matching `site_engineer_assignments` doc. Meanwhile `GET /api/site-engineer/my-projects` queries that collection — so SEs assigned via Planning's dialog never saw their projects.
+- **Fix** (`/app/backend/routes/projects.py`): `update_project_team` now mirrors `site_engineer / sr_site_engineer / associate_pm` changes into `site_engineer_assignments` (insert new active row, deactivate old user's row, maintain legacy `assigned_se` shortcut, notify the new assignee). Idempotent — repeated PATCH with same user does not duplicate.
+- **Backfill** (`/app/backend/server.py` startup): One-shot migration that scans every project; if `team.site_engineer/sr_site_engineer/associate_pm` is set without an active assignment doc, the doc is created. Idempotent. On preview env created 1 row matching the reported case.
+- **Tests** (`/app/backend/tests/test_team_assignment_mirror.py`): 2 end-to-end pytest cases — (1) SE A→B reassignment correctness + idempotency + clear; (2) freshly-assigned SE can fetch `/site-engineer/my-projects` and see the project. Both passing against live API.
+
 ### Session — May 6, 2026 — Labour Contractor Tabbed Dialog Overhaul
 - **Backend** (`/app/backend/core/models.py`, `/app/backend/routes/procurement.py`):
   - `LabourContractor` model now persists `daily_rate_skilled`, `daily_rate_semi_skilled`, `daily_rate_unskilled` (₹/day) and an `is_locked` flag (visual marker only — admin override allowed).
