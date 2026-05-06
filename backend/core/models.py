@@ -193,6 +193,12 @@ class LabourContractor(BaseModel):
     account_number: Optional[str] = None
     ifsc_code: Optional[str] = None
     rate_structure: Dict = {}  # {work_type: daily_rate}
+    # Per-skill daily rates (₹/day)
+    daily_rate_skilled: Optional[float] = None
+    daily_rate_semi_skilled: Optional[float] = None
+    daily_rate_unskilled: Optional[float] = None
+    # Visual lock marker (admin can still override)
+    is_locked: bool = False
     is_active: bool = True
     created_by: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

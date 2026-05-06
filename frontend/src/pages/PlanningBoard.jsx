@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight, MapPin, Radio
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight, MapPin, Radio, Lock, Unlock, Briefcase
 } from 'lucide-react';
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
@@ -270,9 +270,11 @@ export default function PlanningBoard() {
   const [contractorSubTab, setContractorSubTab] = useState('contractors');
   const [contractorTypes, setContractorTypes] = useState([]);
   const [typeDialog, setTypeDialog] = useState({ open: false, editing: null, name: '', description: '' });
-  const [typeViewDialog, setTypeViewDialog] = useState({ open: false, type: null });
+  const [typeViewDialog, setTypeViewDialog] = useState({ open: false, type: null, contractors: [], loading: false });
   // Tabbed Add/Edit Contractor dialog
   const [contractorTabIdx, setContractorTabIdx] = useState('basic');
+  const [contractorPaymentSummary, setContractorPaymentSummary] = useState(null);
+  const [contractorPaymentLoading, setContractorPaymentLoading] = useState(false);
 
   // Suppliers
   const [vendors, setVendors] = useState([]);
@@ -514,6 +516,26 @@ export default function PlanningBoard() {
       toast.error(err.response?.data?.detail || 'Failed');
     }
   };
+  const openTypeView = async (t) => {
+    setTypeViewDialog({ open: true, type: t, contractors: [], loading: true });
+    try {
+      const r = await axios.get(`${API}/contractor-types/${t.type_id}/contractors`);
+      setTypeViewDialog({ open: true, type: t, contractors: r.data?.contractors || [], loading: false });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to load contractors');
+      setTypeViewDialog({ open: true, type: t, contractors: [], loading: false });
+    }
+  };
+  const fetchContractorPaymentSummary = async (contractor_id) => {
+    if (!contractor_id) { setContractorPaymentSummary(null); return; }
+    setContractorPaymentLoading(true);
+    try {
+      const r = await axios.get(`${API}/labour-contractors/${contractor_id}/payment-summary`);
+      setContractorPaymentSummary(r.data);
+    } catch {
+      setContractorPaymentSummary(null);
+    } finally { setContractorPaymentLoading(false); }
+  };
   const fetchVendors = async () => {
     if (vendorLoading) return;
     setVendorLoading(true);
@@ -593,13 +615,15 @@ export default function PlanningBoard() {
       bank_name: c.bank_name || '',
       account_number: c.account_number || '',
       ifsc_code: c.ifsc_code || '',
-      daily_rate_skilled: c.daily_rate_skilled || '',
-      daily_rate_semi_skilled: c.daily_rate_semi_skilled || '',
-      daily_rate_unskilled: c.daily_rate_unskilled || '',
+      daily_rate_skilled: c.daily_rate_skilled ?? '',
+      daily_rate_semi_skilled: c.daily_rate_semi_skilled ?? '',
+      daily_rate_unskilled: c.daily_rate_unskilled ?? '',
       is_locked: c.is_locked || false,
     } : { name: '', work_types: [], phone: '', email: '', address: '', bank_name: '', account_number: '', ifsc_code: '', daily_rate_skilled: '', daily_rate_semi_skilled: '', daily_rate_unskilled: '', is_locked: false });
     setContractorTabIdx('basic');
+    setContractorPaymentSummary(null);
     setContractorDialog(true);
+    if (c?.contractor_id) fetchContractorPaymentSummary(c.contractor_id);
   };
   const handleSaveContractor = async () => {
     if (!contractorForm.name.trim()) { toast.error('Name required'); return; }
@@ -1595,6 +1619,7 @@ export default function PlanningBoard() {
                             </td>
                             <td className="px-4 py-2.5">
                               <div className="flex justify-center gap-1">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-amber-600" title="View contractors of this type" onClick={() => openTypeView(t)} data-testid={`view-type-${t.type_id}`}><Eye className="h-3 w-3" /></Button>
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setTypeDialog({ open: true, editing: t, name: t.name, description: t.description || '' })} data-testid={`edit-type-${t.type_id}`}><Edit className="h-3 w-3" /></Button>
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteType(t)} data-testid={`delete-type-${t.type_id}`}><Trash2 className="h-3 w-3" /></Button>
                               </div>
@@ -1634,11 +1659,23 @@ export default function PlanningBoard() {
                         <tr><td colSpan="5" className="p-8 text-center text-gray-400">No contractors found</td></tr>
                       ) : filteredContractors.map((c) => (
                         <tr key={c.contractor_id} className="hover:bg-gray-50" data-testid={`contractor-row-${c.contractor_id}`}>
-                          <td className="px-4 py-2.5"><p className="font-medium">{c.name}</p>{c.address && <p className="text-xs text-gray-400">{c.address}</p>}</td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{c.name}</p>
+                              {c.is_locked && <Badge className="bg-red-50 text-red-700 border border-red-200 text-[10px] px-1.5 py-0"><Lock className="h-2.5 w-2.5 mr-0.5 inline" />Locked</Badge>}
+                            </div>
+                            {c.address && <p className="text-xs text-gray-400">{c.address}</p>}
+                          </td>
                           <td className="px-4 py-2.5"><div className="flex flex-wrap gap-1">{(c.work_types || []).slice(0,3).map(t => <Badge key={t} variant="outline" className="text-xs">{t}</Badge>)}{(c.work_types||[]).length > 3 && <Badge variant="outline" className="text-xs">+{c.work_types.length-3}</Badge>}</div></td>
                           <td className="px-4 py-2.5 hidden sm:table-cell">{c.phone || '-'}</td>
                           <td className="px-4 py-2.5 hidden sm:table-cell text-xs text-gray-500">{c.bank_name || '-'}</td>
-                          <td className="px-4 py-2.5"><div className="flex justify-center gap-1"><Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openContractorDialog(c)}><Edit className="h-3 w-3" /></Button><Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteContractor(c)}><Trash2 className="h-3 w-3" /></Button></div></td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" className={`h-7 w-7 p-0 ${c.is_locked ? 'text-red-500' : 'text-gray-400'}`} title={c.is_locked ? 'Unlock' : 'Lock'} onClick={() => handleToggleLockContractor(c)} data-testid={`lock-contractor-${c.contractor_id}`}>{c.is_locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}</Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openContractorDialog(c)} data-testid={`edit-contractor-${c.contractor_id}`}><Edit className="h-3 w-3" /></Button>
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-500" onClick={() => handleDeleteContractor(c)} data-testid={`delete-contractor-${c.contractor_id}`}><Trash2 className="h-3 w-3" /></Button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1777,22 +1814,153 @@ export default function PlanningBoard() {
       </Dialog>
 
       <Dialog open={contractorDialog} onOpenChange={setContractorDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editingContractor ? 'Edit Contractor' : 'Add Contractor'}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Name *</Label><Input value={contractorForm.name} onChange={(e) => setContractorForm({ ...contractorForm, name: e.target.value })} placeholder="Contractor name" className="mt-1" data-testid="contractor-name-input" /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Phone</Label><Input value={contractorForm.phone} onChange={(e) => setContractorForm({ ...contractorForm, phone: e.target.value })} className="mt-1" /></div>
-              <div><Label>Email</Label><Input value={contractorForm.email} onChange={(e) => setContractorForm({ ...contractorForm, email: e.target.value })} className="mt-1" /></div>
-            </div>
-            <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" /></div>
-            <div><Label>Work Types</Label><div className="flex flex-wrap gap-2 mt-1">{(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (<button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t=>t!==wt) : [...contractorForm.work_types, wt] })}>{wt}</button>))}{contractorTypes.length === 0 && <p className="text-[11px] text-gray-400 italic w-full">Tip: Add custom types under "Contractor Types" tab.</p>}</div></div>
-            <div className="grid grid-cols-3 gap-3">
-              <div><Label className="text-xs">Bank</Label><Input value={contractorForm.bank_name} onChange={(e) => setContractorForm({ ...contractorForm, bank_name: e.target.value })} className="mt-1 text-xs" /></div>
-              <div><Label className="text-xs">Account No.</Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} className="mt-1 text-xs" /></div>
-              <div><Label className="text-xs">IFSC</Label><Input value={contractorForm.ifsc_code} onChange={(e) => setContractorForm({ ...contractorForm, ifsc_code: e.target.value })} className="mt-1 text-xs" /></div>
-            </div>
-          </div>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {editingContractor ? 'Edit Contractor' : 'Add Contractor'}
+              {editingContractor && contractorForm.is_locked && (
+                <Badge className="bg-red-50 text-red-700 border border-red-200 text-[10px]"><Lock className="h-2.5 w-2.5 mr-0.5 inline" />Locked</Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Capture name, banking info, and per-skill daily rates. Lock a record to flag it as protected (admin override allowed).
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs value={contractorTabIdx} onValueChange={setContractorTabIdx} className="w-full">
+            <TabsList className={`grid w-full ${editingContractor ? 'grid-cols-4' : 'grid-cols-3'}`} data-testid="contractor-dialog-tabs">
+              <TabsTrigger value="basic" data-testid="tab-basic">Basic</TabsTrigger>
+              <TabsTrigger value="bank" data-testid="tab-bank">Bank</TabsTrigger>
+              <TabsTrigger value="rates" data-testid="tab-rates">Employee Prices</TabsTrigger>
+              {editingContractor && <TabsTrigger value="payments" data-testid="tab-payments">Payment Summary</TabsTrigger>}
+            </TabsList>
+
+            {/* === BASIC === */}
+            <TabsContent value="basic" className="space-y-4 mt-4">
+              <div><Label>Name <span className="text-red-500">*</span></Label><Input value={contractorForm.name} onChange={(e) => setContractorForm({ ...contractorForm, name: e.target.value })} placeholder="Contractor name" className="mt-1" data-testid="contractor-name-input" /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Phone</Label><Input value={contractorForm.phone} onChange={(e) => setContractorForm({ ...contractorForm, phone: e.target.value })} className="mt-1" data-testid="contractor-phone-input" /></div>
+                <div><Label>Email</Label><Input value={contractorForm.email} onChange={(e) => setContractorForm({ ...contractorForm, email: e.target.value })} className="mt-1" data-testid="contractor-email-input" /></div>
+              </div>
+              <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" data-testid="contractor-address-input" /></div>
+              <div>
+                <Label>Work Types</Label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (
+                    <button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md transition-colors ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`} onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t=>t!==wt) : [...contractorForm.work_types, wt] })} data-testid={`worktype-${wt}`}>{wt}</button>
+                  ))}
+                  {contractorTypes.length === 0 && <p className="text-[11px] text-gray-400 italic w-full">Tip: Add custom types under "Contractor Types" tab.</p>}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 p-3 rounded-md bg-gray-50 border">
+                <button type="button" onClick={() => setContractorForm({ ...contractorForm, is_locked: !contractorForm.is_locked })} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${contractorForm.is_locked ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}`} data-testid="contractor-lock-toggle">
+                  {contractorForm.is_locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}
+                  {contractorForm.is_locked ? 'Locked' : 'Unlocked'}
+                </button>
+                <p className="text-[11px] text-gray-500 leading-tight">Locked contractors are visually flagged. Admins can still edit or delete locked records — the flag is a marker, not a hard restriction.</p>
+              </div>
+            </TabsContent>
+
+            {/* === BANK === */}
+            <TabsContent value="bank" className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><Label>Bank Name</Label><Input value={contractorForm.bank_name} onChange={(e) => setContractorForm({ ...contractorForm, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="contractor-bank-input" /></div>
+                <div><Label>Account Number</Label><Input value={contractorForm.account_number} onChange={(e) => setContractorForm({ ...contractorForm, account_number: e.target.value })} className="mt-1" data-testid="contractor-account-input" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><Label>IFSC Code</Label><Input value={contractorForm.ifsc_code} onChange={(e) => setContractorForm({ ...contractorForm, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="contractor-ifsc-input" /></div>
+              </div>
+              <p className="text-[11px] text-gray-500 italic">Bank details are used when generating payouts and reconciling cheques. Keep them current to avoid payout failures.</p>
+            </TabsContent>
+
+            {/* === EMPLOYEE PRICES === */}
+            <TabsContent value="rates" className="space-y-4 mt-4">
+              <p className="text-xs text-gray-600">Per-day rate (₹) for each labour category. These rates are picked up automatically when raising labour work orders.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="p-3 rounded-md border bg-emerald-50/50">
+                  <Label className="text-emerald-800">Skilled / day</Label>
+                  <Input type="number" min="0" value={contractorForm.daily_rate_skilled} onChange={(e) => setContractorForm({ ...contractorForm, daily_rate_skilled: e.target.value })} className="mt-1 bg-white" placeholder="₹0" data-testid="rate-skilled-input" />
+                  <p className="text-[10px] text-emerald-700 mt-1">e.g., Mason, Electrician, Plumber</p>
+                </div>
+                <div className="p-3 rounded-md border bg-amber-50/50">
+                  <Label className="text-amber-800">Semi-Skilled / day</Label>
+                  <Input type="number" min="0" value={contractorForm.daily_rate_semi_skilled} onChange={(e) => setContractorForm({ ...contractorForm, daily_rate_semi_skilled: e.target.value })} className="mt-1 bg-white" placeholder="₹0" data-testid="rate-semi-skilled-input" />
+                  <p className="text-[10px] text-amber-700 mt-1">e.g., Helper Carpenter</p>
+                </div>
+                <div className="p-3 rounded-md border bg-gray-50">
+                  <Label className="text-gray-800">Unskilled / day</Label>
+                  <Input type="number" min="0" value={contractorForm.daily_rate_unskilled} onChange={(e) => setContractorForm({ ...contractorForm, daily_rate_unskilled: e.target.value })} className="mt-1 bg-white" placeholder="₹0" data-testid="rate-unskilled-input" />
+                  <p className="text-[10px] text-gray-600 mt-1">e.g., General Labour</p>
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* === PAYMENT SUMMARY (edit only) === */}
+            {editingContractor && (
+              <TabsContent value="payments" className="space-y-4 mt-4">
+                {contractorPaymentLoading ? (
+                  <p className="text-sm text-gray-400 text-center py-8">Loading payment summary…</p>
+                ) : !contractorPaymentSummary ? (
+                  <p className="text-sm text-gray-400 text-center py-8">No payment data available.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Work Order Stats */}
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2 flex items-center gap-1.5"><Briefcase className="h-3 w-3" />Work Orders</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        <div className="p-3 rounded-md border bg-blue-50/60" data-testid="ps-wo-count"><p className="text-[10px] text-blue-700 uppercase">No. of Orders</p><p className="text-lg font-semibold text-blue-900">{contractorPaymentSummary.work_orders.count}</p></div>
+                        <div className="p-3 rounded-md border bg-blue-50/60" data-testid="ps-wo-total"><p className="text-[10px] text-blue-700 uppercase">Total Value</p><p className="text-lg font-semibold text-blue-900">₹{(contractorPaymentSummary.work_orders.total_amount || 0).toLocaleString('en-IN')}</p></div>
+                        <div className="p-3 rounded-md border bg-emerald-50/60" data-testid="ps-wo-paid"><p className="text-[10px] text-emerald-700 uppercase">Paid</p><p className="text-lg font-semibold text-emerald-900">₹{(contractorPaymentSummary.work_orders.paid_amount || 0).toLocaleString('en-IN')}</p></div>
+                        <div className="p-3 rounded-md border bg-amber-50/60" data-testid="ps-wo-pending"><p className="text-[10px] text-amber-700 uppercase">Pending (Total − Paid)</p><p className="text-lg font-semibold text-amber-900">₹{(contractorPaymentSummary.work_orders.pending_amount || 0).toLocaleString('en-IN')}</p></div>
+                      </div>
+                    </div>
+
+                    {/* Payment Request Stats */}
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2 flex items-center gap-1.5"><CreditCard className="h-3 w-3" />Payment Requests</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className="p-3 rounded-md border bg-purple-50/60" data-testid="ps-req-raised"><p className="text-[10px] text-purple-700 uppercase">Raised</p><p className="text-base font-semibold text-purple-900">₹{(contractorPaymentSummary.payment_requests.raised_amount || 0).toLocaleString('en-IN')}</p><p className="text-[10px] text-purple-600">{contractorPaymentSummary.payment_requests.raised_count} request(s)</p></div>
+                        <div className="p-3 rounded-md border bg-emerald-50/60" data-testid="ps-req-collected"><p className="text-[10px] text-emerald-700 uppercase">Collected</p><p className="text-base font-semibold text-emerald-900">₹{(contractorPaymentSummary.payment_requests.collected_amount || 0).toLocaleString('en-IN')}</p><p className="text-[10px] text-emerald-600">{contractorPaymentSummary.payment_requests.collected_count} paid</p></div>
+                        <div className="p-3 rounded-md border bg-amber-50/60" data-testid="ps-req-pending"><p className="text-[10px] text-amber-700 uppercase">Pending Collection</p><p className="text-base font-semibold text-amber-900">₹{(contractorPaymentSummary.payment_requests.pending_amount || 0).toLocaleString('en-IN')}</p><p className="text-[10px] text-amber-600">{contractorPaymentSummary.payment_requests.pending_count} awaiting</p></div>
+                      </div>
+                    </div>
+
+                    {/* Projects List */}
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2 flex items-center gap-1.5"><Building2 className="h-3 w-3" />Projects ({contractorPaymentSummary.projects?.length || 0})</h4>
+                      {(contractorPaymentSummary.projects || []).length === 0 ? (
+                        <p className="text-xs text-gray-400 italic p-3 text-center bg-gray-50 rounded-md">No projects yet.</p>
+                      ) : (
+                        <div className="overflow-x-auto border rounded-md">
+                          <table className="w-full text-xs" data-testid="ps-projects-table">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-2.5 py-2 text-left">Project</th>
+                                <th className="px-2.5 py-2 text-center">WOs</th>
+                                <th className="px-2.5 py-2 text-right">Total</th>
+                                <th className="px-2.5 py-2 text-right">Paid</th>
+                                <th className="px-2.5 py-2 text-right">Pending</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {contractorPaymentSummary.projects.map(p => (
+                                <tr key={p.project_id} className="hover:bg-gray-50">
+                                  <td className="px-2.5 py-2 font-medium">{p.project_name || p.project_id}</td>
+                                  <td className="px-2.5 py-2 text-center">{p.wo_count}</td>
+                                  <td className="px-2.5 py-2 text-right">₹{(p.total_amount || 0).toLocaleString('en-IN')}</td>
+                                  <td className="px-2.5 py-2 text-right text-emerald-700">₹{(p.paid_amount || 0).toLocaleString('en-IN')}</td>
+                                  <td className="px-2.5 py-2 text-right text-amber-700 font-medium">₹{(p.pending_amount || 0).toLocaleString('en-IN')}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
+            )}
+          </Tabs>
           <DialogFooter><Button variant="outline" onClick={() => setContractorDialog(false)}>Cancel</Button><Button onClick={handleSaveContractor} className="bg-amber-600 hover:bg-amber-700" data-testid="save-contractor-btn">{editingContractor ? 'Update' : 'Create'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2040,6 +2208,51 @@ export default function PlanningBoard() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setTypeDialog({ open: false, editing: null, name: '', description: '' })}>Cancel</Button>
             <Button className="bg-amber-600 hover:bg-amber-700" onClick={handleSaveType} data-testid="type-save-btn">{typeDialog.editing ? 'Update' : 'Create'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Contractor Type — view contractors of this type */}
+      <Dialog open={typeViewDialog.open} onOpenChange={(o) => !o && setTypeViewDialog({ open: false, type: null, contractors: [], loading: false })}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Users className="h-4 w-4 text-amber-600" />Contractors of "{typeViewDialog.type?.name || ''}"</DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">{typeViewDialog.type?.description || 'All active contractors that include this type.'}</DialogDescription>
+          </DialogHeader>
+          {typeViewDialog.loading ? (
+            <p className="text-sm text-gray-400 text-center py-8">Loading…</p>
+          ) : typeViewDialog.contractors.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8" data-testid="type-view-empty">No contractors registered under this type yet.</p>
+          ) : (
+            <div className="overflow-x-auto border rounded-md">
+              <table className="w-full text-sm" data-testid="type-view-table">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Phone</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Bank</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Open</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {typeViewDialog.contractors.map(c => (
+                    <tr key={c.contractor_id} className="hover:bg-gray-50" data-testid={`type-view-row-${c.contractor_id}`}>
+                      <td className="px-3 py-2 font-medium">{c.name}</td>
+                      <td className="px-3 py-2 hidden sm:table-cell text-gray-600">{c.phone || '-'}</td>
+                      <td className="px-3 py-2 hidden sm:table-cell text-gray-500 text-xs">{c.bank_name || '-'}</td>
+                      <td className="px-3 py-2 text-center">{c.is_locked ? <Badge className="bg-red-50 text-red-700 border border-red-200 text-[10px]"><Lock className="h-2.5 w-2.5 mr-0.5 inline" />Locked</Badge> : <Badge variant="outline" className="text-[10px]">Active</Badge>}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setTypeViewDialog({ open: false, type: null, contractors: [], loading: false }); openContractorDialog(c); }} data-testid={`type-view-open-${c.contractor_id}`}><Edit className="h-3 w-3" /></Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTypeViewDialog({ open: false, type: null, contractors: [], loading: false })}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

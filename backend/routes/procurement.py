@@ -2007,15 +2007,19 @@ async def delete_package(package_id: str, user: User = Depends(get_current_user)
 # ==================== LABOUR CONTRACTOR ENDPOINTS ====================
 
 class LabourContractorInput(BaseModel):
-    name: str
-    work_types: List[str] = []
+    name: Optional[str] = None
+    work_types: Optional[List[str]] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
     bank_name: Optional[str] = None
     account_number: Optional[str] = None
     ifsc_code: Optional[str] = None
-    rate_structure: Dict = {}
+    rate_structure: Optional[Dict] = None
+    daily_rate_skilled: Optional[float] = None
+    daily_rate_semi_skilled: Optional[float] = None
+    daily_rate_unskilled: Optional[float] = None
+    is_locked: Optional[bool] = None
 
 
 @router.get("/labour-contractors")
@@ -2034,16 +2038,23 @@ async def create_labour_contractor(contractor_input: LabourContractorInput, user
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Only Planning can create labour contractors")
     
+    if not (contractor_input.name or "").strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+
     contractor = LabourContractor(
-        name=contractor_input.name,
-        work_types=contractor_input.work_types,
+        name=contractor_input.name.strip(),
+        work_types=contractor_input.work_types or [],
         phone=contractor_input.phone,
         email=contractor_input.email,
         address=contractor_input.address,
         bank_name=contractor_input.bank_name,
         account_number=contractor_input.account_number,
         ifsc_code=contractor_input.ifsc_code,
-        rate_structure=contractor_input.rate_structure,
+        rate_structure=contractor_input.rate_structure or {},
+        daily_rate_skilled=contractor_input.daily_rate_skilled,
+        daily_rate_semi_skilled=contractor_input.daily_rate_semi_skilled,
+        daily_rate_unskilled=contractor_input.daily_rate_unskilled,
+        is_locked=bool(contractor_input.is_locked) if contractor_input.is_locked is not None else False,
         created_by=user.user_id
     )
     
@@ -2052,38 +2063,124 @@ async def create_labour_contractor(contractor_input: LabourContractorInput, user
     contractor_dict["updated_at"] = contractor_dict["updated_at"].isoformat()
     
     await db.labour_contractors.insert_one(contractor_dict)
+    contractor_dict.pop("_id", None)
     
     return {"contractor_id": contractor.contractor_id, "message": "Labour contractor created"}
 
 
 @router.patch("/labour-contractors/{contractor_id}")
 async def update_labour_contractor(contractor_id: str, contractor_input: LabourContractorInput, user: User = Depends(get_current_user)):
-    """Update a labour contractor"""
+    """Update a labour contractor (partial update — only fields supplied are touched)"""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Only Planning can update labour contractors")
-    
-    update_data = {
-        "name": contractor_input.name,
-        "work_types": contractor_input.work_types,
-        "phone": contractor_input.phone,
-        "email": contractor_input.email,
-        "address": contractor_input.address,
-        "bank_name": contractor_input.bank_name,
-        "account_number": contractor_input.account_number,
-        "ifsc_code": contractor_input.ifsc_code,
-        "rate_structure": contractor_input.rate_structure,
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    
+
+    update_data = contractor_input.model_dump(exclude_unset=True)
+    if "name" in update_data:
+        update_data["name"] = (update_data["name"] or "").strip()
+        if not update_data["name"]:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
     result = await db.labour_contractors.update_one(
         {"contractor_id": contractor_id},
         {"$set": update_data}
     )
-    
-    if result.modified_count == 0:
+
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Labour contractor not found")
     
     return {"message": "Labour contractor updated"}
+
+
+@router.get("/labour-contractors/{contractor_id}/payment-summary")
+async def get_contractor_payment_summary(contractor_id: str, user: User = Depends(get_current_user)):
+    """
+    Aggregated finance view for a single labour contractor.
+    Returns:
+      • work_orders: { count, total_amount, paid_amount, pending_amount }
+      • payment_requests: { raised_count, raised_amount, collected_count, collected_amount, pending_count, pending_amount }
+      • projects: list of {project_id, project_name, wo_count, total_amount, paid_amount, pending_amount}
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    contractor = await db.labour_contractors.find_one({"contractor_id": contractor_id}, {"_id": 0})
+    if not contractor:
+        raise HTTPException(status_code=404, detail="Labour contractor not found")
+
+    work_orders = await db.work_orders.find(
+        {"contractor_id": contractor_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(1000)
+
+    wo_total = 0.0
+    paid_amount = 0.0
+    raised_count = 0
+    raised_amount = 0.0
+    collected_count = 0
+    collected_amount = 0.0
+    pending_req_count = 0
+    pending_req_amount = 0.0
+    project_buckets: Dict[str, Dict] = {}
+
+    PAID_STATUSES = {"paid"}
+    RAISED_STATUSES = {"payment_requested", "payment_approved", "paid"}
+    PENDING_REQ_STATUSES = {"payment_requested", "payment_approved"}
+
+    for wo in work_orders:
+        amt = float(wo.get("total_amount") or 0)
+        wo_total += amt
+        pid = wo.get("project_id") or ""
+        bucket = project_buckets.setdefault(pid, {
+            "project_id": pid,
+            "project_name": wo.get("project_name") or "",
+            "wo_count": 0,
+            "total_amount": 0.0,
+            "paid_amount": 0.0,
+            "pending_amount": 0.0,
+        })
+        bucket["wo_count"] += 1
+        bucket["total_amount"] += amt
+
+        for stage in (wo.get("stages") or []):
+            sa = float(stage.get("amount") or 0)
+            status = stage.get("status") or "pending"
+            if status in PAID_STATUSES:
+                paid_amount += sa
+                bucket["paid_amount"] += sa
+                collected_count += 1
+                collected_amount += sa
+            if status in RAISED_STATUSES:
+                raised_count += 1
+                raised_amount += sa
+            if status in PENDING_REQ_STATUSES:
+                pending_req_count += 1
+                pending_req_amount += sa
+
+    for b in project_buckets.values():
+        b["pending_amount"] = round(b["total_amount"] - b["paid_amount"], 2)
+        b["total_amount"] = round(b["total_amount"], 2)
+        b["paid_amount"] = round(b["paid_amount"], 2)
+
+    return {
+        "contractor_id": contractor_id,
+        "contractor_name": contractor.get("name"),
+        "work_orders": {
+            "count": len(work_orders),
+            "total_amount": round(wo_total, 2),
+            "paid_amount": round(paid_amount, 2),
+            "pending_amount": round(wo_total - paid_amount, 2),
+        },
+        "payment_requests": {
+            "raised_count": raised_count,
+            "raised_amount": round(raised_amount, 2),
+            "collected_count": collected_count,
+            "collected_amount": round(collected_amount, 2),
+            "pending_count": pending_req_count,
+            "pending_amount": round(pending_req_amount, 2),
+        },
+        "projects": sorted(project_buckets.values(), key=lambda b: b["pending_amount"], reverse=True),
+    }
 
 
 @router.delete("/labour-contractors/{contractor_id}")
@@ -2208,6 +2305,24 @@ async def delete_contractor_type(type_id: str, user: User = Depends(get_current_
         {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     return {"message": "Contractor type deleted"}
+
+
+@router.get("/contractor-types/{type_id}/contractors")
+async def list_contractors_by_type(type_id: str, user: User = Depends(get_current_user)):
+    """List all active labour contractors that include this type in their work_types."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.ACCOUNTANT, UserRole.PROJECT_MANAGER, UserRole.SITE_ENGINEER, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    ctype = await db.contractor_types.find_one({"type_id": type_id, "is_active": True}, {"_id": 0})
+    if not ctype:
+        raise HTTPException(status_code=404, detail="Contractor type not found")
+
+    contractors = await db.labour_contractors.find(
+        {"is_active": True, "work_types": ctype["name"]},
+        {"_id": 0}
+    ).sort("name", 1).to_list(500)
+
+    return {"type": ctype, "contractors": contractors}
 
 
 
