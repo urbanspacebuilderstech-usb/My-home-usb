@@ -4676,7 +4676,10 @@ export default function ProjectDetail() {
 
 
             {/* ==================== WORK ORDERS TAB ==================== */}
-            <TabsContent value="work-orders" className="p-3 sm:p-6">
+            {/* Hidden: Work Orders top-level tab is removed, but the Dialogs inside (Create WO, Freeze) are still wired
+                via openWoDialog() from inside the Labours sub-tab. Keep this hidden so Dialog (which uses a Portal)
+                stays mounted and can open from anywhere. */}
+            <div className="hidden">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold flex items-center gap-2">
@@ -5191,7 +5194,7 @@ export default function ProjectDetail() {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-            </TabsContent>
+            </div>
             <TabsContent value="labours" className="p-3 sm:p-6">
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
