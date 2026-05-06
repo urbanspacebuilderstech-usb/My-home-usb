@@ -35,6 +35,15 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
   const updateEntry = (idx, field, value) => {
     const updated = [...entries];
     updated[idx] = { ...updated[idx], [field]: value };
+    // When mode is changed to cheque, ensure at least one cheque-detail row exists
+    // and auto-expand the cheque section so the user sees they need to fill it in.
+    if (field === 'payment_mode' && value === 'cheque') {
+      const existing = updated[idx].cheque_details || [];
+      if (existing.length === 0) {
+        updated[idx].cheque_details = [{ cheque_number: '', bank_name: '', amount: '', cheque_date: '' }];
+      }
+      setExpandedIdx(idx);
+    }
     onChange(updated);
   };
 

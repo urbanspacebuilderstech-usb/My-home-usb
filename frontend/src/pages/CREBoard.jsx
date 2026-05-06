@@ -418,6 +418,19 @@ export default function CREBoard() {
     if (collectPaymentEntries.length === 0 || totalPayEntries <= 0) { toast.error('Add at least one payment entry'); return; }
     const balance = (selectedPaymentStage.amount || 0) - (selectedPaymentStage.amount_received || 0);
     if (totalPayEntries > balance + 1) { toast.error(`Amount exceeds remaining balance of ${formatCurrency(balance)}`); return; }
+
+    // Validate cheque entries: each cheque-mode payment must have cheque details with at least cheque_number
+    for (let i = 0; i < collectPaymentEntries.length; i++) {
+      const e = collectPaymentEntries[i];
+      if (e.payment_mode === 'cheque') {
+        const valid = (e.cheque_details || []).filter(c => c && c.cheque_number && String(c.cheque_number).trim());
+        if (valid.length === 0) {
+          toast.error(`Payment ${i + 1}: Please click "+ Add Cheque" and enter at least one cheque number before confirming`);
+          return;
+        }
+      }
+    }
+
     try {
       const payload = {
         amount_received: totalPayEntries,
