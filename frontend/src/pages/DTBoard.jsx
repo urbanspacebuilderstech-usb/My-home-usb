@@ -33,7 +33,7 @@ function buildBankText(it) {
   return lines.join('\n');
 }
 
-export default function DTBoard() {
+export default function DTBoard({ embedded = false }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [list, setList] = useState([]);
@@ -102,9 +102,9 @@ export default function DTBoard() {
   }), [items]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <AppHeader user={user} />
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-4">
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <AppHeader user={user} />}
+      <div className={embedded ? 'space-y-4' : 'max-w-7xl mx-auto px-4 py-6 space-y-4'}>
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ArrowRightLeft className="h-6 w-6 text-emerald-600" /> Direct Transfer Requests

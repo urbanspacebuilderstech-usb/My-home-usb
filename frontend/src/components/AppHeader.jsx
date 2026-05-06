@@ -57,12 +57,7 @@ const ROLE_NAV = {
     { label: 'Packages', path: '/packages' },
     { label: 'Vendors', path: '/vendor-management' },
   ],
-  cre: [
-    { label: 'CRE Board', path: '/cre-board' },
-    { label: 'Projects', path: '/projects' },
-    { label: 'Income', path: '/income' },
-    { label: 'DT Requests', path: '/dt-board' },
-  ],
+  cre: [],  // CRE has all sub-tabs inside the CRE Board page; no top nav
   pre_sales: [
     { label: 'Pre-Sales CRM', path: '/crm-pre-sales' },
     { label: 'User App', path: '/user-app' },

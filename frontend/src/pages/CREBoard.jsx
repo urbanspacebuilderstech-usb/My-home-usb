@@ -24,6 +24,8 @@ import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
 import CREPreConstruction from './CREPreConstruction';
+import Income from './Income';
+import DTBoard from './DTBoard';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -519,6 +521,12 @@ export default function CREBoard() {
               <TabsTrigger value="cheques" className="text-xs sm:text-sm" data-testid="tab-cheque-management">
                 Cheque Management
               </TabsTrigger>
+              <TabsTrigger value="income" className="text-xs sm:text-sm" data-testid="tab-income">
+                Income
+              </TabsTrigger>
+              <TabsTrigger value="dt_requests" className="text-xs sm:text-sm" data-testid="tab-dt-requests">
+                DT Requests
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -955,6 +963,16 @@ export default function CREBoard() {
           {/* ==================== TAB 6: CHEQUE MANAGEMENT ==================== */}
           <TabsContent value="cheques">
             <ChequeListView scope="cre" userRole={user?.role} />
+          </TabsContent>
+
+          {/* ==================== TAB 7: INCOME ==================== */}
+          <TabsContent value="income">
+            <Income embedded />
+          </TabsContent>
+
+          {/* ==================== TAB 8: DT REQUESTS ==================== */}
+          <TabsContent value="dt_requests">
+            <DTBoard embedded />
           </TabsContent>
         </Tabs>
       </div>

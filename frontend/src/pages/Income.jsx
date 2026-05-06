@@ -20,7 +20,7 @@ import { NumericInput } from '../components/NumericInput';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-export default function Income() {
+export default function Income({ embedded = false }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [incomeEntries, setIncomeEntries] = useState([]);
@@ -204,11 +204,11 @@ export default function Income() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
       {/* Navigation */}
-      <AppHeader user={user} />
+      {!embedded && <AppHeader user={user} />}
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className={embedded ? '' : 'max-w-7xl mx-auto px-6 py-8'}>
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -579,7 +579,7 @@ export default function Income() {
           </CardContent>
         </Card>
       </div>
-      <MobileBottomNav user={user} />
+      {!embedded && <MobileBottomNav user={user} />}
     </div>
   );
 }
