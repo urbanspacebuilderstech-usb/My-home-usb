@@ -3873,10 +3873,15 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             payment_req = {
                 "request_id": f"pr_{uuid.uuid4().hex[:8]}",
                 "amount": request_amount,
-                "status": "requested",
+                # PM step skipped — request lands directly in Planning queue
+                "status": "pm_approved",
                 "requested_by": user.user_id,
                 "requested_by_name": user.name,
                 "requested_at": now,
+                "pm_approved_by": user.user_id,
+                "pm_approved_by_name": user.name,
+                "pm_approved_at": now,
+                "pm_notes": "Auto-skipped (PM approval bypassed)",
                 "notes": data.get("notes", ""),
                 "dlr_summary": data.get("dlr_summary", ""),
             }
@@ -3902,19 +3907,22 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
     
-    # Notify Project Manager
+    # Notify Planning team (PM step is skipped)
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "team": 1, "name": 1})
-    pm_id = (project or {}).get("team", {}).get("project_manager")
-    if pm_id:
-        notif = Notification(
-            user_id=pm_id,
-            title="Payment Request",
-            message=f"₹{request_amount:,.0f} stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
-            link=f"/projects/{project_id}"
-        )
-        notif_dict = notif.model_dump()
-        notif_dict["created_at"] = notif_dict["created_at"].isoformat()
-        await db.notifications.insert_one(notif_dict)
+    planning_users = await db.users.find({"role": {"$in": [UserRole.PLANNING.value, UserRole.SUPER_ADMIN.value]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(20)
+    for pu in planning_users:
+        try:
+            notif = Notification(
+                user_id=pu.get("user_id"),
+                title="Payment Request",
+                message=f"₹{request_amount:,.0f} stage payment requested for {wo.get('contractor_name', '')} in {(project or {}).get('name', '')}",
+                link=f"/planning-board"
+            )
+            notif_dict = notif.model_dump()
+            notif_dict["created_at"] = notif_dict["created_at"].isoformat()
+            await db.notifications.insert_one(notif_dict)
+        except Exception:
+            pass
     
     return {"message": "Payment requested successfully", "request_id": payment_req["request_id"]}
 
