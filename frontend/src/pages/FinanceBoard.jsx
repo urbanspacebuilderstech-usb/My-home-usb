@@ -10,9 +10,9 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 // inner page suppresses its own AppHeader (set per-page wherever supported).
 // Iframe sandbox keeps cookies/auth flowing on same origin.
 const TABS = [
-  { value: 'accounts',  label: 'Accounts',         icon: BarChart3,    src: '/accountant-dashboard?embedded=1' },
+  { value: 'accounts',  label: 'Accounts',         icon: BarChart3,    src: '/accounts-board?embedded=1&navRole=accountant' },
   { value: 'payments',  label: 'Payment Schedule', icon: CalendarClock, src: '/payment-schedule?embedded=1' },
-  { value: 'projects',  label: 'Project Wise',     icon: FolderKanban,  src: '/accounts-board?tab=projects&embedded=1' },
+  { value: 'projects',  label: 'Project Wise',     icon: FolderKanban,  src: '/accounts-board?tab=projects&embedded=1&navRole=accountant' },
   { value: 'projection', label: 'Projection',      icon: LineChart,     src: null },
 ];
 

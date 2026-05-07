@@ -145,10 +145,57 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
   const navigate = useNavigate();
   const location = useLocation();
 
-  // When this page is hosted inside the Finance Board iframe, the parent
-  // already shows the brand + nav — render nothing to avoid a stacked header.
-  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1') {
-    return null;
+  // Embedded mode: hosted inside Finance Board (or another) iframe.
+  // - `?embedded=1` alone → render nothing (parent already has its own header).
+  // - `?embedded=1&navRole=<role>` → render a slim sub-nav strip using that role's
+  //   ROLE_NAV (e.g. show Cashbook/Approvals/Expense for super_admin viewing
+  //   /accounts-board through the Finance Board's Accounts tab).
+  if (typeof window !== 'undefined') {
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get('embedded') === '1') {
+      const navRole = qs.get('navRole');
+      const embeddedNav = navRole ? (ROLE_NAV[navRole] || []) : [];
+      if (embeddedNav.length === 0) return null;
+      const currentFull = location.pathname + (location.search || '');
+      const isEmbedActive = (path) => {
+        // Strip the embedded= and navRole= params before comparing
+        const target = path.includes('?')
+          ? `${path}${path.includes('&') ? '&' : '&'}embedded=1&navRole=${navRole}`
+          : `${path}?embedded=1&navRole=${navRole}`;
+        // Loose match — strip query and compare base path + tab param if present
+        const [tp, tq] = target.split('?');
+        const [cp, cq] = currentFull.split('?');
+        if (tp !== cp) return false;
+        const tparams = new URLSearchParams(tq || '');
+        const cparams = new URLSearchParams(cq || '');
+        return tparams.get('tab') === cparams.get('tab');
+      };
+      return (
+        <div className="bg-white border-b border-gray-200 px-4 lg:px-6 sticky top-0 z-40" data-testid="embedded-sub-nav">
+          <nav className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
+            {embeddedNav.map((item) => {
+              // Preserve embedded flags when navigating between sub-nav items
+              const sep = item.path.includes('?') ? '&' : '?';
+              const target = `${item.path}${sep}embedded=1&navRole=${navRole}`;
+              return (
+                <button
+                  key={item.path}
+                  data-testid={`embed-nav-${item.label.toLowerCase().replace(/\s/g, '-')}`}
+                  onClick={() => navigate(target)}
+                  className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+                    isEmbedActive(item.path)
+                      ? 'bg-amber-50 text-amber-700 font-semibold'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      );
+    }
   }
 
   const handleLogout = async () => {
