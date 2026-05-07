@@ -206,9 +206,17 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
     navigate('/login', { replace: true });
   };
 
-  // While the user object is loading, render an empty header to avoid
-  // briefly flashing the Super Admin nav (previous default fallback).
-  const role = user?.role;
+  // While the user object is loading on a page, fall back to the cached
+  // user from sessionStorage so the nav renders instantly. Avoids the
+  // "empty header on /hr-portal until /auth/me resolves" flash.
+  let effectiveUser = user;
+  if (!effectiveUser && typeof window !== 'undefined') {
+    try {
+      const raw = sessionStorage.getItem('mhu_user_cache');
+      if (raw) effectiveUser = JSON.parse(raw);
+    } catch { /* ignore */ }
+  }
+  const role = effectiveUser?.role;
   const navItems = role ? (ROLE_NAV[role] || []) : [];
   const currentPath = location.pathname;
   const currentSearch = location.search || '';
@@ -308,7 +316,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             </Button>
             <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-gray-200">
               <div className="text-right leading-tight">
-                <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{user?.name || ''}</p>
+                <p className="text-sm font-semibold text-gray-900" data-testid="header-username">{effectiveUser?.name || ''}</p>
                 <p className="text-[10px] uppercase tracking-wide text-gray-400">{role ? role.replace(/_/g, ' ') : ''}</p>
               </div>
               <Button variant="ghost" size="icon" onClick={handleLogout} className="h-9 w-9 text-gray-400 hover:text-red-500" data-testid="header-logout">

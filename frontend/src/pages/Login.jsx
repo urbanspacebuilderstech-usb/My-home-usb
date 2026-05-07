@@ -31,7 +31,7 @@ function getRoleRedirect(role) {
     architect: '/architect-dashboard',
     hr: '/hr-portal',
     prospect: '/prospect-app',
-    super_admin: '/dashboard'
+    super_admin: '/finance-board'
   };
   return roleRoutes[role] || '/dashboard';
 }
