@@ -5265,14 +5265,40 @@ export default function ProjectDetail() {
                         <TabsTrigger value="payment_stages" data-testid="wo-main-tab-stages">Payment Stages ({woForm.stages.length})</TabsTrigger>
                       </TabsList>
 
-                      {/* ===== WORK ORDER (Scope / Additional / Deductions / Summary) ===== */}
-                      <TabsContent value="work_order" className="mt-3">
+                      {/* ===== WORK ORDER (Scope / Additional / Deductions) ===== */}
+                      <TabsContent value="work_order" className="mt-3 space-y-3">
+                        {/* Always-visible summary card placed ABOVE the sub-tabs.
+                            Shows Scope + Additional − Deductions = Grand Total. */}
+                        {(() => {
+                          const scopeTotal = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const addTotal = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const dedTotal = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const grand = scopeTotal + addTotal - dedTotal;
+                          return (
+                            <div className="rounded-lg border-2 border-violet-200 bg-gradient-to-br from-violet-50/70 to-white p-3" data-testid="wo-summary-card">
+                              <div className="flex items-end justify-between gap-3 flex-wrap">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 mb-1">Work Order Total</div>
+                                  <div className="grid grid-cols-3 gap-3 text-[11px]">
+                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div></div>
+                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div></div>
+                                    <div><div className="text-red-600">− Deductions</div><div className="font-semibold text-red-700">{formatCurrency(dedTotal)}</div></div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-[10px] text-gray-500">(Scope + Additional) − Deductions</div>
+                                  <div className="text-xl sm:text-2xl font-bold text-violet-800" data-testid="wo-grand-total">{formatCurrency(grand)}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         <Tabs value={woSubTab} onValueChange={setWoSubTab}>
                           <TabsList className="w-full">
                             <TabsTrigger value="scope" className="flex-1 text-xs" data-testid="wo-tab-scope">Scope ({woForm.scope_items.length})</TabsTrigger>
                             <TabsTrigger value="additional" className="flex-1 text-xs" data-testid="wo-tab-additional">Additional ({woForm.additional_work.length})</TabsTrigger>
                             <TabsTrigger value="deductions" className="flex-1 text-xs" data-testid="wo-tab-deductions">Deductions ({(woForm.deductions || []).length})</TabsTrigger>
-                            <TabsTrigger value="summary" className="flex-1 text-xs" data-testid="wo-tab-summary">Summary</TabsTrigger>
                           </TabsList>
 
                           {/* SCOPE ITEMS */}
@@ -5347,35 +5373,66 @@ export default function ProjectDetail() {
                             )}
                           </TabsContent>
 
-                          {/* SUMMARY */}
-                          <TabsContent value="summary" className="mt-3">
-                            {(() => {
-                              const scopeTotal = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                              const addTotal = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                              const dedTotal = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                              const grand = scopeTotal + addTotal - dedTotal;
-                              return (
-                                <div className="rounded-lg border-2 border-violet-200 bg-gradient-to-br from-violet-50/70 to-white p-4" data-testid="wo-summary-card">
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-700 mb-2">Work Order Total</div>
-                                  <div className="grid grid-cols-3 gap-3 text-xs mb-3">
-                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div></div>
-                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div></div>
-                                    <div><div className="text-red-600">− Deductions</div><div className="font-semibold text-red-700">{formatCurrency(dedTotal)}</div></div>
-                                  </div>
-                                  <div className="flex items-end justify-between border-t border-violet-200 pt-2">
-                                    <span className="text-xs text-gray-500">(Scope + Additional) − Deductions</span>
-                                    <span className="text-xl sm:text-2xl font-bold text-violet-800" data-testid="wo-grand-total">{formatCurrency(grand)}</span>
-                                  </div>
-                                  <p className="text-[11px] text-gray-500 italic mt-3">A project can have multiple Work Orders — each tracks its own scope, additions, deductions and payment stages independently.</p>
-                                </div>
-                              );
-                            })()}
-                          </TabsContent>
+                          {/* SUMMARY tab removed — now shown as a static card above the sub-tabs. */}
                         </Tabs>
                       </TabsContent>
 
                       {/* ===== PAYMENT STAGES (formerly Stages tab) ===== */}
-                      <TabsContent value="payment_stages" className="mt-3">
+                      <TabsContent value="payment_stages" className="mt-3 space-y-3">
+                        {/* Same Work Order Total card + live "Allocated vs Total" tracker so the
+                            user can see immediately whether their stages add up to the WO total. */}
+                        {(() => {
+                          const scopeTotal = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const addTotal = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const dedTotal = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const grand = scopeTotal + addTotal - dedTotal;
+                          const allocated = woForm.stages.reduce((sum, st) => sum + (st.type === 'percentage'
+                            ? grand * (parseFloat(st.value) || 0) / 100
+                            : (parseFloat(st.value) || 0)), 0);
+                          const allocatedPct = grand > 0 ? (allocated / grand * 100) : 0;
+                          const remaining = grand - allocated;
+                          const matches = Math.abs(remaining) < 0.5;
+                          const overrun = remaining < -0.5;
+                          return (
+                            <div className="rounded-lg border-2 border-violet-200 bg-gradient-to-br from-violet-50/70 to-white p-3" data-testid="wo-payment-summary-card">
+                              <div className="flex items-end justify-between gap-3 flex-wrap mb-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 mb-1">Work Order Total</div>
+                                  <div className="grid grid-cols-3 gap-3 text-[11px]">
+                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div></div>
+                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div></div>
+                                    <div><div className="text-red-600">− Deductions</div><div className="font-semibold text-red-700">{formatCurrency(dedTotal)}</div></div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-[10px] text-gray-500">(Scope + Additional) − Deductions</div>
+                                  <div className="text-xl sm:text-2xl font-bold text-violet-800">{formatCurrency(grand)}</div>
+                                </div>
+                              </div>
+                              {/* Live allocation tracker */}
+                              <div className="border-t border-violet-200 pt-2 grid grid-cols-3 gap-3 text-[11px]">
+                                <div>
+                                  <div className="text-gray-500">Total Allocated</div>
+                                  <div className="font-semibold text-gray-900" data-testid="wo-allocated-amount">{formatCurrency(allocated)}</div>
+                                  <div className="text-[10px] text-gray-400">{allocatedPct.toFixed(1)}% of total</div>
+                                </div>
+                                <div>
+                                  <div className={overrun ? 'text-red-600' : 'text-amber-600'}>{overrun ? 'Over-allocated by' : 'Remaining'}</div>
+                                  <div className={`font-semibold ${overrun ? 'text-red-700' : 'text-amber-700'}`} data-testid="wo-remaining-amount">{formatCurrency(Math.abs(remaining))}</div>
+                                  <div className="text-[10px] text-gray-400">{grand > 0 ? `${(Math.abs(remaining) / grand * 100).toFixed(1)}%` : '0%'}</div>
+                                </div>
+                                <div>
+                                  <div className="text-gray-500">Match</div>
+                                  <div className={`font-semibold ${matches ? 'text-green-700' : (overrun ? 'text-red-700' : 'text-amber-700')}`} data-testid="wo-allocation-match">
+                                    {matches ? '✓ Balanced' : (overrun ? '⚠ Exceeds total' : '⚠ Under-allocated')}
+                                  </div>
+                                  <div className="text-[10px] text-gray-400">vs. {formatCurrency(grand)}</div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Payment Stage</Button></div>
                         {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No payment stages</p> : (
                           <div className="space-y-2">
