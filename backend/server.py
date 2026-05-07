@@ -168,7 +168,9 @@ class GlobalRateLimitMiddleware(BaseHTTPMiddleware):
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CSRFMiddleware)
-app.add_middleware(GlobalRateLimitMiddleware, max_requests=100, window_seconds=60)
+# GlobalRateLimitMiddleware disabled per request — was causing false-positive
+# 429s on legitimate dashboard usage (multiple parallel fetches on tab switch).
+# The per-user RateLimiter in core/deps.py is also bypassed for the same reason.
 
 app.add_middleware(
     CORSMiddleware,
