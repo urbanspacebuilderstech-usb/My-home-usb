@@ -2537,6 +2537,37 @@ export default function ProjectDetail() {
                 </div>
               )}
 
+              {/* ---- Live FE Grand Total: (Scope + Additional) − Deductions ---- */}
+              {scope_items.length > 0 && (() => {
+                const feTotal = summary?.scope_total || 0;
+                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
+                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
+                const grand = feTotal + addTotal - dedTotal;
+                return (
+                  <div className="mb-4 sm:mb-6 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-4" data-testid="fe-grand-total-card">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-3">
+                      <div>
+                        <div className="text-gray-500">Final Estimate</div>
+                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-emerald-600">+ Additional</div>
+                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-red-600">− Deductions</div>
+                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
+                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
+                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
                   <h3 className="text-base sm:text-lg font-bold">Final Estimate</h3>
@@ -2944,37 +2975,6 @@ export default function ProjectDetail() {
                   )}
                 </table>
               </div>
-
-              {/* ---- Live FE Grand Total: (Scope + Additional) − Deductions ---- */}
-              {scope_items.length > 0 && (() => {
-                const feTotal = summary?.scope_total || 0;
-                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
-                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
-                const grand = feTotal + addTotal - dedTotal;
-                return (
-                  <div className="mt-4 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-4" data-testid="fe-grand-total-card">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
-                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-3">
-                      <div>
-                        <div className="text-gray-500">Final Estimate</div>
-                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-emerald-600">+ Additional</div>
-                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-red-600">− Deductions</div>
-                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
-                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
-                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
-                    </div>
-                  </div>
-                );
-              })()}
             </TabsContent>
 
             {/* ==================== PROJECT STAGES TAB ==================== */}
