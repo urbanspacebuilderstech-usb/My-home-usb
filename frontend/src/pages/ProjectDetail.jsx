@@ -5036,7 +5036,12 @@ export default function ProjectDetail() {
                           <SelectTrigger data-testid="wo-type-select"><SelectValue placeholder="All Types" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__all__">All Types</SelectItem>
-                            {contractorTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                            {contractorTypes.map(t => {
+                              // Endpoint returns either string[] (legacy) or [{ type_id, name }] (new)
+                              const name = typeof t === 'string' ? t : (t?.name || '');
+                              const id = typeof t === 'string' ? t : (t?.type_id || name);
+                              return name ? <SelectItem key={id} value={name}>{name}</SelectItem> : null;
+                            })}
                           </SelectContent>
                         </Select>
                       </div>
@@ -5221,7 +5226,11 @@ export default function ProjectDetail() {
                         <Label className="text-xs">Contractor Type</Label>
                         <Select value={freezeNewType} onValueChange={v => { setFreezeNewType(v); setFreezeForm(f => ({...f, new_contractor_id: ''})); }}>
                           <SelectTrigger><SelectValue placeholder="All types" /></SelectTrigger>
-                          <SelectContent>{contractorTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                          <SelectContent>{contractorTypes.map(t => {
+                            const name = typeof t === 'string' ? t : (t?.name || '');
+                            const id = typeof t === 'string' ? t : (t?.type_id || name);
+                            return name ? <SelectItem key={id} value={name}>{name}</SelectItem> : null;
+                          })}</SelectContent>
                         </Select>
                       </div>
                       <div>

@@ -4111,11 +4111,9 @@ async def wo_revert_rejected_stage(project_id: str, work_order_id: str, stage_id
     return {"message": "Stage reverted to pending"}
 
 
-@router.get("/contractor-types")
-async def get_contractor_types(user: User = Depends(get_current_user)):
-    """Get distinct contractor types"""
-    types = await db.contractors.distinct("contractor_type", {"is_active": {"$ne": False}})
-    return [t for t in types if t]
+# Legacy distinct-string endpoint removed — the authoritative
+# /api/contractor-types now lives in routes/procurement.py and returns
+# full objects { type_id, name, description, contractor_count }.
 
 
 # ==================== WORK ORDER FREEZE & REASSIGN ====================
