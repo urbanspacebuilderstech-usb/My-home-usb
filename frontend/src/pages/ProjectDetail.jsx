@@ -3339,14 +3339,41 @@ export default function ProjectDetail() {
                 const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
                 const totalAmountAllocated = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
                 const isPM = user?.role === 'project_manager';
-                // Find the advance stage (sales-collected). Treat as "Advance" if
-                // is_advance flag set OR the stage label/name starts with "advance".
-                const advanceStage = payment_stages.find(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
-                const advanceAmount = advanceStage?.received_amount ?? advanceStage?.amount ?? 0;
-                const advanceApproved = ['approved', 'paid', 'received', 'completed', 'settled'].includes((advanceStage?.status || '').toLowerCase());
-                // collected_by tells us which role booked the payment (CRE / Sales / Accountant)
-                const collectedBy = (advanceStage?.collected_by || advanceStage?.received_by_role || '').toString();
+
+                // ---- Real advance data ----
+                // Sales/CRE collect the advance which lands in `project_income`.
+                // We use the FIRST income entry (chronologically the very first
+                // payment recorded against the project) as the project's "Advance".
+                // If `payment_stages` already has an `is_advance` row, we prefer
+                // its `received_amount` (more precise — it ties to a specific stage).
+                const stageAdvance = payment_stages.find(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                const sortedIncome = (incomeEntries || []).slice().sort((a, b) => {
+                  const da = new Date(a.received_date || a.created_at || 0).getTime();
+                  const db = new Date(b.received_date || b.created_at || 0).getTime();
+                  return da - db;
+                });
+                const firstIncome = sortedIncome[0];
+                const advanceAmount = stageAdvance?.received_amount
+                  ?? stageAdvance?.amount
+                  ?? firstIncome?.amount
+                  ?? 0;
+                const advanceApproved = stageAdvance
+                  ? ['approved', 'paid', 'received', 'completed', 'settled'].includes((stageAdvance.status || '').toLowerCase())
+                  : ['approved', 'paid', 'received', 'completed', 'settled'].includes((firstIncome?.status || '').toLowerCase());
+                // collected_by from either source — works for both flows
+                const collectedBy = (stageAdvance?.collected_by
+                  || stageAdvance?.received_by_role
+                  || firstIncome?.collected_by
+                  || firstIncome?.received_by_role
+                  || firstIncome?.created_by_role
+                  || '').toString();
                 const collectedByCRE = /cre/i.test(collectedBy);
+                const hasAdvance = advanceAmount > 0;
+
+                // Remaining = Total − Advance received
+                const remainingAfterAdvance = Math.max(0, totalValue - advanceAmount);
+                const advancePct = totalValue > 0 ? (advanceAmount / totalValue * 100) : 0;
+                const remPct = Math.max(0, 100 - advancePct);
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" data-testid="payment-balance-info">
                     {/* 1. TOTAL PROJECT VALUE */}
@@ -3360,34 +3387,36 @@ export default function ProjectDetail() {
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Advance</p>
                         <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0 h-4">Sales</Badge>
                         {collectedByCRE && (
-                          <Badge className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0 h-4" title="Payment was collected by CRE on behalf of Sales">
-                            via CRE
-                          </Badge>
+                          <Badge className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0 h-4" title="Collected by CRE on behalf of Sales">via CRE</Badge>
                         )}
                       </div>
-                      <p className="text-xl font-bold text-emerald-700">{advanceStage ? `₹${advanceAmount.toLocaleString()}` : '₹0'}</p>
-                      <div className="mt-1">
-                        {!advanceStage ? (
+                      <p className="text-xl font-bold text-emerald-700">₹{advanceAmount.toLocaleString()}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        {!hasAdvance ? (
                           <span className="text-[10px] text-gray-500 italic">Not collected yet</span>
                         ) : advanceApproved ? (
                           <Badge className="bg-green-100 text-green-700 text-[9px]" data-testid="advance-status-approved">✓ Accountant Approved</Badge>
                         ) : (
                           <Badge className="bg-amber-100 text-amber-700 text-[9px]" data-testid="advance-status-pending">⏳ Pending Approval</Badge>
                         )}
+                        {hasAdvance && totalValue > 0 && (
+                          <span className="text-[10px] text-gray-500">{advancePct.toFixed(1)}% of total</span>
+                        )}
                       </div>
                     </div>
-                    {/* 3. REMAINING — % + amount + (allocated subtitle) */}
-                    <div className={`rounded-lg p-4 border ${remainingPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                    {/* 3. REMAINING — total minus advance, with allocated % subtitle */}
+                    <div className={`rounded-lg p-4 border ${remPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Remaining Amount</p>
                       <div className="flex items-end justify-between mt-1">
-                        <p className={`text-xl font-bold ${remainingPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>
-                          {!isPM && `₹${Math.round(totalValue * remainingPct / 100).toLocaleString()}`}
+                        <p className={`text-xl font-bold ${remPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>
+                          {!isPM && `₹${remainingAfterAdvance.toLocaleString()}`}
                         </p>
-                        <span className={`text-sm font-semibold ${remainingPct > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remainingPct}%</span>
+                        <span className={`text-sm font-semibold ${remPct > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remPct.toFixed(1)}%</span>
                       </div>
                       {!isPM && (
                         <p className="text-[10px] text-gray-500 mt-0.5">
                           Allocated <span className="font-medium text-gray-700">₹{totalAmountAllocated.toLocaleString()}</span> ({totalPctAllocated}%)
+                          {remainingPct !== remPct && <span className="text-gray-400"> · Unallocated {remainingPct.toFixed(1)}%</span>}
                         </p>
                       )}
                     </div>
@@ -3718,9 +3747,39 @@ export default function ProjectDetail() {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {(() => {
+                      // ---- AUTO-INJECT Advance row from income ----
+                      // If no advance payment_stage exists yet, but the project has
+                      // received income, surface the FIRST income entry as a virtual
+                      // "Advance Collection" row at the top of the schedule. This way
+                      // the user always sees their advance as the first row even before
+                      // the formal payment_stages are entered.
+                      const stages = (payment_stages || []);
+                      const hasExplicitAdvance = stages.some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                      const totalValueForRow = summary?.scope_total || projectData?.project?.total_value || 0;
+                      const earliestIncome = (incomeEntries || []).slice().sort((a, b) => {
+                        const da = new Date(a.received_date || a.created_at || 0).getTime();
+                        const db = new Date(b.received_date || b.created_at || 0).getTime();
+                        return da - db;
+                      })[0];
+                      const virtualAdvance = (!hasExplicitAdvance && earliestIncome) ? {
+                        stage_id: '__virtual_advance__',
+                        stage_name: 'Advance Collection',
+                        stage_label: 'ADV',
+                        amount: earliestIncome.amount || 0,
+                        percentage: totalValueForRow > 0 ? Math.round((earliestIncome.amount / totalValueForRow) * 10000) / 100 : 0,
+                        amount_received: earliestIncome.amount || 0,
+                        expected_payment_date: earliestIncome.received_date || earliestIncome.created_at,
+                        actual_payment_date: earliestIncome.received_date || earliestIncome.created_at,
+                        workflow_status: 'paid',
+                        status: earliestIncome.status || 'received',
+                        is_advance: true,
+                        _virtual: true,
+                        _source_label: 'Auto-added from collected income',
+                      } : null;
+                      const stagesWithAdvance = virtualAdvance ? [virtualAdvance, ...stages] : stages;
                       const filteredStages = psMonthFilter
-                        ? (payment_stages || []).filter(s => (s.expected_payment_date || '').slice(0, 7) === psMonthFilter)
-                        : (payment_stages || []);
+                        ? stagesWithAdvance.filter(s => (s.expected_payment_date || '').slice(0, 7) === psMonthFilter)
+                        : stagesWithAdvance;
                       if (filteredStages.length === 0) {
                         return (
                           <tr>
