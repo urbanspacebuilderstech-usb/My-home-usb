@@ -260,9 +260,15 @@ export default function HRPortal() {
     setImporting(true);
     try {
       const res = await axios.post(`${API}/hr/staff/bulk-import`, { employees: importData });
-      toast.success(`Imported ${res.data.imported} employees`);
-      if (res.data.errors?.length) {
-        res.data.errors.forEach(err => toast.error(err));
+      const { imported = 0, errors = [], warnings = [] } = res.data;
+      toast.success(`Imported ${imported} employees${warnings.length ? ` (with ${warnings.length} warning${warnings.length > 1 ? 's' : ''})` : ''}`);
+      // Hard errors → red toasts
+      errors.forEach(err => toast.error(err));
+      // Soft warnings → bundle into one info toast (capped) so we don't spam 50 toasts
+      if (warnings.length) {
+        const preview = warnings.slice(0, 5).join(' · ');
+        const more = warnings.length > 5 ? ` …and ${warnings.length - 5} more` : '';
+        toast.warning(`Some numeric fields were defaulted to 0: ${preview}${more}`, { duration: 8000 });
       }
       setImportDialog(false);
       setImportData([]);

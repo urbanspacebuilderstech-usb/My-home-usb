@@ -3603,7 +3603,12 @@ async def create_staff(staff_data: StaffCreate, user: User = Depends(get_current
 
 @router.post("/hr/staff/bulk-import")
 async def bulk_import_staff(request: Request, user: User = Depends(get_current_user)):
-    """Bulk import staff from CSV/JSON data"""
+    """Bulk import staff from CSV/JSON data.
+
+    Numeric salary fields are tolerant of non-numeric values: bad values get
+    coerced to 0 and surface as a per-field warning so the row still imports.
+    Saves the user from having to re-upload the whole sheet over a typo.
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.HR]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
@@ -3615,28 +3620,46 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
     
     imported = 0
     errors = []
-    
+    warnings = []
+
+    def _safe_float(value, row_no, row_name, field, warn_list):
+        """Tolerant float(): returns 0.0 + appends a warning on bad values."""
+        if value in (None, "", "-"):
+            return 0.0
+        try:
+            return float(str(value).replace(",", "").strip())
+        except (ValueError, TypeError):
+            warn_list.append(
+                f"Row {row_no} ({row_name}): '{field}' value '{value}' is not numeric — defaulted to 0"
+            )
+            return 0.0
+
     for idx, emp in enumerate(employees):
         try:
             if not emp.get("name"):
                 errors.append(f"Row {idx+1}: Name is required")
                 continue
             
+            row_no = idx + 1
+            row_name = emp.get("name", "")
+
             # Generate employee code
             count = await db.staff.count_documents({})
             employee_code = f"EMP{str(count + 1).zfill(4)}"
             
-            # Parse salary fields
-            basic = float(emp.get("basic_salary") or 0)
-            hra = float(emp.get("hra") or 0)
-            da = float(emp.get("da") or 0)
-            ta = float(emp.get("ta") or 0)
-            other_allow = float(emp.get("other_allowances") or 0)
-            pf = float(emp.get("pf") or 0)
-            esi = float(emp.get("esi") or 0)
-            pt = float(emp.get("professional_tax") or 0)
-            tds = float(emp.get("tds") or 0)
-            other_ded = float(emp.get("other_deductions") or 0)
+            # Parse salary fields tolerantly — never blow up the row over
+            # a bad numeric value; collect a warning instead.
+            basic = _safe_float(emp.get("basic_salary"), row_no, row_name, "basic_salary", warnings)
+            hra = _safe_float(emp.get("hra"), row_no, row_name, "hra", warnings)
+            da = _safe_float(emp.get("da"), row_no, row_name, "da", warnings)
+            ta = _safe_float(emp.get("ta"), row_no, row_name, "ta", warnings)
+            other_allow = _safe_float(emp.get("other_allowances"), row_no, row_name, "other_allowances", warnings)
+            pf = _safe_float(emp.get("pf"), row_no, row_name, "pf", warnings)
+            esi = _safe_float(emp.get("esi"), row_no, row_name, "esi", warnings)
+            pt = _safe_float(emp.get("professional_tax"), row_no, row_name, "professional_tax", warnings)
+            tds = _safe_float(emp.get("tds"), row_no, row_name, "tds", warnings)
+            other_ded = _safe_float(emp.get("other_deductions"), row_no, row_name, "other_deductions", warnings)
+            exp_years = _safe_float(emp.get("experience_years"), row_no, row_name, "experience_years", warnings)
             
             gross = basic + hra + da + ta + other_allow
             deductions = pf + esi + pt + tds + other_ded
@@ -3669,7 +3692,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 "emergency_contact_relation": emp.get("emergency_contact_relation", ""),
                 "emergency_contact_phone": emp.get("emergency_contact_phone", ""),
                 "qualification": emp.get("qualification", ""),
-                "experience_years": float(emp.get("experience_years") or 0),
+                "experience_years": exp_years,
                 "previous_employer": emp.get("previous_employer", ""),
                 "basic_salary": basic, "hra": hra, "da": da, "ta": ta,
                 "other_allowances": other_allow, "gross_salary": gross,
@@ -3692,7 +3715,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         except Exception as e:
             errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
     
-    return {"imported": imported, "errors": errors, "total": len(employees)}
+    return {"imported": imported, "errors": errors, "warnings": warnings, "total": len(employees)}
 
 
 
