@@ -452,7 +452,8 @@ export default function AccountantModule() {
                         <SelectItem value="all">All Requests</SelectItem>
                         <SelectItem value="cre">CRE Payments ({counts.cre})</SelectItem>
                         <SelectItem value="material">Material ({counts.material})</SelectItem>
-                        <SelectItem value="labour">Labour ({counts.labour})</SelectItem>
+                        <SelectItem value="labour">Labour Stages ({counts.labour})</SelectItem>
+                        <SelectItem value="labour_payments">Labour Payments ({counts.labour_payments || 0})</SelectItem>
                         <SelectItem value="petty_cash">Petty Cash ({counts.petty_cash})</SelectItem>
                       </SelectContent>
                     </Select>
@@ -461,7 +462,7 @@ export default function AccountantModule() {
               </CardHeader>
               <CardContent className="p-0">
                 {/* Request Categories */}
-                <div className="grid grid-cols-4 gap-2 p-4 border-b bg-gray-50">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-4 border-b bg-gray-50">
                   <Card className={`cursor-pointer ${requestFilter === 'cre' ? 'ring-2 ring-blue-500' : ''}`} onClick={() => setRequestFilter('cre')}>
                     <CardContent className="p-3 text-center">
                       <DollarSign className="h-5 w-5 mx-auto text-amber-600" />
@@ -476,11 +477,18 @@ export default function AccountantModule() {
                       <p className="text-xs text-gray-600">Material</p>
                     </CardContent>
                   </Card>
-                  <Card className={`cursor-pointer ${requestFilter === 'labour' ? 'ring-2 ring-orange-500' : ''}`} onClick={() => setRequestFilter('labour')}>
+                  <Card className={`cursor-pointer ${requestFilter === 'labour' ? 'ring-2 ring-orange-500' : ''}`} onClick={() => setRequestFilter('labour')} data-testid="filter-card-labour-stages">
                     <CardContent className="p-3 text-center">
                       <Users className="h-5 w-5 mx-auto text-orange-600" />
                       <p className="text-lg font-bold">{counts.labour}</p>
-                      <p className="text-xs text-gray-600">Labour</p>
+                      <p className="text-xs text-gray-600">Labour Stages</p>
+                    </CardContent>
+                  </Card>
+                  <Card className={`cursor-pointer ${requestFilter === 'labour_payments' ? 'ring-2 ring-cyan-500' : ''}`} onClick={() => setRequestFilter('labour_payments')} data-testid="filter-card-labour-payments">
+                    <CardContent className="p-3 text-center">
+                      <CreditCard className="h-5 w-5 mx-auto text-cyan-600" />
+                      <p className="text-lg font-bold">{counts.labour_payments || 0}</p>
+                      <p className="text-xs text-gray-600">Labour Payments</p>
                     </CardContent>
                   </Card>
                   <Card className={`cursor-pointer ${requestFilter === 'petty_cash' ? 'ring-2 ring-violet-500' : ''}`} onClick={() => setRequestFilter('petty_cash')}>
@@ -582,6 +590,22 @@ export default function AccountantModule() {
                         </Card>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Labour Payments — direct labour wage payouts (placeholder until backing API ships).
+                    Wired up to the same filter chip. Will populate once /api/labour-payments
+                    or equivalent is available. */}
+                {(requestFilter === 'all' || requestFilter === 'labour_payments') && (
+                  <div className="p-4 border-b" data-testid="labour-payments-section">
+                    <h3 className="text-sm font-semibold text-cyan-700 mb-3 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" /> Labour Payments ({counts.labour_payments || 0})
+                    </h3>
+                    {(counts.labour_payments || 0) === 0 && (
+                      <p className="text-xs text-gray-400 italic px-1 py-3">
+                        No pending labour payment requests.
+                      </p>
+                    )}
                   </div>
                 )}
 
