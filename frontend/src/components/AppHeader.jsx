@@ -10,13 +10,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const ROLE_NAV = {
   super_admin: [
     { label: 'Finance Board', path: '/finance-board' },
-    { label: 'My Dashboard', path: '/dashboard' },
-    { label: 'All Projects', path: '/projects' },
-    { label: 'Finance', path: '/financial-overview' },
     { label: 'Planning', path: '/planning-board' },
-    { label: 'Payment Schedule', path: '/payment-schedule' },
     { label: 'Marketing Board', path: '/marketing-board' },
-    { label: 'GM', path: '/gm-dashboard' },
     { label: 'HR', path: '/hr-portal' },
     { label: 'Users', path: '/users' },
     { label: 'User App', path: '/user-app' },
