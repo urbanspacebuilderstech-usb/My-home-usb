@@ -2,7 +2,7 @@
 Project Management Routes - CRUD, Search, Vendor Portal, Comprehensive View, Payment Schedule, Scope Items, Deductions, Bulk Operations, Work Order Assignments, Commitments, Notifications
 Migrated from server.py monolith
 """
-from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, UploadFile, File, Form, Query, Body
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
@@ -14,12 +14,20 @@ import io
 import json
 import asyncio
 import logging
+import random
+import hashlib
+import resend
 from bson import ObjectId
 
 from core.database import db, fs
 from core.deps import get_current_user, create_notification, create_audit_log, send_notification_email
 from core.models import *
 from security import InputValidator
+
+# Resend (transactional email) — initialised at module load so all email-OTP
+# endpoints (work-order freeze, archive project, etc.) share the same client.
+resend.api_key = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 
 logger = logging.getLogger(__name__)
 
@@ -1430,17 +1438,95 @@ async def restore_project(project_id: str, user: User = Depends(get_current_user
 
 # ==================== ARCHIVE / UNARCHIVE PROJECT ====================
 
+@router.post("/projects/{project_id}/archive/send-otp")
+async def archive_project_send_otp(project_id: str, user: User = Depends(get_current_user)):
+    """Send a 6-digit OTP to Super Admin's email to authorize archiving a project.
+
+    Archive is a high-impact action (project disappears from regular tabs and can
+    only be deleted by Planning/Super Admin afterwards) — gating it with email-OTP
+    prevents accidental clicks and creates an audit trail of the verifying email."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can archive projects")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1, "is_archived": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("is_archived"):
+        raise HTTPException(status_code=400, detail="Project is already archived")
+
+    otp_code = str(random.randint(100000, 999999))
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    # Replace any prior OTP for this user/project
+    await db.archive_otps.delete_many({"user_id": user.user_id, "project_id": project_id})
+    await db.archive_otps.insert_one({
+        "user_id": user.user_id,
+        "project_id": project_id,
+        "otp_hash": otp_hash,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0, "email": 1, "name": 1})
+    user_email = (user_doc or {}).get("email", "")
+    user_name = (user_doc or {}).get("name", "Admin")
+
+    if resend.api_key and user_email:
+        try:
+            params = {
+                "from": SENDER_EMAIL,
+                "to": [user_email],
+                "subject": f"Archive Project OTP — {project.get('name', '')}",
+                "html": f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+                    <div style="background: #1F2937; padding: 16px; text-align: center;">
+                        <h2 style="margin: 0; color: #FBBF24;">My Home USB</h2>
+                    </div>
+                    <div style="padding: 24px; background: #fff; border: 1px solid #E5E7EB;">
+                        <p style="color: #1F2937;">Hi {user_name},</p>
+                        <p style="color: #4B5563;">You requested to <strong>archive</strong> project <strong>{project.get('name', '')}</strong>.</p>
+                        <div style="text-align: center; margin: 24px 0; padding: 16px; background: #FEF3C7; border-radius: 8px;">
+                            <p style="margin: 0; color: #92400E; font-size: 13px;">Your OTP Code</p>
+                            <p style="margin: 8px 0 0; font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #1F2937;">{otp_code}</p>
+                        </div>
+                        <p style="color: #9CA3AF; font-size: 12px;">This OTP expires in 10 minutes. If you did not request this, please ignore this email.</p>
+                    </div>
+                </div>
+                """
+            }
+            await asyncio.to_thread(resend.Emails.send, params)
+            logger.info(f"Archive OTP sent to {user_email}")
+        except Exception as e:
+            logger.error(f"Failed to send archive OTP email: {e}")
+
+    masked_email = (user_email[:3] + "***" + user_email[user_email.index("@"):]) if user_email and "@" in user_email else "your email"
+    return {"message": f"OTP sent to {masked_email}", "expires_in": 600}
+
+
 @router.post("/projects/{project_id}/archive")
-async def archive_project(project_id: str, user: User = Depends(get_current_user)):
-    """Archive a project. Anyone with project-edit access can archive — Super Admin,
-    Planning, GM, PM, Accountant. Archived projects move to the dedicated Archive tab
-    and are excluded from the regular New / Current / Delivered tabs.
-    Archived projects can ONLY be deleted by Planning or Super Admin (see DELETE endpoint).
-    """
-    archive_roles = [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER,
-                     UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]
-    if user.role not in archive_roles:
-        raise HTTPException(status_code=403, detail="You don't have permission to archive projects")
+async def archive_project(project_id: str, data: dict = Body(default={}), user: User = Depends(get_current_user)):
+    """Archive a project. SUPER ADMIN ONLY. Requires a valid email-OTP previously
+    issued via /archive/send-otp. Archived projects move to the Archive tab and
+    are excluded from regular New / Current / Delivered tabs."""
+    if user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only Super Admin can archive projects")
+
+    otp_code = (data or {}).get("otp", "")
+    if not otp_code:
+        raise HTTPException(status_code=400, detail="OTP is required to archive a project")
+
+    otp_hash = hashlib.sha256(otp_code.encode()).hexdigest()
+    record = await db.archive_otps.find_one({
+        "user_id": user.user_id,
+        "project_id": project_id,
+        "otp_hash": otp_hash,
+    }, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+    if datetime.fromisoformat(record["expires_at"]) < datetime.now(timezone.utc):
+        await db.archive_otps.delete_many({"user_id": user.user_id, "project_id": project_id})
+        raise HTTPException(status_code=400, detail="OTP expired. Please request a new one.")
 
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
@@ -1458,6 +1544,8 @@ async def archive_project(project_id: str, user: User = Depends(get_current_user
             "archived_by_name": user.name,
         }},
     )
+    # OTP single-use
+    await db.archive_otps.delete_many({"user_id": user.user_id, "project_id": project_id})
     await create_audit_log(user.user_id, "archive", "project", project_id, {"archived_by_role": user.role})
     return {"message": "Project archived", "archived": True}
 
@@ -4031,13 +4119,7 @@ async def get_contractor_types(user: User = Depends(get_current_user)):
 
 
 # ==================== WORK ORDER FREEZE & REASSIGN ====================
-
-import resend
-import random
-import hashlib
-
-resend.api_key = os.environ.get('RESEND_API_KEY', '')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+# (resend / random / hashlib / SENDER_EMAIL are initialised at the top of the module)
 
 
 class FreezeReassignRequest(BaseModel):

@@ -469,13 +469,50 @@ export default function PlanningBoard() {
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
   };
 
-  const handleArchiveProject = async (projectId, projectName) => {
-    if (!window.confirm(`Archive project "${projectName}"?\n\nIt will move to the Archive Projects tab and be hidden from New / Current / Delivered tabs. You can restore it any time.`)) return;
+  // Archive (Super Admin only) — requires email OTP. We show a small modal that
+  // POSTs /archive/send-otp on open, then collects the 6-digit code and submits
+  // it to /archive (which validates and flips the flag in one shot).
+  const [archiveDialog, setArchiveDialog] = useState({ open: false, projectId: '', projectName: '', otp: '', sending: false, submitting: false, sentMsg: '' });
+
+  const openArchiveDialog = async (projectId, projectName) => {
+    setArchiveDialog({ open: true, projectId, projectName, otp: '', sending: true, submitting: false, sentMsg: '' });
     try {
-      await axios.post(`${API}/projects/${projectId}/archive`);
+      const r = await axios.post(`${API}/projects/${projectId}/archive/send-otp`);
+      setArchiveDialog(d => ({ ...d, sending: false, sentMsg: r.data?.message || 'OTP sent to your email' }));
+    } catch (e) {
+      const detail = e.response?.data?.detail || 'Failed to send OTP';
+      toast.error(detail);
+      setArchiveDialog(d => ({ ...d, open: false, sending: false }));
+    }
+  };
+
+  const submitArchiveOtp = async () => {
+    if (!archiveDialog.otp || archiveDialog.otp.length !== 6) {
+      toast.error('Enter the 6-digit OTP');
+      return;
+    }
+    setArchiveDialog(d => ({ ...d, submitting: true }));
+    try {
+      await axios.post(`${API}/projects/${archiveDialog.projectId}/archive`, { otp: archiveDialog.otp });
       toast.success('Project archived');
+      setArchiveDialog({ open: false, projectId: '', projectName: '', otp: '', sending: false, submitting: false, sentMsg: '' });
       fetchSubTabProjects(projectSubTab, projectDateFilter);
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed to archive'); }
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Invalid or expired OTP');
+      setArchiveDialog(d => ({ ...d, submitting: false }));
+    }
+  };
+
+  const resendArchiveOtp = async () => {
+    setArchiveDialog(d => ({ ...d, sending: true, sentMsg: '' }));
+    try {
+      const r = await axios.post(`${API}/projects/${archiveDialog.projectId}/archive/send-otp`);
+      setArchiveDialog(d => ({ ...d, sending: false, otp: '', sentMsg: r.data?.message || 'OTP re-sent' }));
+      toast.success('OTP re-sent');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to resend OTP');
+      setArchiveDialog(d => ({ ...d, sending: false }));
+    }
   };
 
   const handleUnarchiveProject = async (projectId, projectName) => {
@@ -1225,14 +1262,14 @@ export default function PlanningBoard() {
                                     </Button>
                                   )}
                                   {projectSubTab === 'active' && null /* "Mark Delivered" moved to project detail page header (Hand Over button) */}
-                                  {projectSubTab !== 'archived' && (
+                                  {projectSubTab !== 'archived' && user?.role === 'super_admin' && (
                                     <Button
                                       size="sm"
                                       variant="ghost"
                                       className="h-7 text-xs text-amber-700 hover:bg-amber-50"
-                                      onClick={() => handleArchiveProject(p.project_id, p.name)}
+                                      onClick={() => openArchiveDialog(p.project_id, p.name)}
                                       data-testid={`archive-${p.project_id}`}
-                                      title="Archive project"
+                                      title="Archive project (Super Admin only — requires email OTP)"
                                     >
                                       📦 Archive
                                     </Button>
@@ -2270,6 +2307,69 @@ export default function PlanningBoard() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setTypeViewDialog({ open: false, type: null, contractors: [], loading: false })}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Archive Project — OTP confirmation dialog (Super Admin only) */}
+      <Dialog
+        open={archiveDialog.open}
+        onOpenChange={(o) => !o && !archiveDialog.submitting && setArchiveDialog({ open: false, projectId: '', projectName: '', otp: '', sending: false, submitting: false, sentMsg: '' })}
+      >
+        <DialogContent className="max-w-md" data-testid="archive-otp-dialog">
+          <DialogHeader>
+            <DialogTitle className="text-amber-700">Archive Project — Email OTP Required</DialogTitle>
+            <DialogDescription>
+              You're about to archive <strong>{archiveDialog.projectName}</strong>. For your safety, an OTP has been sent to your registered email.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded p-2">
+              {archiveDialog.sending ? 'Sending OTP…' : (archiveDialog.sentMsg || 'OTP sent — check your email inbox.')}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-700 block mb-1">Enter 6-digit OTP</label>
+              <Input
+                data-testid="archive-otp-input"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={archiveDialog.otp}
+                onChange={(e) => setArchiveDialog(d => ({ ...d, otp: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                placeholder="••••••"
+                className="text-center tracking-[0.5em] font-mono text-lg"
+                autoFocus
+                disabled={archiveDialog.submitting || archiveDialog.sending}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={resendArchiveOtp}
+              disabled={archiveDialog.sending || archiveDialog.submitting}
+              data-testid="archive-otp-resend"
+            >
+              Resend OTP
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setArchiveDialog({ open: false, projectId: '', projectName: '', otp: '', sending: false, submitting: false, sentMsg: '' })}
+              disabled={archiveDialog.submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={submitArchiveOtp}
+              disabled={archiveDialog.submitting || archiveDialog.sending || archiveDialog.otp.length !== 6}
+              data-testid="archive-otp-confirm"
+            >
+              {archiveDialog.submitting ? 'Archiving…' : 'Confirm & Archive'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
