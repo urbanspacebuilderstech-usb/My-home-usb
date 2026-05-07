@@ -2505,6 +2505,7 @@ export default function PlanningBoard() {
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type of Work</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Phone</th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Bank</th>
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -2515,6 +2516,21 @@ export default function PlanningBoard() {
                   {typeViewDialog.contractors.map(c => (
                     <tr key={c.contractor_id} className="hover:bg-gray-50" data-testid={`type-view-row-${c.contractor_id}`}>
                       <td className="px-3 py-2 font-medium">{c.name}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {(c.work_types || []).length === 0 ? (
+                            <span className="text-xs text-gray-400">-</span>
+                          ) : (c.work_types || []).map(t => (
+                            <Badge
+                              key={t}
+                              variant="outline"
+                              className={`text-[10px] ${typeViewDialog.type?.name === t ? 'bg-amber-50 border-amber-300 text-amber-800' : ''}`}
+                            >
+                              {t}
+                            </Badge>
+                          ))}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 hidden sm:table-cell text-gray-600">{c.phone || '-'}</td>
                       <td className="px-3 py-2 hidden sm:table-cell text-gray-500 text-xs">{c.bank_name || '-'}</td>
                       <td className="px-3 py-2 text-center">{c.is_locked ? <Badge className="bg-red-50 text-red-700 border border-red-200 text-[10px]"><Lock className="h-2.5 w-2.5 mr-0.5 inline" />Locked</Badge> : <Badge variant="outline" className="text-[10px]">Active</Badge>}</td>
