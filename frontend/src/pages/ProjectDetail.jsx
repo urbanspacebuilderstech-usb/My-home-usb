@@ -40,9 +40,9 @@ const createEmptyRows = (type, count = 3) => {
   } else if (type === 'payment') {
     return Array(count).fill(null).map(() => ({ stage_name: '', percentage: '', amount: '', due_date: '' }));
   } else if (type === 'addition') {
-    return Array(count).fill(null).map(() => ({ description: '', estimated_amount: '' }));
+    return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
   } else if (type === 'deduction') {
-    return Array(count).fill(null).map(() => ({ description: '', amount: '', remarks: '' }));
+    return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
   }
   return [];
 };
@@ -1289,19 +1289,29 @@ export default function ProjectDetail() {
   };
 
   const handleBulkAddAddition = async () => {
-    const validItems = bulkAdditionRows.filter(r => r.description && r.estimated_amount);
+    const validItems = bulkAdditionRows.filter(r => r.item_name && r.unit_rate);
     if (validItems.length === 0) {
-      toast.error('Please fill at least one complete row');
+      toast.error('Please fill at least one complete row (Item Name + Rate)');
       return;
     }
     
     try {
       await axios.post(`${API}/additional-costs/bulk`, {
         project_id: projectId,
-        items: validItems.map(r => ({
-          description: r.description,
-          estimated_amount: parseFloat(r.estimated_amount) || 0
-        }))
+        items: validItems.map(r => {
+          const qty = parseFloat(r.quantity) || 0;
+          const rate = parseFloat(r.unit_rate) || 0;
+          const total = qty * rate;
+          // Build a description that survives older list views: "Item (Qty Unit @ ₹Rate)"
+          const desc = `${r.item_name}${qty && r.unit ? ` (${qty} ${r.unit} @ ₹${rate})` : ''}`;
+          return {
+            description: desc,
+            estimated_amount: total,
+            name: r.item_name,
+            qty: qty,
+            price: rate,
+          };
+        })
       });
       toast.success(`Added ${validItems.length} additions`);
       setBulkAdditionDialog(false);
@@ -1313,20 +1323,29 @@ export default function ProjectDetail() {
   };
 
   const handleBulkAddDeduction = async () => {
-    const validItems = bulkDeductionRows.filter(r => r.description && r.amount);
+    const validItems = bulkDeductionRows.filter(r => r.item_name && r.unit_rate);
     if (validItems.length === 0) {
-      toast.error('Please fill at least one complete row');
+      toast.error('Please fill at least one complete row (Item Name + Rate)');
       return;
     }
     
     try {
       await axios.post(`${API}/deductions/bulk`, {
         project_id: projectId,
-        items: validItems.map(r => ({
-          description: r.description,
-          amount: parseFloat(r.amount) || 0,
-          remarks: r.remarks || null
-        }))
+        items: validItems.map(r => {
+          const qty = parseFloat(r.quantity) || 0;
+          const rate = parseFloat(r.unit_rate) || 0;
+          const total = qty * rate;
+          const desc = `${r.item_name}${qty && r.unit ? ` (${qty} ${r.unit} @ ₹${rate})` : ''}`;
+          return {
+            description: desc,
+            amount: total,
+            remarks: r.remarks || null,
+            name: r.item_name,
+            qty: qty,
+            price: rate,
+          };
+        })
       });
       toast.success(`Added ${validItems.length} deductions`);
       setBulkDeductionDialog(false);
@@ -3761,46 +3780,69 @@ export default function ProjectDetail() {
                           <Plus className="h-4 w-4" />Add Additions
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-3xl max-h-[90vh]">
+                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Additions</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                          <DialogDescription>Fill in the rows below (Item Name and Rate are required; Total auto-calculates)</DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-2 py-2 text-left">#</th>
-                                <th className="px-2 py-2 text-left">Description *</th>
-                                <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
+                                <th className="px-2 py-2 text-left">Item Name *</th>
+                                <th className="px-2 py-2 text-left w-20">Qty</th>
+                                <th className="px-2 py-2 text-left w-32">Unit</th>
+                                <th className="px-2 py-2 text-left w-28">Rate (₹) *</th>
+                                <th className="px-2 py-2 text-right w-28">Total</th>
+                                <th className="px-2 py-2 text-left">Remarks</th>
                                 <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
-                              {bulkAdditionRows.map((row, idx) => (
+                              {bulkAdditionRows.map((row, idx) => {
+                                const lineTotal = (parseFloat(row.quantity) || 0) * (parseFloat(row.unit_rate) || 0);
+                                return (
                                 <tr key={idx} className="border-b">
                                   <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      value={row.description}
-                                      onChange={(e) => {
-                                        const newRows = [...bulkAdditionRows];
-                                        newRows[idx].description = e.target.value;
-                                        setBulkAdditionRows(newRows);
-                                      }}
+                                    <Input
+                                      value={row.item_name}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].item_name = e.target.value; setBulkAdditionRows(r); }}
                                       placeholder="e.g., Extra flooring"
+                                      className="h-8"
+                                      data-testid={`addition-item-${idx}`}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <NumericInput
+                                      value={row.quantity}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].quantity = e.target.value; setBulkAdditionRows(r); }}
                                       className="h-8"
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <NumericInput 
-                                      
-                                      value={row.estimated_amount}
-                                      onChange={(e) => {
-                                        const newRows = [...bulkAdditionRows];
-                                        newRows[idx].estimated_amount = e.target.value;
-                                        setBulkAdditionRows(newRows);
-                                      }}
+                                    <UnitSelect
+                                      value={row.unit}
+                                      onChange={(v) => { const r = [...bulkAdditionRows]; r[idx].unit = v; setBulkAdditionRows(r); }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <NumericInput
+                                      value={row.unit_rate}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].unit_rate = e.target.value; setBulkAdditionRows(r); }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-semibold text-emerald-700" data-testid={`addition-total-${idx}`}>
+                                    ₹{lineTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input
+                                      value={row.remarks}
+                                      onChange={(e) => { const r = [...bulkAdditionRows]; r[idx].remarks = e.target.value; setBulkAdditionRows(r); }}
+                                      placeholder="Optional"
                                       className="h-8"
                                     />
                                   </td>
@@ -3812,8 +3854,18 @@ export default function ProjectDetail() {
                                     )}
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
+                            <tfoot className="bg-emerald-50 border-t-2">
+                              <tr>
+                                <td colSpan={5} className="px-2 py-2 text-right font-bold">Grand Total:</td>
+                                <td className="px-2 py-2 text-right font-bold text-emerald-700" data-testid="addition-grand-total">
+                                  ₹{bulkAdditionRows.reduce((sum, r) => sum + ((parseFloat(r.quantity) || 0) * (parseFloat(r.unit_rate) || 0)), 0).toLocaleString()}
+                                </td>
+                                <td colSpan={2}></td>
+                              </tr>
+                            </tfoot>
                           </table>
                         </div>
                         <div className="flex justify-between items-center">
@@ -3966,58 +4018,69 @@ export default function ProjectDetail() {
                           <MinusCircle className="h-4 w-4" />Add Deductions
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-4xl max-h-[90vh]">
+                      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>Add Multiple Deductions</DialogTitle>
-                          <DialogDescription>Fill in the rows below (empty rows will be skipped)</DialogDescription>
+                          <DialogDescription>Fill in the rows below (Item Name and Rate are required; Total auto-calculates)</DialogDescription>
                         </DialogHeader>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm">
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-2 py-2 text-left">#</th>
-                                <th className="px-2 py-2 text-left">Description *</th>
-                                <th className="px-2 py-2 text-left w-32">Amount (₹) *</th>
+                                <th className="px-2 py-2 text-left">Item Name *</th>
+                                <th className="px-2 py-2 text-left w-20">Qty</th>
+                                <th className="px-2 py-2 text-left w-32">Unit</th>
+                                <th className="px-2 py-2 text-left w-28">Rate (₹) *</th>
+                                <th className="px-2 py-2 text-right w-28">Deduction</th>
                                 <th className="px-2 py-2 text-left">Remarks</th>
                                 <th className="px-2 py-2 w-10"></th>
                               </tr>
                             </thead>
                             <tbody>
-                              {bulkDeductionRows.map((row, idx) => (
+                              {bulkDeductionRows.map((row, idx) => {
+                                const lineTotal = (parseFloat(row.quantity) || 0) * (parseFloat(row.unit_rate) || 0);
+                                return (
                                 <tr key={idx} className="border-b">
                                   <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
                                   <td className="px-2 py-1">
-                                    <Input 
-                                      value={row.description}
-                                      onChange={(e) => {
-                                        const newRows = [...bulkDeductionRows];
-                                        newRows[idx].description = e.target.value;
-                                        setBulkDeductionRows(newRows);
-                                      }}
+                                    <Input
+                                      value={row.item_name}
+                                      onChange={(e) => { const r = [...bulkDeductionRows]; r[idx].item_name = e.target.value; setBulkDeductionRows(r); }}
                                       placeholder="e.g., Penalty"
                                       className="h-8"
+                                      data-testid={`deduction-item-${idx}`}
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <NumericInput 
-                                      
-                                      value={row.amount}
-                                      onChange={(e) => {
-                                        const newRows = [...bulkDeductionRows];
-                                        newRows[idx].amount = e.target.value;
-                                        setBulkDeductionRows(newRows);
-                                      }}
+                                    <NumericInput
+                                      value={row.quantity}
+                                      onChange={(e) => { const r = [...bulkDeductionRows]; r[idx].quantity = e.target.value; setBulkDeductionRows(r); }}
                                       className="h-8"
                                     />
                                   </td>
                                   <td className="px-2 py-1">
-                                    <Input 
+                                    <UnitSelect
+                                      value={row.unit}
+                                      onChange={(v) => { const r = [...bulkDeductionRows]; r[idx].unit = v; setBulkDeductionRows(r); }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <NumericInput
+                                      value={row.unit_rate}
+                                      onChange={(e) => { const r = [...bulkDeductionRows]; r[idx].unit_rate = e.target.value; setBulkDeductionRows(r); }}
+                                      className="h-8"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1 text-right font-semibold text-red-700" data-testid={`deduction-total-${idx}`}>
+                                    ₹{lineTotal.toLocaleString()}
+                                  </td>
+                                  <td className="px-2 py-1">
+                                    <Input
                                       value={row.remarks}
-                                      onChange={(e) => {
-                                        const newRows = [...bulkDeductionRows];
-                                        newRows[idx].remarks = e.target.value;
-                                        setBulkDeductionRows(newRows);
-                                      }}
+                                      onChange={(e) => { const r = [...bulkDeductionRows]; r[idx].remarks = e.target.value; setBulkDeductionRows(r); }}
+                                      placeholder="Optional"
                                       className="h-8"
                                     />
                                   </td>
@@ -4029,8 +4092,18 @@ export default function ProjectDetail() {
                                     )}
                                   </td>
                                 </tr>
-                              ))}
+                                );
+                              })}
                             </tbody>
+                            <tfoot className="bg-red-50 border-t-2">
+                              <tr>
+                                <td colSpan={5} className="px-2 py-2 text-right font-bold">Grand Deduction:</td>
+                                <td className="px-2 py-2 text-right font-bold text-red-700" data-testid="deduction-grand-total">
+                                  ₹{bulkDeductionRows.reduce((sum, r) => sum + ((parseFloat(r.quantity) || 0) * (parseFloat(r.unit_rate) || 0)), 0).toLocaleString()}
+                                </td>
+                                <td colSpan={2}></td>
+                              </tr>
+                            </tfoot>
                           </table>
                         </div>
                         <div className="flex justify-between items-center">
