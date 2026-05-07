@@ -241,6 +241,8 @@ export default function PlanningBoard() {
   const [subTabProjects, setSubTabProjects] = useState([]);
   const [subTabLoading, setSubTabLoading] = useState(false);
   const [projectDateFilter, setProjectDateFilter] = useState({ type: 'all', date: '', dateFrom: '', dateTo: '', month: '', year: '' });
+  // Counts shown on every sub-tab badge regardless of which tab is active
+  const [subTabCounts, setSubTabCounts] = useState({ new: 0, active: 0, delivered: 0, archived: 0 });
 
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -396,12 +398,47 @@ export default function PlanningBoard() {
       // Ignore stale responses — only the latest fetch is allowed to write to state
       if (myFetchId !== subTabFetchRef.current) return;
       setSubTabProjects(res.data || []);
+      // Also refresh counts so the OTHER tab badges stay current after this fetch.
+      fetchSubTabCounts(filter);
     } catch {
       if (myFetchId === subTabFetchRef.current) toast.error('Failed to load projects');
     }
     finally {
       if (myFetchId === subTabFetchRef.current) setSubTabLoading(false);
     }
+  };
+
+  // Fetch counts for ALL 4 sub-tabs in parallel so each badge always shows
+  // its number even when the tab isn't the active one.
+  const fetchSubTabCounts = async (filter) => {
+    const buildParams = (status) => {
+      const p = new URLSearchParams({ planning_status: status });
+      if (filter.type === 'date' && filter.date) {
+        p.append('date_from', filter.date);
+        p.append('date_to', filter.date);
+      } else if (filter.type === 'range' && filter.dateFrom) {
+        p.append('date_from', filter.dateFrom);
+        if (filter.dateTo) p.append('date_to', filter.dateTo);
+      } else if (filter.type === 'month' && filter.month && filter.year) {
+        p.append('month', filter.month);
+        p.append('year', filter.year);
+      } else if (filter.type === 'year' && filter.year) {
+        p.append('year', filter.year);
+      }
+      return p;
+    };
+    try {
+      const statuses = ['new', 'active', 'delivered', 'archived'];
+      const results = await Promise.all(
+        statuses.map(s => axios.get(`${API}/planning/projects-filtered?${buildParams(s).toString()}`).catch(() => ({ data: [] })))
+      );
+      setSubTabCounts({
+        new: (results[0].data || []).length,
+        active: (results[1].data || []).length,
+        delivered: (results[2].data || []).length,
+        archived: (results[3].data || []).length,
+      });
+    } catch { /* silent */ }
   };
 
   useEffect(() => { if (dashSubTab === 'all_projects') fetchSubTabProjects(projectSubTab, projectDateFilter); }, [projectSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1045,10 +1082,10 @@ export default function PlanningBoard() {
                 {/* Sub-tabs */}
                 <div className="flex gap-1 mt-3 border-b">
                   {[
-                    { key: 'new', label: 'New Projects', color: 'blue' },
-                    { key: 'active', label: 'Current Projects', color: 'green' },
-                    { key: 'delivered', label: 'Delivered Projects', color: 'purple' },
-                    { key: 'archived', label: 'Archive Projects', color: 'gray' }
+                    { key: 'new', label: 'New Projects', badgeCls: 'bg-green-100 text-green-700 border-green-200' },
+                    { key: 'active', label: 'Current Projects', badgeCls: 'bg-amber-100 text-amber-700 border-amber-200' },
+                    { key: 'delivered', label: 'Delivered Projects', badgeCls: 'bg-blue-100 text-blue-700 border-blue-200' },
+                    { key: 'archived', label: 'Archive Projects', badgeCls: 'bg-gray-100 text-gray-600 border-gray-200' }
                   ].map(tab => (
                     <button
                       key={tab.key}
@@ -1061,9 +1098,12 @@ export default function PlanningBoard() {
                       data-testid={`subtab-${tab.key}`}
                     >
                       {tab.label}
-                      {projectSubTab === tab.key && (
-                        <Badge variant="outline" className="ml-2 text-xs">{subTabProjects.length}</Badge>
-                      )}
+                      <span
+                        className={`ml-2 inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold border ${tab.badgeCls}`}
+                        data-testid={`subtab-${tab.key}-count`}
+                      >
+                        {projectSubTab === tab.key ? subTabProjects.length : (subTabCounts[tab.key] ?? 0)}
+                      </span>
                     </button>
                   ))}
                 </div>
