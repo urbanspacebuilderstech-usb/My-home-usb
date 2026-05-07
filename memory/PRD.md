@@ -13,6 +13,19 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 7, 2026 — HR CSV Bulk Import: Correct Field Mapping + Duplicate Update
+- **Frontend** (`/app/frontend/src/pages/HRPortal.jsx`):
+  - Replaced naive `line.split(',')` CSV parser with an **RFC4180-compliant parser** that respects quoted commas, escaped quotes and CRLF. This was the root cause — any address like `"2/312 kovalan street, perumbakkam, chennai-600100"` used to split into 3 fields, shifting every column to the right (aadhar landed in bank, basic salary landed in IFSC, etc.).
+  - Added a `HEADER_ALIASES` map so human-readable column titles work out of the box: `Joining Date → date_of_joining`, `DOB / Date of Birth → date_of_birth`, `Gross → gross_salary`, `Basic → basic_salary`, `Aadhar / Aadhaar → aadhar_number`, `Current Address → current_address`, `Mobile → phone`, `IFSC → ifsc_code`, `Bank → bank_name`, `Account No → account_number`, etc.
+  - Toast summary now shows `updated` count alongside `imported`.
+- **Backend** (`/app/backend/routes/operations.py` → `bulk_import_staff`):
+  - **Date normalisation**: accepts `DD-MM-YYYY`, `DD/MM/YYYY`, `YYYY-MM-DD`, `DD-Mon-YYYY` etc and stores canonical ISO `YYYY-MM-DD` so the UI renders them correctly.
+  - **Scientific notation**: Excel-exported numbers like `6.06602E+11` for account numbers / Aadhaar are now converted back to plain digit strings (`"606602000000"`).
+  - **`gross_salary` fallback**: if a template has only a single "Gross" column (no basic/hra/da breakdown), we honour it and treat it as basic-only so the breakdown stays self-consistent.
+  - **Duplicates now UPDATE instead of skip** (per user request "skip the balance need to update"). Match is by email OR phone. Non-empty fields overwrite existing values; salary fields always overwrite to keep the balance in sync. Update path reports `updated` count separately from `imported` and adds a per-row warning `"UPDATED existing EMP0001"`.
+  - Response shape now includes `updated` alongside `imported / skipped_duplicates / skipped_invalid / errors / warnings / total`.
+- **Tested end-to-end** with the user's real `employee_import_template (3).csv` (38 rows): 37 imported, 1 correctly rejected (16-digit fake Aadhar), Kumaran's record verified → `date_of_joining=2024-01-01` (was `01-01-2024`), `account_number=606602000000` (was `6.06602E+11`), full comma-containing address preserved. Re-running the same CSV → imported=0, **updated=37** ✅.
+
 ### Session — May 6, 2026 — Final Estimate → GM Approval Workflow
 - **Backend** (`/app/backend/routes/final_estimates.py`): State machine extended with a GM step.
   - New states: `pending_gm_review`, `rejected_by_gm` (with rejection history).

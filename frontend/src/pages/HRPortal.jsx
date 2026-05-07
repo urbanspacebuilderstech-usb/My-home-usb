@@ -233,20 +233,78 @@ export default function HRPortal() {
   const openAddEmployee = () => { setSelectedStaff(null); setStaffForm(getEmptyForm()); setExpandedSection('personal'); setStaffDialog(true); };
   
   // CSV Import handlers
+  // Proper RFC4180 parser — respects quoted commas, escaped quotes, CRLF, and
+  // normalises common human-readable headers (e.g. "Date of Birth" → date_of_birth,
+  // "Gross" → gross_salary, "Joining Date" → date_of_joining, "Current Address" → current_address).
+  const parseCSVText = (text) => {
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else field += ch;
+      } else {
+        if (ch === '"') inQuotes = true;
+        else if (ch === ',') { row.push(field); field = ''; }
+        else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+        else if (ch === '\r') { /* skip */ }
+        else field += ch;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(c => (c || '').trim()));
+  };
+  // Map of user-friendly column names → canonical backend keys
+  const HEADER_ALIASES = {
+    'joining_date': 'date_of_joining',
+    'date_of_joining': 'date_of_joining',
+    'doj': 'date_of_joining',
+    'date_of_birth': 'date_of_birth',
+    'dob': 'date_of_birth',
+    'birth_date': 'date_of_birth',
+    'gross': 'gross_salary',
+    'gross_salary': 'gross_salary',
+    'basic': 'basic_salary',
+    'basic_salary': 'basic_salary',
+    'aadhar': 'aadhar_number',
+    'aadhaar': 'aadhar_number',
+    'aadhaar_number': 'aadhar_number',
+    'aadhar_number': 'aadhar_number',
+    'pan': 'pan_number',
+    'pan_number': 'pan_number',
+    'current_address': 'current_address',
+    'present_address': 'current_address',
+    'permanent_address': 'permanent_address',
+    'address': 'address',
+    'mobile': 'phone',
+    'mobile_number': 'phone',
+    'phone_number': 'phone',
+    'email_id': 'email',
+    'ifsc': 'ifsc_code',
+    'account_no': 'account_number',
+    'account_number': 'account_number',
+    'bank': 'bank_name',
+  };
   const handleCSVUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (evt) => {
       const text = evt.target.result;
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) { toast.error('CSV file is empty or has no data rows'); return; }
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+      const parsed = parseCSVText(text);
+      if (parsed.length < 2) { toast.error('CSV file is empty or has no data rows'); return; }
+      const rawHeaders = parsed[0].map(h => (h || '').trim().toLowerCase().replace(/\s+/g, '_'));
+      const headers = rawHeaders.map(h => HEADER_ALIASES[h] || h);
       const rows = [];
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
+      for (let i = 1; i < parsed.length; i++) {
+        const values = parsed[i];
         const row = {};
-        headers.forEach((h, idx) => { row[h] = values[idx] || ''; });
+        headers.forEach((h, idx) => { row[h] = (values[idx] || '').trim(); });
         if (row.name) rows.push(row);
       }
       setImportData(rows);
@@ -260,8 +318,9 @@ export default function HRPortal() {
     setImporting(true);
     try {
       const res = await axios.post(`${API}/hr/staff/bulk-import`, { employees: importData });
-      const { imported = 0, skipped_duplicates = 0, skipped_invalid = 0, errors = [], warnings = [] } = res.data;
+      const { imported = 0, updated = 0, skipped_duplicates = 0, skipped_invalid = 0, errors = [], warnings = [] } = res.data;
       const summary = `Imported ${imported}` +
+        (updated ? `, ${updated} updated` : '') +
         (skipped_duplicates ? `, ${skipped_duplicates} duplicate${skipped_duplicates > 1 ? 's' : ''} skipped` : '') +
         (skipped_invalid ? `, ${skipped_invalid} invalid row${skipped_invalid > 1 ? 's' : ''} rejected` : '') +
         (warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '');

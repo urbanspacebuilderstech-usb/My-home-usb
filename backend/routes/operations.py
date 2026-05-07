@@ -3619,6 +3619,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         raise HTTPException(status_code=400, detail="No employee data provided")
     
     imported = 0
+    updated = 0
     skipped_duplicates = 0
     skipped_invalid = 0
     errors = []
@@ -3627,6 +3628,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
     import re as _re
     PAN_RE = _re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
     AADHAR_RE = _re.compile(r"^\d{12}$")
+    DATE_FORMATS = ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y", "%d %b %Y", "%m/%d/%Y")
 
     def _safe_float(value, row_no, row_name, field, warn_list):
         """Tolerant float(): returns 0.0 + appends a warning on bad values."""
@@ -3639,6 +3641,39 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 f"Row {row_no} ({row_name}): '{field}' value '{value}' is not numeric — defaulted to 0"
             )
             return 0.0
+
+    def _normalise_date(value):
+        """Accept DD-MM-YYYY / DD/MM/YYYY / ISO etc, return ISO YYYY-MM-DD string.
+
+        Returns empty string if value is blank or unparseable — callers treat that
+        as 'no date supplied' rather than poisoning the record with a bad string."""
+        if value in (None, "", "-"):
+            return ""
+        s = str(value).strip()
+        # Already ISO?
+        if _re.match(r"^\d{4}-\d{2}-\d{2}", s):
+            return s[:10]
+        for fmt in DATE_FORMATS:
+            try:
+                return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
+            except (ValueError, TypeError):
+                continue
+        return ""
+
+    def _normalise_long_number(value):
+        """Excel often exports 12+ digit numbers (Aadhar, Account No) as scientific
+        notation (e.g. 6.06602E+11). Convert back to a plain digit string."""
+        if value in (None, "", "-"):
+            return ""
+        s = str(value).strip()
+        if "e" in s.lower() or "E" in s:
+            try:
+                f = float(s)
+                if f.is_integer():
+                    return str(int(f))
+            except (ValueError, TypeError):
+                pass
+        return s
 
     def _validate_row(emp, row_no, row_name):
         """Returns list of column-misalignment issues. Empty list = row is OK to import.
@@ -3703,26 +3738,24 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 continue
 
             # ---- Duplicate detection ----
-            # Match by email (if non-empty) OR by phone (if non-empty) so
-            # accidental re-uploads can't double-create staff.
+            # Match by email (if non-empty) OR by phone (if non-empty).
+            # On match → UPDATE existing record with non-empty fields from this row
+            # (user-requested: "duplicate details availible skip the balance need to update").
             dup_query_or = []
             if email_norm:
-                dup_query_or.append({"email": {"$regex": f"^{email_norm}$", "$options": "i"}})
+                dup_query_or.append({"email": {"$regex": f"^{_re.escape(email_norm)}$", "$options": "i"}})
             if phone_norm:
                 dup_query_or.append({"phone": phone_norm})
+            existing = None
             if dup_query_or:
-                existing = await db.staff.find_one({"$or": dup_query_or}, {"_id": 0, "employee_code": 1, "name": 1})
-                if existing:
-                    skipped_duplicates += 1
-                    warnings.append(
-                        f"Row {row_no} ({row_name}): SKIPPED — already exists as {existing.get('employee_code')} ({existing.get('name')})"
-                    )
-                    continue
+                existing = await db.staff.find_one({"$or": dup_query_or}, {"_id": 0})
 
-            # Generate employee code
-            count = await db.staff.count_documents({})
-            employee_code = f"EMP{str(count + 1).zfill(4)}"
-            
+            # Normalise dates + long numerics once; reused in both insert/update paths
+            doj = _normalise_date(emp.get("date_of_joining"))
+            dob = _normalise_date(emp.get("date_of_birth"))
+            aadhar_clean = _normalise_long_number(emp.get("aadhar_number"))
+            account_clean = _normalise_long_number(emp.get("account_number"))
+
             # Parse salary fields tolerantly — never blow up the row over
             # a bad numeric value; collect a warning instead.
             basic = _safe_float(emp.get("basic_salary"), row_no, row_name, "basic_salary", warnings)
@@ -3736,10 +3769,75 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
             tds = _safe_float(emp.get("tds"), row_no, row_name, "tds", warnings)
             other_ded = _safe_float(emp.get("other_deductions"), row_no, row_name, "other_deductions", warnings)
             exp_years = _safe_float(emp.get("experience_years"), row_no, row_name, "experience_years", warnings)
-            
+
+            # If user passed `gross_salary` directly (some Excel templates put a single
+            # "Gross" column instead of basic/hra/da breakdown), honour it when the
+            # per-component fields are all empty.
+            gross_explicit = _safe_float(emp.get("gross_salary"), row_no, row_name, "gross_salary", warnings)
             gross = basic + hra + da + ta + other_allow
+            if gross == 0 and gross_explicit > 0:
+                gross = gross_explicit
+                basic = gross_explicit  # treat as basic-only so breakdown stays self-consistent
             deductions = pf + esi + pt + tds + other_ded
             net = gross - deductions
+
+            if existing:
+                # ---- UPDATE existing record (only overwrite with non-empty values) ----
+                update_doc = {"updated_at": datetime.now(timezone.utc).isoformat()}
+                def _set_if(key, val):
+                    if val not in (None, "", 0) or key in ("basic_salary", "hra", "da", "ta",
+                        "other_allowances", "gross_salary", "pf", "esi", "professional_tax",
+                        "tds", "other_deductions", "total_deductions", "net_salary"):
+                        update_doc[key] = val
+                # Text fields: only overwrite when CSV supplied something
+                for k, v in (
+                    ("name", row_name),
+                    ("email", email_norm or existing.get("email", "")),
+                    ("phone", phone_norm or existing.get("phone", "")),
+                    ("department", (emp.get("department") or "").strip()),
+                    ("designation", (emp.get("designation") or "").strip()),
+                    ("date_of_joining", doj),
+                    ("date_of_birth", dob),
+                    ("gender", (emp.get("gender") or "").strip()),
+                    ("marital_status", (emp.get("marital_status") or "").strip()),
+                    ("blood_group", (emp.get("blood_group") or "").strip()),
+                    ("father_name", (emp.get("father_name") or "").strip()),
+                    ("mother_name", (emp.get("mother_name") or "").strip()),
+                    ("address", (emp.get("address") or "").strip()),
+                    ("current_address", (emp.get("current_address") or "").strip()),
+                    ("permanent_address", (emp.get("permanent_address") or "").strip()),
+                    ("aadhar_number", aadhar_clean),
+                    ("pan_number", (emp.get("pan_number") or "").strip().upper()),
+                    ("bank_name", (emp.get("bank_name") or "").strip()),
+                    ("account_number", account_clean),
+                    ("ifsc_code", (emp.get("ifsc_code") or "").strip().upper()),
+                    ("payment_method", (emp.get("payment_method") or "").strip()),
+                    ("notes", (emp.get("notes") or "").strip()),
+                ):
+                    if v:
+                        update_doc[k] = v
+                # Salary always updated (0 is a valid salary value) — keeps the
+                # "balance" in sync as requested.
+                update_doc.update({
+                    "basic_salary": basic, "hra": hra, "da": da, "ta": ta,
+                    "other_allowances": other_allow, "gross_salary": gross,
+                    "pf": pf, "esi": esi, "professional_tax": pt, "tds": tds,
+                    "other_deductions": other_ded, "total_deductions": deductions,
+                    "net_salary": net,
+                })
+                await db.staff.update_one(
+                    {"staff_id": existing["staff_id"]},
+                    {"$set": update_doc}
+                )
+                updated += 1
+                warnings.append(
+                    f"Row {row_no} ({row_name}): UPDATED existing {existing.get('employee_code')}"
+                )
+                continue
+
+            # Generate employee code
+            count = await db.staff.count_documents({})
+            employee_code = f"EMP{str(count + 1).zfill(4)}"
             
             staff_dict = {
                 "staff_id": f"staff_{uuid.uuid4().hex[:12]}",
@@ -3749,8 +3847,8 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 "phone": emp.get("phone", "").strip(),
                 "department": emp.get("department", "").strip(),
                 "designation": emp.get("designation", "").strip(),
-                "date_of_joining": emp.get("date_of_joining"),
-                "date_of_birth": emp.get("date_of_birth"),
+                "date_of_joining": doj,
+                "date_of_birth": dob,
                 "gender": emp.get("gender", ""),
                 "marital_status": emp.get("marital_status", ""),
                 "blood_group": emp.get("blood_group", ""),
@@ -3759,8 +3857,8 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 "address": emp.get("address", ""),
                 "permanent_address": emp.get("permanent_address", ""),
                 "current_address": emp.get("current_address", ""),
-                "aadhar_number": emp.get("aadhar_number", ""),
-                "pan_number": emp.get("pan_number", ""),
+                "aadhar_number": aadhar_clean,
+                "pan_number": (emp.get("pan_number") or "").strip().upper(),
                 "uan_number": emp.get("uan_number", ""),
                 "esi_number": emp.get("esi_number", ""),
                 "emergency_contact": emp.get("emergency_contact", ""),
@@ -3776,8 +3874,8 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                 "other_deductions": other_ded, "total_deductions": deductions,
                 "net_salary": net,
                 "bank_name": emp.get("bank_name", ""),
-                "account_number": emp.get("account_number", ""),
-                "ifsc_code": emp.get("ifsc_code", ""),
+                "account_number": account_clean,
+                "ifsc_code": (emp.get("ifsc_code") or "").strip().upper(),
                 "payment_method": emp.get("payment_method", "bank_transfer"),
                 "notes": emp.get("notes", ""),
                 "status": "active",
@@ -3791,7 +3889,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         except Exception as e:
             errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
     
-    return {"imported": imported, "skipped_duplicates": skipped_duplicates, "skipped_invalid": skipped_invalid, "errors": errors, "warnings": warnings, "total": len(employees)}
+    return {"imported": imported, "updated": updated, "skipped_duplicates": skipped_duplicates, "skipped_invalid": skipped_invalid, "errors": errors, "warnings": warnings, "total": len(employees)}
 
 
 
