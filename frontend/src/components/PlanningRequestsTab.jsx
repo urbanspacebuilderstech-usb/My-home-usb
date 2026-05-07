@@ -10,6 +10,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
+import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
 import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -44,6 +45,8 @@ const getRequester = (req) => req.requested_by_name || req.site_engineer_name ||
 
 export default function PlanningRequestsTab({ projects = [] }) {
   const [activeType, setActiveType] = useState('material');
+  // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
+  const [statusFilter, setStatusFilter] = useState('all');
   const [materials, setMaterials] = useState([]);
   const [labourStages, setLabourStages] = useState([]);
   const [labourPayments, setLabourPayments] = useState([]);
@@ -67,19 +70,18 @@ export default function PlanningRequestsTab({ projects = [] }) {
   const loadAll = async () => {
     try {
       setLoading(true);
+      // Load ALL statuses so the Req Handling status cards (New/In Progress/
+      // Awaiting/Approved/Rejected) can show meaningful counts. Filter is
+      // applied client-side via `statusFilter` + mapToReqStatus().
       const [m, l, p] = await Promise.allSettled([
-        axios.get(`${API}/material-requests?status=requested`),
-        axios.get(`${API}/labour-expenses?status=requested`),
+        axios.get(`${API}/material-requests`),
+        axios.get(`${API}/labour-expenses`),
         axios.get(`${API}/planning/petty-cash-requests`).catch(() => ({ data: [] })),
       ]);
       setMaterials(m.status === 'fulfilled' ? (m.value.data || []) : []);
       setLabourStages(l.status === 'fulfilled' ? (l.value.data || []) : []);
-      // Labour Payments — placeholder until a dedicated `/labour-payments` endpoint
-      // exists. Keeping the state hook so wiring it in later is a one-line change.
       setLabourPayments([]);
-      // Only show requests still pending Planning's action
-      const pettyAll = p.status === 'fulfilled' ? (p.value.data || []) : [];
-      setPetty(pettyAll.filter(r => r.status === 'requested'));
+      setPetty(p.status === 'fulfilled' ? (p.value.data || []) : []);
     } finally {
       setLoading(false);
     }
@@ -101,10 +103,21 @@ export default function PlanningRequestsTab({ projects = [] }) {
 
   const counts = { material: fMaterials.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPetty.length };
   const totalRequests = counts.material + counts.labour_stages + counts.labour_payments + counts.petty;
-  const activeList = activeType === 'material' ? fMaterials
+  const baseList = activeType === 'material' ? fMaterials
     : activeType === 'labour_stages' ? fLabourStages
     : activeType === 'labour_payments' ? fLabourPayments
     : fPetty;
+
+  // Status pipeline counts for the currently-active category (post date+project filters).
+  const statusCounts = useMemo(() => {
+    const acc = { new: 0, in_progress: 0, awaiting: 0, approved: 0, rejected: 0 };
+    baseList.forEach(r => { acc[mapToReqStatus(r.status)] = (acc[mapToReqStatus(r.status)] || 0) + 1; });
+    return acc;
+  }, [baseList]);
+
+  const activeList = statusFilter === 'all'
+    ? baseList
+    : baseList.filter(r => mapToReqStatus(r.status) === statusFilter);
 
   const submitApprove = async (extra = {}) => {
     const { req, type } = approveDialog;
@@ -225,6 +238,15 @@ export default function PlanningRequestsTab({ projects = [] }) {
           />
         </CardContent>
       </Card>
+
+      {/* Req Handling status pipeline — New / In Progress / Awaiting / Approved / Rejected.
+          Click any card to filter the list to that status. Clicking again clears it. */}
+      <RequestStatusFilter
+        counts={statusCounts}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        dataTestId="planning-req-status-filter"
+      />
 
       {/* Request Rows */}
       <Card>
