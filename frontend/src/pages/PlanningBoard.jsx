@@ -322,6 +322,17 @@ export default function PlanningBoard() {
   const [addingBrandFor, setAddingBrandFor] = useState(null); // index
   useEffect(() => { fetchData(); }, []);
   useEffect(() => { fetchSubTabProjects('new', projectDateFilter); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Trigger tab-specific fetches whenever activeTab changes (including initial
+  // mount if the URL includes ?tab=...). Without this, deep-linking to
+  // /planning-board?tab=labour_contractors leaves the page empty until the
+  // user clicks the tab again.
+  useEffect(() => {
+    if (activeTab === 'material_vendors') { fetchVendors(); fetchMaterials(); }
+    if (activeTab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
+    if (activeTab === 're_templates') fetchTemplates();
+    if (activeTab === 'packages') fetchPackages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const fetchData = async (showLoader = true) => {
     try {
@@ -364,8 +375,12 @@ export default function PlanningBoard() {
     if (tab === 'dashboard') {
       handleDashSubTabChange(dashSubTab);
     }
-    if (tab === 'material_vendors' && vendors.length === 0) fetchVendors();
-    if (tab === 'labour_contractors' && contractors.length === 0) { fetchContractors(); fetchContractorTypes(); }
+    // Always re-fetch on tab switch — checking length===0 created stale state
+    // (e.g. user creates a contractor in another tab/session, returns here,
+    // and the page still shows "0" because the cached empty array suppresses
+    // the fetch). Re-fetching is cheap and gives the most accurate view.
+    if (tab === 'material_vendors') { fetchVendors(); fetchMaterials(); }
+    if (tab === 'labour_contractors') { fetchContractors(); fetchContractorTypes(); }
     if (tab === 're_templates') fetchTemplates();
     if (tab === 'packages') fetchPackages();
   };
@@ -567,7 +582,15 @@ export default function PlanningBoard() {
   };
 
   const fetchMaterials = async () => { try { const r = await axios.get(`${API}/materials?active_only=false`); setMaterials(r.data); } catch {} };
-  const fetchContractors = async () => { try { const r = await axios.get(`${API}/labour-contractors`); setContractors(r.data); } catch {} };
+  const fetchContractors = async () => {
+    try {
+      const r = await axios.get(`${API}/labour-contractors`);
+      setContractors(r.data || []);
+    } catch (err) {
+      // Silently log — don't toast spam, but at least surface the issue in console
+      console.error('fetchContractors failed', err?.response?.status, err?.message);
+    }
+  };
   const fetchContractorTypes = async () => { try { const r = await axios.get(`${API}/contractor-types`); setContractorTypes(r.data); } catch {} };
   const handleSaveType = async () => {
     const name = (typeDialog.name || '').trim();
