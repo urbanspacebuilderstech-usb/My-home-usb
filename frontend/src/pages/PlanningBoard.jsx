@@ -400,8 +400,11 @@ export default function PlanningBoard() {
       setSubTabProjects(res.data || []);
       // Also refresh counts so the OTHER tab badges stay current after this fetch.
       fetchSubTabCounts(filter);
-    } catch {
-      if (myFetchId === subTabFetchRef.current) toast.error('Failed to load projects');
+    } catch (err) {
+      // Silently swallow transient network blips & cancelled/stale requests.
+      // Auto-refresh will retry; toasting here is just noise (the data is
+      // already on screen from the previous successful fetch).
+      if (err?.response?.status === 401) window.location.href = '/login';
     }
     finally {
       if (myFetchId === subTabFetchRef.current) setSubTabLoading(false);
