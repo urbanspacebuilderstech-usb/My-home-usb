@@ -2025,3 +2025,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/382.pack
+frontend/node_modules/.cache/default-development/384.pack

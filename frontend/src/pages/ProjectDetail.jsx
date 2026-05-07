@@ -3332,50 +3332,65 @@ export default function ProjectDetail() {
             </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
-              {/* Balance Payment Info */}
+              {/* Balance Payment Info — 3 cards: Total | Advance (Sales) | Remaining */}
               {(() => {
                 const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
                 const totalPctAllocated = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
                 const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
                 const totalAmountAllocated = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
                 const isPM = user?.role === 'project_manager';
-                const hasAdvance = payment_stages.some(s => s.is_advance || s.stage_name?.toLowerCase().startsWith('advance'));
+                // Find the advance stage (sales-collected). Treat as "Advance" if
+                // is_advance flag set OR the stage label/name starts with "advance".
+                const advanceStage = payment_stages.find(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                const advanceAmount = advanceStage?.received_amount ?? advanceStage?.amount ?? 0;
+                const advanceApproved = ['approved', 'paid', 'received', 'completed', 'settled'].includes((advanceStage?.status || '').toLowerCase());
+                // collected_by tells us which role booked the payment (CRE / Sales / Accountant)
+                const collectedBy = (advanceStage?.collected_by || advanceStage?.received_by_role || '').toString();
+                const collectedByCRE = /cre/i.test(collectedBy);
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6" data-testid="payment-balance-info">
-                    {!isPM && (
-                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
-                        <p className="text-xs text-blue-600">Total Project Value</p>
-                        <p className="text-lg font-bold text-blue-700">₹{totalValue.toLocaleString()}</p>
-                      </div>
-                    )}
-                    <div className="bg-green-50 rounded-lg p-3 border border-green-200">
-                      <p className="text-xs text-green-600">Allocated</p>
-                      <p className="text-lg font-bold text-green-700">{totalPctAllocated}%</p>
-                      {!isPM && <p className="text-[10px] text-green-500">₹{totalAmountAllocated.toLocaleString()}</p>}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" data-testid="payment-balance-info">
+                    {/* 1. TOTAL PROJECT VALUE */}
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Total Project Value</p>
+                      <p className="text-xl font-bold text-blue-700 mt-1">₹{totalValue.toLocaleString()}</p>
                     </div>
-                    <div className={`rounded-lg p-3 border ${remainingPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-                      <p className="text-xs text-gray-600">Remaining</p>
-                      <p className={`text-lg font-bold ${remainingPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>{remainingPct}%</p>
-                      {!isPM && <p className="text-[10px] text-gray-400">₹{Math.round(totalValue * remainingPct / 100).toLocaleString()}</p>}
-                    </div>
-                    {!hasAdvance && canManage && (
-                      <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-200 flex flex-col justify-center">
-                        <p className="text-[10px] text-indigo-600 mb-1">Auto-add advance row</p>
-                        <Button size="sm" variant="outline" className="text-xs border-indigo-300 text-indigo-700" onClick={async () => {
-                          try {
-                            await axios.post(`${API}/payment-stages`, {
-                              project_id: projectId,
-                              stage_name: 'Advance Collection',
-                              stage_label: 'ADV',
-                              percentage: 2,
-                              amount: Math.round(totalValue * 0.02),
-                            });
-                            toast.success('Advance Collection (2%) added');
-                            fetchData(false);
-                          } catch (e) { toast.error(e.response?.data?.detail || 'Failed'); }
-                        }} data-testid="add-advance-btn">Add 2% Advance</Button>
+                    {/* 2. ADVANCE (Sales) — small Sales tag, amount, approval status */}
+                    <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200" data-testid="advance-card">
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Advance</p>
+                        <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0 h-4">Sales</Badge>
+                        {collectedByCRE && (
+                          <Badge className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0 h-4" title="Payment was collected by CRE on behalf of Sales">
+                            via CRE
+                          </Badge>
+                        )}
                       </div>
-                    )}
+                      <p className="text-xl font-bold text-emerald-700">{advanceStage ? `₹${advanceAmount.toLocaleString()}` : '₹0'}</p>
+                      <div className="mt-1">
+                        {!advanceStage ? (
+                          <span className="text-[10px] text-gray-500 italic">Not collected yet</span>
+                        ) : advanceApproved ? (
+                          <Badge className="bg-green-100 text-green-700 text-[9px]" data-testid="advance-status-approved">✓ Accountant Approved</Badge>
+                        ) : (
+                          <Badge className="bg-amber-100 text-amber-700 text-[9px]" data-testid="advance-status-pending">⏳ Pending Approval</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {/* 3. REMAINING — % + amount + (allocated subtitle) */}
+                    <div className={`rounded-lg p-4 border ${remainingPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Remaining Amount</p>
+                      <div className="flex items-end justify-between mt-1">
+                        <p className={`text-xl font-bold ${remainingPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>
+                          {!isPM && `₹${Math.round(totalValue * remainingPct / 100).toLocaleString()}`}
+                        </p>
+                        <span className={`text-sm font-semibold ${remainingPct > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remainingPct}%</span>
+                      </div>
+                      {!isPM && (
+                        <p className="text-[10px] text-gray-500 mt-0.5">
+                          Allocated <span className="font-medium text-gray-700">₹{totalAmountAllocated.toLocaleString()}</span> ({totalPctAllocated}%)
+                        </p>
+                      )}
+                    </div>
                   </div>
                 );
               })()}
