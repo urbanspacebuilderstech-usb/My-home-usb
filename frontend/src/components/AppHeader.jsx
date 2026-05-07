@@ -236,6 +236,13 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
 
   const isSubActive = (path) => currentPath === path || currentPath.startsWith(path + '/');
 
+  // For super_admin, never let a page's customNav replace the main top nav.
+  // Instead, render the customNav as a sub-strip below — this way Super Admin's
+  // shell (Finance Board · Planning · Marketing · HR · Users · …) is always
+  // visible no matter which inner page they're on.
+  const customNavAsSub = role === 'super_admin' && hasCustomNav;
+  const showMainNav = !hasCustomNav || customNavAsSub;
+
   return (
     <div className="sticky top-0 z-50 bg-white">
       {/* Main Header */}
@@ -254,7 +261,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
 
           {/* Center: Desktop Nav */}
           <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
-            {hasCustomNav ? (
+            {hasCustomNav && !customNavAsSub ? (
               customNav.map((item) => (
                 <button
                   key={item.value}
@@ -269,7 +276,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
                   {item.label}
                 </button>
               ))
-            ) : navItems.length > 1 ? (
+            ) : showMainNav && navItems.length > 1 ? (
               navItems.map((item) => (
                 <button
                   key={item.path}
@@ -311,6 +318,29 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
           </div>
         </div>
       </header>
+
+      {/* Sub-navigation bar — for super_admin we surface the page's customNav
+          here so the Super Admin shell stays visible at the top. */}
+      {customNavAsSub && customNav && customNav.length > 0 && (
+        <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
+          <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
+            {customNav.map((item) => (
+              <button
+                key={item.value}
+                data-testid={`subnav-${item.value.replace(/_/g, '-')}`}
+                onClick={() => onCustomNavChange?.(item.value)}
+                className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors ${
+                  activeCustomNav === item.value
+                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sub-navigation bar (only for roles with sub-menus, hidden when custom nav is active) */}
       {!hasCustomNav && subItems && subItems.length > 1 && (
