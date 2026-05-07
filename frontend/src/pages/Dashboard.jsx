@@ -49,9 +49,13 @@ export default function Dashboard() {
       const userRes = await axios.get(`${API}/auth/me`);
       setUser(userRes.data);
       
-      // Only super_admin should be on this page
-      // Other roles are redirected by Login directly, but handle edge case of direct URL access
+      // Super Admin's home is the Finance Board (the old dashboard is deprecated).
+      // Other roles are redirected by Login directly, but handle edge case of direct URL access.
       const role = userRes.data.role;
+      if (role === 'super_admin') {
+        window.location.replace('/finance-board');
+        return;
+      }
       if (role !== 'super_admin') {
         const roleRoutes = {
           site_engineer: '/site-engineer', sr_site_engineer: '/site-engineer',
