@@ -1224,16 +1224,7 @@ export default function PlanningBoard() {
                                       <ArrowRight className="h-3 w-3 mr-1" />Ready to Construction
                                     </Button>
                                   )}
-                                  {projectSubTab === 'active' && (
-                                    <Button
-                                      size="sm"
-                                      className="h-7 text-xs bg-purple-600 hover:bg-purple-700"
-                                      onClick={() => handlePlanningStatusChange(p.project_id, 'delivered')}
-                                      data-testid={`mark-delivered-${p.project_id}`}
-                                    >
-                                      <Check className="h-3 w-3 mr-1" />Mark Delivered
-                                    </Button>
-                                  )}
+                                  {projectSubTab === 'active' && null /* "Mark Delivered" moved to project detail page header (Hand Over button) */}
                                   {projectSubTab !== 'archived' && (
                                     <Button
                                       size="sm"

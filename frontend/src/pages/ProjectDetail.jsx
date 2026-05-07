@@ -2092,6 +2092,28 @@ export default function ProjectDetail() {
             {/* Delete Project Button - visible for super_admin or planning (for draft/in_planning projects) */}
             {!headerEditing && (
             <div className="flex items-center gap-2 flex-shrink-0">
+              {/* Hand Over Button — moves project from "Current" → "Delivered".
+                  Visible only when project is in active planning state and user can manage. */}
+              {(user?.role === 'planning' || user?.role === 'super_admin') && (project?.planning_status === 'active') && (
+                <Button
+                  data-testid="hand-over-btn"
+                  size="sm"
+                  className="gap-2 bg-purple-600 hover:bg-purple-700 text-white"
+                  onClick={async () => {
+                    if (!window.confirm(`Hand over "${project.name}" to the client?\n\nThis moves the project to Delivered Projects. You can revert from the Planning Board if needed.`)) return;
+                    try {
+                      await axios.patch(`${API}/projects/${projectId}/planning-status`, { planning_status: 'delivered' });
+                      toast.success('Project handed over — moved to Delivered');
+                      fetchProject();
+                    } catch (err) {
+                      toast.error(err.response?.data?.detail || 'Failed to hand over project');
+                    }
+                  }}
+                >
+                  <Check className="h-4 w-4" />
+                  <span className="hidden sm:inline">Hand Over</span>
+                </Button>
+              )}
               {/* Share as PDF Button */}
               <Button 
                 data-testid="share-pdf-btn"
