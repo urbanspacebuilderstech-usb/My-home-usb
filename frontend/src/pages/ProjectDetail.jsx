@@ -2146,12 +2146,6 @@ export default function ProjectDetail() {
                 {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Payments
                 </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="additions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
-                  Additional
-                </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="deductions" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
-                  Deduction
-                </TabsTrigger>}
                 {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
                   Summary
                 </TabsTrigger>}
@@ -2367,8 +2361,16 @@ export default function ProjectDetail() {
               )}
             </TabsContent>
 
-            {/* ==================== SCOPE TAB ==================== */}
+            {/* ==================== FINAL ESTIMATE — SCOPE (sub-tab 1 of 3) ==================== */}
             <TabsContent value="scope" className="p-3 sm:p-6">
+              {/* Sub-nav: Final Estimate | Additional | Deductions */}
+              {canSeeFinancials && (
+                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav">
+                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700" data-testid="fe-subnav-scope">Final Estimate</button>
+                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-additions">Additional</button>
+                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-deductions">Deductions</button>
+                </div>
+              )}
               {/* Final Estimate workflow status banner (visible once flow has started) */}
               {project?.fe?.status && project.fe.status !== 'draft' && (
                 <div className={`mb-4 rounded-lg border p-3 ${
@@ -3738,6 +3740,14 @@ export default function ProjectDetail() {
 
             {/* ==================== ADDITIONS TAB ==================== */}
             <TabsContent value="additions" className="p-6">
+              {/* Sub-nav: Final Estimate | Additional | Deductions */}
+              {canSeeFinancials && (
+                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav-additions-tab">
+                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Final Estimate</button>
+                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700">Additional</button>
+                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Deductions</button>
+                </div>
+              )}
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Additional Work</h3>
@@ -3935,6 +3945,14 @@ export default function ProjectDetail() {
 
             {/* ==================== DEDUCTIONS TAB ==================== */}
             <TabsContent value="deductions" className="p-6">
+              {/* Sub-nav: Final Estimate | Additional | Deductions */}
+              {canSeeFinancials && (
+                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav-deductions-tab">
+                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Final Estimate</button>
+                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Additional</button>
+                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700">Deductions</button>
+                </div>
+              )}
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Deductions</h3>
