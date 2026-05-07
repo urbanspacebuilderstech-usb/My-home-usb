@@ -2382,12 +2382,107 @@ export default function ProjectDetail() {
 
             {/* ==================== FINAL ESTIMATE — SCOPE (sub-tab 1 of 3) ==================== */}
             <TabsContent value="scope" className="p-3 sm:p-6">
-              {/* Sub-nav: Final Estimate | Additional | Deductions */}
+
+              {/* ---- Live FE Grand Total: shown ABOVE sub-tabs as the top-of-page summary ---- */}
+              {scope_items.length > 0 && (() => {
+                const feTotal = summary?.scope_total || 0;
+                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
+                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
+                const grand = feTotal + addTotal - dedTotal;
+                return (
+                  <div className="mb-3 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-3 sm:p-4" data-testid="fe-grand-total-card">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
+                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-2">
+                      <div>
+                        <div className="text-gray-500">Final Estimate</div>
+                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-emerald-600">+ Additional</div>
+                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-red-600">− Deductions</div>
+                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
+                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
+                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Sub-nav: Final Estimate | Additional | Deductions  +  right-aligned compact Client Link group */}
               {canSeeFinancials && (
                 <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav">
                   <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700" data-testid="fe-subnav-scope">Final Estimate</button>
                   <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-additions">Additional</button>
                   <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-deductions">Deductions</button>
+                  {/* Right corner: compact FE Client Link controls */}
+                  {(() => {
+                    const fe = project?.fe || {};
+                    const canSendToClient = (user?.role === 'cre' || user?.role === 'super_admin');
+                    const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
+                    if (!fe.public_token && !canSendToClient) return null;
+                    return (
+                      <div className="ml-auto flex items-center gap-1 pb-1" data-testid="fe-link-corner">
+                        {fe.public_token && (
+                          <>
+                            <Badge className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0 h-5">FE Link</Badge>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              title={`Copy: ${publicUrl}`}
+                              onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('FE link copied'); }}
+                              data-testid="fe-public-url-copy"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              title={`Open: ${publicUrl}`}
+                              onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
+                              data-testid="fe-public-url-open"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                        {canSendToClient && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700"
+                            onClick={async () => {
+                              const isFirst = !fe.public_token;
+                              const msg = isFirst
+                                ? 'Generate a permanent client-facing link for this Final Estimate?'
+                                : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
+                              if (!window.confirm(msg)) return;
+                              try {
+                                await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
+                                toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
+                                fetchProject();
+                              } catch (err) {
+                                toast.error(err.response?.data?.detail || 'Failed to send to client');
+                              }
+                            }}
+                            data-testid="fe-send-to-client-btn"
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            {fe.public_token ? 'Re-send' : 'Send to Client'}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {/* Final Estimate workflow status banner (visible once flow has started) */}
@@ -2421,6 +2516,9 @@ export default function ProjectDetail() {
                            project.fe.status === 'review_pending' ? 'Review from CRE — Action needed' :
                            project.fe.status === 'approved' ? 'Approved by CRE' : project.fe.status}
                         </Badge>
+                        {project?.fe?.sent_to_client_at && (
+                          <span className="text-[10px] text-gray-400">Last client send: {new Date(project.fe.sent_to_client_at).toLocaleString()}</span>
+                        )}
                       </div>
                       {project.fe.status === 'rejected_by_gm' && (project.fe.gm_rejections || []).length > 0 && (
                         <div className="mt-2 p-2 rounded bg-white border border-red-200" data-testid="fe-gm-rejection-reason">
@@ -2431,90 +2529,6 @@ export default function ProjectDetail() {
                       )}
                     </div>
                   </div>
-
-                  {/* Public Client Link (visible when token issued) + Send for Client Approval */}
-                  {(() => {
-                    const fe = project.fe || {};
-                    const canSendToClient = (user?.role === 'cre' || user?.role === 'super_admin');
-                    const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
-                    if (!fe.public_token && !canSendToClient) return null;
-                    return (
-                      <div className="mt-2 rounded border bg-white px-2.5 py-1.5" data-testid="fe-public-link-block">
-                        {/* Compact single-row layout */}
-                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 shrink-0">Client Link</span>
-                          {fe.public_token ? (
-                            <Badge className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0 shrink-0">Live</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0">Not generated</Badge>
-                          )}
-                          {fe.public_token && (
-                            <input
-                              readOnly
-                              value={publicUrl}
-                              className="flex-1 min-w-0 text-[11px] border rounded px-1.5 py-0.5 bg-gray-50 font-mono text-gray-600 truncate"
-                              onFocus={(e) => e.target.select()}
-                              data-testid="fe-public-url-input"
-                            />
-                          )}
-                          {fe.public_token && (
-                            <>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 shrink-0"
-                                title="Copy link"
-                                onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Public link copied'); }}
-                                data-testid="fe-public-url-copy"
-                              >
-                                <Copy className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7 shrink-0"
-                                title="Open link"
-                                onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
-                                data-testid="fe-public-url-open"
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          )}
-                          {canSendToClient && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700 shrink-0"
-                              onClick={async () => {
-                                const isFirst = !fe.public_token;
-                                const msg = isFirst
-                                  ? 'Generate a permanent client-facing link for this Final Estimate?'
-                                  : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
-                                if (!window.confirm(msg)) return;
-                                try {
-                                  await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
-                                  toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
-                                  fetchProject();
-                                } catch (err) {
-                                  toast.error(err.response?.data?.detail || 'Failed to send to client');
-                                }
-                              }}
-                              data-testid="fe-send-to-client-btn"
-                            >
-                              <Send className="h-3 w-3 mr-1" />
-                              {fe.public_token ? 'Re-send' : 'Send to Client'}
-                            </Button>
-                          )}
-                        </div>
-                        {fe.sent_to_client_at && (
-                          <div className="text-[9px] text-gray-400 mt-0.5">Last sent: {new Date(fe.sent_to_client_at).toLocaleString()}</div>
-                        )}
-                      </div>
-                    );
-                  })()}
 
                   {/* Review history list (Review 1, Review 2, ...) */}
                   {Array.isArray(project.fe.reviews) && project.fe.reviews.length > 0 && (
@@ -2534,37 +2548,6 @@ export default function ProjectDetail() {
                   )}
                 </div>
               )}
-
-              {/* ---- Live FE Grand Total: (Scope + Additional) − Deductions ---- */}
-              {scope_items.length > 0 && (() => {
-                const feTotal = summary?.scope_total || 0;
-                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
-                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
-                const grand = feTotal + addTotal - dedTotal;
-                return (
-                  <div className="mb-4 sm:mb-6 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-4" data-testid="fe-grand-total-card">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
-                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-3">
-                      <div>
-                        <div className="text-gray-500">Final Estimate</div>
-                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-emerald-600">+ Additional</div>
-                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-red-600">− Deductions</div>
-                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
-                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
-                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
-                    </div>
-                  </div>
-                );
-              })()}
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
                 <div>
