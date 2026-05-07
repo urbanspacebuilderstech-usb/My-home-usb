@@ -35,6 +35,47 @@ import DLRPanel from '../components/DLRPanel';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Compact searchable Unit picker — used inside the Work Order dialog rows.
+// Accepts free-form values too (allows typing custom units the list doesn't have).
+const UnitCombobox = ({ value, onChange, units, testId }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          className="h-8 w-full justify-between px-2 text-xs font-normal"
+          data-testid={testId}
+        >
+          <span className="truncate">{value || <span className="text-gray-400">unit</span>}</span>
+          <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-44 p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search unit…" className="h-8 text-xs" />
+          <CommandEmpty className="text-xs p-2">Press Enter to use custom value</CommandEmpty>
+          <CommandList className="max-h-56">
+            {units.map(u => (
+              <CommandItem
+                key={u}
+                value={u}
+                onSelect={() => { onChange(u); setOpen(false); }}
+                className="text-xs"
+              >
+                <Check className={`mr-2 h-3 w-3 ${value === u ? 'opacity-100' : 'opacity-0'}`} />
+                {u}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
 // Initial empty rows for bulk add
 const createEmptyRows = (type, count = 3) => {
   if (type === 'scope') {
@@ -501,7 +542,12 @@ export default function ProjectDetail() {
     return merged;
   };
   const [woSelectedType, setWoSelectedType] = useState('');
-  const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], payment_stages: [], total_amount: 0, description: '' });
+  const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], deductions: [], payment_stages: [], total_amount: 0, description: '', labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
+  // Top-level tab inside the WO dialog: 'work_order' (with inner Scope/Additional/Deductions/Summary) | 'payment_stages'
+  const [woMainTab, setWoMainTab] = useState('work_order');
+  // Common construction units used by the searchable Unit dropdown across
+  // Scope / Additional / Deductions rows.
+  const WO_UNITS = ['nos', 'sqft', 'sft', 'rft', 'm', 'sqm', 'cum', 'kg', 'ton', 'litre', 'hr', 'day', 'lot', 'ls', 'box', 'bag', 'roll', 'set'];
   const [woSubTab, setWoSubTab] = useState('scope');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
@@ -845,13 +891,15 @@ export default function ProjectDetail() {
         scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
         stages: (wo.stages || []).map(s => ({ name: s.name, type: s.type, value: s.value })),
         additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
+        deductions: (wo.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
         labour_rates: wo.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
       });
     } else {
       setWoSelectedType('');
-      setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
+      setWoForm({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], deductions: [], labour_rates: { skilled: 0, semi_skilled: 0, unskilled: 0 } });
     }
     setWoSubTab('scope');
+    setWoMainTab('work_order');
     setWoDialog(true);
   };
 
@@ -5050,10 +5098,10 @@ export default function ProjectDetail() {
 
               {/* Work Order Create/Edit Dialog */}
               <Dialog open={woDialog} onOpenChange={setWoDialog}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>{editingWo ? 'Edit Work Order' : 'Create New Work Order'}</DialogTitle>
-                    <DialogDescription>Select a contractor and define scope, stages, and additional work</DialogDescription>
+                    <DialogDescription>Select a contractor and define scope, additions, deductions, and payment stages.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
                     {/* Contractor Selection — searchable dropdowns.
@@ -5150,7 +5198,27 @@ export default function ProjectDetail() {
                                     <CommandItem
                                       key={c.contractor_id}
                                       value={`${c.name} ${types.join(' ')}`}
-                                      onSelect={() => setWoForm(f => ({ ...f, contractor_id: c.contractor_id }))}
+                                      onSelect={() => {
+                                        // Auto-fetch labour day rates from the contractor profile —
+                                        // user can still edit them on this WO without affecting
+                                        // the master record (only contractor_id is persisted).
+                                        const rates = {
+                                          skilled: Number(c.daily_rate_skilled) || 0,
+                                          semi_skilled: Number(c.daily_rate_semi_skilled) || 0,
+                                          unskilled: Number(c.daily_rate_unskilled) || 0,
+                                        };
+                                        setWoForm(f => ({
+                                          ...f,
+                                          contractor_id: c.contractor_id,
+                                          // Only auto-fill rates when the user hasn't typed
+                                          // a value yet, OR when this is a fresh dialog.
+                                          labour_rates: (
+                                            (f.labour_rates?.skilled || 0) === 0 &&
+                                            (f.labour_rates?.semi_skilled || 0) === 0 &&
+                                            (f.labour_rates?.unskilled || 0) === 0
+                                          ) ? rates : f.labour_rates,
+                                        }));
+                                      }}
                                       data-testid={`wo-contractor-option-${c.contractor_id}`}
                                     >
                                       <Check className={`mr-2 h-4 w-4 ${woForm.contractor_id === c.contractor_id ? 'opacity-100' : 'opacity-0'}`} />
@@ -5190,40 +5258,126 @@ export default function ProjectDetail() {
                       </div>
                     </div>
 
-                    {/* Sub-tabs: Scope / Stages / Additional */}
-                    <Tabs value={woSubTab} onValueChange={setWoSubTab}>
-                      <TabsList className="w-full">
-                        <TabsTrigger value="scope" className="flex-1 text-xs" data-testid="wo-tab-scope">Scope Items ({woForm.scope_items.length})</TabsTrigger>
-                        <TabsTrigger value="stages" className="flex-1 text-xs" data-testid="wo-tab-stages">Stages ({woForm.stages.length})</TabsTrigger>
-                        <TabsTrigger value="additional" className="flex-1 text-xs" data-testid="wo-tab-additional">Additional ({woForm.additional_work.length})</TabsTrigger>
+                    {/* ===== TOP-LEVEL TABS: Work Order vs Payment Stages ===== */}
+                    <Tabs value={woMainTab} onValueChange={setWoMainTab} className="w-full">
+                      <TabsList className="grid w-full grid-cols-2" data-testid="wo-main-tabs">
+                        <TabsTrigger value="work_order" data-testid="wo-main-tab-work">Work Order</TabsTrigger>
+                        <TabsTrigger value="payment_stages" data-testid="wo-main-tab-stages">Payment Stages ({woForm.stages.length})</TabsTrigger>
                       </TabsList>
 
-                      {/* SCOPE ITEMS */}
-                      <TabsContent value="scope" className="mt-3">
-                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-scope"><Plus className="h-3 w-3 mr-1" />Add Scope Item</Button></div>
-                        {woForm.scope_items.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No scope items</p> : (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Name</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
-                            {woForm.scope_items.map((item, idx) => {
-                              const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                      {/* ===== WORK ORDER (Scope / Additional / Deductions / Summary) ===== */}
+                      <TabsContent value="work_order" className="mt-3">
+                        <Tabs value={woSubTab} onValueChange={setWoSubTab}>
+                          <TabsList className="w-full">
+                            <TabsTrigger value="scope" className="flex-1 text-xs" data-testid="wo-tab-scope">Scope ({woForm.scope_items.length})</TabsTrigger>
+                            <TabsTrigger value="additional" className="flex-1 text-xs" data-testid="wo-tab-additional">Additional ({woForm.additional_work.length})</TabsTrigger>
+                            <TabsTrigger value="deductions" className="flex-1 text-xs" data-testid="wo-tab-deductions">Deductions ({(woForm.deductions || []).length})</TabsTrigger>
+                            <TabsTrigger value="summary" className="flex-1 text-xs" data-testid="wo-tab-summary">Summary</TabsTrigger>
+                          </TabsList>
+
+                          {/* SCOPE ITEMS */}
+                          <TabsContent value="scope" className="mt-3">
+                            <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, scope_items: [...f.scope_items, { name: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-scope"><Plus className="h-3 w-3 mr-1" />Add Scope Item</Button></div>
+                            {woForm.scope_items.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No scope items</p> : (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Name</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                                {woForm.scope_items.map((item, idx) => {
+                                  const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                                  return (
+                                  <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                    <div className="col-span-3"><Input placeholder="Name" value={item.name} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" data-testid={`wo-scope-name-${idx}`} /></div>
+                                    <div className="col-span-2">
+                                      <UnitCombobox value={item.unit} onChange={(v) => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit: v }; setWoForm(f => ({ ...f, scope_items: s })); }} units={WO_UNITS} testId={`wo-scope-unit-${idx}`} />
+                                    </div>
+                                    <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                    <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, scope_items: f.scope_items.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                                  </div>);
+                                })}
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* ADDITIONAL WORK */}
+                          <TabsContent value="additional" className="mt-3">
+                            <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button></div>
+                            {woForm.additional_work.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work</p> : (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                                {woForm.additional_work.map((item, idx) => {
+                                  const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                                  return (
+                                  <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                    <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], description: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" data-testid={`wo-add-desc-${idx}`} /></div>
+                                    <div className="col-span-2">
+                                      <UnitCombobox value={item.unit} onChange={(v) => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit: v }; setWoForm(f => ({ ...f, additional_work: a })); }} units={WO_UNITS} testId={`wo-add-unit-${idx}`} />
+                                    </div>
+                                    <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
+                                    <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                                  </div>);
+                                })}
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* DEDUCTIONS */}
+                          <TabsContent value="deductions" className="mt-3">
+                            <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, deductions: [...(f.deductions || []), { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-deduction"><Plus className="h-3 w-3 mr-1" />Add Deduction</Button></div>
+                            {(woForm.deductions || []).length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No deductions</p> : (
+                              <div className="space-y-2">
+                                <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
+                                {(woForm.deductions || []).map((item, idx) => {
+                                  const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
+                                  return (
+                                  <div key={idx} className="grid grid-cols-12 gap-1 items-center">
+                                    <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => { const d = [...(woForm.deductions || [])]; d[idx] = { ...d[idx], description: e.target.value }; setWoForm(f => ({ ...f, deductions: d })); }} className="h-8 text-xs" data-testid={`wo-ded-desc-${idx}`} /></div>
+                                    <div className="col-span-2">
+                                      <UnitCombobox value={item.unit} onChange={(v) => { const d = [...(woForm.deductions || [])]; d[idx] = { ...d[idx], unit: v }; setWoForm(f => ({ ...f, deductions: d })); }} units={WO_UNITS} testId={`wo-ded-unit-${idx}`} />
+                                    </div>
+                                    <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const d = [...(woForm.deductions || [])]; d[idx] = { ...d[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, deductions: d })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const d = [...(woForm.deductions || [])]; d[idx] = { ...d[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, deductions: d })); }} className="h-8 text-xs" /></div>
+                                    <div className="col-span-2"><span className="text-xs font-medium pl-1 text-red-600">−{formatCurrency(total)}</span></div>
+                                    <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, deductions: (f.deductions || []).filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                                  </div>);
+                                })}
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* SUMMARY */}
+                          <TabsContent value="summary" className="mt-3">
+                            {(() => {
+                              const scopeTotal = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                              const addTotal = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                              const dedTotal = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                              const grand = scopeTotal + addTotal - dedTotal;
                               return (
-                              <div key={idx} className="grid grid-cols-12 gap-1 items-center">
-                                <div className="col-span-3"><Input placeholder="Name" value={item.name} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" data-testid={`wo-scope-name-${idx}`} /></div>
-                                <div className="col-span-2"><Input placeholder="Unit" value={item.unit} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const s = [...woForm.scope_items]; s[idx] = { ...s[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, scope_items: s })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
-                                <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, scope_items: f.scope_items.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
-                              </div>);
-                            })}
-                          </div>
-                        )}
+                                <div className="rounded-lg border-2 border-violet-200 bg-gradient-to-br from-violet-50/70 to-white p-4" data-testid="wo-summary-card">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-violet-700 mb-2">Work Order Total</div>
+                                  <div className="grid grid-cols-3 gap-3 text-xs mb-3">
+                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div></div>
+                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div></div>
+                                    <div><div className="text-red-600">− Deductions</div><div className="font-semibold text-red-700">{formatCurrency(dedTotal)}</div></div>
+                                  </div>
+                                  <div className="flex items-end justify-between border-t border-violet-200 pt-2">
+                                    <span className="text-xs text-gray-500">(Scope + Additional) − Deductions</span>
+                                    <span className="text-xl sm:text-2xl font-bold text-violet-800" data-testid="wo-grand-total">{formatCurrency(grand)}</span>
+                                  </div>
+                                  <p className="text-[11px] text-gray-500 italic mt-3">A project can have multiple Work Orders — each tracks its own scope, additions, deductions and payment stages independently.</p>
+                                </div>
+                              );
+                            })()}
+                          </TabsContent>
+                        </Tabs>
                       </TabsContent>
 
-                      {/* STAGES */}
-                      <TabsContent value="stages" className="mt-3">
-                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Stage</Button></div>
-                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No stages</p> : (
+                      {/* ===== PAYMENT STAGES (formerly Stages tab) ===== */}
+                      <TabsContent value="payment_stages" className="mt-3">
+                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Payment Stage</Button></div>
+                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No payment stages</p> : (
                           <div className="space-y-2">
                             <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-4">Stage Name</div><div className="col-span-3">Type</div><div className="col-span-3">Value</div><div className="col-span-2"></div></div>
                             {woForm.stages.map((st, idx) => (
@@ -5239,28 +5393,6 @@ export default function ProjectDetail() {
                                 <div className="col-span-2 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
                               </div>
                             ))}
-                          </div>
-                        )}
-                      </TabsContent>
-
-                      {/* ADDITIONAL WORK */}
-                      <TabsContent value="additional" className="mt-3">
-                        <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, additional_work: [...f.additional_work, { description: '', unit: 'nos', quantity: 1, unit_rate: 0 }] }))} data-testid="wo-add-additional"><Plus className="h-3 w-3 mr-1" />Add Item</Button></div>
-                        {woForm.additional_work.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No additional work</p> : (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-3">Description</div><div className="col-span-2">Unit</div><div className="col-span-2">Qty</div><div className="col-span-2">Rate</div><div className="col-span-2">Total</div><div className="col-span-1"></div></div>
-                            {woForm.additional_work.map((item, idx) => {
-                              const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.unit_rate) || 0);
-                              return (
-                              <div key={idx} className="grid grid-cols-12 gap-1 items-center">
-                                <div className="col-span-3"><Input placeholder="Description" value={item.description} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], description: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" data-testid={`wo-add-desc-${idx}`} /></div>
-                                <div className="col-span-2"><Input placeholder="Unit" value={item.unit} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><Input type="number" value={item.quantity} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], quantity: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><Input type="number" value={item.unit_rate} onChange={e => { const a = [...woForm.additional_work]; a[idx] = { ...a[idx], unit_rate: e.target.value }; setWoForm(f => ({ ...f, additional_work: a })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2"><span className="text-xs font-medium pl-1">{formatCurrency(total)}</span></div>
-                                <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, additional_work: f.additional_work.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
-                              </div>);
-                            })}
                           </div>
                         )}
                       </TabsContent>

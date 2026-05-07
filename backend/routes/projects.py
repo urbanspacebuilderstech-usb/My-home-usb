@@ -3634,6 +3634,12 @@ class WorkOrderAdditionalItem(BaseModel):
     quantity: float = 1
     unit_rate: float = 0
 
+class WorkOrderDeductionItem(BaseModel):
+    description: str
+    unit: str = "nos"
+    quantity: float = 1
+    unit_rate: float = 0
+
 class LabourRates(BaseModel):
     skilled: float = 0
     semi_skilled: float = 0
@@ -3646,6 +3652,7 @@ class WorkOrderCreate(BaseModel):
     scope_items: List[WorkOrderScopeItem] = []
     stages: List[WorkOrderStage] = []
     additional_work: List[WorkOrderAdditionalItem] = []
+    deductions: List[WorkOrderDeductionItem] = []
     labour_rates: Optional[LabourRates] = None
     notes: Optional[str] = ""
 
@@ -3675,11 +3682,16 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
     
     contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0})
     if not contractor:
+        # Fall back to the new labour-contractors collection — both shapes are
+        # supported by the WO dropdown so look in both before 404'ing.
+        contractor = await db.labour_contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0})
+    if not contractor:
         raise HTTPException(status_code=404, detail="Contractor not found")
-    
+
     scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
     additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
-    
+    deduction_total = sum((d.quantity or 0) * (d.unit_rate or 0) for d in (data.deductions or []))
+
     scope_items = []
     for s in data.scope_items:
         scope_items.append({
@@ -3707,20 +3719,29 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
             "description": a.description, "unit": a.unit, "quantity": a.quantity,
             "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)
         })
-    
+
+    deductions_list = []
+    for d in (data.deductions or []):
+        deductions_list.append({
+            "description": d.description, "unit": d.unit, "quantity": d.quantity,
+            "unit_rate": d.unit_rate, "total": round(d.quantity * d.unit_rate, 2)
+        })
+
     wo = {
         "work_order_id": f"wo_{uuid.uuid4().hex[:8]}",
         "project_id": project_id,
         "project_name": project.get("name", ""),
         "contractor_id": data.contractor_id,
         "contractor_name": contractor.get("name", data.contractor_name or ""),
-        "contractor_type": contractor.get("contractor_type", data.contractor_type or ""),
+        "contractor_type": (contractor.get("work_types") or [None])[0] or contractor.get("contractor_type") or data.contractor_type or "",
         "scope_items": scope_items,
         "scope_total": round(scope_total, 2),
         "stages": stages,
         "additional_work": additional,
         "additional_total": round(additional_total, 2),
-        "total_value": round(scope_total + additional_total, 2),
+        "deductions": deductions_list,
+        "deduction_total": round(deduction_total, 2),
+        "total_value": round(scope_total + additional_total - deduction_total, 2),
         "paid_amount": 0,
         "notes": data.notes or "",
         "labour_rates": data.labour_rates.model_dump() if data.labour_rates else {"skilled": 0, "semi_skilled": 0, "unskilled": 0},
@@ -3742,16 +3763,17 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
     
     scope_total = sum((s.quantity or 0) * (s.unit_rate or 0) for s in data.scope_items)
     additional_total = sum((a.quantity or 0) * (a.unit_rate or 0) for a in data.additional_work)
-    
+    deduction_total = sum((d.quantity or 0) * (d.unit_rate or 0) for d in (data.deductions or []))
+
     scope_items = [{"name": s.name, "unit": s.unit, "quantity": s.quantity, "unit_rate": s.unit_rate, "total": round(s.quantity * s.unit_rate, 2)} for s in data.scope_items]
-    
+
     # Preserve existing stage statuses if they haven't changed
     existing_wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
     existing_stages_map = {}
     if existing_wo:
         for es in existing_wo.get("stages", []):
             existing_stages_map[es.get("name", "")] = es
-    
+
     stages = []
     for st in data.stages:
         amt = st.value if st.type == "amount" else round(scope_total * st.value / 100, 2)
@@ -3767,17 +3789,25 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
             "approved_amount": existing.get("approved_amount"), "rejection_reason": existing.get("rejection_reason"),
         })
     additional = [{"description": a.description, "unit": a.unit, "quantity": a.quantity, "unit_rate": a.unit_rate, "total": round(a.quantity * a.unit_rate, 2)} for a in data.additional_work]
-    
-    contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1})
-    
+    deductions_list = [{"description": d.description, "unit": d.unit, "quantity": d.quantity, "unit_rate": d.unit_rate, "total": round(d.quantity * d.unit_rate, 2)} for d in (data.deductions or [])]
+
+    contractor = await db.contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1, "work_types": 1})
+    if not contractor:
+        contractor = await db.labour_contractors.find_one({"contractor_id": data.contractor_id}, {"_id": 0, "name": 1, "contractor_type": 1, "work_types": 1})
+
+    derived_type = ""
+    if contractor:
+        derived_type = (contractor.get("work_types") or [None])[0] or contractor.get("contractor_type") or ""
+
     update = {
         "contractor_id": data.contractor_id,
         "contractor_name": contractor.get("name", "") if contractor else data.contractor_name or "",
-        "contractor_type": contractor.get("contractor_type", "") if contractor else data.contractor_type or "",
+        "contractor_type": derived_type or data.contractor_type or "",
         "scope_items": scope_items, "scope_total": round(scope_total, 2),
         "stages": stages,
         "additional_work": additional, "additional_total": round(additional_total, 2),
-        "total_value": round(scope_total + additional_total, 2),
+        "deductions": deductions_list, "deduction_total": round(deduction_total, 2),
+        "total_value": round(scope_total + additional_total - deduction_total, 2),
         "notes": data.notes or "",
         "labour_rates": data.labour_rates.model_dump() if data.labour_rates else {"skilled": 0, "semi_skilled": 0, "unskilled": 0},
         "updated_at": datetime.now(timezone.utc).isoformat(),
