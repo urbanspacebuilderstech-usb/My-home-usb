@@ -9,11 +9,13 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Popover, PopoverTrigger, PopoverContent } from '../components/ui/popover';
+import { Checkbox } from '../components/ui/checkbox';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import {
   Eye, Send, Package, Users, Building2, ArrowRight, Check, X, DollarSign,
-  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight, MapPin, Radio, Lock, Unlock, Briefcase
+  Plus, Search, Trash2, Edit, Truck, EyeOff, ClipboardList, AlertCircle, Calendar, IndianRupee, Download, Filter, FileText, Copy, CreditCard, ChevronRight, ChevronDown, MapPin, Radio, Lock, Unlock, Briefcase
 } from 'lucide-react';
 import { SortableList, SortableTableRow, DragHandle, arrayMove } from '../components/SortableList';
 import { AppHeader } from '../components/AppHeader';
@@ -1898,24 +1900,56 @@ export default function PlanningBoard() {
               <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" data-testid="contractor-address-input" /></div>
               <div>
                 <Label>Contractor Type</Label>
-                <Select
-                  value={(contractorForm.work_types && contractorForm.work_types[0]) || ''}
-                  onValueChange={(v) => setContractorForm({ ...contractorForm, work_types: v ? [v] : [] })}
-                >
-                  <SelectTrigger className="mt-1" data-testid="contractor-type-select">
-                    <SelectValue placeholder="Select contractor type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (
-                      <SelectItem key={wt} value={wt} data-testid={`contractor-type-option-${wt.replace(/\s+/g, '-').toLowerCase()}`}>
-                        {wt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {contractorTypes.length === 0 && (
-                  <p className="text-[11px] text-gray-400 italic mt-1">Tip: Add custom types under "Contractor Types" tab.</p>
-                )}
+                {/* Multi-select dropdown with checkboxes — pick one or many types */}
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      role="combobox"
+                      className="w-full justify-between mt-1 font-normal h-9"
+                      data-testid="contractor-type-select"
+                    >
+                      <span className="truncate text-left">
+                        {contractorForm.work_types && contractorForm.work_types.length > 0
+                          ? contractorForm.work_types.join(', ')
+                          : <span className="text-gray-400">Select contractor type(s)</span>}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                    <div className="max-h-64 overflow-y-auto py-1">
+                      {(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => {
+                        const checked = (contractorForm.work_types || []).includes(wt);
+                        return (
+                          <label
+                            key={wt}
+                            className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                            data-testid={`contractor-type-option-${wt.replace(/\s+/g, '-').toLowerCase()}`}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                const cur = contractorForm.work_types || [];
+                                setContractorForm({
+                                  ...contractorForm,
+                                  work_types: v ? [...cur, wt] : cur.filter(x => x !== wt),
+                                });
+                              }}
+                            />
+                            <span>{wt}</span>
+                          </label>
+                        );
+                      })}
+                      {contractorTypes.length === 0 && (
+                        <p className="text-[11px] text-gray-400 italic px-3 py-2">
+                          Tip: Add custom types under "Contractor Types" tab.
+                        </p>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="flex items-center gap-3 p-3 rounded-md bg-gray-50 border">
                 <button type="button" onClick={() => setContractorForm({ ...contractorForm, is_locked: !contractorForm.is_locked })} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${contractorForm.is_locked ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}`} data-testid="contractor-lock-toggle">
