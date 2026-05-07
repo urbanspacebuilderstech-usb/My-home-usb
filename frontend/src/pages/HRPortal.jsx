@@ -260,8 +260,11 @@ export default function HRPortal() {
     setImporting(true);
     try {
       const res = await axios.post(`${API}/hr/staff/bulk-import`, { employees: importData });
-      const { imported = 0, errors = [], warnings = [] } = res.data;
-      toast.success(`Imported ${imported} employees${warnings.length ? ` (with ${warnings.length} warning${warnings.length > 1 ? 's' : ''})` : ''}`);
+      const { imported = 0, skipped_duplicates = 0, errors = [], warnings = [] } = res.data;
+      const summary = `Imported ${imported}` +
+        (skipped_duplicates ? `, skipped ${skipped_duplicates} duplicate${skipped_duplicates > 1 ? 's' : ''}` : '') +
+        (warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '');
+      toast.success(summary);
       // Hard errors → red toasts
       errors.forEach(err => toast.error(err));
       // Soft warnings → bundle into one info toast (capped) so we don't spam 50 toasts

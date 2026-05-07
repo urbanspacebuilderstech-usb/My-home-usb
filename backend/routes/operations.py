@@ -3619,6 +3619,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         raise HTTPException(status_code=400, detail="No employee data provided")
     
     imported = 0
+    skipped_duplicates = 0
     errors = []
     warnings = []
 
@@ -3639,9 +3640,28 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
             if not emp.get("name"):
                 errors.append(f"Row {idx+1}: Name is required")
                 continue
-            
+
             row_no = idx + 1
-            row_name = emp.get("name", "")
+            row_name = emp.get("name", "").strip()
+            email_norm = (emp.get("email") or "").strip().lower()
+            phone_norm = (emp.get("phone") or "").strip()
+
+            # ---- Duplicate detection ----
+            # Match by email (if non-empty) OR by phone (if non-empty) so
+            # accidental re-uploads can't double-create staff.
+            dup_query_or = []
+            if email_norm:
+                dup_query_or.append({"email": {"$regex": f"^{email_norm}$", "$options": "i"}})
+            if phone_norm:
+                dup_query_or.append({"phone": phone_norm})
+            if dup_query_or:
+                existing = await db.staff.find_one({"$or": dup_query_or}, {"_id": 0, "employee_code": 1, "name": 1})
+                if existing:
+                    skipped_duplicates += 1
+                    warnings.append(
+                        f"Row {row_no} ({row_name}): SKIPPED — already exists as {existing.get('employee_code')} ({existing.get('name')})"
+                    )
+                    continue
 
             # Generate employee code
             count = await db.staff.count_documents({})
@@ -3715,7 +3735,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         except Exception as e:
             errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
     
-    return {"imported": imported, "errors": errors, "warnings": warnings, "total": len(employees)}
+    return {"imported": imported, "skipped_duplicates": skipped_duplicates, "errors": errors, "warnings": warnings, "total": len(employees)}
 
 
 
