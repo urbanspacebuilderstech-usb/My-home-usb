@@ -16,6 +16,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
@@ -859,7 +861,14 @@ export default function ProjectDetail() {
     } catch { toast.error('Failed to delete'); }
   };
 
-  const filteredWoContractors = allContractors.filter(c => c.is_active !== false && (!woSelectedType || c.contractor_type === woSelectedType));
+  // Match work orders against contractors. Contractors store types in `work_types[]`
+  // (legacy single-string `contractor_type` is also honoured for old data).
+  const filteredWoContractors = allContractors.filter(c => {
+    if (c.is_active === false) return false;
+    if (!woSelectedType) return true;
+    const types = c.work_types || (c.contractor_type ? [c.contractor_type] : []);
+    return types.includes(woSelectedType);
+  });
 
   // === WORK ORDER STAGE APPROVAL HANDLERS ===
   const handleWoStageApprove = async (woId, stageId, action, extra = {}) => {
@@ -5028,32 +5037,117 @@ export default function ProjectDetail() {
                     <DialogDescription>Select a contractor and define scope, stages, and additional work</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-2">
-                    {/* Contractor Selection */}
+                    {/* Contractor Selection — searchable dropdowns.
+                        Contractor list is filtered by the selected type so picking
+                        "Civil contractor" only shows civil contractors, etc. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs">Contractor Type</Label>
-                        <Select value={woSelectedType} onValueChange={v => { setWoSelectedType(v); setWoForm(f => ({ ...f, contractor_id: '' })); }}>
-                          <SelectTrigger data-testid="wo-type-select"><SelectValue placeholder="All Types" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__all__">All Types</SelectItem>
-                            {contractorTypes.map(t => {
-                              // Endpoint returns either string[] (legacy) or [{ type_id, name }] (new)
-                              const name = typeof t === 'string' ? t : (t?.name || '');
-                              const id = typeof t === 'string' ? t : (t?.type_id || name);
-                              return name ? <SelectItem key={id} value={name}>{name}</SelectItem> : null;
-                            })}
-                          </SelectContent>
-                        </Select>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between font-normal h-9 mt-1"
+                              data-testid="wo-type-select"
+                            >
+                              <span className="truncate text-left">
+                                {woSelectedType || <span className="text-gray-400">All Types</span>}
+                              </span>
+                              <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="Search type…" className="h-9" />
+                              <CommandEmpty>No type found.</CommandEmpty>
+                              <CommandList className="max-h-64">
+                                <CommandItem
+                                  value="all-types"
+                                  onSelect={() => { setWoSelectedType(''); setWoForm(f => ({ ...f, contractor_id: '' })); }}
+                                  data-testid="wo-type-option-all"
+                                >
+                                  <Check className={`mr-2 h-4 w-4 ${!woSelectedType ? 'opacity-100' : 'opacity-0'}`} />
+                                  All Types
+                                </CommandItem>
+                                {contractorTypes.map(t => {
+                                  // Endpoint returns either string[] (legacy) or [{ type_id, name }] (new)
+                                  const name = typeof t === 'string' ? t : (t?.name || '');
+                                  const id = typeof t === 'string' ? t : (t?.type_id || name);
+                                  if (!name) return null;
+                                  return (
+                                    <CommandItem
+                                      key={id}
+                                      value={name}
+                                      onSelect={() => { setWoSelectedType(name); setWoForm(f => ({ ...f, contractor_id: '' })); }}
+                                      data-testid={`wo-type-option-${name.replace(/\s+/g, '-').toLowerCase()}`}
+                                    >
+                                      <Check className={`mr-2 h-4 w-4 ${woSelectedType === name ? 'opacity-100' : 'opacity-0'}`} />
+                                      {name}
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                       <div>
-                        <Label className="text-xs">Contractor *</Label>
-                        <Select value={woForm.contractor_id || '__pick__'} onValueChange={v => v !== '__pick__' && setWoForm(f => ({ ...f, contractor_id: v }))}>
-                          <SelectTrigger data-testid="wo-contractor-select"><SelectValue placeholder="Select Contractor" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__pick__" disabled>Select Contractor</SelectItem>
-                            {filteredWoContractors.map(c => <SelectItem key={c.contractor_id} value={c.contractor_id}>{c.name} ({c.contractor_type})</SelectItem>)}
-                          </SelectContent>
-                        </Select>
+                        <Label className="text-xs">Contractor <span className="text-red-500">*</span></Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              role="combobox"
+                              className="w-full justify-between font-normal h-9 mt-1"
+                              data-testid="wo-contractor-select"
+                            >
+                              <span className="truncate text-left">
+                                {(() => {
+                                  const sel = filteredWoContractors.find(c => c.contractor_id === woForm.contractor_id)
+                                          || allContractors.find(c => c.contractor_id === woForm.contractor_id);
+                                  return sel
+                                    ? sel.name
+                                    : <span className="text-gray-400">{woSelectedType ? `Select ${woSelectedType}…` : 'Select Contractor'}</span>;
+                                })()}
+                              </span>
+                              <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                            <Command>
+                              <CommandInput placeholder="Search contractor…" className="h-9" />
+                              <CommandEmpty>
+                                {woSelectedType
+                                  ? `No ${woSelectedType} contractors yet.`
+                                  : 'No contractor found.'}
+                              </CommandEmpty>
+                              <CommandList className="max-h-72">
+                                {filteredWoContractors.map(c => {
+                                  const types = c.work_types || (c.contractor_type ? [c.contractor_type] : []);
+                                  return (
+                                    <CommandItem
+                                      key={c.contractor_id}
+                                      value={`${c.name} ${types.join(' ')}`}
+                                      onSelect={() => setWoForm(f => ({ ...f, contractor_id: c.contractor_id }))}
+                                      data-testid={`wo-contractor-option-${c.contractor_id}`}
+                                    >
+                                      <Check className={`mr-2 h-4 w-4 ${woForm.contractor_id === c.contractor_id ? 'opacity-100' : 'opacity-0'}`} />
+                                      <div className="flex-1 min-w-0">
+                                        <div className="truncate">{c.name}</div>
+                                        {types.length > 0 && (
+                                          <div className="text-[10px] text-gray-500 truncate">{types.join(', ')}</div>
+                                        )}
+                                      </div>
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </div>
                     <div><Label className="text-xs">Notes</Label><Textarea value={woForm.notes} onChange={e => setWoForm(f => ({ ...f, notes: e.target.value }))} placeholder="Work order notes..." rows={2} data-testid="wo-notes" /></div>
