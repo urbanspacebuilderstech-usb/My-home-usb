@@ -360,6 +360,9 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [projectData, setProjectData] = useState(null);
   const [activeTab, setActiveTab] = useState('rough-estimate');
+  // Project income (used by the Advance card + auto-injected schedule row).
+  // Fetched once per project; refreshed whenever fetchData runs.
+  const [projectIncomeEntries, setProjectIncomeEntries] = useState([]);
   
   // Bulk dialog states
   const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
@@ -531,7 +534,7 @@ export default function ProjectDetail() {
       }
       
       // Run ALL data fetches in parallel
-      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes] = await Promise.all([
+      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes, incomeRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/full-details`),
         axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
@@ -546,6 +549,7 @@ export default function ProjectDetail() {
         axios.get(`${API}/vendor-categories`).catch(() => null),
         axios.get(`${API}/purchase-orders?project_id=${projectId}`).catch(() => null),
         axios.get(`${API}/packages`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/income`).catch(() => null),
       ]);
       
       setProjectData(projectRes.data);
@@ -562,6 +566,13 @@ export default function ProjectDetail() {
       if (vendorCatsRes) setVendorCategories(vendorCatsRes.data || []);
       if (poRes) setPurchaseOrders(poRes.data || []);
       if (pkgRes) setAllPackages(pkgRes.data || []);
+      // Project income (used by Advance card + auto-injected schedule row)
+      // Endpoint returns { entries: [...], summary: {...} }
+      // — capture the entries list defensively whatever shape the BE returns.
+      if (incomeRes) {
+        const ent = incomeRes.data?.entries || incomeRes.data || [];
+        setProjectIncomeEntries(Array.isArray(ent) ? ent : []);
+      }
 
       // Load work orders, contractors, attendance, inventory
       try {
@@ -3278,7 +3289,7 @@ export default function ProjectDetail() {
                 // If `payment_stages` already has an `is_advance` row, we prefer
                 // its `received_amount` (more precise — it ties to a specific stage).
                 const stageAdvance = payment_stages.find(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
-                const sortedIncome = (incomeEntries || []).slice().sort((a, b) => {
+                const sortedIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                   const da = new Date(a.received_date || a.created_at || 0).getTime();
                   const db = new Date(b.received_date || b.created_at || 0).getTime();
                   return da - db;
@@ -3687,7 +3698,7 @@ export default function ProjectDetail() {
                       const stages = (payment_stages || []);
                       const hasExplicitAdvance = stages.some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
                       const totalValueForRow = summary?.scope_total || projectData?.project?.total_value || 0;
-                      const earliestIncome = (incomeEntries || []).slice().sort((a, b) => {
+                      const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                         const da = new Date(a.received_date || a.created_at || 0).getTime();
                         const db = new Date(b.received_date || b.created_at || 0).getTime();
                         return da - db;
