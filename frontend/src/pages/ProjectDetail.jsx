@@ -2439,80 +2439,78 @@ export default function ProjectDetail() {
                     const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
                     if (!fe.public_token && !canSendToClient) return null;
                     return (
-                      <div className="mt-3 rounded border bg-white p-3" data-testid="fe-public-link-block">
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Client Public Link</span>
+                      <div className="mt-2 rounded border bg-white px-2.5 py-1.5" data-testid="fe-public-link-block">
+                        {/* Compact single-row layout */}
+                        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 shrink-0">Client Link</span>
                           {fe.public_token ? (
-                            <Badge className="bg-blue-100 text-blue-700 text-[10px]">Live</Badge>
+                            <Badge className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0 shrink-0">Live</Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px]">Not generated yet</Badge>
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0">Not generated</Badge>
                           )}
-                          {fe.sent_to_client_at && (
-                            <span className="text-[10px] text-gray-400 ml-auto">
-                              Last sent: {new Date(fe.sent_to_client_at).toLocaleString()}
-                            </span>
-                          )}
-                        </div>
-
-                        {fe.public_token && (
-                          <div className="flex items-center gap-2 flex-wrap">
+                          {fe.public_token && (
                             <input
                               readOnly
                               value={publicUrl}
-                              className="flex-1 min-w-0 text-xs border rounded px-2 py-1.5 bg-gray-50 font-mono text-gray-700"
+                              className="flex-1 min-w-0 text-[11px] border rounded px-1.5 py-0.5 bg-gray-50 font-mono text-gray-600 truncate"
                               onFocus={(e) => e.target.select()}
                               data-testid="fe-public-url-input"
                             />
+                          )}
+                          {fe.public_token && (
+                            <>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 shrink-0"
+                                title="Copy link"
+                                onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('Public link copied'); }}
+                                data-testid="fe-public-url-copy"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 shrink-0"
+                                title="Open link"
+                                onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
+                                data-testid="fe-public-url-open"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
+                          )}
+                          {canSendToClient && (
                             <Button
                               type="button"
                               size="sm"
-                              variant="outline"
-                              className="h-8 text-xs"
-                              onClick={() => {
-                                navigator.clipboard.writeText(publicUrl);
-                                toast.success('Public link copied');
+                              className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700 shrink-0"
+                              onClick={async () => {
+                                const isFirst = !fe.public_token;
+                                const msg = isFirst
+                                  ? 'Generate a permanent client-facing link for this Final Estimate?'
+                                  : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
+                                if (!window.confirm(msg)) return;
+                                try {
+                                  await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
+                                  toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
+                                  fetchProject();
+                                } catch (err) {
+                                  toast.error(err.response?.data?.detail || 'Failed to send to client');
+                                }
                               }}
-                              data-testid="fe-public-url-copy"
+                              data-testid="fe-send-to-client-btn"
                             >
-                              <Copy className="h-3.5 w-3.5 mr-1" /> Copy
+                              <Send className="h-3 w-3 mr-1" />
+                              {fe.public_token ? 'Re-send' : 'Send to Client'}
                             </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              className="h-8 text-xs"
-                              onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
-                              data-testid="fe-public-url-open"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5 mr-1" /> Open
-                            </Button>
-                          </div>
-                        )}
-
-                        {canSendToClient && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="mt-2 h-8 text-xs bg-blue-600 hover:bg-blue-700"
-                            onClick={async () => {
-                              const isFirst = !fe.public_token;
-                              const msg = isFirst
-                                ? 'Generate a permanent client-facing link for this Final Estimate?'
-                                : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
-                              if (!window.confirm(msg)) return;
-                              try {
-                                await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
-                                toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
-                                fetchProject();
-                              } catch (err) {
-                                toast.error(err.response?.data?.detail || 'Failed to send to client');
-                              }
-                            }}
-                            data-testid="fe-send-to-client-btn"
-                          >
-                            <Send className="h-3.5 w-3.5 mr-1" />
-                            {fe.public_token ? 'Re-send Client Link' : 'Send for Client Approval'}
-                          </Button>
+                          )}
+                        </div>
+                        {fe.sent_to_client_at && (
+                          <div className="text-[9px] text-gray-400 mt-0.5">Last sent: {new Date(fe.sent_to_client_at).toLocaleString()}</div>
                         )}
                       </div>
                     );
