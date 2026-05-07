@@ -285,7 +285,10 @@ export default function PlanningBoard() {
   const [vendorSearch, setVendorSearch] = useState('');
   const [vendorDialog, setVendorDialog] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null);
-  const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
+  const [vendorForm, setVendorForm] = useState({ name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0, bank_name: '', account_number: '', ifsc_code: '' });
+  // Sub-tab inside the Material Vendors view: 'vendors' (default) or 'materials'
+  const [materialSubTab, setMaterialSubTab] = useState('vendors');
+  const [vendorTabIdx, setVendorTabIdx] = useState('basic');
 
   // Monthly Payment Schedule
   const [monthlySchedule, setMonthlySchedule] = useState({ entries: [], summary: {} });
@@ -733,7 +736,26 @@ export default function PlanningBoard() {
   // === VENDOR HANDLERS ===
   const openVendorDialog = (v = null) => {
     setEditingVendor(v);
-    setVendorForm(v ? { name: v.name, contact_person: v.contact_person || '', phone: v.phone || '', email: v.email || '', address: v.address || '', gst_number: v.gst_number || '', materials_supplied: v.materials_supplied || [], payment_terms: v.payment_terms || 'full', credit_limit: v.credit_limit || 0, credit_days: v.credit_days || 0 } : { name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '', materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0 });
+    setVendorTabIdx('basic');
+    setVendorForm(v ? {
+      name: v.name,
+      contact_person: v.contact_person || '',
+      phone: v.phone || '',
+      email: v.email || '',
+      address: v.address || '',
+      gst_number: v.gst_number || '',
+      materials_supplied: v.materials_supplied || [],
+      payment_terms: v.payment_terms || 'full',
+      credit_limit: v.credit_limit || 0,
+      credit_days: v.credit_days || 0,
+      bank_name: v.bank_name || '',
+      account_number: v.account_number || '',
+      ifsc_code: v.ifsc_code || '',
+    } : {
+      name: '', contact_person: '', phone: '', email: '', address: '', gst_number: '',
+      materials_supplied: [], payment_terms: 'full', credit_limit: 0, credit_days: 0,
+      bank_name: '', account_number: '', ifsc_code: '',
+    });
     setVendorDialog(true);
   };
   const handleSaveVendor = async () => {
@@ -1582,6 +1604,72 @@ export default function PlanningBoard() {
 
           {/* ==================== MATERIAL VENDORS ==================== */}
           <TabsContent value="material_vendors">
+            {/* Sub-tab strip — Material Vendor | Materials (mirrors Contractors tab) */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap" data-testid="material-subtabs">
+              <button
+                onClick={() => setMaterialSubTab('vendors')}
+                className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${materialSubTab === 'vendors' ? 'bg-teal-50 text-teal-700 border border-teal-300' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                data-testid="material-subtab-vendors"
+              >
+                Material Vendor <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{filteredVendors.length}</Badge>
+              </button>
+              <button
+                onClick={() => setMaterialSubTab('materials')}
+                className={`px-3 py-1.5 rounded-md text-xs sm:text-sm font-medium transition-colors ${materialSubTab === 'materials' ? 'bg-teal-50 text-teal-700 border border-teal-300' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}
+                data-testid="material-subtab-materials"
+              >
+                Materials <Badge className="ml-1 bg-gray-100 text-gray-700 text-[10px]">{materials.length}</Badge>
+              </button>
+            </div>
+
+            {materialSubTab === 'materials' ? (
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-teal-600" />Materials ({filteredMaterials.length})</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <div className="relative"><Search className="absolute left-2.5 top-2 h-4 w-4 text-gray-400" /><Input placeholder="Search..." value={materialSearch} onChange={(e) => setMaterialSearch(e.target.value)} className="pl-8 h-8 w-40 text-sm" /></div>
+                      <Button size="sm" onClick={() => openMaterialDialog()} className="bg-teal-600 hover:bg-teal-700" data-testid="add-material-btn"><Plus className="h-4 w-4 mr-1" />Add Material</Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm" data-testid="materials-table">
+                      <thead className="bg-gray-50 border-y">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Category</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Unit</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden md:table-cell">HSN</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredMaterials.length === 0 ? (
+                          <tr><td colSpan="6" className="p-8 text-center text-gray-400">No materials found. Click "Add Material" to create one.</td></tr>
+                        ) : filteredMaterials.map(m => (
+                          <tr key={m.material_id} className={`hover:bg-gray-50 ${!m.is_active ? 'opacity-50' : ''}`} data-testid={`material-row-${m.material_id}`}>
+                            <td className="px-4 py-2.5"><p className="font-medium">{m.name}</p>{m.description && <p className="text-xs text-gray-400 truncate max-w-[200px]">{m.description}</p>}</td>
+                            <td className="px-4 py-2.5 hidden sm:table-cell text-xs capitalize">{(m.category || '').replace(/_/g, ' ')}</td>
+                            <td className="px-4 py-2.5 hidden sm:table-cell text-xs">{m.unit || '-'}</td>
+                            <td className="px-4 py-2.5 hidden md:table-cell text-xs">{m.hsn_code || '-'}</td>
+                            <td className="px-4 py-2.5 text-center">{m.is_active !== false ? <Badge className="bg-green-100 text-green-700 text-xs">Active</Badge> : <Badge className="bg-gray-100 text-gray-500 text-xs">Hidden</Badge>}</td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex justify-center gap-1">
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openMaterialDialog(m)} data-testid={`edit-material-${m.material_id}`}><Edit className="h-3 w-3" /></Button>
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleToggleMaterial(m)} data-testid={`toggle-material-${m.material_id}`}>{m.is_active !== false ? <EyeOff className="h-3 w-3 text-gray-500" /> : <Eye className="h-3 w-3 text-green-600" />}</Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
             <Card>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1623,6 +1711,7 @@ export default function PlanningBoard() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* ==================== LABOUR CONTRACTORS ==================== */}
@@ -2066,25 +2155,112 @@ export default function PlanningBoard() {
       </Dialog>
 
       <Dialog open={vendorDialog} onOpenChange={setVendorDialog}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editingVendor ? 'Edit Supplier' : 'Add Supplier'}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Company Name *</Label><Input value={vendorForm.name} onChange={(e) => setVendorForm({ ...vendorForm, name: e.target.value })} className="mt-1" data-testid="vendor-name-input" /></div>
-              <div><Label>Contact Person</Label><Input value={vendorForm.contact_person} onChange={(e) => setVendorForm({ ...vendorForm, contact_person: e.target.value })} className="mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Phone</Label><Input value={vendorForm.phone} onChange={(e) => setVendorForm({ ...vendorForm, phone: e.target.value })} className="mt-1" /></div>
-              <div><Label>Email</Label><Input value={vendorForm.email} onChange={(e) => setVendorForm({ ...vendorForm, email: e.target.value })} className="mt-1" /></div>
-            </div>
-            <div><Label>Address</Label><Input value={vendorForm.address} onChange={(e) => setVendorForm({ ...vendorForm, address: e.target.value })} className="mt-1" /></div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>GST Number</Label><Input value={vendorForm.gst_number} onChange={(e) => setVendorForm({ ...vendorForm, gst_number: e.target.value })} className="mt-1" /></div>
-              <div><Label>Payment Terms</Label><Select value={vendorForm.payment_terms} onValueChange={(v) => setVendorForm({ ...vendorForm, payment_terms: v })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="full">Full</SelectItem><SelectItem value="advance">Advance</SelectItem><SelectItem value="credit">Credit</SelectItem></SelectContent></Select></div>
-            </div>
-            {vendorForm.payment_terms === 'credit' && <div className="grid grid-cols-2 gap-4"><div><Label>Credit Limit</Label><NumericInput value={vendorForm.credit_limit} onChange={(e) => setVendorForm({ ...vendorForm, credit_limit: parseFloat(e.target.value)||0 })} className="mt-1" /></div><div><Label>Credit Days</Label><Input value={vendorForm.credit_days} onChange={(e) => setVendorForm({ ...vendorForm, credit_days: parseInt(e.target.value)||0 })} className="mt-1" /></div></div>}
-            <div><Label>Materials Supplied</Label><div className="flex flex-wrap gap-1 mt-1 max-h-28 overflow-y-auto">{materials.filter(m=>m.is_active!==false).map(m => (<button key={m.material_id} type="button" className={`px-2 py-0.5 text-xs border rounded ${vendorForm.materials_supplied.includes(m.material_id) ? 'bg-teal-100 border-teal-400 text-teal-800' : 'bg-white border-gray-200 text-gray-500'}`} onClick={() => setVendorForm({...vendorForm,materials_supplied:vendorForm.materials_supplied.includes(m.material_id)?vendorForm.materials_supplied.filter(id=>id!==m.material_id):[...vendorForm.materials_supplied,m.material_id]})}>{m.name}</button>))}</div></div>
-          </div>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingVendor ? 'Edit Material Vendor' : 'Add Material Vendor'}</DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Capture vendor info, banking details, and the materials they sell.
+            </DialogDescription>
+          </DialogHeader>
+          <Tabs value={vendorTabIdx} onValueChange={setVendorTabIdx} className="w-full">
+            <TabsList className="grid w-full grid-cols-3" data-testid="vendor-dialog-tabs">
+              <TabsTrigger value="basic" data-testid="vendor-tab-basic">Basic</TabsTrigger>
+              <TabsTrigger value="bank" data-testid="vendor-tab-bank">Bank</TabsTrigger>
+              <TabsTrigger value="materials" data-testid="vendor-tab-materials">Materials they sell</TabsTrigger>
+            </TabsList>
+
+            {/* === BASIC === */}
+            <TabsContent value="basic" className="space-y-4 mt-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Company Name <span className="text-red-500">*</span></Label><Input value={vendorForm.name} onChange={(e) => setVendorForm({ ...vendorForm, name: e.target.value })} className="mt-1" data-testid="vendor-name-input" /></div>
+                <div><Label>Contact Person</Label><Input value={vendorForm.contact_person} onChange={(e) => setVendorForm({ ...vendorForm, contact_person: e.target.value })} className="mt-1" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Phone</Label><Input value={vendorForm.phone} onChange={(e) => setVendorForm({ ...vendorForm, phone: e.target.value })} className="mt-1" /></div>
+                <div><Label>Email</Label><Input value={vendorForm.email} onChange={(e) => setVendorForm({ ...vendorForm, email: e.target.value })} className="mt-1" /></div>
+              </div>
+              <div><Label>Address</Label><Input value={vendorForm.address} onChange={(e) => setVendorForm({ ...vendorForm, address: e.target.value })} className="mt-1" /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>GST Number</Label><Input value={vendorForm.gst_number} onChange={(e) => setVendorForm({ ...vendorForm, gst_number: e.target.value })} className="mt-1" /></div>
+                <div><Label>Payment Terms</Label><Select value={vendorForm.payment_terms} onValueChange={(v) => setVendorForm({ ...vendorForm, payment_terms: v })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="full">Full</SelectItem><SelectItem value="advance">Advance</SelectItem><SelectItem value="credit">Credit</SelectItem></SelectContent></Select></div>
+              </div>
+              {vendorForm.payment_terms === 'credit' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>Credit Limit</Label><NumericInput value={vendorForm.credit_limit} onChange={(e) => setVendorForm({ ...vendorForm, credit_limit: parseFloat(e.target.value)||0 })} className="mt-1" /></div>
+                  <div><Label>Credit Days</Label><Input value={vendorForm.credit_days} onChange={(e) => setVendorForm({ ...vendorForm, credit_days: parseInt(e.target.value)||0 })} className="mt-1" /></div>
+                </div>
+              )}
+            </TabsContent>
+
+            {/* === BANK === */}
+            <TabsContent value="bank" className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><Label>Bank Name</Label><Input value={vendorForm.bank_name} onChange={(e) => setVendorForm({ ...vendorForm, bank_name: e.target.value })} className="mt-1" placeholder="e.g., HDFC Bank" data-testid="vendor-bank-input" /></div>
+                <div><Label>Account Number</Label><Input value={vendorForm.account_number} onChange={(e) => setVendorForm({ ...vendorForm, account_number: e.target.value })} className="mt-1" data-testid="vendor-account-input" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><Label>IFSC Code</Label><Input value={vendorForm.ifsc_code} onChange={(e) => setVendorForm({ ...vendorForm, ifsc_code: e.target.value.toUpperCase() })} className="mt-1 uppercase" placeholder="e.g., HDFC0001234" data-testid="vendor-ifsc-input" /></div>
+              </div>
+              <p className="text-[11px] text-gray-500 italic">Bank details are used when generating payouts and reconciling cheques.</p>
+            </TabsContent>
+
+            {/* === MATERIALS THEY SELL === */}
+            <TabsContent value="materials" className="space-y-3 mt-4">
+              <Label>Materials they sell</Label>
+              {/* Multi-select dropdown with checkboxes — pulled from the Materials master */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    className="w-full justify-between font-normal h-9"
+                    data-testid="vendor-materials-select"
+                  >
+                    <span className="truncate text-left">
+                      {vendorForm.materials_supplied && vendorForm.materials_supplied.length > 0
+                        ? vendorForm.materials_supplied.map(id => getMaterialName(id)).join(', ')
+                        : <span className="text-gray-400">Select material(s)</span>}
+                    </span>
+                    <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <div className="max-h-72 overflow-y-auto py-1">
+                    {materials.filter(m => m.is_active !== false).length === 0 && (
+                      <p className="text-[11px] text-gray-400 italic px-3 py-2">
+                        Tip: Add materials under the "Materials" sub-tab.
+                      </p>
+                    )}
+                    {materials.filter(m => m.is_active !== false).map(m => {
+                      const checked = (vendorForm.materials_supplied || []).includes(m.material_id);
+                      return (
+                        <label
+                          key={m.material_id}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-sm"
+                          data-testid={`vendor-material-option-${m.material_id}`}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              const cur = vendorForm.materials_supplied || [];
+                              setVendorForm({
+                                ...vendorForm,
+                                materials_supplied: v ? [...cur, m.material_id] : cur.filter(id => id !== m.material_id),
+                              });
+                            }}
+                          />
+                          <span className="flex-1">{m.name}</span>
+                          {m.unit && <span className="text-[10px] text-gray-400">{m.unit}</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <p className="text-[11px] text-gray-500 italic">Selected materials become the auto-suggest list when raising POs against this vendor.</p>
+            </TabsContent>
+          </Tabs>
           <DialogFooter><Button variant="outline" onClick={() => setVendorDialog(false)}>Cancel</Button><Button onClick={handleSaveVendor} className="bg-teal-600 hover:bg-teal-700" data-testid="save-vendor-btn">{editingVendor ? 'Update' : 'Create'}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
