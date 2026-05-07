@@ -3620,8 +3620,13 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
     
     imported = 0
     skipped_duplicates = 0
+    skipped_invalid = 0
     errors = []
     warnings = []
+
+    import re as _re
+    PAN_RE = _re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+    AADHAR_RE = _re.compile(r"^\d{12}$")
 
     def _safe_float(value, row_no, row_name, field, warn_list):
         """Tolerant float(): returns 0.0 + appends a warning on bad values."""
@@ -3635,6 +3640,48 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
             )
             return 0.0
 
+    def _validate_row(emp, row_no, row_name):
+        """Returns list of column-misalignment issues. Empty list = row is OK to import.
+
+        Catches CSV-parsing breakage where unquoted commas in an address field shift
+        every subsequent column. We flag a row as misaligned if a canonical numeric/format
+        field clearly contains free text (e.g., aadhar='Sarvana Nagar', basic_salary='Mason',
+        IFSC has digits-only, etc.).
+        """
+        issues = []
+        # Aadhar: must be 12 digits (or empty)
+        a = (emp.get("aadhar_number") or "").strip().replace(" ", "").replace("-", "")
+        if a and not (AADHAR_RE.match(a) or AADHAR_RE.match(a.replace(".0", ""))):
+            # Allow scientific notation common from Excel export, e.g., 6.06602E+11
+            try:
+                f = float(a)
+                if not (1e11 <= f < 1e12):
+                    issues.append(f"aadhar='{a[:30]}'")
+            except (ValueError, TypeError):
+                issues.append(f"aadhar='{a[:30]}'")
+        # PAN: must match standard format (or empty)
+        p = (emp.get("pan_number") or "").strip().upper()
+        if p and not PAN_RE.match(p):
+            issues.append(f"pan='{p[:30]}'")
+        # All salary fields must be numeric or empty (string text = misaligned column)
+        for fld in ("basic_salary", "hra", "da", "ta", "other_allowances",
+                    "pf", "esi", "professional_tax", "tds", "other_deductions"):
+            v = emp.get(fld)
+            if v in (None, "", "-"):
+                continue
+            try:
+                float(str(v).replace(",", "").strip())
+            except (ValueError, TypeError):
+                issues.append(f"{fld}='{str(v)[:30]}'")
+        # Sanity check: salary > 1 crore is almost certainly a mis-aligned Aadhar/account
+        try:
+            bs = float(str(emp.get("basic_salary") or 0).replace(",", "").strip())
+            if bs > 10_000_000:  # > 1 crore base salary is almost always bad
+                issues.append(f"basic_salary={int(bs):,} (unrealistic — likely shifted column)")
+        except (ValueError, TypeError):
+            pass
+        return issues
+
     for idx, emp in enumerate(employees):
         try:
             if not emp.get("name"):
@@ -3645,6 +3692,15 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
             row_name = emp.get("name", "").strip()
             email_norm = (emp.get("email") or "").strip().lower()
             phone_norm = (emp.get("phone") or "").strip()
+
+            # ---- Strict validation: reject mangled rows ----
+            issues = _validate_row(emp, row_no, row_name)
+            if issues:
+                skipped_invalid += 1
+                errors.append(
+                    f"Row {row_no} ({row_name}): SKIPPED — column misalignment detected → " + "; ".join(issues[:3])
+                )
+                continue
 
             # ---- Duplicate detection ----
             # Match by email (if non-empty) OR by phone (if non-empty) so
@@ -3735,7 +3791,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         except Exception as e:
             errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
     
-    return {"imported": imported, "skipped_duplicates": skipped_duplicates, "errors": errors, "warnings": warnings, "total": len(employees)}
+    return {"imported": imported, "skipped_duplicates": skipped_duplicates, "skipped_invalid": skipped_invalid, "errors": errors, "warnings": warnings, "total": len(employees)}
 
 
 

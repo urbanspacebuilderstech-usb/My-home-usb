@@ -260,9 +260,10 @@ export default function HRPortal() {
     setImporting(true);
     try {
       const res = await axios.post(`${API}/hr/staff/bulk-import`, { employees: importData });
-      const { imported = 0, skipped_duplicates = 0, errors = [], warnings = [] } = res.data;
+      const { imported = 0, skipped_duplicates = 0, skipped_invalid = 0, errors = [], warnings = [] } = res.data;
       const summary = `Imported ${imported}` +
-        (skipped_duplicates ? `, skipped ${skipped_duplicates} duplicate${skipped_duplicates > 1 ? 's' : ''}` : '') +
+        (skipped_duplicates ? `, ${skipped_duplicates} duplicate${skipped_duplicates > 1 ? 's' : ''} skipped` : '') +
+        (skipped_invalid ? `, ${skipped_invalid} invalid row${skipped_invalid > 1 ? 's' : ''} rejected` : '') +
         (warnings.length ? `, ${warnings.length} warning${warnings.length > 1 ? 's' : ''}` : '');
       toast.success(summary);
       // Hard errors → red toasts
