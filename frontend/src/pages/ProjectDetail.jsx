@@ -1865,6 +1865,112 @@ export default function ProjectDetail() {
     window.location.href = `/planning-board?tab=${tab}`;
   };
 
+  // Shared top section for all 3 FE sub-tabs (Final Estimate / Additional / Deductions):
+  //   1. Total card on top
+  //   2. Sub-tab strip with FE Link icons docked to the right corner
+  // Pass `current` to highlight which sub-tab is active.
+  const renderFeTopSection = (current) => {
+    const fe = project?.fe || {};
+    const canSendToClient = (user?.role === 'cre' || user?.role === 'super_admin');
+    const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
+    const showLinkCorner = !!fe.public_token || canSendToClient;
+
+    const feTotal = summary?.scope_total || 0;
+    const addTotal = (additional_costs || []).reduce((s, a) => s + (a.estimated_amount || 0), 0);
+    const dedTotal = (deductions || []).reduce((s, d) => s + (d.amount || 0), 0);
+    const grand = feTotal + addTotal - dedTotal;
+    const showTotal = scope_items.length > 0 || addTotal > 0 || dedTotal > 0;
+
+    const tabBtn = (key, label) => (
+      <button
+        onClick={() => setActiveTab(key)}
+        className={`px-3 py-2 text-sm font-medium border-b-2 ${
+          current === key ? 'border-amber-500 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'
+        }`}
+        data-testid={`fe-subnav-${key}`}
+      >
+        {label}
+      </button>
+    );
+
+    return (
+      <>
+        {showTotal && (
+          <div className="mb-3 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-3 sm:p-4" data-testid="fe-grand-total-card">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-2">
+              <div>
+                <div className="text-gray-500">Final Estimate</div>
+                <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-emerald-600">+ Additional</div>
+                <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
+              </div>
+              <div>
+                <div className="text-red-600">− Deductions</div>
+                <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex items-end justify-between border-t border-amber-200 pt-2">
+              <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
+              <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
+        {canSeeFinancials && (
+          <div className="mb-4 flex items-center gap-1 border-b" data-testid={`fe-subnav-${current}-strip`}>
+            {tabBtn('scope', 'Final Estimate')}
+            {tabBtn('additions', 'Additional')}
+            {tabBtn('deductions', 'Deductions')}
+            {showLinkCorner && (
+              <div className="ml-auto flex items-center gap-1 pb-1" data-testid="fe-link-corner">
+                {fe.public_token && (
+                  <>
+                    <Badge className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0 h-5">FE Link</Badge>
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
+                      title={`Copy: ${publicUrl}`}
+                      onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('FE link copied'); }}
+                      data-testid="fe-public-url-copy">
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
+                      title={`Open: ${publicUrl}`}
+                      onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
+                      data-testid="fe-public-url-open">
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+                {canSendToClient && (
+                  <Button type="button" size="sm" className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700"
+                    onClick={async () => {
+                      const isFirst = !fe.public_token;
+                      const msg = isFirst
+                        ? 'Generate a permanent client-facing link for this Final Estimate?'
+                        : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
+                      if (!window.confirm(msg)) return;
+                      try {
+                        await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
+                        toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
+                        fetchProject();
+                      } catch (err) {
+                        toast.error(err.response?.data?.detail || 'Failed to send to client');
+                      }
+                    }}
+                    data-testid="fe-send-to-client-btn">
+                    <Send className="h-3 w-3 mr-1" />
+                    {fe.public_token ? 'Re-send' : 'Send to Client'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Navigation */}
@@ -2382,109 +2488,7 @@ export default function ProjectDetail() {
 
             {/* ==================== FINAL ESTIMATE — SCOPE (sub-tab 1 of 3) ==================== */}
             <TabsContent value="scope" className="p-3 sm:p-6">
-
-              {/* ---- Live FE Grand Total: shown ABOVE sub-tabs as the top-of-page summary ---- */}
-              {scope_items.length > 0 && (() => {
-                const feTotal = summary?.scope_total || 0;
-                const addTotal = (additional_costs || []).reduce((sum, a) => sum + (a.estimated_amount || 0), 0);
-                const dedTotal = (deductions || []).reduce((sum, d) => sum + (d.amount || 0), 0);
-                const grand = feTotal + addTotal - dedTotal;
-                return (
-                  <div className="mb-3 rounded-lg border-2 border-amber-200 bg-gradient-to-br from-amber-50/70 to-white p-3 sm:p-4" data-testid="fe-grand-total-card">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 mb-2">Total Final Estimate Cost</div>
-                    <div className="grid grid-cols-3 gap-2 sm:gap-4 text-xs mb-2">
-                      <div>
-                        <div className="text-gray-500">Final Estimate</div>
-                        <div className="font-semibold text-gray-900">₹{feTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-emerald-600">+ Additional</div>
-                        <div className="font-semibold text-emerald-700">₹{addTotal.toLocaleString()}</div>
-                      </div>
-                      <div>
-                        <div className="text-red-600">− Deductions</div>
-                        <div className="font-semibold text-red-700">₹{dedTotal.toLocaleString()}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-end justify-between border-t border-amber-200 pt-2">
-                      <span className="text-xs text-gray-500">(FE + Additional) − Deductions</span>
-                      <span className="text-lg sm:text-2xl font-bold text-amber-800" data-testid="fe-grand-total-value">₹{grand.toLocaleString()}</span>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Sub-nav: Final Estimate | Additional | Deductions  +  right-aligned compact Client Link group */}
-              {canSeeFinancials && (
-                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav">
-                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700" data-testid="fe-subnav-scope">Final Estimate</button>
-                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-additions">Additional</button>
-                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700" data-testid="fe-subnav-deductions">Deductions</button>
-                  {/* Right corner: compact FE Client Link controls */}
-                  {(() => {
-                    const fe = project?.fe || {};
-                    const canSendToClient = (user?.role === 'cre' || user?.role === 'super_admin');
-                    const publicUrl = fe.public_token ? `${window.location.origin}/fe/${fe.public_token}` : '';
-                    if (!fe.public_token && !canSendToClient) return null;
-                    return (
-                      <div className="ml-auto flex items-center gap-1 pb-1" data-testid="fe-link-corner">
-                        {fe.public_token && (
-                          <>
-                            <Badge className="bg-blue-100 text-blue-700 text-[9px] px-1.5 py-0 h-5">FE Link</Badge>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title={`Copy: ${publicUrl}`}
-                              onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success('FE link copied'); }}
-                              data-testid="fe-public-url-copy"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title={`Open: ${publicUrl}`}
-                              onClick={() => window.open(publicUrl, '_blank', 'noopener,noreferrer')}
-                              data-testid="fe-public-url-open"
-                            >
-                              <ExternalLink className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                        {canSendToClient && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-7 text-[11px] bg-blue-600 hover:bg-blue-700"
-                            onClick={async () => {
-                              const isFirst = !fe.public_token;
-                              const msg = isFirst
-                                ? 'Generate a permanent client-facing link for this Final Estimate?'
-                                : 'Re-send the existing client link? (Token stays the same; only the timestamp updates.)';
-                              if (!window.confirm(msg)) return;
-                              try {
-                                await axios.post(`${API}/cre/final-estimates/${projectId}/send-to-client`);
-                                toast.success(isFirst ? 'Public link generated' : 'Client link re-sent');
-                                fetchProject();
-                              } catch (err) {
-                                toast.error(err.response?.data?.detail || 'Failed to send to client');
-                              }
-                            }}
-                            data-testid="fe-send-to-client-btn"
-                          >
-                            <Send className="h-3 w-3 mr-1" />
-                            {fe.public_token ? 'Re-send' : 'Send to Client'}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
+              {renderFeTopSection('scope')}
               {/* Final Estimate workflow status banner (visible once flow has started) */}
               {project?.fe?.status && project.fe.status !== 'draft' && (
                 <div className={`mb-4 rounded-lg border p-3 ${
@@ -3740,14 +3744,7 @@ export default function ProjectDetail() {
 
             {/* ==================== ADDITIONS TAB ==================== */}
             <TabsContent value="additions" className="p-6">
-              {/* Sub-nav: Final Estimate | Additional | Deductions */}
-              {canSeeFinancials && (
-                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav-additions-tab">
-                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Final Estimate</button>
-                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700">Additional</button>
-                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Deductions</button>
-                </div>
-              )}
+              {renderFeTopSection('additions')}
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Additional Work</h3>
@@ -3978,14 +3975,7 @@ export default function ProjectDetail() {
 
             {/* ==================== DEDUCTIONS TAB ==================== */}
             <TabsContent value="deductions" className="p-6">
-              {/* Sub-nav: Final Estimate | Additional | Deductions */}
-              {canSeeFinancials && (
-                <div className="mb-4 flex items-center gap-1 border-b" data-testid="fe-subnav-deductions-tab">
-                  <button onClick={() => setActiveTab('scope')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Final Estimate</button>
-                  <button onClick={() => setActiveTab('additions')} className="px-3 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">Additional</button>
-                  <button onClick={() => setActiveTab('deductions')} className="px-3 py-2 text-sm font-medium border-b-2 border-amber-500 text-amber-700">Deductions</button>
-                </div>
-              )}
+              {renderFeTopSection('deductions')}
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-lg font-bold">Deductions</h3>
