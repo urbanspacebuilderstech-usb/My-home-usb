@@ -348,75 +348,8 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
         </Card>
       )}
 
-      {/* Stage-wise Payment Schedule */}
-      <div>
-        <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Stage-wise Payment Schedule
-        </h4>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b-2 border-gray-200">
-              <tr>
-                <th className="px-3 py-3 text-left font-semibold">S.No</th>
-                <th className="px-3 py-3 text-left font-semibold">Payment Stage</th>
-                <th className="px-3 py-3 text-right font-semibold">%</th>
-                <th className="px-3 py-3 text-right font-semibold">Amount</th>
-                <th className="px-3 py-3 text-right font-semibold">Received</th>
-                <th className="px-3 py-3 text-center font-semibold">Mode</th>
-                <th className="px-3 py-3 text-center font-semibold">Date</th>
-                <th className="px-3 py-3 text-center font-semibold">Status</th>
-                <th className="px-3 py-3 text-left font-semibold">Remarks</th>
-                {(user?.role === 'cre' || user?.role === 'super_admin') && (
-                  <th className="px-3 py-3 text-center font-semibold">Action</th>
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {(!paymentSummary?.payment_stages || paymentSummary.payment_stages.length === 0) ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-500">No payment schedule created yet.</td></tr>
-              ) : paymentSummary.payment_stages.map((stage, idx) => {
-                const isPaid = stage.status === 'paid';
-                return (
-                  <tr key={stage.stage_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`}>
-                    <td className="px-3 py-3 font-medium">{stage.stage_label || idx + 1}</td>
-                    <td className="px-3 py-3 max-w-xs"><p className="font-medium truncate">{stage.stage_name}</p></td>
-                    <td className="px-3 py-3 text-right">{stage.percentage}%</td>
-                    <td className="px-3 py-3 text-right font-semibold">{formatCurrency(stage.amount)}</td>
-                    <td className="px-3 py-3 text-right font-semibold text-green-600">{formatCurrency(stage.amount_received || 0)}</td>
-                    <td className="px-3 py-3 text-center text-xs">
-                      {stage.payment_mode ? <Badge variant="outline" className="capitalize">{stage.payment_mode.replace('_', ' ')}</Badge> : '-'}
-                    </td>
-                    <td className="px-3 py-3 text-center text-xs">{stage.payment_date ? new Date(stage.payment_date).toLocaleDateString('en-IN') : '-'}</td>
-                    <td className="px-3 py-3 text-center">{getPaymentStatusBadge(stage.status)}</td>
-                    <td className="px-3 py-3 text-xs text-gray-500 max-w-xs truncate">{stage.remarks || '-'}</td>
-                    {(user?.role === 'cre' || user?.role === 'super_admin') && (
-                      <td className="px-3 py-3 text-center">
-                        {!isPaid ? (
-                          <Button size="sm" variant="outline" className="text-green-600 border-green-300 hover:bg-green-50"
-                            onClick={() => openCollectDialog(stage)}>
-                            <DollarSign className="h-3 w-3 mr-1" /> Collect
-                          </Button>
-                        ) : <CheckCircle2 className="h-5 w-5 text-green-600 mx-auto" />}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-            {paymentSummary?.payment_stages?.length > 0 && (
-              <tfoot className="bg-gray-100 font-semibold">
-                <tr>
-                  <td colSpan={2} className="px-3 py-3">Total</td>
-                  <td className="px-3 py-3 text-right">100%</td>
-                  <td className="px-3 py-3 text-right">{formatCurrency(paymentSummary.summary?.total_scheduled)}</td>
-                  <td className="px-3 py-3 text-right text-green-600">{formatCurrency(paymentSummary.summary?.total_received)}</td>
-                  <td colSpan={5}></td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
+      {/* Stage-wise Payment Schedule removed — already shown in the dedicated
+          "Payment Schedule" tab. Keeps Payment Summary focused on totals + cheques. */}
     </div>
   );
 }
@@ -2364,17 +2297,15 @@ export default function ProjectDetail() {
                   Materials
                 </TabsTrigger>
                 <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
-                  Labours
+                  Work Order (Labour)
                 </TabsTrigger>
                 {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
-                  Payments
+                  Payment Schedule
                 </TabsTrigger>}
                 {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
-                  Summary
+                  Payment Summary
                 </TabsTrigger>}
-                {canSeeFinancials && <TabsTrigger value="cheques" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-cheques">
-                  Cheques
-                </TabsTrigger>}
+                {/* Cheques tab moved INSIDE Payment Summary as a sub-tab — kept as a hidden mount-point so /tab=cheques deep links still resolve */}
                 <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Documents
                 </TabsTrigger>
@@ -4330,16 +4261,28 @@ export default function ProjectDetail() {
 
             {/* ==================== PAYMENT SUMMARY TAB ==================== */}
             <TabsContent value="payment-summary" className="p-3 sm:p-6">
-              <PaymentSummarySection
-                user={user}
-                projectId={projectId}
-                paymentSummary={paymentSummary}
-                formatCurrency={formatCurrency}
-                getPaymentStatusBadge={getPaymentStatusBadge}
-                openCollectDialog={openCollectDialog}
-              />
-
-              {/* Advance Payment Card */}
+              {/* Inner sub-tabs: Summary totals | Cheques (Cheques was a top-level
+                  tab before — moved here per user request to keep the project
+                  header less cluttered). */}
+              <Tabs defaultValue="summary" className="w-full">
+                <TabsList className="mb-4" data-testid="payment-summary-subtabs">
+                  <TabsTrigger value="summary" data-testid="ps-subtab-summary">Summary</TabsTrigger>
+                  <TabsTrigger value="cheques" data-testid="ps-subtab-cheques">Cheques</TabsTrigger>
+                </TabsList>
+                <TabsContent value="summary">
+                  <PaymentSummarySection
+                    user={user}
+                    projectId={projectId}
+                    paymentSummary={paymentSummary}
+                    formatCurrency={formatCurrency}
+                    getPaymentStatusBadge={getPaymentStatusBadge}
+                    openCollectDialog={openCollectDialog}
+                  />
+                </TabsContent>
+                <TabsContent value="cheques">
+                  {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
 
@@ -6202,10 +6145,7 @@ export default function ProjectDetail() {
               </div>
             </TabsContent>
 
-            {/* ==================== CHEQUES TAB ==================== */}
-            <TabsContent value="cheques" className="p-3 sm:p-6">
-              {projectId && <ChequeListView scope="project" projectId={projectId} userRole={user?.role} />}
-            </TabsContent>
+            {/* Cheques TabsContent removed — moved as a sub-tab under Payment Summary. */}
 
             {/* ==================== DOCUMENTS TAB ==================== */}
             <TabsContent value="documents" className="p-3 sm:p-6">
