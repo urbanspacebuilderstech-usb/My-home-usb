@@ -9,6 +9,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const ROLE_NAV = {
   super_admin: [
+    { label: 'Finance Board', path: '/finance-board' },
     { label: 'My Dashboard', path: '/dashboard' },
     { label: 'All Projects', path: '/projects' },
     { label: 'Finance', path: '/financial-overview' },
@@ -143,6 +144,12 @@ function getModuleKey(pathname, role) {
 export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions }) {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // When this page is hosted inside the Finance Board iframe, the parent
+  // already shows the brand + nav — render nothing to avoid a stacked header.
+  if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embedded') === '1') {
+    return null;
+  }
 
   const handleLogout = async () => {
     try { await axios.post(`${API}/auth/logout`, {}, { withCredentials: true }); } catch {}

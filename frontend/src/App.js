@@ -41,6 +41,7 @@ import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
 import AccountsBoard from '@/pages/AccountsBoard';
 import ProjectFinance from '@/pages/ProjectFinance';
+import FinanceBoard from '@/pages/FinanceBoard';
 import Cashbook from '@/pages/Cashbook';
 import HRPortal from '@/pages/HRPortal';
 import ChequeManagement from '@/pages/ChequeManagement';
@@ -150,6 +151,7 @@ function AppRouter() {
       <Route path="/accounts-board" element={<ProtectedRoute><AccountsBoard /></ProtectedRoute>} />
       <Route path="/accountant-module" element={<ProtectedRoute><Cashbook /></ProtectedRoute>} />
       <Route path="/accountant-dashboard" element={<ProtectedRoute><ProjectFinance /></ProtectedRoute>} />
+      <Route path="/finance-board" element={<ProtectedRoute><FinanceBoard /></ProtectedRoute>} />
       <Route path="/hr-portal" element={<ProtectedRoute><HRPortal /></ProtectedRoute>} />
       <Route path="/payment-schedule" element={<ProtectedRoute><PaymentSchedulePage /></ProtectedRoute>} />
       <Route path="/cheque-management" element={<ProtectedRoute><ChequeManagement /></ProtectedRoute>} />
