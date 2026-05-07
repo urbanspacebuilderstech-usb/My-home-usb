@@ -3623,7 +3623,8 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
     skipped_duplicates = 0
     skipped_invalid = 0
     errors = []
-    warnings = []
+    warnings = []       # numeric / validation soft warnings
+    info = []           # INSERT/UPDATE notices (never mixed with warnings toast)
 
     import re as _re
     PAN_RE = _re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
@@ -3756,24 +3757,34 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
             aadhar_clean = _normalise_long_number(emp.get("aadhar_number"))
             account_clean = _normalise_long_number(emp.get("account_number"))
 
+            # If EVERY salary field is blank the user clearly isn't providing
+            # salary for this row — don't flood the toast with "defaulted to 0"
+            # warnings.  Use a temporary bucket that only makes it into the
+            # real warnings list if the row actually supplied some values.
+            _salary_fields = ("basic_salary", "hra", "da", "ta", "other_allowances",
+                              "pf", "esi", "professional_tax", "tds", "other_deductions",
+                              "gross_salary", "experience_years")
+            _row_all_empty = all(emp.get(f) in (None, "", "-") for f in _salary_fields)
+            sal_warn_bucket = [] if _row_all_empty else warnings
+
             # Parse salary fields tolerantly — never blow up the row over
             # a bad numeric value; collect a warning instead.
-            basic = _safe_float(emp.get("basic_salary"), row_no, row_name, "basic_salary", warnings)
-            hra = _safe_float(emp.get("hra"), row_no, row_name, "hra", warnings)
-            da = _safe_float(emp.get("da"), row_no, row_name, "da", warnings)
-            ta = _safe_float(emp.get("ta"), row_no, row_name, "ta", warnings)
-            other_allow = _safe_float(emp.get("other_allowances"), row_no, row_name, "other_allowances", warnings)
-            pf = _safe_float(emp.get("pf"), row_no, row_name, "pf", warnings)
-            esi = _safe_float(emp.get("esi"), row_no, row_name, "esi", warnings)
-            pt = _safe_float(emp.get("professional_tax"), row_no, row_name, "professional_tax", warnings)
-            tds = _safe_float(emp.get("tds"), row_no, row_name, "tds", warnings)
-            other_ded = _safe_float(emp.get("other_deductions"), row_no, row_name, "other_deductions", warnings)
-            exp_years = _safe_float(emp.get("experience_years"), row_no, row_name, "experience_years", warnings)
+            basic = _safe_float(emp.get("basic_salary"), row_no, row_name, "basic_salary", sal_warn_bucket)
+            hra = _safe_float(emp.get("hra"), row_no, row_name, "hra", sal_warn_bucket)
+            da = _safe_float(emp.get("da"), row_no, row_name, "da", sal_warn_bucket)
+            ta = _safe_float(emp.get("ta"), row_no, row_name, "ta", sal_warn_bucket)
+            other_allow = _safe_float(emp.get("other_allowances"), row_no, row_name, "other_allowances", sal_warn_bucket)
+            pf = _safe_float(emp.get("pf"), row_no, row_name, "pf", sal_warn_bucket)
+            esi = _safe_float(emp.get("esi"), row_no, row_name, "esi", sal_warn_bucket)
+            pt = _safe_float(emp.get("professional_tax"), row_no, row_name, "professional_tax", sal_warn_bucket)
+            tds = _safe_float(emp.get("tds"), row_no, row_name, "tds", sal_warn_bucket)
+            other_ded = _safe_float(emp.get("other_deductions"), row_no, row_name, "other_deductions", sal_warn_bucket)
+            exp_years = _safe_float(emp.get("experience_years"), row_no, row_name, "experience_years", sal_warn_bucket)
 
             # If user passed `gross_salary` directly (some Excel templates put a single
             # "Gross" column instead of basic/hra/da breakdown), honour it when the
             # per-component fields are all empty.
-            gross_explicit = _safe_float(emp.get("gross_salary"), row_no, row_name, "gross_salary", warnings)
+            gross_explicit = _safe_float(emp.get("gross_salary"), row_no, row_name, "gross_salary", sal_warn_bucket)
             gross = basic + hra + da + ta + other_allow
             if gross == 0 and gross_explicit > 0:
                 gross = gross_explicit
@@ -3830,7 +3841,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
                     {"$set": update_doc}
                 )
                 updated += 1
-                warnings.append(
+                info.append(
                     f"Row {row_no} ({row_name}): UPDATED existing {existing.get('employee_code')}"
                 )
                 continue
@@ -3889,7 +3900,7 @@ async def bulk_import_staff(request: Request, user: User = Depends(get_current_u
         except Exception as e:
             errors.append(f"Row {idx+1} ({emp.get('name','')}): {str(e)}")
     
-    return {"imported": imported, "updated": updated, "skipped_duplicates": skipped_duplicates, "skipped_invalid": skipped_invalid, "errors": errors, "warnings": warnings, "total": len(employees)}
+    return {"imported": imported, "updated": updated, "skipped_duplicates": skipped_duplicates, "skipped_invalid": skipped_invalid, "errors": errors, "warnings": warnings, "info": info, "total": len(employees)}
 
 
 
