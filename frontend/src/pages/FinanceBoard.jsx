@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AppHeader } from '../components/AppHeader';
-import { LineChart, BarChart3, CalendarClock, FolderKanban, Wallet } from 'lucide-react';
+import { LineChart, BarChart3, CalendarClock, FolderKanban } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -30,16 +30,9 @@ export default function FinanceBoard() {
     <div className="min-h-screen bg-gray-50 flex flex-col" data-testid="finance-board">
       <AppHeader user={user} />
 
-      <div className="px-4 lg:px-6 py-3 border-b bg-white">
-        <h1 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-          <Wallet className="h-5 w-5 text-amber-600" /> Finance Board
-        </h1>
-        <p className="text-xs text-gray-500">Unified view of accounts, payment schedules, project-wise finances, and projections.</p>
-      </div>
-
       <Tabs value={active} onValueChange={setActive} className="flex-1 flex flex-col">
         <div className="bg-white border-b px-4 lg:px-6">
-          <TabsList className="bg-transparent h-11 p-0 gap-1" data-testid="finance-board-tabs">
+          <TabsList className="bg-transparent h-10 p-0 gap-1" data-testid="finance-board-tabs">
             {TABS.map(t => (
               <TabsTrigger
                 key={t.value}
@@ -62,7 +55,7 @@ export default function FinanceBoard() {
                 src={t.src}
                 data-testid={`fb-frame-${t.value}`}
                 className="w-full border-0"
-                style={{ height: 'calc(100vh - 7rem)' }}
+                style={{ height: 'calc(100vh - 6rem)' }}
               />
             ) : (
               <div data-testid="fb-projection-placeholder" className="h-[60vh] flex flex-col items-center justify-center text-center px-4">
