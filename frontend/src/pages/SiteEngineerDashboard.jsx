@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye } from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import { AppHeader } from '../components/AppHeader';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -874,21 +875,11 @@ export default function SiteEngineerDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Mobile-friendly Navigation */}
-      <nav className="bg-gradient-to-r from-orange-600 to-orange-700 px-4 py-3 sm:px-6 sm:py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="bg-white/20 p-1.5 sm:p-2 rounded-lg">
-              <HardHat className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-base sm:text-xl font-bold text-white">Site Engineer</h1>
-              <p className="text-xs text-orange-100 hidden sm:block">My Projects</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2 sm:gap-4">
-            {/* Attendance Login/Logout Button */}
+      {/* Standard App Header (Planning-style) */}
+      <AppHeader
+        user={user}
+        headerActions={
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {currentlyLoggedProject ? (
               <Button
                 className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs sm:text-sm animate-pulse"
@@ -902,7 +893,7 @@ export default function SiteEngineerDashboard() {
               </Button>
             ) : (
               <Button
-                className="bg-green-500 hover:bg-green-600 text-white h-8 text-xs sm:text-sm"
+                className="bg-green-600 hover:bg-green-700 text-white h-8 text-xs sm:text-sm"
                 onClick={() => setAttLoginDialog(true)}
                 data-testid="att-login-btn"
               >
@@ -911,18 +902,19 @@ export default function SiteEngineerDashboard() {
                 <span className="sm:hidden">Login</span>
               </Button>
             )}
-            <Button 
-              variant="outline" 
-              className="text-white border-white/50 hover:bg-orange-500 h-8 text-xs sm:text-sm"
+            <Button
+              variant="outline"
+              className="h-8 text-xs sm:text-sm border-amber-300 text-amber-700 hover:bg-amber-50"
               onClick={() => window.location.href = '/site-engineer/material-receipt'}
+              data-testid="material-receipt-btn"
             >
               <Package className="h-4 w-4 mr-1" />
               <span className="hidden sm:inline">Material Receipt</span>
               <span className="sm:hidden">Receipt</span>
             </Button>
-            <Button 
-              variant="outline" 
-              className="text-white border-white/50 hover:bg-orange-500 h-8 text-xs sm:text-sm"
+            <Button
+              variant="outline"
+              className="h-8 text-xs sm:text-sm border-amber-300 text-amber-700 hover:bg-amber-50"
               onClick={() => { setCuringDialog(true); setCuringProject(''); setCuringDone(false); }}
               data-testid="curing-video-btn"
             >
@@ -930,20 +922,9 @@ export default function SiteEngineerDashboard() {
               <span className="hidden sm:inline">Curing Video</span>
               <span className="sm:hidden">Curing</span>
             </Button>
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-white">{user.name}</p>
-              <p className="text-xs text-orange-100">Site Engineer</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white hover:bg-orange-500 h-8 w-8 sm:h-10 sm:w-10">
-              <LogOut className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
           </div>
-        </div>
-        {/* Mobile user info */}
-        <div className="sm:hidden mt-2 pt-2 border-t border-orange-400/50">
-          <p className="text-sm text-white">{user.name}</p>
-        </div>
-      </nav>
+        }
+      />
 
       <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
@@ -954,14 +935,14 @@ export default function SiteEngineerDashboard() {
 
         {/* Stats - Stack on mobile */}
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
             <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
               <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Assigned</CardTitle>
             </CardHeader>
             <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
               <div className="flex items-center gap-1 sm:gap-2">
-                <Building2 className="h-4 w-4 sm:h-6 sm:w-6 text-orange-600" />
-                <span className="text-lg sm:text-2xl font-bold text-orange-700">{projects.length}</span>
+                <Building2 className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
+                <span className="text-lg sm:text-2xl font-bold text-amber-700">{projects.length}</span>
               </div>
             </CardContent>
           </Card>
@@ -1091,7 +1072,7 @@ export default function SiteEngineerDashboard() {
                   <Card 
                     key={project.project_id} 
                     data-testid={`project-card-${project.project_id}`}
-                    className="hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-l-orange-500 active:bg-gray-50"
+                    className="hover:shadow-lg transition-shadow cursor-pointer border-l-4 border-l-amber-500 active:bg-gray-50"
                     onClick={() => window.location.href = `/site-engineer/project/${project.project_id}`}
                   >
                     <CardContent className="p-4 sm:p-6">
@@ -1118,9 +1099,9 @@ export default function SiteEngineerDashboard() {
                           </div>
                           <div className="mt-2 sm:mt-3 flex items-center gap-2 flex-wrap">
                             {project.active_orders > 0 && (
-                              <div className="inline-flex items-center gap-1.5 bg-orange-100 px-2 py-1 rounded-lg">
-                                <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
-                                <span className="text-xs sm:text-sm font-medium text-orange-700">
+                              <div className="inline-flex items-center gap-1.5 bg-amber-100 px-2 py-1 rounded-lg">
+                                <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-amber-600" />
+                                <span className="text-xs sm:text-sm font-medium text-amber-700">
                                   {project.active_orders} Active Orders
                                 </span>
                               </div>

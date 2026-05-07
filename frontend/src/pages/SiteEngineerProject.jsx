@@ -24,6 +24,7 @@ import { UnitSelect } from '../components/UnitSelect';
 import OrderDetailDialog from '../components/OrderDetailDialog';
 import WorkOrderTab from '../components/WorkOrderTab';
 import DLRPanel from '../components/DLRPanel';
+import { AppHeader } from '../components/AppHeader';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -618,58 +619,55 @@ export default function SiteEngineerProject() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Mobile Navigation */}
-      <nav className="bg-gradient-to-r from-orange-600 to-orange-700 px-3 py-2 sm:px-6 sm:py-4 sticky top-0 z-50">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => window.location.href = '/site-engineer'}
-              className="text-white hover:bg-orange-500 h-8 w-8"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-0">
-              <h1 className="text-sm sm:text-xl font-bold text-white truncate">{project.name}</h1>
-              <p className="text-xs text-orange-100 truncate hidden sm:block">{project.client_name}</p>
-            </div>
-          </div>
-          
-          <Button variant="ghost" size="icon" onClick={handleLogout} className="text-white hover:bg-orange-500 h-8 w-8">
-            <LogOut className="h-4 w-4" />
+      {/* Standard App Header (Planning-style) */}
+      <AppHeader
+        user={user}
+        headerActions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.location.href = '/site-engineer'}
+            className="h-8 text-xs border-amber-300 text-amber-700 hover:bg-amber-50"
+            data-testid="back-to-projects-btn"
+          >
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" /> Back
           </Button>
-        </div>
-      </nav>
+        }
+      />
 
       <div className="max-w-6xl mx-auto px-3 py-3 sm:px-6 sm:py-8">
+        {/* Project Name Heading */}
+        <div className="mb-3 sm:mb-4">
+          <h1 className="text-lg sm:text-2xl font-bold text-gray-900" data-testid="project-name-heading">{project.name}</h1>
+          <p className="text-xs sm:text-sm text-gray-500">{project.client_name}</p>
+        </div>
         {/* Project Info - Compact on mobile */}
-        <Card className="mb-3 sm:mb-8 bg-gradient-to-r from-orange-50 to-orange-100 border-orange-200">
+        <Card className="mb-3 sm:mb-8 bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
           <CardContent className="p-3 sm:p-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-gray-500">Project</p>
                   <p className="text-xs sm:text-sm font-semibold truncate">{project.name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <Users className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-gray-500">Client</p>
                   <p className="text-xs sm:text-sm font-semibold truncate">{project.client_name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <MapPin className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-gray-500">Location</p>
                   <p className="text-xs sm:text-sm font-semibold truncate">{project.location}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-orange-600 flex-shrink-0" />
+                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-gray-500">Type</p>
                   <p className="text-xs sm:text-sm font-semibold truncate">{project.building_type || 'Building'}</p>
@@ -733,7 +731,7 @@ export default function SiteEngineerProject() {
                   }
                 }}>
                   <DialogTrigger asChild>
-                    <Button data-testid="request-material-btn" size="sm" className="gap-1 bg-orange-600 hover:bg-orange-700 text-xs sm:text-sm whitespace-nowrap">
+                    <Button data-testid="request-material-btn" size="sm" className="gap-1 bg-amber-600 hover:bg-amber-700 text-xs sm:text-sm whitespace-nowrap">
                       <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
                       <span className="hidden sm:inline">Request</span> Order
                     </Button>
@@ -753,7 +751,7 @@ export default function SiteEngineerProject() {
                       <div className="flex rounded-lg border overflow-hidden" data-testid="material-type-toggle">
                         <button
                           type="button"
-                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${materialForm.is_approved ? 'bg-orange-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
                             setMaterialForm({ ...materialForm, is_approved: true, material_id: '', material_name: '', brand: '', unit: 'kg' });
                             setMaterialSearch('');
@@ -764,7 +762,7 @@ export default function SiteEngineerProject() {
                         </button>
                         <button
                           type="button"
-                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${!materialForm.is_approved ? 'bg-orange-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          className={`flex-1 px-3 py-2 text-xs sm:text-sm font-medium transition-colors ${!materialForm.is_approved ? 'bg-amber-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                           onClick={() => {
                             setMaterialForm({ ...materialForm, is_approved: false, material_id: '', material_name: '', brand: '', unit: 'kg' });
                             setMaterialSearch('');
@@ -802,7 +800,7 @@ export default function SiteEngineerProject() {
                                   <button
                                     key={mat.material_id}
                                     type="button"
-                                    className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-orange-50 border-l-4 border-l-orange-500' : 'hover:bg-gray-50'}`}
+                                    className={`w-full text-left px-3 py-2 text-xs sm:text-sm transition-colors ${isSelected ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'hover:bg-gray-50'}`}
                                     onClick={() => {
                                       setMaterialForm({
                                         ...materialForm,
@@ -835,9 +833,9 @@ export default function SiteEngineerProject() {
 
                           {/* Selected material summary */}
                           {materialForm.material_id && (
-                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-2.5" data-testid="selected-material-info">
-                              <p className="text-xs sm:text-sm font-medium text-orange-800">{materialForm.material_name}</p>
-                              {materialForm.brand && <p className="text-xs text-orange-600">Brand: {materialForm.brand}</p>}
+                            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5" data-testid="selected-material-info">
+                              <p className="text-xs sm:text-sm font-medium text-amber-800">{materialForm.material_name}</p>
+                              {materialForm.brand && <p className="text-xs text-amber-600">Brand: {materialForm.brand}</p>}
                             </div>
                           )}
                         </>
@@ -934,7 +932,7 @@ export default function SiteEngineerProject() {
                         {myMaterialOrders.map(req => (
                           <Card 
                             key={req.request_id} 
-                            className="border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md hover:border-l-orange-600 transition-all"
+                            className="border-l-4 border-l-amber-500 cursor-pointer hover:shadow-md hover:border-l-amber-600 transition-all"
                             onClick={() => setSelectedOrder(req)}
                             data-testid={`order-card-${req.request_id}`}
                           >
