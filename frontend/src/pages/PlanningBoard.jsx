@@ -1897,13 +1897,25 @@ export default function PlanningBoard() {
               </div>
               <div><Label>Address</Label><Input value={contractorForm.address} onChange={(e) => setContractorForm({ ...contractorForm, address: e.target.value })} className="mt-1" data-testid="contractor-address-input" /></div>
               <div>
-                <Label>Work Types</Label>
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (
-                    <button key={wt} type="button" className={`px-2 py-1 text-xs border rounded-md transition-colors ${contractorForm.work_types.includes(wt) ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`} onClick={() => setContractorForm({ ...contractorForm, work_types: contractorForm.work_types.includes(wt) ? contractorForm.work_types.filter(t=>t!==wt) : [...contractorForm.work_types, wt] })} data-testid={`worktype-${wt}`}>{wt}</button>
-                  ))}
-                  {contractorTypes.length === 0 && <p className="text-[11px] text-gray-400 italic w-full">Tip: Add custom types under "Contractor Types" tab.</p>}
-                </div>
+                <Label>Contractor Type</Label>
+                <Select
+                  value={(contractorForm.work_types && contractorForm.work_types[0]) || ''}
+                  onValueChange={(v) => setContractorForm({ ...contractorForm, work_types: v ? [v] : [] })}
+                >
+                  <SelectTrigger className="mt-1" data-testid="contractor-type-select">
+                    <SelectValue placeholder="Select contractor type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(contractorTypes.length > 0 ? contractorTypes.map(t => t.name) : WORK_TYPES).map(wt => (
+                      <SelectItem key={wt} value={wt} data-testid={`contractor-type-option-${wt.replace(/\s+/g, '-').toLowerCase()}`}>
+                        {wt}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {contractorTypes.length === 0 && (
+                  <p className="text-[11px] text-gray-400 italic mt-1">Tip: Add custom types under "Contractor Types" tab.</p>
+                )}
               </div>
               <div className="flex items-center gap-3 p-3 rounded-md bg-gray-50 border">
                 <button type="button" onClick={() => setContractorForm({ ...contractorForm, is_locked: !contractorForm.is_locked })} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${contractorForm.is_locked ? 'bg-red-100 text-red-700 border border-red-300' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'}`} data-testid="contractor-lock-toggle">
