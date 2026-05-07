@@ -90,7 +90,13 @@ const ROLE_SUB_MENUS = {
     '/hr-portal': [
       { label: 'HR Portal', path: '/hr-portal' },
     ],
-    '/planning-board': [{ label: 'Planning Board', path: '/planning-board' }],
+    '/planning-board': [
+      { label: 'Planning Board', path: '/planning-board' },
+      { label: 'Projects', path: '/projects' },
+      { label: 'BOQ', path: '/planning-board?tab=boq' },
+      { label: 'Vendors', path: '/vendor-management' },
+      { label: 'Contractors', path: '/contractor-management' },
+    ],
     '/marketing-board': [
       { label: 'Marketing Board', path: '/marketing-board' },
       { label: 'CRE Board', path: '/cre-board' },
