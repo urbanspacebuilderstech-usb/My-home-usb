@@ -481,6 +481,25 @@ export default function ProjectDetail() {
   const [woViewId, setWoViewId] = useState(null);
   const [contractorTypes, setContractorTypes] = useState([]);
   const [allContractors, setAllContractors] = useState([]);
+  // Helper: merge legacy `/contractors` (older work orders reference these)
+  // with the new `/labour-contractors` collection (created from the Planning
+  // Board's Labour Contractors tab) so both appear in WO dropdowns.
+  // Dedupes by `contractor_id`.
+  const fetchAllContractors = async () => {
+    const [legacy, lc] = await Promise.all([
+      axios.get(`${API}/contractors`).catch(() => ({ data: [] })),
+      axios.get(`${API}/labour-contractors`).catch(() => ({ data: [] })),
+    ]);
+    const seen = new Set();
+    const merged = [];
+    for (const c of [...(lc.data || []), ...(legacy.data || [])]) {
+      const id = c.contractor_id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(c);
+    }
+    return merged;
+  };
   const [woSelectedType, setWoSelectedType] = useState('');
   const [woForm, setWoForm] = useState({ contractor_id: '', notes: '', scope_items: [], stages: [], additional_work: [], payment_stages: [], total_amount: 0, description: '' });
   const [woSubTab, setWoSubTab] = useState('scope');
@@ -567,15 +586,15 @@ export default function ProjectDetail() {
 
       // Load work orders, contractors, attendance, inventory
       try {
-        const [woRes, contRes, attRes, invRes, dashRes] = await Promise.all([
+        const [woRes, contMerged, attRes, invRes, dashRes] = await Promise.all([
           axios.get(`${API}/projects/${projectId}/work-orders`).catch(() => null),
-          axios.get(`${API}/contractors`).catch(() => null),
+          fetchAllContractors(),
           axios.get(`${API}/labour-attendance?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/material-inventory?project_id=${projectId}`).catch(() => null),
           axios.get(`${API}/material-inventory/dashboard?project_id=${projectId}`).catch(() => null)
         ]);
         if (woRes) setWorkOrders(woRes.data || []);
-        if (contRes) setAllContractors(contRes.data || []);
+        setAllContractors(contMerged);
         if (attRes) setLabourAttendance(attRes.data || []);
         if (invRes) setMaterialInventory(invRes.data || []);
         if (dashRes) setInvDashboard(dashRes.data || null);
@@ -808,14 +827,14 @@ export default function ProjectDetail() {
   const openWoDialog = async (wo = null) => {
     setEditingWo(wo);
     setWoViewId(null);
-    // Fetch contractor types and contractors
+    // Fetch contractor types and contractors (merged: legacy + new)
     try {
-      const [typesRes, contRes] = await Promise.all([
+      const [typesRes, contMerged] = await Promise.all([
         axios.get(`${API}/contractor-types`),
-        axios.get(`${API}/contractors`),
+        fetchAllContractors(),
       ]);
       setContractorTypes(typesRes.data || []);
-      setAllContractors(contRes.data || []);
+      setAllContractors(contMerged);
     } catch { setContractorTypes([]); setAllContractors([]); }
 
     if (wo) {
@@ -933,13 +952,13 @@ export default function ProjectDetail() {
     setFreezeStep('otp');
     setFreezeOtpSending(true);
     try {
-      // Also load contractors for the reassign step
-      const [typesRes, contRes] = await Promise.all([
+      // Also load contractors for the reassign step (merged: legacy + new)
+      const [typesRes, contMerged] = await Promise.all([
         axios.get(`${API}/contractor-types`),
-        axios.get(`${API}/contractors`),
+        fetchAllContractors(),
       ]);
       setContractorTypes(typesRes.data || []);
-      setAllContractors(contRes.data || []);
+      setAllContractors(contMerged);
       // Send OTP
       const res = await axios.post(`${API}/projects/${projectId}/work-orders/${woId}/freeze/send-otp`);
       toast.success(res.data.message || 'OTP sent to your email');
@@ -1085,15 +1104,15 @@ export default function ProjectDetail() {
 
   const fetchWorkOrderData = async () => {
     try {
-      const [woRes, cRes, attRes, invRes, dashRes] = await Promise.all([
+      const [woRes, contMerged, attRes, invRes, dashRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/work-orders`),
-        axios.get(`${API}/contractors`),
+        fetchAllContractors(),
         axios.get(`${API}/labour-attendance?project_id=${projectId}`),
         axios.get(`${API}/material-inventory?project_id=${projectId}`),
         axios.get(`${API}/material-inventory/dashboard?project_id=${projectId}`).catch(() => null)
       ]);
       setWorkOrders(woRes.data || []);
-      setAllContractors(cRes.data || []);
+      setAllContractors(contMerged);
       setLabourAttendance(attRes.data || []);
       setMaterialInventory(invRes.data || []);
       setInvDashboard(dashRes?.data || null);
