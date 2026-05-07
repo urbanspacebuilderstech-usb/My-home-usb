@@ -5434,24 +5434,46 @@ export default function ProjectDetail() {
                         })()}
 
                         <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Payment Stage</Button></div>
-                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No payment stages</p> : (
+                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No payment stages</p> : (() => {
+                          // Compute grand total once for the row-level resolved-amount column.
+                          const _scope = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const _add = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const _ded = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
+                          const _grand = _scope + _add - _ded;
+                          return (
                           <div className="space-y-2">
-                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1"><div className="col-span-4">Stage Name</div><div className="col-span-3">Type</div><div className="col-span-3">Value</div><div className="col-span-2"></div></div>
-                            {woForm.stages.map((st, idx) => (
+                            <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1">
+                              <div className="col-span-4">Stage Name</div>
+                              <div className="col-span-2">Type</div>
+                              <div className="col-span-2">Value</div>
+                              <div className="col-span-3 text-right">Amount</div>
+                              <div className="col-span-1"></div>
+                            </div>
+                            {woForm.stages.map((st, idx) => {
+                              const v = parseFloat(st.value) || 0;
+                              const resolved = st.type === 'percentage' ? (_grand * v / 100) : v;
+                              return (
                               <div key={idx} className="grid grid-cols-12 gap-1 items-center">
                                 <div className="col-span-4"><Input placeholder="Stage name" value={st.name} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" data-testid={`wo-stage-name-${idx}`} /></div>
-                                <div className="col-span-3">
+                                <div className="col-span-2">
                                   <Select value={st.type} onValueChange={v => { const s = [...woForm.stages]; s[idx] = { ...s[idx], type: v }; setWoForm(f => ({ ...f, stages: s })); }}>
                                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                    <SelectContent><SelectItem value="percentage">% Percentage</SelectItem><SelectItem value="amount">Fixed Amount</SelectItem></SelectContent>
+                                    <SelectContent><SelectItem value="percentage">%</SelectItem><SelectItem value="amount">₹</SelectItem></SelectContent>
                                   </Select>
                                 </div>
-                                <div className="col-span-3"><Input type="number" placeholder={st.type === 'percentage' ? '%' : 'Amount'} value={st.value} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], value: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" /></div>
-                                <div className="col-span-2 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
-                              </div>
-                            ))}
+                                <div className="col-span-2"><Input type="number" placeholder={st.type === 'percentage' ? '%' : 'Amount'} value={st.value} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], value: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" /></div>
+                                <div className="col-span-3 text-right pr-1">
+                                  <span className="text-xs font-semibold text-violet-700" data-testid={`wo-stage-amount-${idx}`}>{formatCurrency(resolved)}</span>
+                                  {st.type === 'percentage' && _grand > 0 && (
+                                    <div className="text-[9px] text-gray-400">= {v}% of {formatCurrency(_grand)}</div>
+                                  )}
+                                </div>
+                                <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
+                              </div>);
+                            })}
                           </div>
-                        )}
+                          );
+                        })()}
                       </TabsContent>
                     </Tabs>
                   </div>
