@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Simplified Add Additions/Deductions dialogs — Removed Unit, Rate, Total, Remarks columns. Now uses **Name | Qty | Amount** only. User enters total amount directly; rate auto-derived as amount/qty before save (preserves backend schema).
-  - Files: `frontend/src/pages/ProjectDetail.jsx` (`createEmptyRows` defaults, `handleBulkAddAddition`, `handleBulkAddDeduction`, both dialog UIs)
+- 2026-02: Edit Additions & Deductions — Added clean Edit dialog (Name + Qty + Amount) on each Additional Work and Deduction row in the Final Estimate tab. Replaced inline income_received edit with a proper edit dialog that updates description/name/qty/price/amount via existing `PATCH /api/additional-costs/{id}` and `PATCH /api/deductions/{id}` endpoints.
+  - Files: `frontend/src/pages/ProjectDetail.jsx` (`openEditItemDialog`, `handleSaveEditItem`, dialog UI, edit buttons on both row types)
+- 2026-02: Simplified Add Additions/Deductions dialogs — Now uses **Name | Qty | Amount** only.
 - 2026-02: WO Header & Stage Order — Total Contract amount is now displayed as a big highlighted card; Auto Additional payment stages save & render LAST (after user-defined stages).
 - 2026-02: Savings A/c Payment Mode + Income Edit — Added "Savings A/c" everywhere; Income view dialog now editable.
 - 2026-02: Work Order Auto Payment Stages — Each Additional cost row in a Work Order now auto-becomes a separate **fixed-amount payment stage** (locked). User-defined % stages compute on **Scope only**.

@@ -401,6 +401,9 @@ export default function ProjectDetail() {
   // Editing states
   const [editingPayment, setEditingPayment] = useState(null);
   const [editingAddition, setEditingAddition] = useState(null);
+  // Edit Addition / Deduction dialog: lets user change Name, Qty, Amount post-creation
+  const [editItemDialog, setEditItemDialog] = useState({ open: false, type: null, id: null });
+  const [editItemForm, setEditItemForm] = useState({ name: '', qty: '1', amount: '' });
   const [editingScopeItem, setEditingScopeItem] = useState(null);
   const [editScopeForm, setEditScopeForm] = useState({ item_name: '', quantity: 1, unit: 'Nos', unit_rate: 0, remarks: '' });
   const [deleteProjectDialog, setDeleteProjectDialog] = useState(false);
@@ -1736,6 +1739,48 @@ export default function ProjectDetail() {
       fetchData(false);
     } catch (error) {
       toast.error('Failed to update addition');
+    }
+  };
+
+  // Open Name/Qty/Amount edit dialog for an Addition or Deduction row
+  const openEditItemDialog = (type, item) => {
+    const itemId = type === 'addition' ? item.cost_id : item.deduction_id;
+    const currentAmount = type === 'addition' ? (item.estimated_amount || 0) : (item.amount || 0);
+    setEditItemForm({
+      name: item.name || item.description || '',
+      qty: item.qty != null ? String(item.qty) : '1',
+      amount: String(currentAmount),
+    });
+    setEditItemDialog({ open: true, type, id: itemId });
+  };
+
+  const handleSaveEditItem = async () => {
+    const { type, id } = editItemDialog;
+    if (!type || !id) return;
+    const name = (editItemForm.name || '').trim();
+    const qty = parseFloat(editItemForm.qty) || 1;
+    const amount = parseFloat(editItemForm.amount) || 0;
+    if (!name || amount <= 0) {
+      toast.error('Name and Amount are required');
+      return;
+    }
+    const rate = qty > 0 ? amount / qty : amount;
+    const description = qty > 1 ? `${name} (${qty} × ₹${rate.toFixed(2)})` : name;
+    try {
+      if (type === 'addition') {
+        await axios.patch(`${API}/additional-costs/${id}`, {
+          description, name, qty, price: rate, estimated_amount: amount,
+        });
+      } else {
+        await axios.patch(`${API}/deductions/${id}`, {
+          description, name, qty, price: rate, amount,
+        });
+      }
+      toast.success(`${type === 'addition' ? 'Addition' : 'Deduction'} updated`);
+      setEditItemDialog({ open: false, type: null, id: null });
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to update');
     }
   };
 
@@ -4049,9 +4094,11 @@ export default function ProjectDetail() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => setEditingAddition(isEditing ? null : cost.cost_id)}
+                                    onClick={() => openEditItemDialog('addition', cost)}
+                                    data-testid={`edit-addition-${cost.cost_id}`}
+                                    title="Edit name / qty / amount"
                                   >
-                                    {isEditing ? <Save className="h-4 w-4 text-green-500" /> : <Edit className="h-4 w-4 text-amber-600" />}
+                                    <Edit className="h-4 w-4 text-amber-600" />
                                   </Button>
                                   <Button variant="ghost" size="icon" onClick={() => handleDeleteAddition(cost.cost_id)}>
                                     <Trash2 className="h-4 w-4 text-red-500" />
@@ -4219,9 +4266,14 @@ export default function ProjectDetail() {
                           <td className="px-4 py-3 text-sm text-gray-500">{d.remarks || '-'}</td>
                           {canManage && (
                             <td className="px-4 py-3 text-center">
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteDeduction(d.deduction_id)}>
-                                <Trash2 className="h-4 w-4 text-red-500" />
-                              </Button>
+                              <div className="flex items-center justify-center gap-1">
+                                <Button variant="ghost" size="icon" onClick={() => openEditItemDialog('deduction', d)} data-testid={`edit-deduction-${d.deduction_id}`} title="Edit name / qty / amount">
+                                  <Edit className="h-4 w-4 text-amber-600" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteDeduction(d.deduction_id)}>
+                                  <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                              </div>
                             </td>
                           )}
                             </>
@@ -5523,6 +5575,53 @@ export default function ProjectDetail() {
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setWoDialog(false)}>Cancel</Button>
                     <Button onClick={handleSaveWo} className="bg-violet-600 hover:bg-violet-700" data-testid="wo-save-btn">{editingWo ? 'Update Work Order' : 'Create Work Order'}</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {/* ======= EDIT ADDITION / DEDUCTION DIALOG ======= */}
+              <Dialog open={editItemDialog.open} onOpenChange={(o) => !o && setEditItemDialog({ open: false, type: null, id: null })}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Edit {editItemDialog.type === 'deduction' ? 'Deduction' : 'Addition'}</DialogTitle>
+                    <DialogDescription>Update name, qty, and amount for this {editItemDialog.type === 'deduction' ? 'deduction' : 'addition'}.</DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 py-2">
+                    <div>
+                      <Label className="text-xs">Name *</Label>
+                      <Input
+                        className="h-9 mt-1"
+                        value={editItemForm.name}
+                        onChange={(e) => setEditItemForm({ ...editItemForm, name: e.target.value })}
+                        placeholder="e.g., Underground sump"
+                        data-testid="edit-item-name"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs">Qty</Label>
+                        <NumericInput
+                          className="h-9 mt-1"
+                          value={editItemForm.qty}
+                          onChange={(e) => setEditItemForm({ ...editItemForm, qty: e.target.value })}
+                          data-testid="edit-item-qty"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Amount (₹) *</Label>
+                        <NumericInput
+                          className="h-9 mt-1 text-right font-semibold"
+                          value={editItemForm.amount}
+                          onChange={(e) => setEditItemForm({ ...editItemForm, amount: e.target.value })}
+                          placeholder="0"
+                          data-testid="edit-item-amount"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setEditItemDialog({ open: false, type: null, id: null })}>Cancel</Button>
+                    <Button onClick={handleSaveEditItem} className="bg-emerald-600 hover:bg-emerald-700" data-testid="edit-item-save">Save</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
