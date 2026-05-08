@@ -3843,9 +3843,12 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         raise HTTPException(status_code=404, detail="Work order not found")
     
     request_amount = data.get("amount")
-    if not request_amount or float(request_amount) <= 0:
-        raise HTTPException(status_code=400, detail="Amount is required and must be positive")
-    request_amount = float(request_amount)
+    # If amount not provided, default to the remaining stage balance.
+    auto_amount = request_amount is None or request_amount == ""
+    if not auto_amount:
+        if float(request_amount) <= 0:
+            raise HTTPException(status_code=400, detail="Amount must be positive")
+        request_amount = float(request_amount)
     
     now = datetime.now(timezone.utc).isoformat()
     updated = False
@@ -3865,7 +3868,12 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
             stage_total = stage.get("amount", 0)
             balance = stage_total - released - pending
-            
+
+            if auto_amount:
+                request_amount = balance
+                if request_amount <= 0:
+                    raise HTTPException(status_code=400, detail="No remaining balance for this stage")
+
             if request_amount > balance + 0.01:  # small tolerance
                 raise HTTPException(status_code=400, detail=f"Request amount ₹{request_amount:,.0f} exceeds available balance ₹{balance:,.0f}")
             
@@ -3962,6 +3970,90 @@ async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, da
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
     return {"message": "Stage finished"}
+
+
+@router.get("/planning/labour-stage-requests")
+async def planning_labour_stage_requests(status: str = "new", user: User = Depends(get_current_user)):
+    """Planning queue: list all WO stage payment requests grouped by status.
+    status values:
+      - 'new'      → pm_approved (Site Engineer just submitted, awaiting Planning)
+      - 'forwarded'→ planning_approved (already forwarded to Accountant)
+      - 'all'      → every non-finalised request
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    target_statuses = {
+        "new": ["pm_approved"],
+        "forwarded": ["planning_approved"],
+        "all": ["pm_approved", "planning_approved"],
+    }.get(status, ["pm_approved"])
+
+    # Pull all active work orders that have at least one matching payment request
+    work_orders = await db.project_work_orders.find(
+        {"is_active": {"$ne": False}, "stages.payment_requests.status": {"$in": target_statuses}},
+        {"_id": 0}
+    ).to_list(500)
+
+    # Build flat list of requests
+    project_ids = list({wo.get("project_id") for wo in work_orders if wo.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1, "team": 1}
+    ).to_list(500)}
+
+    # Resolve site-engineer names from team
+    engineer_ids = []
+    for p in projects.values():
+        team = p.get("team") or {}
+        for k in ("site_engineer", "sr_site_engineer"):
+            if team.get(k):
+                engineer_ids.append(team[k])
+    user_lookup = {u["user_id"]: u for u in await db.users.find(
+        {"user_id": {"$in": engineer_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(500)} if engineer_ids else {}
+
+    out = []
+    for wo in work_orders:
+        proj = projects.get(wo.get("project_id"), {})
+        team = proj.get("team") or {}
+        se_id = team.get("site_engineer") or team.get("sr_site_engineer")
+        se_name = (user_lookup.get(se_id) or {}).get("name", "—")
+        for stage in wo.get("stages", []):
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("status") not in target_statuses:
+                    continue
+                # Recompute summary so the popup is accurate
+                released = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
+                pending = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+                stage_total = stage.get("amount", 0)
+                out.append({
+                    "request_id": pr.get("request_id"),
+                    "status": pr.get("status"),
+                    "amount": pr.get("amount", 0),
+                    "notes": pr.get("notes", ""),
+                    "requested_at": pr.get("requested_at"),
+                    "requested_by_name": pr.get("requested_by_name", se_name),
+                    "site_engineer_name": se_name,
+                    "project_id": wo.get("project_id"),
+                    "project_name": proj.get("name") or wo.get("project_name", ""),
+                    "work_order_id": wo.get("work_order_id"),
+                    "contractor_id": wo.get("contractor_id"),
+                    "contractor_name": wo.get("contractor_name", ""),
+                    "contractor_type": wo.get("contractor_type", ""),
+                    "stage_id": stage.get("stage_id"),
+                    "stage_name": stage.get("name", ""),
+                    "stage_amount": stage_total,
+                    "stage_released": released,
+                    "stage_pending": pending,
+                    "stage_balance": max(0, stage_total - released - pending + pr.get("amount", 0)),
+                    "wo_total_value": wo.get("total_value", 0),
+                    "wo_paid_amount": wo.get("paid_amount", 0),
+                })
+
+    # Sort newest first
+    out.sort(key=lambda r: r.get("requested_at") or "", reverse=True)
+    return {"count": len(out), "requests": out}
+
 
 
 

@@ -343,36 +343,27 @@ function PaymentScheduleTab({ wo, onClickStage }) {
 }
 
 // =====================================================================
-// Stage Request Dialog: shows stage details + new request form
+// Stage Request Dialog: simple remarks-only confirmation popup
+// (no amount inputs, no stage summary — Planning sees the details)
 // =====================================================================
 function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
-  const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (stage) { setAmount(''); setNotes(''); }
+    if (stage) setNotes('');
   }, [stage]);
 
   if (!stage) return null;
 
-  const prs = stage.payment_requests || [];
-  const released = prs.filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-  const pending = prs.filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
-  const balance = (stage.amount || 0) - released - pending;
-  const stageType = stage.type === 'percentage' ? `${stage.value}% of scope` : 'Fixed';
-
   const submit = async () => {
-    const amt = parseFloat(amount || 0);
-    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (amt > balance + 0.01) { toast.error(`Amount exceeds balance ${fmt(balance)}`); return; }
     if (!stage.is_open) {
       toast.error('Stage is not yet opened by Planning'); return;
     }
     setSubmitting(true);
     try {
       await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`, {
-        amount: amt,
+        // amount is intentionally omitted — backend defaults to remaining stage balance
         notes,
       });
       toast.success('Payment request sent to Planning');
@@ -384,88 +375,33 @@ function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
 
   return (
     <Dialog open={!!stage} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[90vh] overflow-y-auto" data-testid="wov2-stage-dialog">
+      <DialogContent className="max-w-[95vw] sm:max-w-md" data-testid="wov2-stage-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base">{stage.name}</DialogTitle>
-          <DialogDescription className="text-xs">{stageType} · {fmt(stage.amount)}</DialogDescription>
+          <DialogTitle className="text-base">Request Payment</DialogTitle>
+          <DialogDescription className="text-xs">{stage.name}</DialogDescription>
         </DialogHeader>
 
-        {/* Stage summary grid */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-gray-50 border rounded p-2">
-            <p className="text-gray-500">Stage Total</p>
-            <p className="font-bold text-gray-900">{fmt(stage.amount)}</p>
-          </div>
-          <div className="bg-green-50 border border-green-200 rounded p-2">
-            <p className="text-green-700">Released</p>
-            <p className="font-bold text-green-800">{fmt(released)}</p>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded p-2">
-            <p className="text-amber-700">In Pipeline</p>
-            <p className="font-bold text-amber-800">{fmt(pending)}</p>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded p-2">
-            <p className="text-blue-700">Balance</p>
-            <p className="font-bold text-blue-800">{fmt(balance)}</p>
-          </div>
-        </div>
-
-        {/* Existing payment requests */}
-        {prs.length > 0 && (
-          <div className="border rounded-lg overflow-hidden">
-            <div className="bg-gray-100 px-2 py-1.5 border-b">
-              <p className="text-[11px] font-semibold text-gray-700">Request History</p>
-            </div>
-            <div className="divide-y max-h-40 overflow-y-auto">
-              {prs.map((pr) => {
-                const sb = prStatusBadge(pr.status);
-                return (
-                  <div key={pr.request_id} className="px-2 py-1.5 flex items-center justify-between text-[11px]">
-                    <div className="min-w-0">
-                      <p className="font-medium">{fmt(pr.approved_amount || pr.amount)}</p>
-                      <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
-                    </div>
-                    <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* New request form */}
-        {stage.is_open && balance > 0 ? (
-          <div className="space-y-2 border-t pt-3">
-            <p className="text-xs font-semibold text-gray-700">New Payment Request</p>
-            <div>
-              <Label className="text-xs">Amount (max {fmt(balance)})</Label>
-              <Input
-                type="number"
-                placeholder="Enter amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="text-sm mt-1"
-                data-testid="wov2-pr-amount"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Notes (optional)</Label>
-              <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Reason / DLR summary" className="text-sm mt-1" data-testid="wov2-pr-notes" />
-            </div>
-          </div>
-        ) : !stage.is_open ? (
-          <div className="text-xs bg-gray-50 border rounded p-2 text-gray-600">
-            <Clock className="h-3 w-3 inline mr-1" /> This stage has not yet been opened by Planning. Once opened you can request payment.
+        {!stage.is_open ? (
+          <div className="text-xs bg-gray-50 border rounded p-3 text-gray-600">
+            <Clock className="h-3.5 w-3.5 inline mr-1" /> This stage has not yet been opened by Planning. Once opened you can request payment.
           </div>
         ) : (
-          <div className="text-xs bg-green-50 border border-green-200 rounded p-2 text-green-700">
-            <CheckCircle className="h-3 w-3 inline mr-1" /> Stage fully paid — no balance remaining.
+          <div className="space-y-2">
+            <Label className="text-xs">Remarks</Label>
+            <Textarea
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add a note about this payment request (optional)"
+              className="text-sm"
+              data-testid="wov2-pr-notes"
+            />
           </div>
         )}
 
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose} data-testid="wov2-pr-cancel">Close</Button>
-          {stage.is_open && balance > 0 && (
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="wov2-pr-cancel">Cancel</Button>
+          {stage.is_open && (
             <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" disabled={submitting} onClick={submit} data-testid="wov2-pr-submit">
               <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Submit Request'}
             </Button>
