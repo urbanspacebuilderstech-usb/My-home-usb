@@ -71,37 +71,37 @@ export default function ProcurementBoardSimple() {
 // =====================================================================
 // Lifecycle filter cards spanning the full Procurement → Delivery pipeline.
 // Each card maps to one or more material_request statuses.
+// Material lifecycle filter cards — unified across Procurement + Planning views.
+// Order matches the actual workflow: SE → Planning → Revision → Accountant → Transit → Credit/Delivered.
 const LIFECYCLE_BUCKETS = [
-  { key: 'all',      label: 'All',              Icon: ListChecks,  cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'new',      label: 'New (SE)',         Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',  active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'revision', label: 'Revision',         Icon: FileClock,   cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'forwarded', label: 'Vendor Assigned', Icon: Send,        cls: 'bg-blue-50 border-blue-200 text-blue-700',       active: 'bg-blue-600 text-white border-blue-600' },
-  { key: 'planning_approved', label: 'Planning Approved', Icon: CheckCircle2, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
-  { key: 'awaiting_payment', label: 'Accountant Approval', Icon: Wallet,    cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'transit',  label: 'In Transit',       Icon: Truck,       cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'delivered', label: 'Delivered',       Icon: PackageCheck, cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
-  { key: 'rejected', label: 'Rejected',         Icon: ThumbsDown,  cls: 'bg-red-50 border-red-200 text-red-700',           active: 'bg-red-600 text-white border-red-600' },
+  { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new_request',         label: 'New Request (SE)',    Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning_awaiting',   label: 'Planning Awaiting',   Icon: Send,          cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'revision',            label: 'Revision (Planning)', Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'credit',              label: 'Credit',              Icon: CheckCircle2,  cls: 'bg-purple-50 border-purple-200 text-purple-700',  active: 'bg-purple-600 text-white border-purple-600' },
+  { key: 'delivered',           label: 'Delivered',           Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
-const STATUS_TO_BUCKET = {
-  requested: 'new',
-  pm_approved: 'new',
-  procurement_revision: 'revision',
-  procurement_priced: 'forwarded',
-  planning_approved: 'planning_approved',
-  pending_accounts_approval: 'awaiting_payment',
-  accounts_approved: 'awaiting_payment',
-  payment_approved: 'awaiting_payment',
-  in_transit: 'transit',
-  delivered: 'delivered',
-  completed: 'delivered',
-  closed: 'delivered',
-  procurement_rejected: 'rejected',
-  rejected: 'rejected',
-};
+function bucketForMaterial(req) {
+  const status = (req.status || '').toLowerCase();
+  const paymentMode = (req.payment_mode || '').toLowerCase();
+  if (status === 'requested' || status === 'pm_approved') return 'new_request';
+  if (status === 'procurement_priced') return 'planning_awaiting';
+  if (status === 'procurement_revision') return 'revision';
+  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
+  if (status === 'in_transit') return 'transit';
+  if (['delivered', 'completed', 'closed'].includes(status)) {
+    if (paymentMode === 'credit' && !req.credit_settled_at) return 'credit';
+    return 'delivered';
+  }
+  if (['rejected', 'procurement_rejected'].includes(status)) return 'all';
+  return 'all';
+}
 
 function RequestsTab() {
-  const [bucket, setBucket] = useState('new');
+  const [bucket, setBucket] = useState('new_request');
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
@@ -132,7 +132,7 @@ function RequestsTab() {
     const c = { all: allItems.length };
     LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
     allItems.forEach(r => {
-      const b = STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'new';
+      const b = bucketForMaterial(r);
       c[b] = (c[b] || 0) + 1;
     });
     return c;
@@ -140,7 +140,7 @@ function RequestsTab() {
 
   const visibleItems = useMemo(() => {
     if (bucket === 'all') return allItems;
-    return allItems.filter(r => (STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'new') === bucket);
+    return allItems.filter(r => bucketForMaterial(r) === bucket);
   }, [allItems, bucket]);
 
   const submitReject = async () => {
@@ -238,7 +238,7 @@ function RequestsTab() {
 // Single material request card (clickable)
 function RequestCard({ req, onClick }) {
   const status = (req.status || '').toLowerCase();
-  const bucket = STATUS_TO_BUCKET[status] || 'new';
+  const bucket = bucketForMaterial(req);
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
   const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   // Compute "deliver in" label

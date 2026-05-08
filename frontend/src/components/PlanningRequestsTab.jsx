@@ -18,35 +18,38 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-// Material lifecycle filter cards — Planning's view. "Planning Approval" is
-// FIRST since that's the queue they need to action. Buckets are computed
-// from the request's `status` field (see MAT_STATUS_TO_BUCKET below).
+// Material lifecycle filter cards — unified across Planning + Procurement views.
+// Order is the actual workflow: SE → Planning → Revision → Accountant → Transit → Credit/Delivered.
+// Credit = payment_mode='credit' items delivered but vendor still owed.
+// Delivered = everything else delivered (pre_paid / advance settled / credit settled).
 const MAT_LIFECYCLE_BUCKETS = [
-  { key: 'planning_approval', label: 'Planning Approval', Icon: ClipboardCheck, cls: 'bg-amber-50 border-amber-200 text-amber-700',  active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'all',               label: 'All',               Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700', active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'revision',          label: 'Revision Sent',     Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'approved',          label: 'Approved',          Icon: CheckCircle2,   cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
-  { key: 'awaiting_payment',  label: 'Accountant Approval', Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',       active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'transit',           label: 'In Transit',        Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',          active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'delivered',         label: 'Delivered',         Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
-  { key: 'rejected',          label: 'Rejected',          Icon: ThumbsDown,     cls: 'bg-red-50 border-red-200 text-red-700',          active: 'bg-red-600 text-white border-red-600' },
+  { key: 'all',                label: 'All',                Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new_request',        label: 'New Request (SE)',   Icon: ClipboardCheck, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning_awaiting',  label: 'Planning Awaiting',  Icon: ClipboardCheck, cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'revision',           label: 'Revision (Planning)',Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'awaiting_accountant',label: 'Awaiting Accountant',Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'transit',            label: 'Transit',            Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'credit',             label: 'Credit',             Icon: CreditCard,     cls: 'bg-purple-50 border-purple-200 text-purple-700',  active: 'bg-purple-600 text-white border-purple-600' },
+  { key: 'delivered',          label: 'Delivered',          Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
-const MAT_STATUS_TO_BUCKET = {
-  procurement_priced: 'planning_approval',
-  procurement_revision: 'revision',
-  planning_approved: 'approved',
-  pending_accounts_approval: 'awaiting_payment',
-  pending_balance_payment: 'awaiting_payment',
-  accounts_approved: 'awaiting_payment',
-  payment_approved: 'awaiting_payment',
-  in_transit: 'transit',
-  delivered: 'delivered',
-  completed: 'delivered',
-  closed: 'delivered',
-  rejected: 'rejected',
-  procurement_rejected: 'rejected',
-};
+// Smart bucketer — needs payment_mode + credit_settled_at, not just status.
+function bucketForMaterial(req) {
+  const status = (req.status || '').toLowerCase();
+  const paymentMode = (req.payment_mode || '').toLowerCase();
+  if (status === 'requested' || status === 'pm_approved') return 'new_request';
+  if (status === 'procurement_priced') return 'planning_awaiting';
+  if (status === 'procurement_revision') return 'revision';
+  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
+  if (status === 'in_transit') return 'transit';
+  // Delivered (or completed/closed): credit + not yet settled → 'credit'; else 'delivered'
+  if (['delivered', 'completed', 'closed'].includes(status)) {
+    if (paymentMode === 'credit' && !req.credit_settled_at) return 'credit';
+    return 'delivered';
+  }
+  if (['rejected', 'procurement_rejected'].includes(status)) return 'all'; // hidden in lifecycle, accessible via "All"
+  return 'all';
+}
 
 const PAYMENT_MODE_DISPLAY = {
   pre_paid:      { label: 'Pre-paid',      cls: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -87,8 +90,8 @@ export default function PlanningRequestsTab({ projects = [] }) {
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
   // Materials use a procurement-style lifecycle bucket filter.
-  // Default = 'planning_approval' (the queue Planning needs to action).
-  const [materialBucket, setMaterialBucket] = useState('planning_approval');
+  // Default = 'planning_awaiting' (the queue Planning needs to action).
+  const [materialBucket, setMaterialBucket] = useState('planning_awaiting');
   const [materials, setMaterials] = useState([]);
   const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
   const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
@@ -768,7 +771,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
     const c = { all: items.length };
     MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
     items.forEach(r => {
-      const b = MAT_STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'all';
+      const b = bucketForMaterial(r);
       if (b !== 'all') c[b] = (c[b] || 0) + 1;
     });
     return c;
@@ -776,7 +779,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
 
   const visibleItems = useMemo(() => {
     if (bucket === 'all') return items;
-    return items.filter(r => (MAT_STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'all') === bucket);
+    return items.filter(r => bucketForMaterial(r) === bucket);
   }, [items, bucket]);
 
   return (
@@ -809,7 +812,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
         <p className="text-center text-xs text-gray-400 py-10"><Loader2 className="h-5 w-5 animate-spin inline mr-1" /> Loading…</p>
       ) : visibleItems.length === 0 ? (
         <Card><CardContent className="p-10"><p className="text-center text-xs text-gray-400">
-          {bucket === 'planning_approval' ? 'No requests awaiting your approval' : 'No requests in this bucket'}
+          {bucket === 'planning_awaiting' ? 'No requests awaiting your approval' : 'No requests in this bucket'}
         </p></CardContent></Card>
       ) : (
         <div className="space-y-2" data-testid="planning-mat-card-list">
@@ -824,7 +827,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
 
 function PlanningMaterialCard({ req, onClick, processing }) {
   const status = (req.status || '').toLowerCase();
-  const bucket = MAT_STATUS_TO_BUCKET[status] || 'all';
+  const bucket = bucketForMaterial(req);
   const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
   const isActionable = status === 'procurement_priced';
   const id = req.request_id;
