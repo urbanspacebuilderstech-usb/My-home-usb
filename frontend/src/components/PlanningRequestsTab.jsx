@@ -12,6 +12,7 @@ import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
 import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard } from 'lucide-react';
+import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
@@ -240,14 +241,23 @@ export default function PlanningRequestsTab({ projects = [] }) {
       </Card>
 
       {/* Req Handling status pipeline — New / In Progress / Awaiting / Approved / Rejected.
-          Click any card to filter the list to that status. Clicking again clears it. */}
-      <RequestStatusFilter
-        counts={statusCounts}
-        value={statusFilter}
-        onChange={setStatusFilter}
-        dataTestId="planning-req-status-filter"
-      />
+          Click any card to filter the list to that status. Clicking again clears it.
+          Note: Labour Stages / Labour Payments use the new unified flow component below
+          (which has its own status segmentation), so we hide this filter for them. */}
+      {activeType !== 'labour_stages' && activeType !== 'labour_payments' && (
+        <RequestStatusFilter
+          counts={statusCounts}
+          value={statusFilter}
+          onChange={setStatusFilter}
+          dataTestId="planning-req-status-filter"
+        />
+      )}
 
+      {/* For Labour Stages / Labour Payments — render the unified Stage Open + Labour Payments queue */}
+      {(activeType === 'labour_stages' || activeType === 'labour_payments') ? (
+        <PlanningLabourStageRequests />
+      ) : (
+      <>
       {/* Request Rows */}
       <Card>
         <CardContent className="p-0">
@@ -304,6 +314,8 @@ export default function PlanningRequestsTab({ projects = [] }) {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* Approve Review Dialog */}
       <ApproveReviewDialog
