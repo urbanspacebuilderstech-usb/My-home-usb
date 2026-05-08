@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import MetaDateFilter from '../components/MetaDateFilter';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
@@ -148,6 +149,15 @@ export default function SiteEngineerProject() {
   const [addStockMaterial, setAddStockMaterial] = useState({ name: '', unit: 'bags' });
   const [inventoryDashboard, setInventoryDashboard] = useState(null);
   const [savingThreshold, setSavingThreshold] = useState(null);
+  // Inventory date range filter (MetaDateFilter)
+  const [inventoryDateRange, setInventoryDateRange] = useState(null);
+  // Material Requests date filter
+  const [matReqDateRange, setMatReqDateRange] = useState(null);
+  // Quick "Out Stock" / consume dialog
+  const [consumeDialog, setConsumeDialog] = useState({ open: false, material: null, qty: '', notes: '' });
+  const [savingConsume, setSavingConsume] = useState(false);
+  // Per-material stock history dialog
+  const [stockHistoryDialog, setStockHistoryDialog] = useState({ open: false, materialName: '', loading: false, entries: [] });
 
   useEffect(() => {
     fetchData();
@@ -375,6 +385,39 @@ export default function SiteEngineerProject() {
       fetchStockData(stockDate);
     } catch { toast.error('Failed to update threshold'); }
     finally { setSavingThreshold(null); }
+  };
+
+  const submitConsume = async () => {
+    const qty = parseFloat(consumeDialog.qty);
+    if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
+    setSavingConsume(true);
+    try {
+      await axios.post(`${API}/material-inventory/consume`, {
+        project_id: projectId,
+        material_name: consumeDialog.material.material_name,
+        unit: consumeDialog.material.unit,
+        qty,
+        notes: consumeDialog.notes,
+      });
+      toast.success(`Recorded ${qty} ${consumeDialog.material.unit} used`);
+      setConsumeDialog({ open: false, material: null, qty: '', notes: '' });
+      fetchStockData(stockDate);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Failed to record consumption');
+    } finally { setSavingConsume(false); }
+  };
+
+  const openStockHistory = async (materialName) => {
+    setStockHistoryDialog({ open: true, materialName, loading: true, entries: [] });
+    try {
+      const params = new URLSearchParams({ project_id: projectId, material_name: materialName });
+      if (inventoryDateRange?.from) params.set('from_date', inventoryDateRange.from);
+      if (inventoryDateRange?.to) params.set('to_date', inventoryDateRange.to);
+      const res = await axios.get(`${API}/material-inventory/history?${params}`);
+      setStockHistoryDialog({ open: true, materialName, loading: false, entries: res.data?.entries || [] });
+    } catch {
+      setStockHistoryDialog({ open: true, materialName, loading: false, entries: [] });
+    }
   };
 
   const handleAddStockMaterial = () => {
@@ -676,7 +719,16 @@ export default function SiteEngineerProject() {
   const approvedLabour = labour_requests.filter(r => r.status === 'approved');
 
   // Lifecycle bucketing — exclude rejected from all views
-  const lifecycleItems = material_requests.filter(r => !['rejected', 'procurement_rejected'].includes((r.status || '').toLowerCase()));
+  const lifecycleItemsRaw = material_requests.filter(r => !['rejected', 'procurement_rejected'].includes((r.status || '').toLowerCase()));
+  const lifecycleItems = (() => {
+    if (!matReqDateRange?.from || !matReqDateRange?.to) return lifecycleItemsRaw;
+    const fromTs = new Date(matReqDateRange.from + 'T00:00:00').getTime();
+    const toTs = new Date(matReqDateRange.to + 'T23:59:59').getTime();
+    return lifecycleItemsRaw.filter(r => {
+      const t = new Date(r.created_at || 0).getTime();
+      return t >= fromTs && t <= toTs;
+    });
+  })();
   const bucketCounts = lifecycleItems.reduce((acc, r) => {
     acc.all = (acc.all || 0) + 1;
     const b = bucketForMaterial(r);
@@ -770,7 +822,7 @@ export default function SiteEngineerProject() {
                 Material Requests
               </button>
               <button
-                onClick={() => setMaterialsSubTab('inventory')}
+                onClick={() => { setMaterialsSubTab('inventory'); fetchStockData(stockDate); }}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${materialsSubTab === 'inventory' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
                 data-testid="mat-subtab-inventory"
               >
@@ -784,7 +836,8 @@ export default function SiteEngineerProject() {
                   <CardTitle className="text-base sm:text-lg">Materials</CardTitle>
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and collect materials across the lifecycle</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <MetaDateFilter value={matReqDateRange} onChange={setMatReqDateRange} defaultPreset="this_month" />
                   <Button
                     size="sm"
                     variant="outline"
@@ -1181,9 +1234,10 @@ export default function SiteEngineerProject() {
                       <Warehouse className="h-4 w-4 text-amber-600" />
                       Daily Inventory Register
                     </CardTitle>
-                    <CardDescription className="text-xs sm:text-sm">Track stock daily — opening, received, used, closing</CardDescription>
+                    <CardDescription className="text-xs sm:text-sm">Auto-tracks stock from each material receipt — opening, received, used, closing.</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <MetaDateFilter value={inventoryDateRange} onChange={setInventoryDateRange} defaultPreset="this_month" />
                     <Calendar className="h-4 w-4 text-gray-500" />
                     <Input
                       type="date"
@@ -1228,33 +1282,46 @@ export default function SiteEngineerProject() {
                                 <th className="text-left px-3 py-2 font-medium text-gray-600">Material</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Unit</th>
                                 <th className="text-center px-2 py-2 font-medium text-blue-700">Current Stock</th>
+                                <th className="text-center px-2 py-2 font-medium text-green-700">Last In At</th>
+                                <th className="text-center px-2 py-2 font-medium text-red-700">Last Out At</th>
                                 <th className="text-center px-2 py-2 font-medium text-green-700">Total Received</th>
                                 <th className="text-center px-2 py-2 font-medium text-red-700">Total Used</th>
-                                <th className="text-center px-2 py-2 font-medium text-amber-700">Min Threshold</th>
+                                <th className="text-center px-2 py-2 font-medium text-amber-700">Min</th>
                                 <th className="text-center px-2 py-2 font-medium text-gray-600">Status</th>
+                                <th className="text-center px-2 py-2 font-medium text-gray-600">Action</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y">
-                              {inventoryDashboard.materials.map((m, i) => (
-                                <tr key={m.material_name} className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''}`} data-testid={`inv-row-${m.material_name}`}>
+                              {inventoryDashboard.materials.map((m, i) => {
+                                const fmtAt = (s) => {
+                                  if (!s) return '—';
+                                  try { return new Date(s).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch { return '—'; }
+                                };
+                                return (
+                                <tr
+                                  key={m.material_name}
+                                  className={`${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} ${m.is_low_stock ? 'bg-red-50' : ''} cursor-pointer hover:bg-amber-50/50 transition-colors`}
+                                  onClick={() => openStockHistory(m.material_name)}
+                                  data-testid={`inv-row-${m.material_name}`}
+                                >
                                   <td className="px-3 py-2 font-medium">{m.material_name}</td>
                                   <td className="px-2 py-2 text-center text-gray-500">{m.unit}</td>
                                   <td className={`px-2 py-2 text-center font-bold ${m.is_low_stock ? 'text-red-700' : 'text-blue-700'}`}>{m.current_stock}</td>
+                                  <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_in_at)}</td>
+                                  <td className="px-2 py-2 text-center text-gray-600 whitespace-nowrap">{fmtAt(m.last_out_at)}</td>
                                   <td className="px-2 py-2 text-center text-green-700">{m.total_received}</td>
                                   <td className="px-2 py-2 text-center text-red-600">{m.total_used}</td>
-                                  <td className="px-2 py-2 text-center">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <Input
-                                        type="number" min="0"
-                                        className="h-6 w-16 text-center text-[11px] border-amber-200"
-                                        defaultValue={m.min_threshold || ''}
-                                        onBlur={(e) => {
-                                          const val = Number(e.target.value);
-                                          if (val !== (m.min_threshold || 0)) handleUpdateThreshold(m.material_name, val);
-                                        }}
-                                        data-testid={`inv-threshold-${m.material_name}`}
-                                      />
-                                    </div>
+                                  <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <Input
+                                      type="number" min="0"
+                                      className="h-6 w-16 text-center text-[11px] border-amber-200"
+                                      defaultValue={m.min_threshold || ''}
+                                      onBlur={(e) => {
+                                        const val = Number(e.target.value);
+                                        if (val !== (m.min_threshold || 0)) handleUpdateThreshold(m.material_name, val);
+                                      }}
+                                      data-testid={`inv-threshold-${m.material_name}`}
+                                    />
                                   </td>
                                   <td className="px-2 py-2 text-center">
                                     {m.is_low_stock ? (
@@ -1263,11 +1330,25 @@ export default function SiteEngineerProject() {
                                       <Badge className="bg-green-100 text-green-700 text-[10px]">OK</Badge>
                                     )}
                                   </td>
+                                  <td className="px-2 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 px-2 text-[10px] gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                                      onClick={() => setConsumeDialog({ open: true, material: m, qty: '', notes: '' })}
+                                      disabled={m.current_stock <= 0}
+                                      data-testid={`inv-consume-${m.material_name}`}
+                                    >
+                                      <ArrowRight className="h-3 w-3" /> Out Stock
+                                    </Button>
+                                  </td>
                                 </tr>
-                              ))}
+                              );})}
                             </tbody>
                           </table>
-                          <p className="text-[10px] text-gray-400 px-3 py-1 border-t bg-gray-50">Set min threshold to get low stock alerts. Click away from the input to save.</p>
+                          <p className="text-[10px] text-gray-400 px-3 py-1 border-t bg-gray-50">
+                            Click any row to see date-wise stock history. "Out Stock" records consumption with timestamp.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -1694,6 +1775,102 @@ export default function SiteEngineerProject() {
             >
               <Send className="h-3 w-3 mr-1" />Confirm Receipt
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Out Stock / Consume dialog */}
+      <Dialog open={consumeDialog.open} onOpenChange={(o) => !o && setConsumeDialog({ open: false, material: null, qty: '', notes: '' })}>
+        <DialogContent className="max-w-md" data-testid="consume-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700"><ArrowRight className="h-5 w-5" /> Out Stock — Record Consumption</DialogTitle>
+            <DialogDescription className="text-xs">
+              {consumeDialog.material?.material_name} · Current: <strong>{consumeDialog.material?.current_stock} {consumeDialog.material?.unit}</strong>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Quantity used *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="any"
+                value={consumeDialog.qty}
+                onChange={(e) => setConsumeDialog({ ...consumeDialog, qty: e.target.value })}
+                placeholder={`Max ${consumeDialog.material?.current_stock || 0}`}
+                className="h-9 text-sm"
+                autoFocus
+                data-testid="consume-qty"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Notes / Stage / Purpose</Label>
+              <Textarea
+                rows={2}
+                value={consumeDialog.notes}
+                onChange={(e) => setConsumeDialog({ ...consumeDialog, notes: e.target.value })}
+                placeholder="e.g. Used for Foundation casting"
+                className="text-sm"
+                data-testid="consume-notes"
+              />
+            </div>
+            <p className="text-[10px] text-gray-400">Date &amp; time will be auto-captured.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setConsumeDialog({ open: false, material: null, qty: '', notes: '' })} disabled={savingConsume}>Cancel</Button>
+            <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitConsume} disabled={savingConsume} data-testid="consume-confirm">
+              {savingConsume ? 'Recording…' : 'Record Out Stock'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stock History dialog (per material) */}
+      <Dialog open={stockHistoryDialog.open} onOpenChange={(o) => !o && setStockHistoryDialog({ open: false, materialName: '', loading: false, entries: [] })}>
+        <DialogContent className="max-w-2xl" data-testid="stock-history-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700"><History className="h-5 w-5" /> Stock History — {stockHistoryDialog.materialName}</DialogTitle>
+            <DialogDescription className="text-xs">Date-wise opening / received / used / closing stock.</DialogDescription>
+          </DialogHeader>
+          {stockHistoryDialog.loading ? (
+            <p className="text-center text-xs text-gray-400 py-6">Loading…</p>
+          ) : stockHistoryDialog.entries.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">No history entries yet.</p>
+          ) : (
+            <div className="border rounded-md overflow-hidden max-h-[60vh] overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-100 sticky top-0">
+                  <tr>
+                    <th className="text-left px-2 py-1.5 font-semibold text-gray-600">Date</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-blue-700">Opening</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-green-700">Received</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-red-700">Used</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-emerald-700">Closing</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-gray-600">In At</th>
+                    <th className="text-center px-2 py-1.5 font-semibold text-gray-600">Out At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {stockHistoryDialog.entries.map((e, i) => {
+                    const fmtAt = (s) => { if (!s) return '—'; try { return new Date(s).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); } catch { return '—'; } };
+                    return (
+                      <tr key={e.inventory_id} className={i % 2 ? 'bg-gray-50/50' : 'bg-white'} data-testid={`stock-history-row-${i}`}>
+                        <td className="px-2 py-1.5 font-medium">{e.date}</td>
+                        <td className="px-2 py-1.5 text-center">{e.opening_stock}</td>
+                        <td className="px-2 py-1.5 text-center text-green-700">{e.received}</td>
+                        <td className="px-2 py-1.5 text-center text-red-600">{e.used}</td>
+                        <td className="px-2 py-1.5 text-center font-bold text-emerald-700">{e.closing_stock}</td>
+                        <td className="px-2 py-1.5 text-center text-gray-500 whitespace-nowrap">{fmtAt(e.last_in_at)}</td>
+                        <td className="px-2 py-1.5 text-center text-gray-500 whitespace-nowrap">{fmtAt(e.last_out_at)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setStockHistoryDialog({ open: false, materialName: '', loading: false, entries: [] })}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

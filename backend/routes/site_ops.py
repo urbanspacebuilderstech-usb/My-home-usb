@@ -1711,6 +1711,59 @@ async def initiate_material_receipt(
         "gps": f"{data.gps_latitude}, {data.gps_longitude}",
     })
 
+    # === Auto-create / update Daily Inventory entry for today ===
+    # Carry-forward the previous closing as opening, add the received qty.
+    # Idempotent for the same (project, material, day): merges with existing same-day entry.
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        material_name = request.get("material_name", "")
+        unit = request.get("unit", "")
+        # Find prior latest entry to carry-forward
+        prior = await db.material_inventory.find_one(
+            {"project_id": request["project_id"], "material_name": material_name, "date": {"$lt": today}},
+            sort=[("date", -1), ("created_at", -1)],
+            projection={"_id": 0, "closing_stock": 1},
+        )
+        opening = float((prior or {}).get("closing_stock") or 0)
+        existing_today = await db.material_inventory.find_one(
+            {"project_id": request["project_id"], "material_name": material_name, "date": today},
+            projection={"_id": 0},
+        )
+        if existing_today:
+            new_received = float(existing_today.get("received") or 0) + float(data.received_qty)
+            new_used = float(existing_today.get("used") or 0)
+            new_opening = float(existing_today.get("opening_stock") or opening)
+            new_closing = new_opening + new_received - new_used
+            await db.material_inventory.update_one(
+                {"inventory_id": existing_today["inventory_id"]},
+                {"$set": {
+                    "received": new_received,
+                    "closing_stock": new_closing,
+                    "last_in_at": now_iso,
+                    "updated_at": now_iso,
+                }},
+            )
+        else:
+            inv_doc = {
+                "inventory_id": f"inv_{uuid.uuid4().hex[:8]}",
+                "project_id": request["project_id"],
+                "material_request_id": data.request_id,
+                "material_name": material_name,
+                "unit": unit,
+                "date": today,
+                "opening_stock": opening,
+                "received": float(data.received_qty),
+                "used": 0.0,
+                "closing_stock": opening + float(data.received_qty),
+                "last_in_at": now_iso,
+                "source": "auto_receipt",
+                "created_by": user.user_id,
+                "created_at": now_iso,
+            }
+            await db.material_inventory.insert_one(inv_doc)
+    except Exception as e:
+        logger.warning(f"Inventory auto-update failed for receipt {rcpt_dict['receipt_id']}: {e}")
+
     return {"message": "Material receipt recorded", "status": "verified", **rcpt_dict}
 
 

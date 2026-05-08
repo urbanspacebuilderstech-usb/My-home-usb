@@ -646,11 +646,13 @@ async def get_inventory_dashboard(
 
     materials = []
     low_stock_count = 0
-    total_stock_value = 0
     for r in results:
         latest = r.get("latest", {})
         material_name = latest.get("material_name", "")
-        closing = latest.get("closing_stock", 0)
+        # Tolerate legacy schema: prefer `closing_stock`, else `current_stock`.
+        closing = latest.get("closing_stock")
+        if closing is None:
+            closing = latest.get("current_stock", 0)
         threshold = latest.get("min_threshold", 0) or thresholds.get(material_name, 0)
         is_low = closing <= threshold and threshold > 0
         if is_low:
@@ -660,8 +662,10 @@ async def get_inventory_dashboard(
             "unit": latest.get("unit", ""),
             "current_stock": closing,
             "last_date": latest.get("date", ""),
-            "total_received": r.get("total_received", 0),
-            "total_used": r.get("total_used", 0),
+            "last_in_at": latest.get("last_in_at"),
+            "last_out_at": latest.get("last_out_at"),
+            "total_received": r.get("total_received", 0) or latest.get("total_received", 0),
+            "total_used": r.get("total_used", 0) or latest.get("total_used", 0),
             "min_threshold": threshold,
             "is_low_stock": is_low,
             "entry_count": r.get("entry_count", 0),
@@ -675,6 +679,98 @@ async def get_inventory_dashboard(
         "low_stock_count": low_stock_count,
         "materials": materials,
     }
+
+
+@router.get("/material-inventory/history")
+async def get_inventory_history(
+    project_id: str,
+    material_name: str,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    user: User = Depends(get_current_user),
+):
+    """Date-wise stock history for a single material in a project."""
+    q = {"project_id": project_id, "material_name": material_name}
+    if from_date or to_date:
+        d = {}
+        if from_date: d["$gte"] = from_date
+        if to_date:   d["$lte"] = to_date
+        q["date"] = d
+    rows = await db.material_inventory.find(q, {"_id": 0}).sort("date", 1).to_list(500)
+    return {"material_name": material_name, "count": len(rows), "entries": rows}
+
+
+@router.post("/material-inventory/consume")
+async def consume_inventory(data: dict, user: User = Depends(get_current_user)):
+    """Site Engineer logs an "Out Stock" / used quantity for a material on a given day.
+    Carries forward the prior closing as opening, increments today's used, recomputes closing.
+    Idempotent merge for same (project, material, date)."""
+    project_id = data.get("project_id")
+    material_name = (data.get("material_name") or "").strip()
+    qty = float(data.get("qty") or 0)
+    notes = (data.get("notes") or "").strip()
+    if not project_id or not material_name or qty <= 0:
+        raise HTTPException(status_code=400, detail="project_id, material_name and positive qty required")
+
+    today = data.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Prior closing — look at most-recent entry for this material BEFORE today.
+    # Tolerates legacy entries without a `date` field by falling back to created_at.
+    prior_today_filter = {
+        "project_id": project_id,
+        "material_name": material_name,
+        "$or": [{"date": {"$lt": today}}, {"date": {"$exists": False}}],
+    }
+    prior = await db.material_inventory.find_one(
+        prior_today_filter,
+        sort=[("date", -1), ("created_at", -1)],
+        projection={"_id": 0, "closing_stock": 1, "current_stock": 1, "unit": 1},
+    )
+    if prior and prior.get("closing_stock") is None:
+        prior["closing_stock"] = prior.get("current_stock", 0)
+    existing_today = await db.material_inventory.find_one(
+        {"project_id": project_id, "material_name": material_name, "date": today},
+        projection={"_id": 0},
+    )
+    unit = (existing_today or prior or {}).get("unit") or data.get("unit") or ""
+
+    if existing_today:
+        new_used = float(existing_today.get("used") or 0) + qty
+        new_received = float(existing_today.get("received") or 0)
+        new_opening = float(existing_today.get("opening_stock") or 0)
+        new_closing = new_opening + new_received - new_used
+        if new_closing < 0:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock — only {new_opening + new_received - float(existing_today.get('used') or 0)} {unit} available")
+        await db.material_inventory.update_one(
+            {"inventory_id": existing_today["inventory_id"]},
+            {"$set": {"used": new_used, "closing_stock": new_closing, "last_out_at": now, "updated_at": now},
+             "$push": {"consumption_log": {"qty": qty, "notes": notes, "at": now, "by": user.user_id, "by_name": user.name}}},
+        )
+        inventory_id = existing_today["inventory_id"]
+    else:
+        opening = float((prior or {}).get("closing_stock") or 0)
+        if opening < qty:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock — only {opening} {unit} available")
+        inventory_id = f"inv_{uuid.uuid4().hex[:8]}"
+        await db.material_inventory.insert_one({
+            "inventory_id": inventory_id,
+            "project_id": project_id,
+            "material_name": material_name,
+            "unit": unit,
+            "date": today,
+            "opening_stock": opening,
+            "received": 0.0,
+            "used": qty,
+            "closing_stock": opening - qty,
+            "last_out_at": now,
+            "source": "manual_consume",
+            "consumption_log": [{"qty": qty, "notes": notes, "at": now, "by": user.user_id, "by_name": user.name}],
+            "created_by": user.user_id,
+            "created_at": now,
+        })
+
+    return {"message": "Stock consumption recorded", "inventory_id": inventory_id, "used_qty": qty}
 
 
 # ==================== PROJECT CONTRACTOR ASSIGNMENTS ====================

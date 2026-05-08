@@ -12,6 +12,7 @@ import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
 import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote } from 'lucide-react';
+import MetaDateFilter, { rangeForPreset } from './MetaDateFilter';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -101,6 +102,12 @@ export default function PlanningRequestsTab({ projects = [] }) {
   const monthEnd = `${monthEndDate.getFullYear()}-${String(monthEndDate.getMonth() + 1).padStart(2, '0')}-${String(monthEndDate.getDate()).padStart(2, '0')}`;
   const [dateFrom, setDateFrom] = useState(monthStart);
   const [dateTo, setDateTo] = useState(monthEnd);
+  const [dateRange, setDateRange] = useState({
+    from: monthStart,
+    to: monthEnd,
+    label: rangeForPreset('this_month')?.label || 'This month',
+    preset: 'this_month',
+  });
   const [projectFilter, setProjectFilter] = useState('');
 
   // Action dialogs
@@ -296,13 +303,14 @@ export default function PlanningRequestsTab({ projects = [] }) {
       {/* Filters */}
       <Card>
         <CardContent className="p-3 flex flex-wrap items-center gap-2">
-          <CashbookDateFilter
-            dateFrom={dateFrom}
-            dateTo={dateTo}
-            setDateFrom={setDateFrom}
-            setDateTo={setDateTo}
-            testIdPrefix="planning-req"
-            accent="indigo"
+          <MetaDateFilter
+            value={dateRange}
+            onChange={(r) => {
+              setDateRange(r);
+              setDateFrom(r?.from || '');
+              setDateTo(r?.to || '');
+            }}
+            defaultPreset="this_month"
           />
           <ProjectSearchSelect
             projects={projects}

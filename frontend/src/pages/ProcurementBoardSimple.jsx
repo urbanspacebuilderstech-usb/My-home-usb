@@ -1070,20 +1070,33 @@ function AllProjectsTab() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [dateRange, setDateRange] = useState(null);
 
   useEffect(() => {
     axios.get(`${API}/projects`).then(r => setProjects(r.data || [])).finally(() => setLoading(false));
   }, []);
 
-  const filtered = useMemo(() =>
-    projects.filter(p => !search || (p.name || '').toLowerCase().includes(search.toLowerCase()) || (p.client_name || '').toLowerCase().includes(search.toLowerCase())),
-  [projects, search]);
+  const filtered = useMemo(() => {
+    let list = projects.filter(p => !search || (p.name || '').toLowerCase().includes(search.toLowerCase()) || (p.client_name || '').toLowerCase().includes(search.toLowerCase()));
+    if (dateRange?.from && dateRange?.to) {
+      const fromTs = new Date(dateRange.from + 'T00:00:00').getTime();
+      const toTs = new Date(dateRange.to + 'T23:59:59').getTime();
+      list = list.filter(p => {
+        const t = new Date(p.created_at || 0).getTime();
+        return t >= fromTs && t <= toTs;
+      });
+    }
+    return list;
+  }, [projects, search, dateRange]);
 
   return (
     <div className="space-y-3" data-testid="proc-projects-tab">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg sm:text-xl font-bold text-gray-900">All Projects</h1>
-        <Input placeholder="Search project or client…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-64 text-sm" data-testid="proc-projects-search" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
+          <Input placeholder="Search project or client…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-64 text-sm" data-testid="proc-projects-search" />
+        </div>
       </div>
       <Card>
         <CardContent className="p-0">
@@ -1136,6 +1149,7 @@ function MaterialVendorsTab() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [view, setView] = useState('vendors');
+  const [dateRange, setDateRange] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -1147,18 +1161,28 @@ function MaterialVendorsTab() {
     }).finally(() => setLoading(false));
   }, []);
 
+  const inDate = (item) => {
+    if (!dateRange?.from || !dateRange?.to) return true;
+    const t = new Date(item.created_at || 0).getTime();
+    const fromTs = new Date(dateRange.from + 'T00:00:00').getTime();
+    const toTs = new Date(dateRange.to + 'T23:59:59').getTime();
+    return t >= fromTs && t <= toTs;
+  };
   const filteredVendors = useMemo(() =>
-    vendors.filter(v => !search || (v.name || v.vendor_name || '').toLowerCase().includes(search.toLowerCase())),
-  [vendors, search]);
+    vendors.filter(v => (!search || (v.name || v.vendor_name || '').toLowerCase().includes(search.toLowerCase())) && inDate(v)),
+  [vendors, search, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredMaterials = useMemo(() =>
-    materials.filter(m => !search || (m.name || '').toLowerCase().includes(search.toLowerCase())),
-  [materials, search]);
+    materials.filter(m => (!search || (m.name || '').toLowerCase().includes(search.toLowerCase())) && inDate(m)),
+  [materials, search, dateRange]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-3" data-testid="proc-vendors-tab">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Vendors</h1>
-        <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-64 text-sm" data-testid="proc-vendors-search" />
+        <div className="flex items-center gap-2 flex-wrap">
+          <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
+          <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="h-8 w-full sm:w-64 text-sm" data-testid="proc-vendors-search" />
+        </div>
       </div>
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
         <button onClick={() => setView('vendors')} className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors ${view === 'vendors' ? 'border-amber-600 text-amber-700 bg-amber-50/50' : 'border-transparent text-gray-500 hover:text-gray-700'}`} data-testid="proc-vendor-view-vendors">

@@ -13,6 +13,29 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — Inventory Auto-population + Out Stock + Stock History + MetaDateFilter Rollout
+- **Backend** (`/app/backend/routes/site_ops.py`): Material receipt now **auto-creates a `material_inventory` daily entry** (idempotent for same `project + material + date`). Carries the prior closing forward as opening, adds received qty, stamps `last_in_at` ISO timestamp. Source flag `auto_receipt`.
+- **Backend** (`/app/backend/routes/contractors.py`):
+  - `GET /material-inventory/history?project_id=…&material_name=…&from_date=&to_date=` — date-wise stock history for a single material.
+  - `POST /material-inventory/consume` — Site Engineer logs an "Out Stock" / used qty. Carries forward prior closing as opening, increments today's used, recomputes closing. Idempotent merge for same day. Validates available stock (rejects with detail message if insufficient). Pushes a `consumption_log` entry with qty/notes/at/by for audit.
+  - Dashboard endpoint enhanced to surface `last_in_at` / `last_out_at` and tolerate legacy entries that used `current_stock` instead of `closing_stock`.
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - Inventory tab now shows enhanced **Current Stock Levels** table with new columns: **Last In At**, **Last Out At**, **Min**, **Status**, plus a per-row **+ Out Stock** action button (red outline, disabled when stock ≤ 0).
+  - **Click any row → opens Stock History popup** with full date-wise table: Date / Opening / Received / Used / Closing / In At / Out At.
+  - **Out Stock dialog** captures qty + notes, auto-stamps date/time, calls `/material-inventory/consume`, refreshes view.
+  - **MetaDateFilter** added to Inventory header (default "This month") and to Materials Requests header (default "This month") — both filter the lifecycle items by `created_at`.
+  - Lazy-loads inventory dashboard on first click of the Inventory sub-tab (was previously not fetching for some entry paths).
+- **Frontend** (`/app/frontend/src/components/PlanningRequestsTab.jsx`):
+  - Replaced the legacy `CashbookDateFilter` with **MetaDateFilter** at the top of Planning's Requests page. State still backs `dateFrom`/`dateTo` for the existing `applyFilters` logic.
+- **Frontend** (`/app/frontend/src/pages/ProcurementBoardSimple.jsx`):
+  - Added **MetaDateFilter** to **All Projects** tab (filters by `created_at`) and **Material Vendors** tab (filters both vendors and materials).
+- AccountsBoard already uses an equivalent calendar-preset filter (`CashbookDateFilter`) — left as-is to avoid invasive refactor.
+- **Tested via curl**:
+  - Dashboard correctly returns `current_stock` for legacy + new entries (Bricks: 3000 → consumed 10 → 2990 ✅, OPC seeded 50 → consumed 8 → 42 ✅).
+  - History endpoint returns full date-wise audit trail.
+  - Insufficient-stock guard rejects over-consumption with clear message.
+- **Verified via screenshot**: Inventory table renders Bricks 9x4x3=2990 with `Last Out At = 08 May, 08:27 am`. Click row → Stock History popup shows `2026-05-08 | Opening 3000 | Received 0 | Used 10 | Closing 2990`.
+
 ### Session — May 8, 2026 — Receipt Flow Overhaul: No-OTP, Big Image Uploads, Photo Visibility for Procurement/Planning, Lifecycle Card Cleanup
 - **Backend** (`/app/backend/routes/site_ops.py`):
   - **Removed email-OTP step** for material receipts. `/site-engineer/material-receipts/initiate` now does the entire receipt in one call: persists the receipt with `otp_verified=true`, advances the parent `material_request` per payment-mode rules (`pre_paid`, `advance` → `pending_balance_payment`, `credit` → `delivered` + auto-creates `vendor_credit_ledger` entry, `post_delivery` → `pending_accounts_approval`), legacy flow → `received_partial`/`received_completed`. Stamps `lorry_image_id` and `material_image_id` on the parent request so Procurement/Planning can see them. The legacy `/verify-otp` endpoint is now unused (left in place to avoid breaking older mobile clients).
