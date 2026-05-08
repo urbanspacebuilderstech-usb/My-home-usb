@@ -2259,3 +2259,21 @@ credentials.json
 frontend/node_modules/.cache/default-development/433.pack
 frontend/node_modules/.cache/default-development/438.pack
 frontend/node_modules/.cache/default-development/439.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
