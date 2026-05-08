@@ -49,8 +49,8 @@ export default function PlanningRequestsTab({ projects = [] }) {
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
   const [materials, setMaterials] = useState([]);
-  const [labourStages, setLabourStages] = useState([]);
-  const [labourPayments, setLabourPayments] = useState([]);
+  const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
+  const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
   const [petty, setPetty] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -74,14 +74,17 @@ export default function PlanningRequestsTab({ projects = [] }) {
       // Load ALL statuses so the Req Handling status cards (New/In Progress/
       // Awaiting/Approved/Rejected) can show meaningful counts. Filter is
       // applied client-side via `statusFilter` + mapToReqStatus().
-      const [m, l, p] = await Promise.allSettled([
+      // Labour Stages pill = pending Stage-Open requests from SE
+      // Labour Payments pill = pending SE Work-Order stage payment requests
+      const [m, lsOpen, lpNew, p] = await Promise.allSettled([
         axios.get(`${API}/material-requests`),
-        axios.get(`${API}/labour-expenses`),
+        axios.get(`${API}/planning/stage-open-requests`).catch(() => ({ data: { requests: [] } })),
+        axios.get(`${API}/planning/labour-stage-requests?status=new`).catch(() => ({ data: { requests: [] } })),
         axios.get(`${API}/planning/petty-cash-requests`).catch(() => ({ data: [] })),
       ]);
       setMaterials(m.status === 'fulfilled' ? (m.value.data || []) : []);
-      setLabourStages(l.status === 'fulfilled' ? (l.value.data || []) : []);
-      setLabourPayments([]);
+      setLabourStages(lsOpen.status === 'fulfilled' ? (lsOpen.value.data?.requests || []) : []);
+      setLabourPayments(lpNew.status === 'fulfilled' ? (lpNew.value.data?.requests || []) : []);
       setPetty(p.status === 'fulfilled' ? (p.value.data || []) : []);
     } finally {
       setLoading(false);
@@ -97,9 +100,16 @@ export default function PlanningRequestsTab({ projects = [] }) {
     return res;
   };
 
+  // Labour stage/payment items use `requested_at` (not `created_at`); apply
+  // project filter only — the inner PlanningLabourStageRequests component
+  // handles its own list rendering and has independent filtering.
+  const applyLabourFilters = (items) => projectFilter
+    ? items.filter(r => r.project_id === projectFilter)
+    : items;
+
   const fMaterials = useMemo(() => applyFilters(materials), [materials, dateFrom, dateTo, projectFilter]);
-  const fLabourStages = useMemo(() => applyFilters(labourStages), [labourStages, dateFrom, dateTo, projectFilter]);
-  const fLabourPayments = useMemo(() => applyFilters(labourPayments), [labourPayments, dateFrom, dateTo, projectFilter]);
+  const fLabourStages = useMemo(() => applyLabourFilters(labourStages), [labourStages, projectFilter]);
+  const fLabourPayments = useMemo(() => applyLabourFilters(labourPayments), [labourPayments, projectFilter]);
   const fPetty = useMemo(() => applyFilters(petty), [petty, dateFrom, dateTo, projectFilter]);
 
   // For Petty Cash, show only items already approved by Project Manager (i.e. forwarded to Planning).

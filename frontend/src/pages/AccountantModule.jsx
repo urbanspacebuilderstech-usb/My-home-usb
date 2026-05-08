@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { NumericInput } from '../components/NumericInput';
+import AccountantLabourPayments from '../components/AccountantLabourPayments';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -67,6 +68,10 @@ export default function AccountantModule() {
   
   // Suspense data
   const [suspenseEntries, setSuspenseEntries] = useState([]);
+  
+  // Labour Payments queue (forwarded by Planning) — only count needed here;
+  // the actual list is rendered by <AccountantLabourPayments />
+  const [labourPaymentsCount, setLabourPaymentsCount] = useState(0);
   
   // Projects for dropdown
   const [projects, setProjects] = useState([]);
@@ -121,6 +126,7 @@ export default function AccountantModule() {
         creRes, 
         materialRes, 
         labourRes,
+        labourPaymentsRes,
         pettyCashRes,
         incomeRes,
         incomeSummaryRes,
@@ -132,6 +138,7 @@ export default function AccountantModule() {
         axios.get(`${API}/accounts/pending-advance-payments`).catch(() => ({ data: [] })),
         axios.get(`${API}/accountant/material-requests`).catch(() => ({ data: [] })),
         axios.get(`${API}/accountant/labour-requests`).catch(() => ({ data: [] })),
+        axios.get(`${API}/accountant/labour-payments?status=pending`).catch(() => ({ data: { count: 0 } })),
         axios.get(`${API}/accountant/petty-cash`).catch(() => ({ data: [] })),
         axios.get(`${API}/income`).catch(() => ({ data: [] })),
         axios.get(`${API}/income/summary`).catch(() => ({ data: {} })),
@@ -150,6 +157,7 @@ export default function AccountantModule() {
       setCreRequests(creRes.data || []);
       setMaterialRequests(materialRes.data || []);
       setLabourRequests(labourRes.data || []);
+      setLabourPaymentsCount((labourPaymentsRes.data?.count) || (labourPaymentsRes.data?.requests?.length) || 0);
       setPettyCashRequests(pettyCashRes.data || []);
       setIncomeEntries(incomeRes.data || []);
       setIncomeSummary(incomeSummaryRes.data || {});
@@ -334,13 +342,14 @@ export default function AccountantModule() {
       cre: creRequests.filter(r => r.status === 'pending_payment').length,
       material: materialRequests.filter(r => ['pending_accounts_approval', 'procurement_approved'].includes(r.status)).length,
       labour: labourRequests.filter(r => ['pending_accounts_approval', 'planning_approved'].includes(r.status)).length,
+      labour_payments: labourPaymentsCount,
       petty_cash: pettyCashRequests.filter(r => ['requested', 'pending_settlement'].includes(r.status)).length,
       total: 0
     };
   };
   
   const counts = getRequestCounts();
-  counts.total = counts.cre + counts.material + counts.labour + counts.petty_cash;
+  counts.total = counts.cre + counts.material + counts.labour + counts.labour_payments + counts.petty_cash;
 
   const getCategoryBadge = (category) => {
     const cat = EXPENSE_CATEGORIES.find(c => c.value === category);
@@ -593,19 +602,14 @@ export default function AccountantModule() {
                   </div>
                 )}
 
-                {/* Labour Payments — direct labour wage payouts (placeholder until backing API ships).
-                    Wired up to the same filter chip. Will populate once /api/labour-payments
-                    or equivalent is available. */}
+                {/* Labour Payments — SE Work-Order stage payments forwarded by Planning.
+                    Mounts the dedicated <AccountantLabourPayments /> queue component. */}
                 {(requestFilter === 'all' || requestFilter === 'labour_payments') && (
                   <div className="p-4 border-b" data-testid="labour-payments-section">
                     <h3 className="text-sm font-semibold text-cyan-700 mb-3 flex items-center gap-2">
                       <CreditCard className="h-4 w-4" /> Labour Payments ({counts.labour_payments || 0})
                     </h3>
-                    {(counts.labour_payments || 0) === 0 && (
-                      <p className="text-xs text-gray-400 italic px-1 py-3">
-                        No pending labour payment requests.
-                      </p>
-                    )}
+                    <AccountantLabourPayments />
                   </div>
                 )}
 
