@@ -13,6 +13,26 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — Procurement Dashboard: Sub-tabs + Credit Management 3-step Settlement Chain
+- **Frontend** (`/app/frontend/src/components/MetaDateFilter.jsx` — NEW):
+  - Reusable Meta Ads-style date filter component with preset chips (Today, Yesterday, Last 7 days, This month, Last month) + Custom range picker. Returns `{from, to, label, preset}` via `onChange`. Default preset configurable.
+- **Frontend** (`/app/frontend/src/pages/ProcurementBoardSimple.jsx`):
+  - Wrapped Dashboard view in a `DashboardTab` component with two sub-tabs: **Material Req** | **Credit Management**. Tab state persists via `?subtab=` URL param. The Meta date filter sits at top-right and applies to both sub-tabs.
+  - `RequestsTab` now accepts `dateRange` prop and filters items client-side on `created_at`.
+  - **New `CreditManagementTab`** — fetches `/procurement-simple/credit-ledger?status=all&from_date&to_date`, shows 5 status buckets (Pending / Planning Awaiting / Accountant Awaiting / Paid / All) with counts. Each card shows material, vendor, delivered date, deadline, amount, and a **"Due in X days" / "Overdue by X days"** badge. **"Collect Payment"** button on pending items kicks off the 3-step settlement chain.
+- **Frontend** (`/app/frontend/src/components/PlanningRequestsTab.jsx`):
+  - Added a new **Credit Settlement** pill (purple, with Banknote icon) on Planning's Requests page.
+  - Fetches credit-ledger entries with status `pending_planning_approval`. New `CreditSettlementApprovalList` inline component shows each entry with material/vendor/delivered/deadline plus deadline pill. Buttons: **Approve & Send to Accountant** / **Reject** (with reason).
+- **Frontend** (`/app/frontend/src/components/AccountantCreditSettlements.jsx` — NEW):
+  - Inline component embedded in Accountant Approvals → Materials sub-tab. Lists entries with status `pending_accountant_approval`. **Release Payment** dialog captures method (bank/cash/cheque), bank ref / cheque #, notes — calls existing `/procurement-simple/credit-ledger/{id}/settle` which records the expense in `db.recorded_expenses` and marks the parent material request as fully paid.
+- **Backend** (`/app/backend/routes/procurement.py`):
+  - `GET /api/procurement-simple/credit-ledger` extended with optional `from_date` / `to_date` query params filtering on `delivered_at`.
+  - `POST /api/procurement-simple/credit-ledger/{ledger_id}/request-settlement` — Procurement triggers; status `pending` → `pending_planning_approval`; notifies Planning users.
+  - `POST /api/planning/credit-ledger/{ledger_id}/approve` — Planning approves; status → `pending_accountant_approval`; notifies Accountant users.
+  - `POST /api/planning/credit-ledger/{ledger_id}/reject` — Planning rejects with reason; returns to `pending`.
+  - The existing `/procurement-simple/credit-ledger/{ledger_id}/settle` (Accountant) now requires `pending_accountant_approval` (Super Admin still allowed to override from any active state for emergency cases).
+- **Tested end-to-end via curl** — Procurement (Sneha Reddy) requested settlement on `vc_2bf6d847e7` → status flipped to `pending_planning_approval` → Planning approved → status `pending_accountant_approval` → Accountant settled with bank ref → status `paid`, `expense_id=exp_219928d0be46` recorded in `db.recorded_expenses`. Verified on screenshot: Procurement Dashboard sub-tabs render, date filter dropdown works, 3 entries visible with "Due in X days" / "Overdue Yd" badges.
+
 ### Session — May 8, 2026 — SE Materials Tab: Unified Lifecycle Cards UI
 - **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
   - Added `LIFECYCLE_BUCKETS` and `bucketForMaterial()` helpers (mirroring `ProcurementBoardSimple.jsx` / `PlanningRequestsTab.jsx`) so the Site Engineer's Materials tab now shows the same 8 unified lifecycle cards: **All / New Request / Planning Awaiting / Revision / Awaiting Accountant / Transit / Credit / Delivered**. Counts update live from `material_requests` and clicking a card filters the list.

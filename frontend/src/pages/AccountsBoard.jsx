@@ -31,6 +31,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
+import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -3307,6 +3308,10 @@ function ApprovalsTab() {
               Mounts a lightweight queue separate from the legacy material_expenses approvals below. */}
           <div className="mb-3" data-testid="approvals-procurement-materials">
             <AccountantMaterialPayments />
+          </div>
+          {/* Vendor credit ledger settlements awaiting accountant release */}
+          <div className="mb-3" data-testid="approvals-credit-settlements">
+            <AccountantCreditSettlements />
           </div>
           <ApprovalExpenseTable
             items={filteredMaterials}

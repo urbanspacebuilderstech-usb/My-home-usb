@@ -11,7 +11,7 @@ import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
-import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck } from 'lucide-react';
+import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck, Banknote } from 'lucide-react';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -65,6 +65,7 @@ const PAYMENT_MODE_DISPLAY = {
 // (currently empty placeholder until backing API ships).
 const TAB_META = {
   material:        { label: 'Material',        Icon: Package,    color: 'blue',    pillActive: 'bg-blue-50 text-blue-700 border-blue-300',       badgeBg: 'bg-blue-100 text-blue-700' },
+  credit:          { label: 'Credit Settlement', Icon: Banknote, color: 'purple',  pillActive: 'bg-purple-50 text-purple-700 border-purple-300', badgeBg: 'bg-purple-100 text-purple-700' },
   labour_stages:   { label: 'Labour Stages',   Icon: Users,      color: 'amber',   pillActive: 'bg-amber-50 text-amber-700 border-amber-300',    badgeBg: 'bg-amber-100 text-amber-700' },
   labour_payments: { label: 'Labour Payments', Icon: CreditCard, color: 'cyan',    pillActive: 'bg-cyan-50 text-cyan-700 border-cyan-300',       badgeBg: 'bg-cyan-100 text-cyan-700' },
   petty:           { label: 'Petty Cash',      Icon: Wallet,     color: 'emerald', pillActive: 'bg-emerald-50 text-emerald-700 border-emerald-300', badgeBg: 'bg-emerald-100 text-emerald-700' },
@@ -96,6 +97,7 @@ export default function PlanningRequestsTab({ projects = [] }) {
   const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
   const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
   const [petty, setPetty] = useState([]);
+  const [creditEntries, setCreditEntries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Filters (Meta-style date + project)
@@ -120,16 +122,18 @@ export default function PlanningRequestsTab({ projects = [] }) {
       // applied client-side via `statusFilter` + mapToReqStatus().
       // Labour Stages pill = pending Stage-Open requests from SE
       // Labour Payments pill = pending SE Work-Order stage payment requests
-      const [m, lsOpen, lpNew, p] = await Promise.allSettled([
+      const [m, lsOpen, lpNew, p, credit] = await Promise.allSettled([
         axios.get(`${API}/material-requests`),
         axios.get(`${API}/planning/stage-open-requests`).catch(() => ({ data: { requests: [] } })),
         axios.get(`${API}/planning/labour-stage-requests?status=new`).catch(() => ({ data: { requests: [] } })),
         axios.get(`${API}/planning/petty-cash-requests`).catch(() => ({ data: [] })),
+        axios.get(`${API}/procurement-simple/credit-ledger?status=all`).catch(() => ({ data: { entries: [] } })),
       ]);
       setMaterials(m.status === 'fulfilled' ? (m.value.data || []) : []);
       setLabourStages(lsOpen.status === 'fulfilled' ? (lsOpen.value.data?.requests || []) : []);
       setLabourPayments(lpNew.status === 'fulfilled' ? (lpNew.value.data?.requests || []) : []);
       setPetty(p.status === 'fulfilled' ? (p.value.data || []) : []);
+      setCreditEntries(credit.status === 'fulfilled' ? (credit.value.data?.entries || []) : []);
     } finally {
       setLoading(false);
     }
@@ -173,8 +177,14 @@ export default function PlanningRequestsTab({ projects = [] }) {
     () => fMaterials.filter(m => (m.status || '').toLowerCase() === 'procurement_priced').length,
     [fMaterials]
   );
-  const counts = { material: planningPendingMaterials, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
-  const totalRequests = counts.material + counts.labour_stages + counts.labour_payments + counts.petty;
+  // Credit settlement entries pending Planning approval
+  const fCreditPending = useMemo(
+    () => (creditEntries || []).filter(e => e.status === 'pending_planning_approval'),
+    [creditEntries]
+  );
+
+  const counts = { material: planningPendingMaterials, credit: fCreditPending.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
+  const totalRequests = counts.material + counts.credit + counts.labour_stages + counts.labour_payments + counts.petty;
   const baseList = activeType === 'material' ? fMaterials
     : activeType === 'labour_stages' ? fLabourStages
     : activeType === 'labour_payments' ? fLabourPayments
@@ -336,6 +346,15 @@ export default function PlanningRequestsTab({ projects = [] }) {
           setBucket={setMaterialBucket}
           onApprove={(req) => setApproveDialog({ open: true, req, type: 'material' })}
           processing={processing}
+        />
+      )}
+
+      {/* CREDIT SETTLEMENT — Planning approves Procurement's "Collect Payment" requests */}
+      {activeType === 'credit' && (
+        <CreditSettlementApprovalList
+          entries={fCreditPending}
+          loading={loading}
+          onAction={loadAll}
         />
       )}
 
@@ -950,5 +969,131 @@ function PlanningMaterialCard({ req, onClick, processing }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+
+// ---- Credit Settlement Approval List (Planning queue) ----
+function CreditSettlementApprovalList({ entries, loading, onAction }) {
+  const [processing, setProcessing] = useState(null);
+  const [rejectDialog, setRejectDialog] = useState({ open: false, entry: null, reason: '' });
+
+  const approve = async (e) => {
+    setProcessing(e.ledger_id);
+    try {
+      await axios.post(`${API}/planning/credit-ledger/${e.ledger_id}/approve`, { notes: '' });
+      toast.success('Approved — sent to Accountant');
+      onAction?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Approval failed');
+    } finally { setProcessing(null); }
+  };
+
+  const submitReject = async () => {
+    if (!rejectDialog.reason.trim()) { toast.error('Reason required'); return; }
+    setProcessing(rejectDialog.entry.ledger_id);
+    try {
+      await axios.post(`${API}/planning/credit-ledger/${rejectDialog.entry.ledger_id}/reject`, { reason: rejectDialog.reason });
+      toast.success('Rejected — returned to Procurement');
+      setRejectDialog({ open: false, entry: null, reason: '' });
+      onAction?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Reject failed');
+    } finally { setProcessing(null); }
+  };
+
+  if (loading) return <Card><CardContent className="py-12 text-center text-gray-400 flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</CardContent></Card>;
+  if (!entries.length) return <Card><CardContent className="p-10"><p className="text-center text-xs text-gray-400">No credit settlement requests awaiting Planning approval</p></CardContent></Card>;
+
+  return (
+    <div className="space-y-2" data-testid="credit-approval-list">
+      {entries.map(e => {
+        const due = e.due_date ? new Date(e.due_date) : null;
+        const daysLeft = due ? Math.round((due.getTime() - Date.now()) / 86400000) : null;
+        const overdue = daysLeft !== null && daysLeft < 0;
+        const dueLabel =
+          daysLeft === null ? '—'
+          : daysLeft < 0    ? `Overdue by ${Math.abs(daysLeft)}d`
+          : daysLeft === 0  ? 'Due today'
+          : `Due in ${daysLeft}d`;
+        return (
+          <Card key={e.ledger_id} className="hover:shadow-md transition-shadow" data-testid={`credit-approval-card-${e.ledger_id}`}>
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <Badge variant="outline" className="text-[10px] bg-purple-50 text-purple-700 border-purple-200">Credit Settlement</Badge>
+                  <Badge variant="outline" className={`text-[10px] ${overdue ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-50 text-gray-600 border-gray-200'}`}>{dueLabel}</Badge>
+                  <span className="text-[10px] text-gray-400 font-mono">#{e.ledger_id}</span>
+                </div>
+                <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(e.amount)}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                <div className="sm:col-span-2">
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
+                  <p className="font-medium truncate">{e.material_name}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Vendor</p>
+                  <p className="font-medium truncate">{e.vendor_name}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Delivered</p>
+                  <p className="font-medium">{fmtDate(e.delivered_at)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-semibold text-gray-400">Deadline</p>
+                  <p className={`font-medium ${overdue ? 'text-red-600' : ''}`}>{fmtDate(e.due_date)}</p>
+                </div>
+              </div>
+              {e.settlement_requested_by_name && (
+                <p className="mt-2 text-[11px] text-gray-500">
+                  Requested by <strong>{e.settlement_requested_by_name}</strong>
+                  {e.settlement_remarks && <> · "{e.settlement_remarks}"</>}
+                </p>
+              )}
+              <div className="mt-3 flex items-center justify-end gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs gap-1 border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={() => setRejectDialog({ open: true, entry: e, reason: '' })}
+                  disabled={processing === e.ledger_id}
+                  data-testid={`credit-reject-btn-${e.ledger_id}`}
+                >
+                  <ThumbsDown className="h-3 w-3" /> Reject
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => approve(e)}
+                  disabled={processing === e.ledger_id}
+                  data-testid={`credit-approve-btn-${e.ledger_id}`}
+                >
+                  {processing === e.ledger_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ThumbsUp className="h-3 w-3" />} Approve & Send to Accountant
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      <Dialog open={rejectDialog.open} onOpenChange={(o) => !o && setRejectDialog({ open: false, entry: null, reason: '' })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700"><ThumbsDown className="h-5 w-5" /> Reject Credit Settlement</DialogTitle>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Reason for rejection *</Label>
+            <Textarea rows={3} value={rejectDialog.reason} onChange={(ev) => setRejectDialog({ ...rejectDialog, reason: ev.target.value })} placeholder="Why is this rejected?" className="mt-1 text-sm" data-testid="credit-reject-reason" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRejectDialog({ open: false, entry: null, reason: '' })} disabled={!!processing}>Cancel</Button>
+            <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitReject} disabled={!!processing} data-testid="credit-reject-confirm">
+              {processing ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }

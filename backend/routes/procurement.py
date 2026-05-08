@@ -2982,10 +2982,15 @@ async def procurement_simple_mark_received(request_id: str, data: dict, user: Us
 
 @router.get("/procurement-simple/credit-ledger")
 async def procurement_simple_credit_ledger(
-    status: str = "pending",  # pending | paid | overdue | all
+    status: str = "pending",  # pending | pending_planning_approval | pending_accountant_approval | paid | overdue | all
+    from_date: Optional[str] = None,  # ISO date — filter on delivered_at >=
+    to_date: Optional[str] = None,    # ISO date — filter on delivered_at <=
     user: User = Depends(get_current_user),
 ):
-    """Vendor credit ledger — post-paid materials due in N days."""
+    """Vendor credit ledger — post-paid materials due in N days.
+    Statuses follow the 3-step settlement chain:
+    pending → pending_planning_approval → pending_accountant_approval → paid
+    """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     q = {}
@@ -2993,20 +2998,132 @@ async def procurement_simple_credit_ledger(
         q = {"status": "pending", "due_date": {"$lt": datetime.now(timezone.utc).isoformat()}}
     elif status != "all":
         q = {"status": status}
+    if from_date or to_date:
+        delivered_q = {}
+        if from_date:
+            delivered_q["$gte"] = from_date
+        if to_date:
+            delivered_q["$lte"] = to_date
+        q["delivered_at"] = delivered_q
     rows = await db.vendor_credit_ledger.find(q, {"_id": 0}).sort("due_date", 1).to_list(500)
     return {"count": len(rows), "entries": rows}
 
 
+@router.post("/procurement-simple/credit-ledger/{ledger_id}/request-settlement")
+async def procurement_simple_credit_request_settlement(
+    ledger_id: str,
+    data: dict = None,
+    user: User = Depends(get_current_user),
+):
+    """Step 1 — Procurement clicks 'Collect Payment' on a credit ledger entry.
+    Moves it to Planning's queue for approval before Accountant releases the cash.
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement or Super Admin")
+    entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    if entry.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"Cannot request settlement — current status: {entry.get('status')}")
+    now = datetime.now(timezone.utc).isoformat()
+    remarks = ((data or {}).get("remarks") or "").strip()
+    await db.vendor_credit_ledger.update_one(
+        {"ledger_id": ledger_id},
+        {"$set": {
+            "status": "pending_planning_approval",
+            "settlement_requested_at": now,
+            "settlement_requested_by": user.user_id,
+            "settlement_requested_by_name": user.name,
+            "settlement_remarks": remarks,
+        }},
+    )
+    # Notify Planning users
+    planners = await db.users.find({"role": {"$in": ["planning", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+    for p in planners:
+        try: await create_notification(p["user_id"], f"Credit settlement awaiting approval: {entry.get('material_name')} — {entry.get('vendor_name')}")
+        except Exception: pass
+    await create_audit_log(user.user_id, "request_credit_settlement", "vendor_credit_ledger", ledger_id, {"vendor": entry.get("vendor_name")})
+    return {"message": "Settlement requested — pending Planning approval", "status": "pending_planning_approval"}
+
+
+@router.post("/planning/credit-ledger/{ledger_id}/approve")
+async def planning_credit_approve(
+    ledger_id: str,
+    data: dict = None,
+    user: User = Depends(get_current_user),
+):
+    """Step 2 — Planning approves the settlement request, forwarding it to Accountant."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning or Super Admin")
+    entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    if entry.get("status") != "pending_planning_approval":
+        raise HTTPException(status_code=400, detail=f"Cannot approve — current status: {entry.get('status')}")
+    now = datetime.now(timezone.utc).isoformat()
+    notes = ((data or {}).get("notes") or "").strip()
+    await db.vendor_credit_ledger.update_one(
+        {"ledger_id": ledger_id},
+        {"$set": {
+            "status": "pending_accountant_approval",
+            "planning_approved_at": now,
+            "planning_approved_by": user.user_id,
+            "planning_approved_by_name": user.name,
+            "planning_notes": notes,
+        }},
+    )
+    accs = await db.users.find({"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+    for a in accs:
+        try: await create_notification(a["user_id"], f"Credit settlement ready for payment: {entry.get('material_name')} ({entry.get('amount')})")
+        except Exception: pass
+    await create_audit_log(user.user_id, "approve_credit_settlement", "vendor_credit_ledger", ledger_id, {})
+    return {"message": "Approved — pending Accountant payment", "status": "pending_accountant_approval"}
+
+
+@router.post("/planning/credit-ledger/{ledger_id}/reject")
+async def planning_credit_reject(
+    ledger_id: str,
+    data: dict,
+    user: User = Depends(get_current_user),
+):
+    """Planning rejects the settlement request, returning it to pending."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning or Super Admin")
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+    entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    if entry.get("status") != "pending_planning_approval":
+        raise HTTPException(status_code=400, detail=f"Cannot reject — current status: {entry.get('status')}")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.vendor_credit_ledger.update_one(
+        {"ledger_id": ledger_id},
+        {"$set": {
+            "status": "pending",
+            "planning_rejected_at": now,
+            "planning_rejection_reason": reason,
+            "planning_rejected_by": user.user_id,
+        }},
+    )
+    return {"message": "Rejected — returned to Procurement", "status": "pending"}
+
+
 @router.post("/procurement-simple/credit-ledger/{ledger_id}/settle")
 async def procurement_simple_credit_settle(ledger_id: str, data: dict, user: User = Depends(get_current_user)):
-    """Accountant settles a vendor credit ledger entry (records expense)."""
+    """Step 3 — Accountant settles a vendor credit ledger entry (records expense).
+    Requires status `pending_accountant_approval` (i.e. Planning has already approved).
+    Super Admin may settle from any active state for emergency overrides.
+    """
     if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Accountant")
     entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
     if not entry:
         raise HTTPException(status_code=404, detail="Credit entry not found")
-    if entry.get("status") != "pending":
-        raise HTTPException(status_code=400, detail=f"Already in status: {entry.get('status')}")
+    valid_states = ["pending_accountant_approval"] if user.role == UserRole.ACCOUNTANT else ["pending", "pending_planning_approval", "pending_accountant_approval"]
+    if entry.get("status") not in valid_states:
+        raise HTTPException(status_code=400, detail=f"Cannot settle — current status: {entry.get('status')}. Must be 'pending_accountant_approval'.")
     method = (data.get("payment_method") or "bank").lower()
     if method not in ("cash", "bank", "cheque"):
         raise HTTPException(status_code=400, detail="Invalid method")

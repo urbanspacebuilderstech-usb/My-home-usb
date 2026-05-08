@@ -9,6 +9,12 @@
 - Email: admin@constructionos.com
 - Password: Demo@1234
 
+## Dev / Demo Role Test Users (preview env only — password Demo@1234)
+- Procurement: procurement@constructionos.com (Sneha Reddy)
+- Planning:    planning@constructionos.com
+- Accountant:  accountant@constructionos.com
+- Site Engineer: engineer@constructionos.com (Vikram Singh)
+
 ## Demo Access
 - Available via "Demo Access" tab on login page
 

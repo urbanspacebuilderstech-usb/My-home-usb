@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
 import MobileBottomNav from '../components/MobileBottomNav';
+import MetaDateFilter from '../components/MetaDateFilter';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
@@ -56,7 +57,7 @@ export default function ProcurementBoardSimple() {
     <div className="min-h-screen bg-gray-50 pb-20" data-testid="procurement-board-simple">
       <AppHeader user={user} customNav={NAV} activeCustomNav={activeNav} onCustomNavChange={setNav} />
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-5">
-        {activeNav === 'requests' && <RequestsTab />}
+        {activeNav === 'requests' && <DashboardTab />}
         {activeNav === 'projects' && <AllProjectsTab />}
         {activeNav === 'vendors' && <MaterialVendorsTab />}
       </div>
@@ -100,7 +101,7 @@ function bucketForMaterial(req) {
   return 'all';
 }
 
-function RequestsTab() {
+function RequestsTab({ dateRange }) {
   const [bucket, setBucket] = useState('new_request');
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -128,20 +129,31 @@ function RequestsTab() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Apply date filter on created_at before bucketing
+  const filteredItems = useMemo(() => {
+    if (!dateRange?.from || !dateRange?.to) return allItems;
+    const fromTs = new Date(dateRange.from + 'T00:00:00').getTime();
+    const toTs = new Date(dateRange.to + 'T23:59:59').getTime();
+    return allItems.filter(r => {
+      const t = new Date(r.created_at || 0).getTime();
+      return t >= fromTs && t <= toTs;
+    });
+  }, [allItems, dateRange]);
+
   const counts = useMemo(() => {
-    const c = { all: allItems.length };
+    const c = { all: filteredItems.length };
     LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
-    allItems.forEach(r => {
+    filteredItems.forEach(r => {
       const b = bucketForMaterial(r);
       c[b] = (c[b] || 0) + 1;
     });
     return c;
-  }, [allItems]);
+  }, [filteredItems]);
 
   const visibleItems = useMemo(() => {
-    if (bucket === 'all') return allItems;
-    return allItems.filter(r => bucketForMaterial(r) === bucket);
-  }, [allItems, bucket]);
+    if (bucket === 'all') return filteredItems;
+    return filteredItems.filter(r => bucketForMaterial(r) === bucket);
+  }, [filteredItems, bucket]);
 
   const submitReject = async () => {
     if (!rejectDialog.reason.trim()) { toast.error('Reason is required'); return; }
@@ -227,6 +239,272 @@ function RequestsTab() {
             <Button variant="outline" size="sm" onClick={() => setRejectDialog({ open: false, req: null, reason: '' })} disabled={submitting}>Cancel</Button>
             <Button size="sm" className="bg-red-600 hover:bg-red-700" onClick={submitReject} disabled={submitting} data-testid="proc-reject-confirm">
               {submitting ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// =====================================================================
+// DASHBOARD WRAPPER — Material Req | Credit Management sub-tabs
+// =====================================================================
+function DashboardTab() {
+  const [subTab, setSubTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('subtab') || 'material_req';
+  });
+  const [dateRange, setDateRange] = useState(null); // {from, to, label, preset}
+
+  const setSub = (v) => {
+    setSubTab(v);
+    const url = new URL(window.location);
+    url.searchParams.set('subtab', v);
+    window.history.replaceState({}, '', url);
+  };
+
+  return (
+    <div className="space-y-3" data-testid="proc-dashboard-tab">
+      {/* Sub-tab pill bar + global date filter */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="inline-flex rounded-md border border-gray-200 bg-white p-0.5" data-testid="proc-subtabs">
+          {[
+            { key: 'material_req',     label: 'Material Req' },
+            { key: 'credit_management', label: 'Credit Management' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setSub(t.key)}
+              className={`px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium rounded transition-all ${
+                subTab === t.key
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              }`}
+              data-testid={`proc-subtab-${t.key}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <MetaDateFilter value={dateRange} onChange={setDateRange} defaultPreset="last_month" />
+      </div>
+
+      {subTab === 'material_req' && <RequestsTab dateRange={dateRange} />}
+      {subTab === 'credit_management' && <CreditManagementTab dateRange={dateRange} />}
+    </div>
+  );
+}
+
+// =====================================================================
+// CREDIT MANAGEMENT — Vendor credit ledger settlement chain
+// Procurement clicks "Collect Payment" → Planning → Accountant
+// =====================================================================
+const CREDIT_BUCKETS = [
+  { key: 'pending',                     label: 'Pending',          cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'pending_planning_approval',   label: 'Planning Awaiting', cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',  active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'pending_accountant_approval', label: 'Accountant Awaiting', cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',     active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'paid',                        label: 'Paid',             cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',                         label: 'All',              cls: 'bg-violet-50 border-violet-200 text-violet-700',   active: 'bg-violet-600 text-white border-violet-600' },
+];
+
+function daysBetween(fromIso, toIso) {
+  try {
+    const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
+    return Math.round(ms / 86400000);
+  } catch { return null; }
+}
+
+function CreditManagementTab({ dateRange }) {
+  const [bucket, setBucket] = useState('pending');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [collectDialog, setCollectDialog] = useState({ open: false, entry: null, remarks: '' });
+  const [submitting, setSubmitting] = useState(false);
+
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ status: 'all' });
+      if (dateRange?.from) params.set('from_date', dateRange.from);
+      if (dateRange?.to) params.set('to_date', dateRange.to);
+      const res = await axios.get(`${API}/procurement-simple/credit-ledger?${params}`);
+      setItems(res.data?.entries || []);
+    } catch {
+      setItems([]);
+    } finally { setLoading(false); }
+  }, [dateRange]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const counts = useMemo(() => {
+    const c = { all: items.length };
+    CREDIT_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
+    items.forEach(it => { c[it.status] = (c[it.status] || 0) + 1; });
+    return c;
+  }, [items]);
+
+  const visibleItems = useMemo(() => {
+    if (bucket === 'all') return items;
+    return items.filter(it => it.status === bucket);
+  }, [items, bucket]);
+
+  const submitCollect = async () => {
+    if (!collectDialog.entry) return;
+    setSubmitting(true);
+    try {
+      await axios.post(`${API}/procurement-simple/credit-ledger/${collectDialog.entry.ledger_id}/request-settlement`, { remarks: collectDialog.remarks });
+      toast.success('Payment request sent to Planning for approval');
+      setCollectDialog({ open: false, entry: null, remarks: '' });
+      fetchAll();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send');
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="credit-management-tab">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">Credit Management</h1>
+          <p className="text-[11px] text-gray-500">Procurement → Planning approval → Accountant payment release</p>
+        </div>
+        <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchAll} data-testid="credit-refresh">
+          <RefreshCw className="h-3 w-3" /> Refresh
+        </Button>
+      </div>
+
+      {/* Status filter cards */}
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5" data-testid="credit-buckets">
+        {CREDIT_BUCKETS.map(b => {
+          const active = bucket === b.key;
+          const count = counts[b.key] || 0;
+          return (
+            <button
+              key={b.key}
+              onClick={() => setBucket(b.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${
+                active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'
+              }`}
+              data-testid={`credit-bucket-${b.key}`}
+            >
+              <span className="leading-tight text-center">{b.label}</span>
+              <span className={`text-base font-bold ${active ? 'text-white' : ''}`}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <p className="text-center text-xs text-gray-400 py-10">Loading…</p>
+      ) : visibleItems.length === 0 ? (
+        <Card><CardContent className="p-10"><p className="text-center text-xs text-gray-400">No credit ledger entries in this bucket</p></CardContent></Card>
+      ) : (
+        <div className="space-y-2" data-testid="credit-list">
+          {visibleItems.map(it => {
+            const daysLeft = daysBetween(new Date().toISOString(), it.due_date);
+            const overdue = daysLeft !== null && daysLeft < 0 && it.status !== 'paid';
+            const dueLabel =
+              it.status === 'paid'
+                ? 'Settled'
+                : daysLeft === null
+                  ? '—'
+                  : daysLeft < 0
+                    ? `Overdue by ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'}`
+                    : daysLeft === 0
+                      ? 'Due today'
+                      : `Due in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
+            const cardCfg = CREDIT_BUCKETS.find(b => b.key === it.status);
+            return (
+              <Card key={it.ledger_id} className="hover:shadow-md transition-shadow" data-testid={`credit-card-${it.ledger_id}`}>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {cardCfg && (
+                        <Badge variant="outline" className={`text-[10px] ${cardCfg.cls}`}>{cardCfg.label}</Badge>
+                      )}
+                      <Badge variant="outline" className={`text-[10px] ${overdue ? 'bg-red-50 text-red-700 border-red-200' : (daysLeft !== null && daysLeft <= 7 && it.status !== 'paid' ? 'bg-orange-50 text-orange-700 border-orange-200' : 'bg-gray-50 text-gray-600 border-gray-200')}`} data-testid={`credit-deadline-${it.ledger_id}`}>
+                        {dueLabel}
+                      </Badge>
+                      <span className="text-[10px] text-gray-400 font-mono">#{it.ledger_id}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(it.amount)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+                    <div className="sm:col-span-2">
+                      <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
+                      <p className="font-medium truncate">{it.material_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-semibold text-gray-400">Vendor</p>
+                      <p className="font-medium truncate">{it.vendor_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-semibold text-gray-400">Delivered</p>
+                      <p className="font-medium">{fmtDate(it.delivered_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-semibold text-gray-400">Deadline</p>
+                      <p className={`font-medium ${overdue ? 'text-red-600' : ''}`}>{fmtDate(it.due_date)}</p>
+                    </div>
+                  </div>
+                  {/* Action row */}
+                  <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-[11px] text-gray-500">
+                      {it.status === 'pending_planning_approval' && it.settlement_requested_by_name && (
+                        <span>Requested by <strong>{it.settlement_requested_by_name}</strong> · awaiting Planning</span>
+                      )}
+                      {it.status === 'pending_accountant_approval' && it.planning_approved_by_name && (
+                        <span>Approved by Planning ({it.planning_approved_by_name}) · awaiting Accountant</span>
+                      )}
+                      {it.status === 'paid' && it.paid_at && (
+                        <span>Paid on {fmtDate(it.paid_at)} · expense {it.expense_id}</span>
+                      )}
+                    </div>
+                    {it.status === 'pending' && (
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs gap-1 bg-amber-600 hover:bg-amber-700"
+                        onClick={() => setCollectDialog({ open: true, entry: it, remarks: '' })}
+                        data-testid={`collect-payment-btn-${it.ledger_id}`}
+                      >
+                        <Banknote className="h-3 w-3" /> Collect Payment
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Collect Payment dialog — Procurement → Planning */}
+      <Dialog open={collectDialog.open} onOpenChange={(o) => !o && setCollectDialog({ open: false, entry: null, remarks: '' })}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700"><Banknote className="h-5 w-5" /> Request Credit Payment</DialogTitle>
+            <DialogDescription className="text-xs">
+              {collectDialog.entry?.material_name} · {collectDialog.entry?.vendor_name} · {fmt(collectDialog.entry?.amount || 0)}
+              <br />This will be sent to Planning for approval before Accountant releases the payment.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label className="text-xs">Remarks (optional)</Label>
+            <Textarea
+              rows={3}
+              value={collectDialog.remarks}
+              onChange={(e) => setCollectDialog({ ...collectDialog, remarks: e.target.value })}
+              placeholder="Any context for Planning..."
+              className="mt-1 text-sm"
+              data-testid="collect-remarks"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCollectDialog({ open: false, entry: null, remarks: '' })} disabled={submitting}>Cancel</Button>
+            <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submitCollect} disabled={submitting} data-testid="collect-confirm">
+              {submitting ? 'Sending…' : 'Send to Planning'}
             </Button>
           </DialogFooter>
         </DialogContent>
