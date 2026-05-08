@@ -77,7 +77,7 @@ const LIFECYCLE_BUCKETS = [
   { key: 'revision', label: 'Revision',         Icon: FileClock,   cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'forwarded', label: 'Vendor Assigned', Icon: Send,        cls: 'bg-blue-50 border-blue-200 text-blue-700',       active: 'bg-blue-600 text-white border-blue-600' },
   { key: 'planning_approved', label: 'Planning Approved', Icon: CheckCircle2, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
-  { key: 'awaiting_payment', label: 'Awaiting Payment', Icon: Wallet,    cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'awaiting_payment', label: 'Accountant Approval', Icon: Wallet,    cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'transit',  label: 'In Transit',       Icon: Truck,       cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'delivered', label: 'Delivered',       Icon: PackageCheck, cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
   { key: 'rejected', label: 'Rejected',         Icon: ThumbsDown,  cls: 'bg-red-50 border-red-200 text-red-700',           active: 'bg-red-600 text-white border-red-600' },
