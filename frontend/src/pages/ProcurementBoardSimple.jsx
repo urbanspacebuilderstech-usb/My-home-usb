@@ -22,20 +22,24 @@ const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency:
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
 const NAV = [
-  { label: 'Dashboard', value: 'dashboard', icon: 'Building2' },
-  { label: 'Requests', value: 'requests', icon: 'ClipboardList' },
+  { label: 'Dashboard', value: 'requests', icon: 'ClipboardList' },
   { label: 'All Projects', value: 'projects', icon: 'Building2' },
   { label: 'Material Vendors', value: 'vendors', icon: 'Truck' },
 ];
 
 export default function ProcurementBoardSimple() {
   const [user, setUser] = useState(null);
-  const [activeNav, setActiveNav] = useState('dashboard');
+  const [activeNav, setActiveNav] = useState('requests');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get('tab');
-    if (t && NAV.some(n => n.value === t)) setActiveNav(t);
+    // Legacy `?tab=dashboard` URLs land on requests now (they're the same page).
+    if (t === 'dashboard') {
+      setActiveNav('requests');
+    } else if (t && NAV.some(n => n.value === t)) {
+      setActiveNav(t);
+    }
     axios.get(`${API}/auth/me`).then(r => setUser(r.data)).catch(() => { window.location.href = '/login'; });
   }, []);
 
@@ -52,7 +56,6 @@ export default function ProcurementBoardSimple() {
     <div className="min-h-screen bg-gray-50 pb-20" data-testid="procurement-board-simple">
       <AppHeader user={user} customNav={NAV} activeCustomNav={activeNav} onCustomNavChange={setNav} />
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-5">
-        {activeNav === 'dashboard' && <DashboardTab onJump={setNav} />}
         {activeNav === 'requests' && <RequestsTab />}
         {activeNav === 'projects' && <AllProjectsTab />}
         {activeNav === 'vendors' && <MaterialVendorsTab />}
@@ -62,84 +65,6 @@ export default function ProcurementBoardSimple() {
   );
 }
 
-// =====================================================================
-// DASHBOARD
-// =====================================================================
-function DashboardTab({ onJump }) {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const res = await axios.get(`${API}/procurement-simple/dashboard`);
-        if (!cancel) setStats(res.data || {});
-      } catch {
-        if (!cancel) setStats({});
-      } finally {
-        if (!cancel) setLoading(false);
-      }
-    })();
-    return () => { cancel = true; };
-  }, []);
-
-  if (loading) return <div className="py-12 text-center text-gray-400"><RefreshCw className="h-6 w-6 mx-auto animate-spin" /></div>;
-  const tiles = [
-    { key: 'pending_assignment', label: 'Pending Vendor Assignment', icon: Hourglass, color: 'amber', cls: 'bg-amber-50 border-amber-200 text-amber-700', onClick: () => onJump('requests') },
-    { key: 'forwarded_to_planning', label: 'Forwarded to Planning', icon: Send, color: 'blue', cls: 'bg-blue-50 border-blue-200 text-blue-700', onClick: () => onJump('requests') },
-    { key: 'planning_approved', label: 'Planning Approved', icon: CheckCircle2, color: 'indigo', cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', onClick: () => onJump('requests') },
-    { key: 'accounts_approved', label: 'Accountant Cleared', icon: Wallet, color: 'emerald', cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', onClick: () => onJump('requests') },
-    { key: 'rejected', label: 'Rejected', icon: ThumbsDown, color: 'red', cls: 'bg-red-50 border-red-200 text-red-700', onClick: () => onJump('requests') },
-    { key: 'monthly_spend', label: 'This Month Spend', icon: IndianRupee, color: 'violet', cls: 'bg-violet-50 border-violet-200 text-violet-700', isCurrency: true },
-  ];
-
-  return (
-    <div className="space-y-4" data-testid="proc-dashboard">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Procurement Dashboard</h1>
-        <p className="text-xs text-gray-500 mt-0.5">SE → <span className="font-medium text-amber-700">Procurement</span> → Planning → Accountant</p>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {tiles.map(t => {
-          const Icon = t.icon;
-          const value = t.isCurrency ? fmt(stats?.[t.key] || 0) : (stats?.[t.key] ?? 0);
-          return (
-            <button
-              key={t.key}
-              onClick={t.onClick}
-              disabled={!t.onClick}
-              className={`group text-left p-3 rounded-lg border transition-all ${t.cls} ${t.onClick ? 'hover:shadow-sm cursor-pointer' : 'cursor-default'}`}
-              data-testid={`proc-tile-${t.key}`}
-            >
-              <div className="flex items-center gap-2 mb-1.5">
-                <Icon className="h-4 w-4" />
-                <span className="text-[10px] uppercase font-semibold tracking-wide opacity-80">{t.label}</span>
-              </div>
-              <p className="text-xl sm:text-2xl font-bold">{value}</p>
-            </button>
-          );
-        })}
-      </div>
-      <Card>
-        <CardHeader className="p-4 pb-2">
-          <CardTitle className="text-sm flex items-center gap-2"><ShoppingCart className="h-4 w-4 text-amber-600" /> Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 pt-2 flex flex-wrap gap-2">
-          <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" onClick={() => onJump('requests')} data-testid="proc-quick-requests">
-            <ClipboardList className="h-3.5 w-3.5" /> Review Material Requests
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1" onClick={() => onJump('vendors')} data-testid="proc-quick-vendors">
-            <Truck className="h-3.5 w-3.5" /> Manage Vendors
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1" onClick={() => onJump('projects')} data-testid="proc-quick-projects">
-            <Building2 className="h-3.5 w-3.5" /> View All Projects
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
 // =====================================================================
 // REQUESTS — Material approvals queue
