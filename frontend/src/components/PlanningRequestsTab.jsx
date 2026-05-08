@@ -147,9 +147,10 @@ export default function PlanningRequestsTab({ projects = [] }) {
     setProcessing(id);
     try {
       if (type === 'material') {
-        const params = new URLSearchParams({ action: 'approve' });
-        if (extra.approved_qty != null) params.append('approved_qty', extra.approved_qty);
-        await axios.patch(`${API}/material-requests/${id}/planning-action?${params}`);
+        // New flow: items are already `procurement_priced` — use payment-mode-aware planning approval.
+        await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-approve`, {
+          notes: extra.notes || '',
+        });
       } else if (type === 'labour_stages') {
         await axios.patch(`${API}/labour-expenses/${id}/planning-action?action=approve`);
       } else if (type === 'labour_payments') {
@@ -177,8 +178,7 @@ export default function PlanningRequestsTab({ projects = [] }) {
     setProcessing(id);
     try {
       if (type === 'material') {
-        const params = new URLSearchParams({ action: 'reject', reason });
-        await axios.patch(`${API}/material-requests/${id}/planning-action?${params}`);
+        await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-reject`, { reason });
       } else if (type === 'labour_stages') {
         const params = new URLSearchParams({ action: 'reject', reason });
         await axios.patch(`${API}/labour-expenses/${id}/planning-action?${params}`);
@@ -453,6 +453,49 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, processing }) {
                   <p className="text-gray-500 text-[10px] uppercase">Brand</p>
                   <p className="font-medium">{req.brand || '-'}</p>
                 </div>
+                {/* Procurement-priced fields */}
+                {req.vendor_name && (
+                  <div className="bg-amber-50 border border-amber-200 rounded p-2 col-span-2">
+                    <p className="text-amber-700 text-[10px] uppercase font-semibold">Procurement Vendor</p>
+                    <p className="font-bold text-sm">{req.vendor_name}</p>
+                    <p className="text-[10px] text-gray-600 mt-0.5">
+                      Unit: {fmt(req.unit_rate || req.unit_price || 0)} · Total: {fmt(req.estimated_price || req.total_amount || 0)}
+                      {req.transport_cost > 0 && <> · Transport: {fmt(req.transport_cost)}</>}
+                      {req.discount > 0 && <> · Discount: {fmt(req.discount)}</>}
+                    </p>
+                  </div>
+                )}
+                {req.payment_mode && (
+                  <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                    <p className="text-blue-700 text-[10px] uppercase font-semibold">Payment Mode</p>
+                    <p className="font-bold text-sm capitalize">{(req.payment_mode || '').replace(/_/g, ' ')}</p>
+                    {req.payment_mode === 'credit' && req.credit_days && (
+                      <p className="text-[10px] text-gray-600">Pay {req.credit_days} days after delivery</p>
+                    )}
+                    {req.payment_mode === 'advance' && (req.advance_amount || req.advance_percent) && (
+                      <p className="text-[10px] text-gray-600">
+                        Advance: {fmt(req.advance_amount || 0)}{req.advance_percent ? ` (${req.advance_percent}%)` : ''}
+                        {req.balance_amount > 0 && <> · Balance: {fmt(req.balance_amount)}</>}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {(req.expected_delivery || req.timeline_value) && (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded p-2">
+                    <p className="text-emerald-700 text-[10px] uppercase font-semibold">Delivery Timeline</p>
+                    <p className="font-bold text-sm">
+                      {req.expected_delivery
+                        ? new Date(req.expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                        : `${req.timeline_value} days`}
+                    </p>
+                  </div>
+                )}
+                {req.procurement_remarks && (
+                  <div className="bg-gray-100 rounded p-2 col-span-2">
+                    <p className="text-gray-600 text-[10px] uppercase font-semibold">Procurement Note</p>
+                    <p className="italic text-gray-700">"{req.procurement_remarks}"</p>
+                  </div>
+                )}
               </>
             )}
             {(type === 'labour_stages' || type === 'labour_payments') && (
@@ -482,7 +525,7 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, processing }) {
           </div>
 
           {/* Type-specific inputs */}
-          {type === 'material' && (
+          {type === 'material' && !req.vendor_name && (
             <div>
               <Label className="text-xs font-semibold mb-1 block">Approved Quantity</Label>
               <Input

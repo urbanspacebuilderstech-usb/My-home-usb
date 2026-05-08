@@ -1538,16 +1538,69 @@ async def verify_material_receipt_otp(
         
         for r in other_receipts:
             total_received += r["received_qty"]
-        
-        if total_received >= request["quantity"]:
-            new_status = MaterialRequestStatus.RECEIVED_COMPLETED.value
+
+        # NEW PROCUREMENT FLOW: requests with `payment_mode` came from
+        # SE → Procurement → Planning → Accountant pipeline. Receipt routing
+        # depends on payment_mode rather than just qty completion.
+        payment_mode = (request.get("payment_mode") or "").lower()
+        is_new_flow = payment_mode in ("pre_paid", "advance", "credit", "post_delivery")
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if is_new_flow:
+            update = {
+                "received_at": now_iso,
+                "received_by": user.user_id,
+                "received_by_name": user.name,
+                "received_quantity": total_received,
+            }
+            if payment_mode == "advance":
+                update["status"] = "pending_balance_payment"
+                update["next_payment_phase"] = "balance"
+            elif payment_mode == "post_delivery":
+                update["status"] = "pending_accounts_approval"
+                update["next_payment_phase"] = "full"
+            elif payment_mode == "credit":
+                update["status"] = "delivered"
+                update["delivered_at"] = now_iso
+                # Create vendor credit ledger entry due in `credit_days`
+                try:
+                    credit_days = int(request.get("credit_days") or 30)
+                except (TypeError, ValueError):
+                    credit_days = 30
+                due_date = (datetime.now(timezone.utc) + timedelta(days=credit_days)).isoformat()
+                ledger_id = f"vc_{uuid.uuid4().hex[:10]}"
+                await db.vendor_credit_ledger.insert_one({
+                    "ledger_id": ledger_id,
+                    "request_id": request["request_id"],
+                    "vendor_id": request.get("vendor_id"),
+                    "vendor_name": request.get("vendor_name"),
+                    "project_id": request.get("project_id"),
+                    "material_name": request.get("material_name"),
+                    "amount": float(request.get("total_amount") or 0),
+                    "credit_days": credit_days,
+                    "delivered_at": now_iso,
+                    "due_date": due_date,
+                    "status": "pending",
+                    "created_at": now_iso,
+                })
+                update["credit_ledger_id"] = ledger_id
+                update["credit_due_date"] = due_date
+            else:  # pre_paid
+                update["status"] = "delivered"
+                update["delivered_at"] = now_iso
+            await db.material_requests.update_one(
+                {"request_id": receipt["request_id"]}, {"$set": update}
+            )
         else:
-            new_status = MaterialRequestStatus.RECEIVED_PARTIAL.value
-        
-        await db.material_requests.update_one(
-            {"request_id": receipt["request_id"]},
-            {"$set": {"status": new_status}}
-        )
+            # Legacy flow: keep existing partial / completed semantics
+            if total_received >= request["quantity"]:
+                new_status = MaterialRequestStatus.RECEIVED_COMPLETED.value
+            else:
+                new_status = MaterialRequestStatus.RECEIVED_PARTIAL.value
+            await db.material_requests.update_one(
+                {"request_id": receipt["request_id"]},
+                {"$set": {"status": new_status}}
+            )
     
     await create_audit_log(user.user_id, "verify_receipt", "material_receipt", data.receipt_id, {
         "received_qty": receipt["received_qty"],

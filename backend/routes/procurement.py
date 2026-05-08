@@ -2583,3 +2583,411 @@ async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
         "rejected": rejected,
         "monthly_spend": monthly_spend,
     }
+
+
+# =====================================================================
+# PHASE 2 — Planning approval (payment-mode-aware routing)
+# =====================================================================
+@router.patch("/procurement-simple/material-requests/{request_id}/planning-approve")
+async def procurement_simple_planning_approve(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Planning approves a Procurement-priced material request and routes it
+    based on the payment_mode set by Procurement:
+
+      pre_paid       → pending_accounts_approval (Accountant pays full → in_transit → delivered)
+      credit         → in_transit directly (Credit ledger entry; pay after credit_days)
+      advance        → pending_accounts_approval (advance leg) → in_transit
+                       → SE marks delivered → balance leg → delivered
+      post_delivery  → in_transit (no upfront)
+                       → SE marks delivered → pending_accounts_approval (full)
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning / Super Admin can approve")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "procurement_priced":
+        raise HTTPException(status_code=400, detail=f"Cannot planning-approve in status: {req.get('status')}")
+
+    payment_mode = (req.get("payment_mode") or "pre_paid").lower()
+    now = datetime.now(timezone.utc).isoformat()
+    notes = (data.get("notes") or "").strip()
+
+    # Default → Accountant queue (pre_paid + advance)
+    new_status = "pending_accounts_approval"
+    next_payment_phase = "full"
+    if payment_mode == "advance":
+        next_payment_phase = "advance"
+    elif payment_mode in ("credit", "post_delivery"):
+        new_status = "in_transit"  # No upfront payment — go straight to transit
+        next_payment_phase = "post" if payment_mode == "post_delivery" else "credit"
+
+    update = {
+        "status": new_status,
+        "planning_approved_by": user.user_id,
+        "planning_approved_by_name": user.name,
+        "planning_approved_at": now,
+        "planning_notes": notes,
+        "next_payment_phase": next_payment_phase,
+    }
+    if new_status == "in_transit":
+        update["transit_started_at"] = now
+        update["transit_started_by"] = user.user_id
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Notify next handler
+    if new_status == "pending_accounts_approval":
+        accs = await db.users.find({"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+        for a in accs:
+            try:
+                amt_label = "advance" if next_payment_phase == "advance" else "full"
+                await create_notification(
+                    a["user_id"],
+                    f"Material payment ({amt_label}) ready: {req.get('material_name')} → {req.get('vendor_name')} ({fmt_money(req.get('total_amount') or 0)})",
+                )
+            except Exception:
+                pass
+    elif new_status == "in_transit" and req.get("site_engineer_id"):
+        try:
+            await create_notification(
+                req["site_engineer_id"],
+                f"Material in transit: {req.get('material_name')} from {req.get('vendor_name')} (mark received on delivery)",
+            )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "planning_approve", "material_request", request_id, update)
+    return {"message": "Planning approved", "status": new_status, "payment_mode": payment_mode, "next_payment_phase": next_payment_phase}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/planning-reject")
+async def procurement_simple_planning_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can reject")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "procurement_priced":
+        raise HTTPException(status_code=400, detail=f"Cannot reject in status: {req.get('status')}")
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": {
+        "status": "rejected",
+        "planning_rejection_reason": reason,
+        "planning_rejected_by": user.user_id,
+        "planning_rejected_by_name": user.name,
+        "planning_rejected_at": now,
+    }})
+    return {"message": "Rejected by Planning"}
+
+
+def fmt_money(n):
+    try:
+        return f"₹{float(n):,.0f}"
+    except Exception:
+        return "₹0"
+
+
+# =====================================================================
+# PHASE 3 — Accountant release (full / advance / balance) + Transit + Delivery
+# =====================================================================
+@router.get("/procurement-simple/accountant/queue")
+async def procurement_simple_accountant_queue(user: User = Depends(get_current_user)):
+    """Accountant's material payment queue.
+    Returns requests that are awaiting any kind of payment release (full/advance/balance).
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    rows = await db.material_requests.find(
+        {"status": {"$in": ["pending_accounts_approval", "pending_balance_payment"]}}, {"_id": 0}
+    ).sort("planning_approved_at", -1).to_list(500)
+    # Enrich
+    project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}
+    ).to_list(500)} if project_ids else {}
+    for r in rows:
+        r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
+    return {"count": len(rows), "requests": rows}
+
+
+@router.post("/procurement-simple/material-requests/{request_id}/release-payment")
+async def procurement_simple_release_payment(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Accountant releases a payment for a material request.
+
+    Body:
+      - payment_phase: "full" | "advance" | "balance"
+      - payment_method: "cash" | "bank" | "cheque"
+      - bank_ref: optional
+      - cheque_no, cheque_amount: optional
+      - amount: amount to release (ignored for "full"/"advance" — auto-derived)
+      - notes: optional
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant / Super Admin")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    phase = (data.get("payment_phase") or req.get("next_payment_phase") or "full").lower()
+    if phase not in ("full", "advance", "balance"):
+        raise HTTPException(status_code=400, detail="payment_phase must be full|advance|balance")
+    method = (data.get("payment_method") or "bank").lower()
+    if method not in ("cash", "bank", "cheque"):
+        raise HTTPException(status_code=400, detail="payment_method must be cash|bank|cheque")
+
+    total = float(req.get("total_amount") or 0)
+    advance_amt = float(req.get("advance_amount") or 0)
+    if phase == "full":
+        if req.get("status") != "pending_accounts_approval":
+            raise HTTPException(status_code=400, detail=f"Cannot release full payment in status: {req.get('status')}")
+        amount = total
+        new_status = "in_transit"
+    elif phase == "advance":
+        if req.get("status") != "pending_accounts_approval":
+            raise HTTPException(status_code=400, detail=f"Cannot release advance in status: {req.get('status')}")
+        amount = advance_amt
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="No advance amount configured")
+        new_status = "in_transit"
+    else:  # balance
+        if req.get("status") != "pending_balance_payment":
+            raise HTTPException(status_code=400, detail=f"Cannot release balance in status: {req.get('status')}")
+        amount = max(0.0, total - float(req.get("paid_amount") or 0))
+        new_status = "delivered"
+
+    # Method-specific extras
+    bank_ref = (data.get("bank_ref") or "").strip()
+    cheque_no = (data.get("cheque_no") or "").strip()
+    cheque_amount = float(data.get("cheque_amount") or 0)
+    notes = (data.get("notes") or "").strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Cashbook expense entry
+    expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+    proj = await db.projects.find_one({"project_id": req.get("project_id")}, {"_id": 0, "name": 1})
+    cashbook_entry = {
+        "expense_id": expense_id,
+        "project_id": req.get("project_id"),
+        "project_name": (proj or {}).get("name", req.get("project_name", "")),
+        "category": "material",
+        "expense_type": "material",
+        "description": f"{req.get('material_name')} ({phase} payment) — {req.get('vendor_name')}",
+        "amount": amount,
+        "approved_amount": amount,
+        "payment_method": {"bank": "bank_transfer", "cash": "cash", "cheque": "cheque"}.get(method, method),
+        "transaction_id": bank_ref or cheque_no or "",
+        "cheque_no": cheque_no if method == "cheque" else None,
+        "cheque_amount": cheque_amount if method == "cheque" else None,
+        "bank_ref": bank_ref if method == "bank" else None,
+        "vendor_name": req.get("vendor_name"),
+        "vendor_id": req.get("vendor_id"),
+        "material_request_id": request_id,
+        "request_id": request_id,
+        "request_type": "material",
+        "payment_phase": phase,
+        "remarks": notes,
+        "status": "approved",
+        "source": "material_release",
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "created_at": now,
+        "approved_at": now,
+        "approved_by": user.user_id,
+        "payment_date": data.get("payment_date") or now,
+    }
+    await db.recorded_expenses.insert_one(cashbook_entry)
+
+    # Update material_request
+    paid_total = float(req.get("paid_amount") or 0) + amount
+    update = {
+        "status": new_status,
+        "paid_amount": paid_total,
+        "balance_amount": max(0.0, total - paid_total),
+        "last_payment_phase": phase,
+        "last_payment_at": now,
+        "last_payment_by": user.user_id,
+        "last_payment_method": method,
+        "last_expense_id": expense_id,
+    }
+    if phase in ("full", "advance"):
+        update["transit_started_at"] = now
+        update["transit_started_by"] = user.user_id
+    if phase == "balance":
+        update["delivered_at"] = req.get("delivered_at") or now
+        update["next_payment_phase"] = None
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Notify next handler
+    if new_status == "in_transit" and req.get("site_engineer_id"):
+        try:
+            await create_notification(req["site_engineer_id"], f"Payment released — {req.get('material_name')} now in transit. Mark received on delivery.")
+        except Exception:
+            pass
+    if new_status == "delivered":
+        try:
+            for uid in {req.get("site_engineer_id"), req.get("created_by")} - {None}:
+                await create_notification(uid, f"Material delivered & balance paid: {req.get('material_name')}")
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, f"release_{phase}", "material_request", request_id, update)
+    return {"message": "Payment released", "expense_id": expense_id, "amount": amount, "status": new_status}
+
+
+@router.post("/procurement-simple/material-requests/{request_id}/mark-received")
+async def procurement_simple_mark_received(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Site Engineer marks an in-transit material as received.
+    Routing depends on payment_mode:
+      pre_paid     → delivered (no further payment)
+      advance      → pending_balance_payment (Planning → Accountant for balance)
+      credit       → delivered + create credit ledger due in `credit_days`
+      post_delivery → pending_accounts_approval (Accountant pays full)
+    """
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Site Engineer / PM can mark received")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "in_transit":
+        raise HTTPException(status_code=400, detail=f"Cannot mark received in status: {req.get('status')}")
+
+    payment_mode = (req.get("payment_mode") or "pre_paid").lower()
+    now = datetime.now(timezone.utc).isoformat()
+    received_qty = float(data.get("received_quantity") or req.get("approved_quantity") or req.get("quantity") or 0)
+    notes = (data.get("notes") or "").strip()
+
+    update = {
+        "received_at": now,
+        "received_by": user.user_id,
+        "received_by_name": user.name,
+        "received_quantity": received_qty,
+        "delivery_notes": notes,
+    }
+
+    if payment_mode == "advance":
+        update["status"] = "pending_balance_payment"
+        update["next_payment_phase"] = "balance"
+        accs = await db.users.find({"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+        balance = max(0.0, float(req.get("total_amount") or 0) - float(req.get("paid_amount") or 0))
+        for a in accs:
+            try: await create_notification(a["user_id"], f"Balance payment due: {req.get('material_name')} ({fmt_money(balance)})")
+            except Exception: pass
+    elif payment_mode == "post_delivery":
+        update["status"] = "pending_accounts_approval"
+        update["next_payment_phase"] = "full"
+        accs = await db.users.find({"role": {"$in": ["accountant", "super_admin"]}, "is_active": {"$ne": False}}, {"_id": 0, "user_id": 1}).to_list(50)
+        for a in accs:
+            try: await create_notification(a["user_id"], f"Post-delivery payment due: {req.get('material_name')} ({fmt_money(req.get('total_amount') or 0)})")
+            except Exception: pass
+    elif payment_mode == "credit":
+        update["status"] = "delivered"
+        update["delivered_at"] = now
+        # Create credit ledger entry
+        credit_days = int(req.get("credit_days") or 30)
+        due_date = (datetime.now(timezone.utc) + timedelta(days=credit_days)).isoformat()
+        ledger_id = f"vc_{uuid.uuid4().hex[:10]}"
+        await db.vendor_credit_ledger.insert_one({
+            "ledger_id": ledger_id,
+            "request_id": request_id,
+            "vendor_id": req.get("vendor_id"),
+            "vendor_name": req.get("vendor_name"),
+            "project_id": req.get("project_id"),
+            "material_name": req.get("material_name"),
+            "amount": float(req.get("total_amount") or 0),
+            "credit_days": credit_days,
+            "delivered_at": now,
+            "due_date": due_date,
+            "status": "pending",
+            "created_at": now,
+        })
+        update["credit_ledger_id"] = ledger_id
+        update["credit_due_date"] = due_date
+    else:  # pre_paid
+        update["status"] = "delivered"
+        update["delivered_at"] = now
+
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+    await create_audit_log(user.user_id, "mark_received", "material_request", request_id, update)
+    return {"message": "Marked received", "status": update["status"], "payment_mode": payment_mode}
+
+
+@router.get("/procurement-simple/credit-ledger")
+async def procurement_simple_credit_ledger(
+    status: str = "pending",  # pending | paid | overdue | all
+    user: User = Depends(get_current_user),
+):
+    """Vendor credit ledger — post-paid materials due in N days."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PROCUREMENT, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    q = {}
+    if status == "overdue":
+        q = {"status": "pending", "due_date": {"$lt": datetime.now(timezone.utc).isoformat()}}
+    elif status != "all":
+        q = {"status": status}
+    rows = await db.vendor_credit_ledger.find(q, {"_id": 0}).sort("due_date", 1).to_list(500)
+    return {"count": len(rows), "entries": rows}
+
+
+@router.post("/procurement-simple/credit-ledger/{ledger_id}/settle")
+async def procurement_simple_credit_settle(ledger_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Accountant settles a vendor credit ledger entry (records expense)."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant")
+    entry = await db.vendor_credit_ledger.find_one({"ledger_id": ledger_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Credit entry not found")
+    if entry.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"Already in status: {entry.get('status')}")
+    method = (data.get("payment_method") or "bank").lower()
+    if method not in ("cash", "bank", "cheque"):
+        raise HTTPException(status_code=400, detail="Invalid method")
+    bank_ref = (data.get("bank_ref") or "").strip()
+    cheque_no = (data.get("cheque_no") or "").strip()
+    notes = (data.get("notes") or "").strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+    proj = await db.projects.find_one({"project_id": entry.get("project_id")}, {"_id": 0, "name": 1})
+    await db.recorded_expenses.insert_one({
+        "expense_id": expense_id,
+        "project_id": entry.get("project_id"),
+        "project_name": (proj or {}).get("name", ""),
+        "category": "material",
+        "expense_type": "material",
+        "description": f"{entry.get('material_name')} (credit settlement) — {entry.get('vendor_name')}",
+        "amount": entry.get("amount", 0),
+        "approved_amount": entry.get("amount", 0),
+        "payment_method": {"bank": "bank_transfer", "cash": "cash", "cheque": "cheque"}.get(method, method),
+        "transaction_id": bank_ref or cheque_no or "",
+        "vendor_name": entry.get("vendor_name"),
+        "vendor_id": entry.get("vendor_id"),
+        "material_request_id": entry.get("request_id"),
+        "request_type": "material_credit_settlement",
+        "remarks": notes,
+        "status": "approved",
+        "source": "credit_settlement",
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "created_at": now,
+        "approved_at": now,
+        "approved_by": user.user_id,
+        "payment_date": data.get("payment_date") or now,
+    })
+    await db.vendor_credit_ledger.update_one({"ledger_id": ledger_id}, {"$set": {
+        "status": "paid",
+        "paid_at": now,
+        "paid_by": user.user_id,
+        "expense_id": expense_id,
+    }})
+    # Mark the parent material request fully paid
+    if entry.get("request_id"):
+        await db.material_requests.update_one(
+            {"request_id": entry["request_id"]},
+            {"$set": {"paid_amount": entry.get("amount", 0), "balance_amount": 0, "credit_settled_at": now}},
+        )
+    return {"message": "Credit settled", "expense_id": expense_id}
+

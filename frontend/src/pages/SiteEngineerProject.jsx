@@ -595,6 +595,8 @@ export default function SiteEngineerProject() {
   };
 
   const formatCurrency = (amount) => `₹${amount?.toLocaleString() || 0}`;
+  // `in_transit` covers both legacy and new-procurement-flow transitions.
+  // `delivered` is final for pre_paid/credit. New-flow advance/post_delivery may stop here too.
   const canReceive = (status) => ['in_transit', 'accountant_approved', 'ready_for_delivery', 'received_partial'].includes(status);
 
   if (loading) {

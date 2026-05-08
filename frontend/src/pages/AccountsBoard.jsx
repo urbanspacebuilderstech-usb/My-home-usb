@@ -30,6 +30,7 @@ import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
+import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -3302,6 +3303,11 @@ function ApprovalsTab() {
 
         {/* Material Approvals */}
         <TabsContent value="materials">
+          {/* Procurement → Planning → Accountant material payments (full / advance / balance).
+              Mounts a lightweight queue separate from the legacy material_expenses approvals below. */}
+          <div className="mb-3" data-testid="approvals-procurement-materials">
+            <AccountantMaterialPayments />
+          </div>
           <ApprovalExpenseTable
             items={filteredMaterials}
             type="material"
