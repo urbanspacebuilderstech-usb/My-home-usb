@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: WO Header & Stage Order — Total Contract amount on each Work Order is now displayed as a big, bordered, highlighted card (top-right of WO header in both the WO list, detail view, and labour sub-tab). Auto Additional payment stages now save & render **AFTER** the user-defined % stages (Stage 01, 02 → then Additional Cost 1, 2).
-  - Files: `frontend/src/pages/ProjectDetail.jsx` (3 WO headers + dialog stage order + handleSaveWo merge order)
+- 2026-02: Simplified Add Additions/Deductions dialogs — Removed Unit, Rate, Total, Remarks columns. Now uses **Name | Qty | Amount** only. User enters total amount directly; rate auto-derived as amount/qty before save (preserves backend schema).
+  - Files: `frontend/src/pages/ProjectDetail.jsx` (`createEmptyRows` defaults, `handleBulkAddAddition`, `handleBulkAddDeduction`, both dialog UIs)
+- 2026-02: WO Header & Stage Order — Total Contract amount is now displayed as a big highlighted card; Auto Additional payment stages save & render LAST (after user-defined stages).
 - 2026-02: Savings A/c Payment Mode + Income Edit — Added "Savings A/c" everywhere; Income view dialog now editable.
 - 2026-02: Work Order Auto Payment Stages — Each Additional cost row in a Work Order now auto-becomes a separate **fixed-amount payment stage** (locked). User-defined % stages compute on **Scope only**.
 - 2026-02: Same-Role Lead Transfer — Marketing Board "Transfer Role & Leads" dialog now allows handing over leads to a teammate already in the same Pre-Sales/Sales role.
