@@ -11,11 +11,49 @@ import { Textarea } from './ui/textarea';
 import { CashbookDateFilter, filterByDateRange } from './CashbookDateFilter';
 import ProjectSearchSelect from './ProjectSearchSelect';
 import RequestStatusFilter, { mapToReqStatus } from './RequestStatusFilter';
-import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard } from 'lucide-react';
+import { Package, Users, Wallet, ThumbsUp, ThumbsDown, Loader2, CheckCircle2, AlertCircle, FileText, Calendar, User as UserIcon, Briefcase, CreditCard, ListChecks, Send, Truck, PackageCheck, FileClock, ClipboardCheck } from 'lucide-react';
 import PlanningLabourStageRequests from './PlanningLabourStageRequests';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
+const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
+
+// Material lifecycle filter cards — Planning's view. "Planning Approval" is
+// FIRST since that's the queue they need to action. Buckets are computed
+// from the request's `status` field (see MAT_STATUS_TO_BUCKET below).
+const MAT_LIFECYCLE_BUCKETS = [
+  { key: 'planning_approval', label: 'Planning Approval', Icon: ClipboardCheck, cls: 'bg-amber-50 border-amber-200 text-amber-700',  active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'all',               label: 'All',               Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700', active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'revision',          label: 'Revision Sent',     Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'approved',          label: 'Approved',          Icon: CheckCircle2,   cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
+  { key: 'awaiting_payment',  label: 'Awaiting Payment',  Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',       active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'transit',           label: 'In Transit',        Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',          active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'delivered',         label: 'Delivered',         Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'rejected',          label: 'Rejected',          Icon: ThumbsDown,     cls: 'bg-red-50 border-red-200 text-red-700',          active: 'bg-red-600 text-white border-red-600' },
+];
+
+const MAT_STATUS_TO_BUCKET = {
+  procurement_priced: 'planning_approval',
+  procurement_revision: 'revision',
+  planning_approved: 'approved',
+  pending_accounts_approval: 'awaiting_payment',
+  pending_balance_payment: 'awaiting_payment',
+  accounts_approved: 'awaiting_payment',
+  payment_approved: 'awaiting_payment',
+  in_transit: 'transit',
+  delivered: 'delivered',
+  completed: 'delivered',
+  closed: 'delivered',
+  rejected: 'rejected',
+  procurement_rejected: 'rejected',
+};
+
+const PAYMENT_MODE_DISPLAY = {
+  pre_paid:      { label: 'Pre-paid',      cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  credit:        { label: 'Credit',        cls: 'bg-purple-50 text-purple-700 border-purple-200' },
+  advance:       { label: 'Advance',       cls: 'bg-orange-50 text-orange-700 border-orange-200' },
+  post_delivery: { label: 'Post-delivery', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+};
 
 // Tab metadata. Note: `labour_stages` was previously called just "labour" — we
 // renamed the *display* but keep the underlying API endpoint (`/labour-expenses`)
@@ -48,6 +86,9 @@ export default function PlanningRequestsTab({ projects = [] }) {
   const [activeType, setActiveType] = useState('material');
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
+  // Materials use a procurement-style lifecycle bucket filter.
+  // Default = 'planning_approval' (the queue Planning needs to action).
+  const [materialBucket, setMaterialBucket] = useState('planning_approval');
   const [materials, setMaterials] = useState([]);
   const [labourStages, setLabourStages] = useState([]);  // Stage-open requests (mode="stages")
   const [labourPayments, setLabourPayments] = useState([]);  // SE stage payment requests (mode="payments")
@@ -108,9 +149,11 @@ export default function PlanningRequestsTab({ projects = [] }) {
     : items;
 
   const fMaterials = useMemo(() => {
-    // Planning only handles materials that Procurement has priced & forwarded.
-    const eligible = (materials || []).filter(m => (m.status || '').toLowerCase() === 'procurement_priced');
-    return applyFilters(eligible);
+    // Show all material lifecycle stages so the Planning lifecycle cards
+    // (Planning Approval / Approved / Awaiting Payment / In Transit / Delivered /
+    // Revision / Rejected / All) can filter accurately. The default selected
+    // bucket is "Planning Approval" (status: procurement_priced).
+    return applyFilters(materials || []);
   }, [materials, dateFrom, dateTo, projectFilter]);
   const fLabourStages = useMemo(() => applyLabourFilters(labourStages), [labourStages, projectFilter]);
   const fLabourPayments = useMemo(() => applyLabourFilters(labourPayments), [labourPayments, projectFilter]);
@@ -122,7 +165,12 @@ export default function PlanningRequestsTab({ projects = [] }) {
     [fPetty]
   );
 
-  const counts = { material: fMaterials.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
+  // The top tab pill count for Materials = items needing Planning's action only.
+  const planningPendingMaterials = useMemo(
+    () => fMaterials.filter(m => (m.status || '').toLowerCase() === 'procurement_priced').length,
+    [fMaterials]
+  );
+  const counts = { material: planningPendingMaterials, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
   const totalRequests = counts.material + counts.labour_stages + counts.labour_payments + counts.petty;
   const baseList = activeType === 'material' ? fMaterials
     : activeType === 'labour_stages' ? fLabourStages
@@ -260,11 +308,9 @@ export default function PlanningRequestsTab({ projects = [] }) {
         </CardContent>
       </Card>
 
-      {/* Req Handling status pipeline — New / In Progress / Awaiting / Approved / Rejected.
-          Click any card to filter the list to that status. Clicking again clears it.
-          Note: Labour Stages / Labour Payments use the new unified flow component below
-          (which has its own status segmentation), so we hide this filter for them. */}
-      {activeType !== 'labour_stages' && activeType !== 'labour_payments' && (
+      {/* Req Handling status pipeline — for Petty Cash only.
+          Materials use the lifecycle cards below. Labour uses its own component. */}
+      {activeType === 'petty' && (
         <RequestStatusFilter
           counts={statusCounts}
           value={statusFilter}
@@ -277,9 +323,22 @@ export default function PlanningRequestsTab({ projects = [] }) {
       {activeType === 'labour_stages' && <PlanningLabourStageRequests mode="stages" />}
       {/* Labour Payments → Payment Queue only */}
       {activeType === 'labour_payments' && <PlanningLabourStageRequests mode="payments" />}
-      {(activeType !== 'labour_stages' && activeType !== 'labour_payments') && (
+
+      {/* MATERIAL — procurement-style card layout with lifecycle filter cards. */}
+      {activeType === 'material' && (
+        <MaterialLifecycleView
+          items={fMaterials}
+          loading={loading}
+          bucket={materialBucket}
+          setBucket={setMaterialBucket}
+          onApprove={(req) => setApproveDialog({ open: true, req, type: 'material' })}
+          processing={processing}
+        />
+      )}
+
+      {/* PETTY CASH — keep legacy row layout */}
+      {activeType === 'petty' && (
       <>
-      {/* Request Rows */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
@@ -697,5 +756,175 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+
+// =====================================================================
+// Material Lifecycle View — procurement-style cards, Planning's perspective
+// =====================================================================
+function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, processing }) {
+  const counts = useMemo(() => {
+    const c = { all: items.length };
+    MAT_LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
+    items.forEach(r => {
+      const b = MAT_STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'all';
+      if (b !== 'all') c[b] = (c[b] || 0) + 1;
+    });
+    return c;
+  }, [items]);
+
+  const visibleItems = useMemo(() => {
+    if (bucket === 'all') return items;
+    return items.filter(r => (MAT_STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'all') === bucket);
+  }, [items, bucket]);
+
+  return (
+    <div className="space-y-3">
+      {/* Lifecycle filter cards — "Planning Approval" first */}
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5" data-testid="planning-mat-lifecycle-cards">
+        {MAT_LIFECYCLE_BUCKETS.map(b => {
+          const Icon = b.Icon;
+          const active = bucket === b.key;
+          const count = counts[b.key] || 0;
+          return (
+            <button
+              key={b.key}
+              onClick={() => setBucket(b.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${
+                active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'
+              }`}
+              data-testid={`planning-mat-bucket-${b.key}`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span className="leading-tight text-center">{b.label}</span>
+              <span className={`text-xs font-bold ${active ? 'text-white' : ''}`}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Card list */}
+      {loading ? (
+        <p className="text-center text-xs text-gray-400 py-10"><Loader2 className="h-5 w-5 animate-spin inline mr-1" /> Loading…</p>
+      ) : visibleItems.length === 0 ? (
+        <Card><CardContent className="p-10"><p className="text-center text-xs text-gray-400">
+          {bucket === 'planning_approval' ? 'No requests awaiting your approval' : 'No requests in this bucket'}
+        </p></CardContent></Card>
+      ) : (
+        <div className="space-y-2" data-testid="planning-mat-card-list">
+          {visibleItems.map(req => (
+            <PlanningMaterialCard key={req.request_id} req={req} onClick={() => onApprove(req)} processing={processing} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanningMaterialCard({ req, onClick, processing }) {
+  const status = (req.status || '').toLowerCase();
+  const bucket = MAT_STATUS_TO_BUCKET[status] || 'all';
+  const cardCfg = MAT_LIFECYCLE_BUCKETS.find(b => b.key === bucket);
+  const isActionable = status === 'procurement_priced';
+  const id = req.request_id;
+  const isProcessing = processing === id;
+  let deliveryLabel = '—';
+  if (req.expected_delivery) {
+    deliveryLabel = fmtDate(req.expected_delivery);
+  } else if (req.timeline_type === 'days' && req.timeline_value) {
+    deliveryLabel = `${req.timeline_value} days`;
+  }
+  const pmCfg = PAYMENT_MODE_DISPLAY[req.payment_mode];
+  return (
+    <Card
+      className="hover:shadow-md transition-shadow cursor-pointer border-l-4"
+      style={{ borderLeftColor: '#d97706' }}
+      onClick={onClick}
+      data-testid={`planning-mat-card-${id}`}
+    >
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
+              {cardCfg?.label || status}
+            </Badge>
+            {pmCfg && (
+              <Badge variant="outline" className={`text-[10px] ${pmCfg.cls}`}>{pmCfg.label}</Badge>
+            )}
+            {req.order_id && <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>}
+          </div>
+          {(req.estimated_price || req.total_amount) ? (
+            <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(req.estimated_price || req.total_amount)}</span>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Date</p>
+            <p className="font-medium">{fmtDate(req.created_at)}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
+            <p className="font-medium truncate">{req.material_name}</p>
+            {req.brand && <p className="text-[10px] text-gray-500">Brand: {req.brand}</p>}
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
+            <p className="font-medium">{req.quantity} {req.unit || ''}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><Calendar className="h-2.5 w-2.5" /> Delivery</p>
+            <p className="font-medium">{deliveryLabel}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Project</p>
+            <p className="font-medium truncate">{req.project_name}</p>
+          </div>
+          <div className="col-span-2 sm:col-span-2">
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Vendor (Procurement)</p>
+            <p className="font-medium truncate">{req.vendor_name || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">SE</p>
+            <p className="font-medium truncate">{req.site_engineer_name || '—'}</p>
+          </div>
+          <div className="sm:col-span-1">
+            {isActionable ? (
+              <Button
+                size="sm"
+                className="h-8 w-full text-xs gap-1 bg-green-600 hover:bg-green-700 mt-3 sm:mt-0"
+                disabled={isProcessing}
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                data-testid={`planning-mat-card-approve-${id}`}
+              >
+                <ThumbsUp className="h-3 w-3" /> Approve
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0"
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                data-testid={`planning-mat-card-view-${id}`}
+              >
+                <FileText className="h-3 w-3" /> View
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {req.procurement_remarks && (
+          <div className="mt-2 pt-2 border-t text-[11px] italic text-gray-500 truncate">
+            <span className="text-gray-400 font-medium not-italic">Procurement:</span> "{req.procurement_remarks}"
+          </div>
+        )}
+        {status === 'procurement_revision' && req.revision_remarks && (
+          <div className="mt-2 pt-2 border-t border-orange-200 text-[11px] text-orange-700 truncate">
+            <span className="font-semibold">Revision sent:</span> "{req.revision_remarks}"
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
