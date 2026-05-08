@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save — Removed the over-aggressive name-based heuristic (stages whose name started with "Advance" were silently swallowing the virtual sales-collected row). Now it only treats a stage as the explicit advance when `is_advance === true` OR `linked_income_id` is set. Renamed virtual row to **"Auto-collected (Sales)"** and dialog hint mentions "Token Advance (Sales)".
-  - Files: `frontend/src/pages/ProjectDetail.jsx` (3 hasExplicitAdvance checks + virtual row label + dialog hint)
+- 2026-02: Additional Work — Req Payment with Date — Clicking "Req Payment" on an Additional Work row now opens the same date-picker dialog used for payment stages. The chosen month/date is saved and a corresponding **payment_stages** row (`linked_addition_id`, `is_addition: true`, `workflow_status: requested`) is auto-created so the request shows up in the project's Payment Schedule and CRE's month filter. Idempotent retries reuse the same stage_id.
+  - Files: `backend/routes/projects.py` (request_additional_payment now accepts body w/ `expected_payment_date`, creates linked stage); `frontend/src/pages/ProjectDetail.jsx` (`handleRequestAdditionPayment` accepts date, Req Payment button opens shared `reqPayDialog` with `mode: 'addition'`, dialog submit branches by mode)
+- 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save.
 - 2026-02: Rough Estimate Payment Schedule + Convert action.
 - 2026-02: Add Payment Stages dialog — accounts for already-collected advance.
 - 2026-02: Payment Schedule reorder — Drag-to-reorder enabled.

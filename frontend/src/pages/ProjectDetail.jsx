@@ -1718,13 +1718,16 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleRequestAdditionPayment = async (costId) => {
+  const handleRequestAdditionPayment = async (costId, expectedDate) => {
     try {
-      await axios.patch(`${API}/additional-costs/${costId}/request-payment`);
-      toast.success('Additional work payment requested! Goes to CRE for processing.');
+      await axios.patch(`${API}/additional-costs/${costId}/request-payment`, {
+        expected_payment_date: expectedDate || null,
+      });
+      toast.success('Additional payment requested! Goes to CRE for processing and shows in the Payment Schedule.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
+      throw error;
     }
   };
 
@@ -4236,7 +4239,15 @@ export default function ProjectDetail() {
                                       variant="outline"
                                       size="sm"
                                       className="h-7 gap-1 border-green-500 text-green-700 hover:bg-green-50 text-xs"
-                                      onClick={() => handleRequestAdditionPayment(cost.cost_id)}
+                                      onClick={() => setReqPayDialog({
+                                        open: true,
+                                        // Reuse the same dialog — `mode: 'addition'` tells the submit
+                                        // handler to call the additional-costs endpoint instead of payment-stages
+                                        mode: 'addition',
+                                        stage: { stage_id: cost.cost_id, stage_name: cost.description || cost.name || 'Additional Work', amount: balance, amount_received: 0 },
+                                        date: '',
+                                        submitting: false,
+                                      })}
                                       data-testid={`req-payment-addition-${cost.cost_id}`}
                                     >
                                       <Send className="h-3 w-3" /> Req Payment
@@ -6624,13 +6635,15 @@ export default function ProjectDetail() {
       {/* Req Payment Dialog — asks for expected payment month/date before submitting */}
       <Dialog
         open={reqPayDialog.open}
-        onOpenChange={(o) => !o && !reqPayDialog.submitting && setReqPayDialog({ open: false, stage: null, date: '', submitting: false })}
+        onOpenChange={(o) => !o && !reqPayDialog.submitting && setReqPayDialog({ open: false, stage: null, date: '', submitting: false, mode: null })}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-amber-600" />Request Payment</DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-amber-600" />Request {reqPayDialog.mode === 'addition' ? 'Additional Payment' : 'Payment'}</DialogTitle>
             <DialogDescription>
-              Choose the month and date when you expect this payment to be collected. CRE can then prioritize and filter requests by month.
+              {reqPayDialog.mode === 'addition'
+                ? 'Pick the month/date this additional charge should be collected. It will appear in the project Payment Schedule and CRE\'s month filter.'
+                : 'Choose the month and date when you expect this payment to be collected. CRE can then prioritize and filter requests by month.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -6663,7 +6676,7 @@ export default function ProjectDetail() {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setReqPayDialog({ open: false, stage: null, date: '', submitting: false })}
+              onClick={() => setReqPayDialog({ open: false, stage: null, date: '', submitting: false, mode: null })}
               disabled={reqPayDialog.submitting}
             >
               Cancel
@@ -6677,8 +6690,12 @@ export default function ProjectDetail() {
                 }
                 setReqPayDialog((d) => ({ ...d, submitting: true }));
                 try {
-                  await handleRequestPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
-                  setReqPayDialog({ open: false, stage: null, date: '', submitting: false });
+                  if (reqPayDialog.mode === 'addition') {
+                    await handleRequestAdditionPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
+                  } else {
+                    await handleRequestPayment(reqPayDialog.stage.stage_id, reqPayDialog.date);
+                  }
+                  setReqPayDialog({ open: false, stage: null, date: '', submitting: false, mode: null });
                 } catch {
                   setReqPayDialog((d) => ({ ...d, submitting: false }));
                 }

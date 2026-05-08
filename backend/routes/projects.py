@@ -2695,27 +2695,71 @@ async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_
 
 
 @router.patch("/additional-costs/{cost_id}/request-payment")
-async def request_additional_payment(cost_id: str, user: User = Depends(get_current_user)):
-    """Request payment for additional work - notifies CRE"""
+async def request_additional_payment(cost_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Request payment for additional work - notifies CRE and creates a payment_stages row
+    so the request shows up in the project's Payment Schedule (filterable by month)."""
     if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only Planning/PM can request payments")
+    
+    # Optional body: { expected_payment_date: "YYYY-MM-DD" }
+    expected_date = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            expected_date = body.get("expected_payment_date") or body.get("due_date")
+    except Exception:
+        body = {}
     
     cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
     if not cost:
         raise HTTPException(status_code=404, detail="Additional cost not found")
     
-    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0})
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0}) or {}
+    amount = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0))
+    balance = amount - (cost.get("income_received", 0) or 0)
     
-    balance = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0)) - (cost.get("income_received", 0) or 0)
+    now_iso = datetime.now(timezone.utc).isoformat()
     
-    await db.additional_costs.update_one(
-        {"cost_id": cost_id},
-        {"$set": {
-            "payment_requested": True,
-            "payment_requested_by": user.user_id,
-            "payment_requested_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
+    # Create a payment_stages row tied to this addition so it appears in the Payment Schedule.
+    # Skip if one already exists for this cost_id (idempotent retries).
+    existing_stage = await db.payment_stages.find_one({"linked_addition_id": cost_id}, {"_id": 0})
+    stage_id = (existing_stage or {}).get("stage_id")
+    if not existing_stage:
+        stage_id = f"ps_{uuid.uuid4().hex[:12]}"
+        stage_doc = {
+            "stage_id": stage_id,
+            "project_id": cost["project_id"],
+            "stage_name": f"Additional: {cost.get('description', cost.get('name', 'Additional Work'))[:80]}",
+            "percentage": 0,
+            "amount": amount,
+            "amount_received": cost.get("income_received", 0) or 0,
+            "due_date": expected_date,
+            "expected_payment_date": expected_date,
+            "workflow_status": "requested",
+            "status": "pending",
+            "linked_addition_id": cost_id,
+            "is_addition": True,
+            "notes": "Auto-created from Additional Work Req Payment",
+            "created_at": now_iso,
+            "created_by": user.user_id,
+        }
+        await db.payment_stages.insert_one(stage_doc)
+    elif expected_date:
+        # Existing stage — update due_date if a fresh date is provided
+        await db.payment_stages.update_one(
+            {"stage_id": stage_id},
+            {"$set": {"due_date": expected_date, "expected_payment_date": expected_date, "workflow_status": "requested"}},
+        )
+    
+    update_fields = {
+        "payment_requested": True,
+        "payment_requested_by": user.user_id,
+        "payment_requested_at": now_iso,
+        "linked_stage_id": stage_id,
+    }
+    if expected_date:
+        update_fields["expected_payment_date"] = expected_date
+    await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": update_fields})
     
     # Notify CRE users
     cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(10)
@@ -2725,8 +2769,8 @@ async def request_additional_payment(cost_id: str, user: User = Depends(get_curr
             f"Additional Payment Request: ₹{balance:,.0f} for {project.get('name', 'Project')} - {cost.get('description', 'Additional Work')}"
         )
     
-    await create_audit_log(user.user_id, "request_payment", "additional_cost", cost_id, {"amount": balance})
-    return {"message": "Payment request sent to CRE", "cost_id": cost_id}
+    await create_audit_log(user.user_id, "request_payment", "additional_cost", cost_id, {"amount": balance, "expected_date": expected_date})
+    return {"message": "Payment request sent to CRE", "cost_id": cost_id, "stage_id": stage_id}
 
 
 
