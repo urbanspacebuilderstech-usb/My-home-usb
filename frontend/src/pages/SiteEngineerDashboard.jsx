@@ -878,52 +878,11 @@ export default function SiteEngineerDashboard() {
       {/* Header — Dashboard only (per user request: no extra buttons/menus) */}
       <AppHeader user={user} />
 
-      <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
+      <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-6">
         {/* Header */}
-        <div className="mb-4 sm:mb-8">
+        <div className="mb-3 sm:mb-4">
           <h2 data-testid="site-engineer-title" className="text-xl sm:text-3xl font-bold text-gray-900">My Projects</h2>
           <p className="text-sm sm:text-base text-gray-600 mt-1">Select a project to manage materials and labour</p>
-        </div>
-
-        {/* Stats - Stack on mobile */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          <Card className="bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200">
-            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Assigned</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <Building2 className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
-                <span className="text-lg sm:text-2xl font-bold text-amber-700">{projects.length}</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Active Orders</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <Package className="h-4 w-4 sm:h-6 sm:w-6 text-amber-600" />
-                <span className="text-lg sm:text-2xl font-bold text-amber-700">
-                  {projects.reduce((acc, p) => acc + (p.active_orders || 0), 0)}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-1 sm:pb-2 p-3 sm:p-6">
-              <CardTitle className="text-xs sm:text-sm font-medium text-gray-600">Active Sites</CardTitle>
-            </CardHeader>
-            <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
-              <div className="flex items-center gap-1 sm:gap-2">
-                <MapPin className="h-4 w-4 sm:h-6 sm:w-6 text-green-600" />
-                <span className="text-lg sm:text-2xl font-bold text-green-700">
-                  {projects.filter(p => p.status === 'active').length}
-                </span>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
