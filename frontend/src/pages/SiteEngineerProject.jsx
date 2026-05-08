@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2
+  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MetaDateFilter from '../components/MetaDateFilter';
+import ProjectCuringTab from '../components/ProjectCuringTab';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
@@ -793,7 +794,7 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'materials') setMaterialsSubTab('requests'); }}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-3">
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
             <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-sm sm:text-base">
               <Package className="h-4 w-4" />
               <span className="hidden sm:inline">Materials</span>
@@ -807,6 +808,10 @@ export default function SiteEngineerProject() {
             <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-daily-progress">
               <Calendar className="h-4 w-4" />
               <span>Progress</span>
+            </TabsTrigger>
+            <TabsTrigger value="curing" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-curing-video">
+              <Video className="h-4 w-4" />
+              <span>Curing</span>
             </TabsTrigger>
           </TabsList>
 
@@ -1622,6 +1627,11 @@ export default function SiteEngineerProject() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* CURING VIDEO TAB — moved from main dashboard, scoped to this project */}
+          <TabsContent value="curing">
+            <ProjectCuringTab projectId={projectId} projectName={project.name} user={user} />
           </TabsContent>
         </Tabs>
       </div>

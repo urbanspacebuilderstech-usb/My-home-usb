@@ -64,7 +64,6 @@ const ROLE_NAV = {
   ],
   site_engineer: [
     { label: 'Dashboard', path: '/site-engineer' },
-    { label: 'Material Receipt', path: '/site-engineer/material-receipt' },
   ],
   architect: [
     { label: 'My Projects', path: '/architect-dashboard' },

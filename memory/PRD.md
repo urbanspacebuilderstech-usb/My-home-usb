@@ -13,6 +13,19 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — Site Engineer Dashboard Simplification + Curing Video Moved to Project View
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerDashboard.jsx`):
+  - **Header cleaned up**: removed inline action buttons (Site Login / Site Logout / Material Receipt / Curing Video). Only the standard `<AppHeader />` (logo + Dashboard nav + bell + profile) remains.
+  - **Top tabs collapsed from 7 → 3** with big-text styling: **My Projects | Petty Cash | Attendance**. The legacy `value="sitevisits"`, `value="workorders"`, `value="minicashbook"`, `value="curingvideo"` `<TabsContent>` blocks are still in the file but unreachable (no triggers); will be cleaned up in a later refactor pass.
+  - The 3 active tabs use `text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700` for a card-pill look. Petty Cash retains the count badge for issued/partially_spent items.
+- **Frontend** (`/app/frontend/src/components/AppHeader.jsx`): Removed the "Material Receipt" link from the `site_engineer` role nav. SE header now shows only the Dashboard link.
+- **Frontend** (`/app/frontend/src/components/ProjectCuringTab.jsx` — NEW): Self-contained Curing Video log scoped to a single project. **Record Curing** dialog with "Curing fully done" checkbox → POST `/site-engineer/curing-video` → on done, auto-opens WhatsApp with prefilled client message and PATCH `whatsapp-sent`. Lists past records with status pill (Done / In progress), recorded-by name, timestamp, and a "WhatsApp" action when done & not yet sent.
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - Project tabs grew from 3 → **4**: Materials | Work Order (Labour) | Progress | **Curing**. Added the new icon import and TabsContent that mounts `<ProjectCuringTab />` with `projectId` / `projectName` / `user` props.
+- **Verified via screenshot**:
+  - SE login → clean header with only "Dashboard"; landing shows 3 big-text tabs (My Projects / Petty Cash / Attendance) plus stat cards (Assigned 2, Active Orders 8, Active Sites 1) and project list.
+  - Project page → 4 tabs visible; Curing tab opens the empty-state "No curing records yet" view with **Refresh** + **Record Curing** buttons.
+
 ### Session — May 8, 2026 — Inventory Auto-population + Out Stock + Stock History + MetaDateFilter Rollout
 - **Backend** (`/app/backend/routes/site_ops.py`): Material receipt now **auto-creates a `material_inventory` daily entry** (idempotent for same `project + material + date`). Carries the prior closing forward as opening, adds received qty, stamps `last_in_at` ISO timestamp. Source flag `auto_receipt`.
 - **Backend** (`/app/backend/routes/contractors.py`):

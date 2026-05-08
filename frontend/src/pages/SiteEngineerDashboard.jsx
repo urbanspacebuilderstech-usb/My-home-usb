@@ -875,56 +875,8 @@ export default function SiteEngineerDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Standard App Header (Planning-style) */}
-      <AppHeader
-        user={user}
-        headerActions={
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {currentlyLoggedProject ? (
-              <Button
-                className="bg-red-500 hover:bg-red-600 text-white h-8 text-xs sm:text-sm animate-pulse"
-                onClick={() => handleAttLogout(currentlyLoggedProject.project_id)}
-                disabled={attLoading}
-                data-testid="att-logout-btn"
-              >
-                <LogOut className="h-3.5 w-3.5 mr-1" />
-                <span className="hidden sm:inline">Logout {currentlyLoggedProject.project_name}</span>
-                <span className="sm:hidden">Logout</span>
-              </Button>
-            ) : (
-              <Button
-                className="bg-green-600 hover:bg-green-700 text-white h-8 text-xs sm:text-sm"
-                onClick={() => setAttLoginDialog(true)}
-                data-testid="att-login-btn"
-              >
-                <Play className="h-3.5 w-3.5 mr-1" />
-                <span className="hidden sm:inline">Site Login</span>
-                <span className="sm:hidden">Login</span>
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              className="h-8 text-xs sm:text-sm border-amber-300 text-amber-700 hover:bg-amber-50"
-              onClick={() => window.location.href = '/site-engineer/material-receipt'}
-              data-testid="material-receipt-btn"
-            >
-              <Package className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">Material Receipt</span>
-              <span className="sm:hidden">Receipt</span>
-            </Button>
-            <Button
-              variant="outline"
-              className="h-8 text-xs sm:text-sm border-amber-300 text-amber-700 hover:bg-amber-50"
-              onClick={() => { setCuringDialog(true); setCuringProject(''); setCuringDone(false); }}
-              data-testid="curing-video-btn"
-            >
-              <Video className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">Curing Video</span>
-              <span className="sm:hidden">Curing</span>
-            </Button>
-          </div>
-        }
-      />
+      {/* Header — Dashboard only (per user request: no extra buttons/menus) */}
+      <AppHeader user={user} />
 
       <div className="max-w-5xl mx-auto px-4 py-4 sm:px-6 sm:py-8">
         {/* Header */}
@@ -974,39 +926,35 @@ export default function SiteEngineerDashboard() {
           </Card>
         </div>
 
-        {/* Tabs for Projects, Work Orders, Petty Cash, and Mini Cashbook */}
+        {/* Top-level dashboard tabs — only My Projects, Petty Cash, Attendance.
+            Site visits / Work orders / Cashbook / Curing video moved inside the project view. */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList className="flex w-full overflow-x-auto">
-            <TabsTrigger value="projects" className="gap-1.5 flex-shrink-0 text-xs px-3">
-              <Building2 className="h-3.5 w-3.5" /> Projects
+          <TabsList className="grid grid-cols-3 w-full h-auto bg-gray-100 p-1 rounded-lg" data-testid="se-dashboard-tabs">
+            <TabsTrigger
+              value="projects"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-amber-700 data-[state=active]:shadow"
+              data-testid="tab-projects"
+            >
+              <Building2 className="h-5 w-5" /> My Projects
             </TabsTrigger>
-            <TabsTrigger value="sitevisits" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-site-visits">
-              <MapPin className="h-3.5 w-3.5" /> Site Visits
-            </TabsTrigger>
-            <TabsTrigger value="workorders" className="gap-1.5 flex-shrink-0 text-xs px-3">
-              <ClipboardList className="h-3.5 w-3.5" /> Work Orders
-              {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length > 0 && (
-                <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
-                  {workOrders.filter(w => w.status === 'assigned' || w.status === 'in_progress').length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="pettycash" className="gap-1.5 flex-shrink-0 text-xs px-3">
-              <Wallet className="h-3.5 w-3.5" /> Petty Cash
+            <TabsTrigger
+              value="pettycash"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow"
+              data-testid="tab-pettycash"
+            >
+              <Wallet className="h-5 w-5" /> Petty Cash
               {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length > 0 && (
-                <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs bg-green-500">
+                <Badge className="h-5 min-w-[20px] px-1 flex items-center justify-center text-xs bg-emerald-500">
                   {pettyCashList.filter(p => p.status === 'issued' || p.status === 'partially_spent').length}
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="minicashbook" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-mini-cashbook">
-              <Receipt className="h-3.5 w-3.5" /> Cashbook
-            </TabsTrigger>
-            <TabsTrigger value="curingvideo" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-curing-video" onClick={() => fetchCuringHistory(curingFilterProject)}>
-              <Video className="h-3.5 w-3.5" /> Curing Video
-            </TabsTrigger>
-            <TabsTrigger value="attendance" className="gap-1.5 flex-shrink-0 text-xs px-3" data-testid="tab-attendance">
-              <Clock className="h-3.5 w-3.5" /> Attendance
+            <TabsTrigger
+              value="attendance"
+              className="gap-2 text-base sm:text-lg font-semibold py-3 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow"
+              data-testid="tab-attendance"
+            >
+              <Clock className="h-5 w-5" /> Attendance
             </TabsTrigger>
           </TabsList>
 
