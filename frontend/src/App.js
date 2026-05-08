@@ -37,6 +37,7 @@ import SiteEngineerProject from '@/pages/SiteEngineerProject';
 import MaterialReceipt from '@/pages/MaterialReceipt';
 import ProcurementDashboard from '@/pages/ProcurementDashboard';
 import ProcurementBoardV2 from '@/pages/ProcurementBoardV2';
+import ProcurementBoardSimple from '@/pages/ProcurementBoardSimple';
 import PackageManagement from '@/pages/PackageManagement';
 import CREBoard from '@/pages/CREBoard';
 import PlanningBoard from '@/pages/PlanningBoard';
@@ -143,8 +144,10 @@ function AppRouter() {
       <Route path="/vendor-management" element={<ProtectedRoute><VendorMasterManagement /></ProtectedRoute>} />
       <Route path="/contractor-management" element={<ProtectedRoute><ContractorManagement /></ProtectedRoute>} />
       <Route path="/vendor-portal" element={<ProtectedRoute><VendorPortal /></ProtectedRoute>} />
-      <Route path="/procurement-board" element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} />
-      <Route path="/procurement-board-v2" element={<ProtectedRoute><ProcurementBoardV2 /></ProtectedRoute>} />
+      <Route path="/procurement-board" element={<ProtectedRoute><ProcurementBoardSimple /></ProtectedRoute>} />
+      <Route path="/procurement-board-v2" element={<ProtectedRoute><ProcurementBoardSimple /></ProtectedRoute>} />
+      <Route path="/procurement-board-legacy" element={<ProtectedRoute><ProcurementBoardV2 /></ProtectedRoute>} />
+      <Route path="/procurement-board-legacy-v1" element={<ProtectedRoute><ProcurementDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer" element={<ProtectedRoute><SiteEngineerDashboard /></ProtectedRoute>} />
       <Route path="/site-engineer/project/:projectId" element={<ProtectedRoute><SiteEngineerProject /></ProtectedRoute>} />
       <Route path="/site-engineer/material-receipt" element={<ProtectedRoute><MaterialReceipt /></ProtectedRoute>} />

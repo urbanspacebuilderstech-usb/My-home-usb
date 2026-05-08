@@ -107,7 +107,11 @@ export default function PlanningRequestsTab({ projects = [] }) {
     ? items.filter(r => r.project_id === projectFilter)
     : items;
 
-  const fMaterials = useMemo(() => applyFilters(materials), [materials, dateFrom, dateTo, projectFilter]);
+  const fMaterials = useMemo(() => {
+    // Planning only handles materials that Procurement has priced & forwarded.
+    const eligible = (materials || []).filter(m => (m.status || '').toLowerCase() === 'procurement_priced');
+    return applyFilters(eligible);
+  }, [materials, dateFrom, dateTo, projectFilter]);
   const fLabourStages = useMemo(() => applyLabourFilters(labourStages), [labourStages, projectFilter]);
   const fLabourPayments = useMemo(() => applyLabourFilters(labourPayments), [labourPayments, projectFilter]);
   const fPetty = useMemo(() => applyFilters(petty), [petty, dateFrom, dateTo, projectFilter]);

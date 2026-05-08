@@ -2326,3 +2326,197 @@ async def list_contractors_by_type(type_id: str, user: User = Depends(get_curren
 
 
 
+
+
+# =====================================================================
+# Simplified Procurement Flow (NEW): SE -> Procurement -> Planning -> Accountant
+# Endpoint set used by the new ProcurementBoardSimple page (4-tab layout).
+# Existing ProcurementBoardV2 endpoints above are untouched for back-compat.
+# =====================================================================
+@router.get("/procurement-simple/queue")
+async def procurement_simple_queue(
+    queue: str = "pending",  # pending | forwarded | rejected | all
+    user: User = Depends(get_current_user),
+):
+    """Procurement's simplified queue.
+    - pending   → SE-raised material requests awaiting Procurement assignment
+                  (statuses: requested, pm_approved)
+    - forwarded → already forwarded to Planning (procurement_priced)
+    - rejected  → procurement-rejected requests
+    - all       → everything except finalised (accounts_approved/completed/closed)
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    status_map = {
+        "pending": ["requested", "pm_approved"],
+        "forwarded": ["procurement_priced"],
+        "rejected": ["procurement_rejected"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected"],
+    }
+    target = status_map.get(queue, status_map["pending"])
+
+    rows = await db.material_requests.find(
+        {"status": {"$in": target}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+
+    # Enrich project + SE names
+    project_ids = list({r.get("project_id") for r in rows if r.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}
+    ).to_list(500)} if project_ids else {}
+    se_ids = list({r.get("site_engineer_id") for r in rows if r.get("site_engineer_id")})
+    users_lookup = {u["user_id"]: u for u in await db.users.find(
+        {"user_id": {"$in": se_ids}}, {"_id": 0, "user_id": 1, "name": 1}
+    ).to_list(500)} if se_ids else {}
+
+    for r in rows:
+        r["project_name"] = (projects.get(r.get("project_id")) or {}).get("name", r.get("project_name") or "Unknown")
+        r["site_engineer_name"] = (users_lookup.get(r.get("site_engineer_id")) or {}).get("name", r.get("site_engineer_name") or "Unknown")
+
+    return {"count": len(rows), "requests": rows}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/assign-vendor")
+async def procurement_simple_assign_vendor(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Procurement assigns Vendor + Unit Price + Remarks to a SE material request,
+    then forwards it to Planning for final approval (status -> procurement_priced).
+
+    Body:
+      - vendor_id: str (required)
+      - vendor_name: str (required)
+      - unit_price: float (required, > 0)
+      - approved_quantity: float (optional; defaults to requested quantity)
+      - remarks: str (optional)
+      - transport_cost: float (optional, default 0)
+      - discount: float (optional, default 0)
+    """
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can assign vendors")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") not in ["requested", "pm_approved"]:
+        raise HTTPException(status_code=400, detail=f"Cannot assign vendor — current status: {req.get('status')}")
+
+    vendor_id = data.get("vendor_id")
+    vendor_name = data.get("vendor_name")
+    if not (vendor_id and vendor_name):
+        raise HTTPException(status_code=400, detail="vendor_id and vendor_name are required")
+    try:
+        unit_price = float(data.get("unit_price") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="unit_price must be a number")
+    if unit_price <= 0:
+        raise HTTPException(status_code=400, detail="unit_price must be positive")
+
+    qty = float(data.get("approved_quantity") or req.get("quantity") or 0)
+    transport = float(data.get("transport_cost") or 0)
+    discount = float(data.get("discount") or 0)
+    estimated_price = max(0.0, unit_price * qty + transport - discount)
+    remarks = (data.get("remarks") or "").strip()
+    now = datetime.now(timezone.utc).isoformat()
+
+    update = {
+        "status": "procurement_priced",
+        "vendor_id": vendor_id,
+        "vendor_name": vendor_name,
+        "unit_rate": unit_price,
+        "unit_price": unit_price,
+        "approved_quantity": qty,
+        "transport_cost": transport,
+        "discount": discount,
+        "total_amount": estimated_price,
+        "estimated_price": estimated_price,
+        "estimated_cost": estimated_price,
+        "procurement_remarks": remarks,
+        "procurement_priced_by": user.user_id,
+        "procurement_priced_by_name": user.name,
+        "procurement_priced_at": now,
+    }
+    await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
+
+    # Notify Planning so it appears in their Materials Approval queue
+    planning = await db.users.find(
+        {"role": {"$in": ["planning", "super_admin"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for p in planning:
+        try:
+            await create_notification(
+                p["user_id"],
+                f"Material priced & forwarded: {req.get('material_name')} → {vendor_name} (₹{estimated_price:,.0f})",
+            )
+        except Exception:
+            pass
+
+    await create_audit_log(user.user_id, "assign_vendor", "material_request", request_id, update)
+    return {"message": "Vendor assigned & forwarded to Planning", "status": "procurement_priced", "estimated_price": estimated_price}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/reject")
+async def procurement_simple_reject(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Procurement rejects a SE material request with a reason (does NOT forward to Planning)."""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Procurement / Super Admin can reject")
+
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") not in ["requested", "pm_approved"]:
+        raise HTTPException(status_code=400, detail=f"Cannot reject — current status: {req.get('status')}")
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Rejection reason is required")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.material_requests.update_one(
+        {"request_id": request_id},
+        {"$set": {
+            "status": "procurement_rejected",
+            "procurement_rejection_reason": reason,
+            "procurement_rejected_by": user.user_id,
+            "procurement_rejected_by_name": user.name,
+            "procurement_rejected_at": now,
+        }},
+    )
+    if req.get("site_engineer_id"):
+        try:
+            await create_notification(req["site_engineer_id"], f"Material request rejected by Procurement: {req.get('material_name')}")
+        except Exception:
+            pass
+    return {"message": "Request rejected"}
+
+
+@router.get("/procurement-simple/dashboard")
+async def procurement_simple_dashboard(user: User = Depends(get_current_user)):
+    """Counts for the Procurement dashboard tiles."""
+    if user.role not in [UserRole.PROCUREMENT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    pending = await db.material_requests.count_documents({"status": {"$in": ["requested", "pm_approved"]}})
+    forwarded = await db.material_requests.count_documents({"status": "procurement_priced"})
+    planning_approved = await db.material_requests.count_documents({"status": "planning_approved"})
+    accounts_approved = await db.material_requests.count_documents({"status": {"$in": ["accounts_approved", "payment_approved", "pending_accounts_approval"]}})
+    rejected = await db.material_requests.count_documents({"status": {"$in": ["procurement_rejected", "rejected"]}})
+
+    # Total spend on accounts-approved this month
+    from datetime import datetime as _dt, timezone as _tz
+    now_dt = _dt.now(_tz.utc)
+    month_start_iso = now_dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    monthly_rows = await db.material_requests.find(
+        {"status": {"$in": ["accounts_approved", "payment_approved", "completed"]},
+         "created_at": {"$gte": month_start_iso}},
+        {"_id": 0, "total_amount": 1, "estimated_price": 1},
+    ).to_list(2000)
+    monthly_spend = sum(float(r.get("total_amount") or r.get("estimated_price") or 0) for r in monthly_rows)
+
+    return {
+        "pending_assignment": pending,
+        "forwarded_to_planning": forwarded,
+        "planning_approved": planning_approved,
+        "accounts_approved": accounts_approved,
+        "rejected": rejected,
+        "monthly_spend": monthly_spend,
+    }
