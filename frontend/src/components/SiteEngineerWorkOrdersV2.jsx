@@ -151,8 +151,7 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
           </div>
           <div className="divide-y">
             {list.map(wo => {
-              const balance = (wo.total_value || 0) - (wo.paid_amount || 0);
-              return (
+                return (
                 <div
                   key={wo.work_order_id}
                   className="px-4 py-3 hover:bg-amber-50/50 cursor-pointer flex items-center gap-3 transition-colors"
@@ -161,11 +160,6 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{wo.contractor_name}</p>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
-                      Total: <span className="font-medium text-gray-700">{fmt(wo.total_value)}</span>
-                      {' · '}Paid: <span className="font-medium text-green-700">{fmt(wo.paid_amount)}</span>
-                      {' · '}Balance: <span className="font-medium text-amber-700">{fmt(balance)}</span>
-                    </p>
                   </div>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-100" data-testid={`wov2-view-${wo.work_order_id}`}>
                     <Eye className="h-3 w-3" /> View
