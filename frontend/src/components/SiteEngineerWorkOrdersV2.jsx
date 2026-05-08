@@ -381,9 +381,24 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
     stageBuckets.forEach(set => set.forEach(k => { c[k] = (c[k] || 0) + 1; }));
     return c;
   }, [stageBuckets]);
-  const visibleStages = filterKey === 'all'
-    ? stages
-    : stages.filter((_, i) => stageBuckets[i].has(filterKey));
+  const visibleStages = useMemo(() => {
+    const base = filterKey === 'all'
+      ? stages
+      : stages.filter((_, i) => stageBuckets[i].has(filterKey));
+    // In "All Stages" view, surface OPEN stages first so SE has them at the top.
+    // Also keep original order within each group (stable sort).
+    if (filterKey === 'all') {
+      const indexed = base.map((s, i) => ({ s, i }));
+      indexed.sort((a, b) => {
+        const ao = a.s.is_open ? 0 : 1;
+        const bo = b.s.is_open ? 0 : 1;
+        if (ao !== bo) return ao - bo;
+        return a.i - b.i;
+      });
+      return indexed.map(x => x.s);
+    }
+    return base;
+  }, [filterKey, stages, stageBuckets]);
 
   return (
     <Card>
@@ -590,40 +605,45 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
           <DialogDescription className="text-xs">{wo.contractor_name} ({wo.contractor_type || '—'})</DialogDescription>
         </DialogHeader>
 
-        {/* Summary cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-          <div className="bg-gray-50 border rounded px-2 py-1.5">
-            <p className="text-[9px] text-gray-500 uppercase">Total</p>
-            <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
-          </div>
-          <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
-            <p className="text-[9px] text-blue-600 uppercase">Balance</p>
-            <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
-          </div>
-          <div className="bg-green-50 border border-green-200 rounded px-2 py-1.5">
-            <p className="text-[9px] text-green-600 uppercase">Released</p>
-            <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-            <p className="text-[9px] text-amber-600 uppercase">Extra</p>
-            <p className="text-xs font-bold text-amber-800">{fmt(suspenseBalance || 0)}</p>
-          </div>
-        </div>
-        {(carryover > 0 || pending > 0) && (
-          <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-            {pending > 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                <p className="text-[9px] text-amber-600 uppercase">In Pipeline</p>
-                <p className="text-xs font-bold text-amber-800">{fmt(pending)}</p>
+        {/* Summary cards — only shown for open stages. Locked stages keep amounts hidden;
+            SE only sees the "Request Open" form below. */}
+        {stage.is_open && (
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <div className="bg-gray-50 border rounded px-2 py-1.5">
+                <p className="text-[9px] text-gray-500 uppercase">Total</p>
+                <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
+              </div>
+              <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+                <p className="text-[9px] text-blue-600 uppercase">Balance</p>
+                <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded px-2 py-1.5">
+                <p className="text-[9px] text-green-600 uppercase">Released</p>
+                <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                <p className="text-[9px] text-amber-600 uppercase">Extra</p>
+                <p className="text-xs font-bold text-amber-800">{fmt(suspenseBalance || 0)}</p>
+              </div>
+            </div>
+            {(carryover > 0 || pending > 0) && (
+              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                {pending > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    <p className="text-[9px] text-amber-600 uppercase">In Pipeline</p>
+                    <p className="text-xs font-bold text-amber-800">{fmt(pending)}</p>
+                  </div>
+                )}
+                {carryover > 0 && (
+                  <div className="bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                    <p className="text-[9px] text-orange-600 uppercase">Carryover Deduction</p>
+                    <p className="text-xs font-bold text-orange-800">−{fmt(carryover)}</p>
+                  </div>
+                )}
               </div>
             )}
-            {carryover > 0 && (
-              <div className="bg-orange-50 border border-orange-200 rounded px-2 py-1">
-                <p className="text-[9px] text-orange-600 uppercase">Carryover Deduction</p>
-                <p className="text-xs font-bold text-orange-800">−{fmt(carryover)}</p>
-              </div>
-            )}
-          </div>
+          </>
         )}
 
         {/* Sub-tabs */}
