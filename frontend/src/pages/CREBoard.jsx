@@ -18,13 +18,14 @@ import {
   Building2, Plus, FileText, Clock, CheckCircle, Send,
   MapPin, Package, Eye, Users, ArrowRight, Filter, Calendar, DollarSign,
   Phone, Mail, Upload, Bell, CreditCard, Search, AlertCircle, CheckCircle2, Target,
-  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare, X
+  Receipt, Banknote, ClipboardList, Copy, RefreshCw, MessageSquare, X, KeyRound
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { MultiPaymentInput } from '../components/MultiPaymentInput';
 import { NumericInput } from '../components/NumericInput';
 import ChequeListView from '../components/ChequeListView';
+import CreateClientPortalDialog from '../components/CreateClientPortalDialog';
 import CREPreConstruction from './CREPreConstruction';
 import Income from './Income';
 import DTBoard from './DTBoard';
@@ -126,6 +127,7 @@ export default function CREBoard() {
 
   // Dialogs
   const [createDialog, setCreateDialog] = useState(false);
+  const [portalProject, setPortalProject] = useState(null);  // project for which to open Create-Client-Portal dialog
   const [requestREMode, setRequestREMode] = useState(false);
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -1100,6 +1102,7 @@ export default function CREBoard() {
                           <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Location</th>
                           <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                          <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Portal</th>
                           <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Action</th>
                         </tr>
                       </thead>
@@ -1114,6 +1117,17 @@ export default function CREBoard() {
                             <td className="px-4 py-2.5 text-gray-500 hidden sm:table-cell">{p.location || '-'}</td>
                             <td className="px-4 py-2.5 text-right font-medium">{formatCurrency(p.total_value)}</td>
                             <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                            <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className={`h-7 text-[11px] gap-1 ${p.client_user_id ? 'border-green-300 text-green-700 hover:bg-green-50' : 'border-amber-300 text-amber-700 hover:bg-amber-50'}`}
+                                onClick={() => setPortalProject(p)}
+                                data-testid={`create-portal-btn-${p.project_id}`}
+                              >
+                                <KeyRound className="h-3 w-3" /> {p.client_user_id ? 'Reset' : 'Create'}
+                              </Button>
+                            </td>
                             <td className="px-4 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>{getProjectAction(p)}</td>
                           </tr>
                         ))}
@@ -1494,6 +1508,13 @@ export default function CREBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateClientPortalDialog
+        project={portalProject}
+        open={!!portalProject}
+        onOpenChange={(v) => { if (!v) setPortalProject(null); }}
+        onCreated={() => fetchData(false)}
+      />
 
       <MobileBottomNav user={user} />
     </div>

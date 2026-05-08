@@ -18,6 +18,7 @@ import Procurement from '@/pages/Procurement';
 import SiteReceipt from '@/pages/SiteReceipt';
 import Expenses from '@/pages/Expenses';
 import ClientPortal from '@/pages/ClientPortal';
+import ClientPortalV2 from '@/pages/ClientPortalV2';
 import Notifications from '@/pages/Notifications';
 import UserManagement from '@/pages/UserManagement';
 import VendorPortal from '@/pages/VendorPortal';
@@ -131,6 +132,8 @@ function AppRouter() {
       <Route path="/income" element={<ProtectedRoute><Income /></ProtectedRoute>} />
       <Route path="/client-portal" element={<ProtectedRoute><ClientPortal /></ProtectedRoute>} />
       <Route path="/client-portal/:projectId" element={<ProtectedRoute><ClientPortal /></ProtectedRoute>} />
+      <Route path="/client" element={<ClientPortalV2 />} />
+      <Route path="/client/:projectId" element={<ClientPortalV2 />} />
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       <Route path="/users" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

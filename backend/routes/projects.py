@@ -622,7 +622,24 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     photos = await db.site_photos.find({"project_id": project_id}, {"_id": 0}).sort("captured_at", -1).to_list(1000)
     
     documents = await db.documents.find({"project_id": project_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    
+
+    # Income entries (read-only, dates + amounts only — no internal fields)
+    raw_income = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
+    income_entries = []
+    total_income = 0.0
+    for e in raw_income:
+        amt = float(e.get("amount", 0) or 0)
+        total_income += amt
+        income_entries.append({
+            "income_id": e.get("income_id"),
+            "payment_date": e.get("payment_date"),
+            "amount": amt,
+            "payment_mode": e.get("payment_mode") or "",
+            "description": e.get("description") or "",
+            "category": e.get("category") or "",
+        })
+
+    # Final estimate scope (scope_items already in result)
     return {
         "project": project,
         "total_paid": total_paid,
@@ -631,7 +648,9 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "scope_items": scope_items,
         "stages": stages,
         "photos": photos,
-        "documents": documents
+        "documents": documents,
+        "income_entries": income_entries,
+        "total_income": total_income,
     }
 
 
@@ -1273,6 +1292,80 @@ async def link_client_to_project(project_id: str, client_user_id: str, user: Use
     await create_notification(client_user_id, "You now have access to view your project in the Client Portal.")
     
     return {"message": "Client linked successfully"}
+
+
+@router.post("/projects/{project_id}/create-client-portal")
+async def create_client_portal(project_id: str, data: dict, user: User = Depends(get_current_user)):
+    """CRE creates client login credentials for a specific project.
+    Body: { email, password }
+    - If a client user with that email exists, links it to the project (and updates password).
+    - If not, creates a new 'client' user.
+    Returns the credentials so CRE can copy/share via WhatsApp.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.CRE]:
+        raise HTTPException(status_code=403, detail="Only CRE / PM / Super Admin can create client portal access")
+
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Lazy-import auth helper
+    from .auth import hash_password as _hash
+    pw_hash = _hash(password)
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    now = datetime.now(timezone.utc).isoformat()
+
+    if existing:
+        # Re-use this account; ensure role is client (or already client) & update password.
+        if existing.get("role") not in (UserRole.CLIENT.value, "client"):
+            # Don't downgrade an internal account
+            raise HTTPException(status_code=400, detail="An account with this email already exists with a different role. Use a different email.")
+        await db.users.update_one(
+            {"user_id": existing["user_id"]},
+            {"$set": {"password_hash": pw_hash, "is_active": True, "name": existing.get("name") or project.get("client_name", "Client"), "updated_at": now}}
+        )
+        client_user_id = existing["user_id"]
+    else:
+        client_user_id = f"u_{uuid.uuid4().hex[:8]}"
+        client_doc = {
+            "user_id": client_user_id,
+            "name": project.get("client_name") or "Client",
+            "email": email,
+            "phone": project.get("client_phone") or "",
+            "role": UserRole.CLIENT.value,
+            "password_hash": pw_hash,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+            "created_by": user.user_id,
+        }
+        await db.users.insert_one(client_doc)
+
+    # Link to project (always overwrite so CRE can transfer access)
+    await db.projects.update_one(
+        {"project_id": project_id},
+        {"$set": {"client_user_id": client_user_id, "client_email": email, "client_portal_created_at": now, "client_portal_created_by": user.user_id}}
+    )
+
+    await create_audit_log(user.user_id, "create_client_portal", "project", project_id, {"client_user_id": client_user_id, "email": email})
+
+    return {
+        "message": "Client portal created",
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "client_user_id": client_user_id,
+        "email": email,
+        "password": password,  # returned ONCE so CRE can share. Not stored in plain text anywhere else.
+        "portal_url": f"/client",
+    }
 
 
 # ==================== FULL CRUD - UPDATE/DELETE ENDPOINTS ====================
