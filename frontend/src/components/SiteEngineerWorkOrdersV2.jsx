@@ -165,8 +165,6 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
 
-  const balance = (wo.total_value || 0) - (wo.paid_amount || 0);
-
   return (
     <div className="space-y-3" data-testid="wov2-detail">
       {/* Header */}
@@ -182,20 +180,6 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
                 <Badge className="bg-amber-200 text-amber-900 border-amber-300 text-[10px]">{wo.contractor_type || 'General'}</Badge>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">{wo.description || 'Work Order'}</p>
-              <div className="grid grid-cols-3 gap-2 mt-2 text-[11px]">
-                <div className="bg-white border rounded p-1.5">
-                  <p className="text-gray-500">Total</p>
-                  <p className="font-bold text-gray-900">{fmt(wo.total_value)}</p>
-                </div>
-                <div className="bg-white border rounded p-1.5">
-                  <p className="text-gray-500">Paid</p>
-                  <p className="font-bold text-green-700">{fmt(wo.paid_amount)}</p>
-                </div>
-                <div className="bg-white border rounded p-1.5">
-                  <p className="text-gray-500">Balance</p>
-                  <p className="font-bold text-amber-700">{fmt(balance)}</p>
-                </div>
-              </div>
             </div>
             <Button
               className="bg-teal-600 hover:bg-teal-700 h-8 text-xs gap-1 shrink-0"
@@ -229,10 +213,8 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
                     <thead className="bg-gray-100 border-b border-t">
                       <tr>
                         <th className="text-left px-3 py-2 font-semibold text-gray-600">Item</th>
-                        <th className="text-right px-3 py-2 font-semibold text-gray-600 w-16">Qty</th>
-                        <th className="text-left px-3 py-2 font-semibold text-gray-600 w-20">Unit</th>
-                        <th className="text-right px-3 py-2 font-semibold text-gray-600 w-24">Rate</th>
-                        <th className="text-right px-3 py-2 font-semibold text-gray-600 w-28">Total</th>
+                        <th className="text-right px-3 py-2 font-semibold text-gray-600 w-20">Qty</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-600 w-24">Unit</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -241,17 +223,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
                           <td className="px-3 py-2 font-medium text-gray-900">{s.name}</td>
                           <td className="px-3 py-2 text-right">{s.quantity}</td>
                           <td className="px-3 py-2 text-gray-600">{s.unit}</td>
-                          <td className="px-3 py-2 text-right">{fmt(s.unit_rate)}</td>
-                          <td className="px-3 py-2 text-right font-semibold">{fmt(s.total)}</td>
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="bg-amber-50 border-t-2 border-amber-200">
-                      <tr>
-                        <td className="px-3 py-2 font-bold text-amber-900" colSpan={4}>Scope Total</td>
-                        <td className="px-3 py-2 text-right font-bold text-amber-900">{fmt(wo.scope_total || wo.total_value)}</td>
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               )}
@@ -267,10 +241,8 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
                       {wo.additional_work.map((a, i) => (
                         <tr key={i}>
                           <td className="px-3 py-1.5">{a.description}</td>
-                          <td className="px-3 py-1.5 text-right w-16">{a.quantity}</td>
-                          <td className="px-3 py-1.5 text-gray-600 w-20">{a.unit}</td>
-                          <td className="px-3 py-1.5 text-right w-24">{fmt(a.unit_rate)}</td>
-                          <td className="px-3 py-1.5 text-right font-semibold w-28">{fmt(a.total)}</td>
+                          <td className="px-3 py-1.5 text-right w-20">{a.quantity}</td>
+                          <td className="px-3 py-1.5 text-gray-600 w-24">{a.unit}</td>
                         </tr>
                       ))}
                     </tbody>
