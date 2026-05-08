@@ -4028,28 +4028,60 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/finish")
 async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, data: dict, user: User = Depends(get_current_user)):
-    """Site Engineer marks a stage as finished with remarks"""
+    """Site Engineer marks a stage's WORK as complete with remarks.
+
+    The stage moves to a "finished" state ONLY when BOTH conditions are true:
+      - work_complete = true (this endpoint sets it)
+      - released amount >= stage.amount (payment fully done)
+
+    If only payment is done → bucket = "Payment Done · Work Pending"
+    If only work_complete → bucket = "Work Done · Payment Pending"
+    Both true → bucket = "Finished"
+    """
     if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Site Engineers can finish stages")
+        raise HTTPException(status_code=403, detail="Only Site Engineers can mark stages complete")
     
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
     
     now = datetime.now(timezone.utc).isoformat()
+    remarks = (data.get("remarks") or "").strip()
+    if not remarks:
+        raise HTTPException(status_code=400, detail="Work-complete remarks are required")
+    
     updated = False
+    new_status = None
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
-            # Check for pending payment requests
+            # Check for pending payment requests — these block finish until they're released or rejected.
             pending_prs = [pr for pr in stage.get("payment_requests", []) if pr.get("status") in ["requested", "pm_approved", "planning_approved"]]
             if pending_prs:
-                raise HTTPException(status_code=400, detail=f"Cannot finish stage — {len(pending_prs)} payment request(s) still pending")
-            
-            stage["stage_status"] = "finished"
-            stage["status"] = "completed"
-            stage["finished_at"] = now
-            stage["finished_remarks"] = data.get("remarks", "")
-            stage["finished_by"] = user.user_id
+                raise HTTPException(status_code=400, detail=f"Cannot mark complete — {len(pending_prs)} payment request(s) still pending Planning/Accountant action")
+
+            # Mark work complete (independent of payment)
+            stage["work_complete"] = True
+            stage["work_complete_at"] = now
+            stage["work_complete_by"] = user.user_id
+            stage["work_complete_by_name"] = user.name
+            stage["work_complete_remarks"] = remarks
+
+            # Compute payment-done flag
+            released = sum(pr.get("approved_amount", 0) for pr in stage.get("payment_requests", []) if pr.get("status") == "approved")
+            stage_amount = float(stage.get("amount") or 0)
+            payment_done = stage_amount > 0 and released >= stage_amount
+
+            if payment_done:
+                stage["stage_status"] = "finished"
+                stage["status"] = "completed"
+                stage["finished_at"] = now
+                stage["finished_remarks"] = remarks
+                stage["finished_by"] = user.user_id
+                new_status = "finished"
+            else:
+                # Work done but balance still owed — stage stays "open" so the SE/Accountant
+                # can release the balance, while the work-complete flags drive bucketing.
+                new_status = "work_done_pending_payment"
             updated = True
             break
     
@@ -4060,7 +4092,7 @@ async def wo_finish_stage(project_id: str, work_order_id: str, stage_id: str, da
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
-    return {"message": "Stage finished"}
+    return {"message": "Stage work marked complete", "status": new_status}
 
 
 @router.get("/planning/labour-stage-requests")

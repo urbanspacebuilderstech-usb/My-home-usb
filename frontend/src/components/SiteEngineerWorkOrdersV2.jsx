@@ -333,6 +333,8 @@ const STAGE_BUCKETS = [
   { key: 'request',  label: 'Request Stage',      Icon: FileClock,     color: 'amber',   pillBg: 'bg-amber-50 border-amber-200 text-amber-700',     activeBg: 'bg-amber-600 text-white border-amber-600' },
   { key: 'planning', label: 'Planning Approve',   Icon: ShieldCheck,   color: 'orange',  pillBg: 'bg-orange-50 border-orange-200 text-orange-700',  activeBg: 'bg-orange-600 text-white border-orange-600' },
   { key: 'accountant', label: 'Accountant Approve', Icon: Wallet,      color: 'indigo',  pillBg: 'bg-indigo-50 border-indigo-200 text-indigo-700',  activeBg: 'bg-indigo-600 text-white border-indigo-600' },
+  { key: 'paid_pending_work', label: 'Paid · Work Pending', Icon: Hourglass, color: 'sky',  pillBg: 'bg-sky-50 border-sky-200 text-sky-700',          activeBg: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'work_pending_payment', label: 'Work Done · Pay Pending', Icon: Hourglass, color: 'fuchsia', pillBg: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', activeBg: 'bg-fuchsia-600 text-white border-fuchsia-600' },
   { key: 'finished', label: 'Finished Stages',    Icon: CheckCheck,    color: 'emerald', pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeBg: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
@@ -341,13 +343,27 @@ function bucketsForStage(stage) {
   const released = prs.filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
   const stageAmount = stage.amount || 0;
   const fullyPaid = stageAmount > 0 && released >= stageAmount;
+  const workComplete = !!stage.work_complete;
   const set = new Set();
   set.add('all');
-  // Finished if SE marked it finished or fully paid out (terminal state — skip
-  // the other lifecycle buckets so it shows only here).
-  if (stage.stage_status === 'finished' || stage.finished_at || fullyPaid) {
+  // Truly finished requires BOTH payment done AND work complete.
+  if ((stage.stage_status === 'finished' || stage.finished_at) && workComplete) {
     set.add('finished');
     return set;
+  }
+  if (fullyPaid && workComplete) {
+    set.add('finished');
+    return set;
+  }
+  // Two intermediate "stuck" buckets
+  if (fullyPaid && !workComplete) {
+    set.add('paid_pending_work');
+    // Don't add other lifecycle buckets — payment is closed; only thing left is work-complete.
+    return set;
+  }
+  if (workComplete && !fullyPaid) {
+    set.add('work_pending_payment');
+    // Still allow accountant/planning lifecycle as relevant
   }
   // Pending payment request buckets — a stage can be in BOTH planning AND
   // accountant simultaneously when it has multiple in-flight requests.
@@ -359,8 +375,7 @@ function bucketsForStage(stage) {
   if (!stage.is_open) {
     if (stage.open_requested) set.add('request');
     else set.add('locked');
-  } else if (!hasPlanning && !hasAccountant) {
-    // Open with no pending request — actionable, ready for next payment ask
+  } else if (!hasPlanning && !hasAccountant && !workComplete) {
     set.add('open');
   }
   return set;
@@ -412,7 +427,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
 
       {/* Lifecycle filter cards — click to filter the list. "All Stages" shows everything. */}
       <div className="px-3 pb-2" data-testid="wov2-stage-filter-cards">
-        <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5">
           {STAGE_BUCKETS.map(b => {
             const Icon = b.Icon;
             const active = filterKey === b.key;
@@ -493,6 +508,120 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// =====================================================================
+// Work-Complete Section — SE marks the work itself complete (separate from payment)
+// =====================================================================
+// A stage is truly "Finished" only when payment is fully released AND SE has
+// explicitly marked the work complete. This component renders the right state
+// based on those two flags.
+function WorkCompleteSection({ stage, wo, projectId, fullyPaid, onSaved }) {
+  const [open, setOpen] = useState(false);
+  const [remarks, setRemarks] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const workComplete = !!stage.work_complete;
+  const isFinished = fullyPaid && workComplete;
+
+  const submit = async () => {
+    if (!remarks.trim()) { toast.error('Please add work-complete remarks'); return; }
+    setSubmitting(true);
+    try {
+      await axios.patch(
+        `${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/finish`,
+        { remarks: remarks.trim() },
+      );
+      toast.success(fullyPaid ? 'Stage finished' : 'Work marked complete (payment still pending)');
+      setOpen(false);
+      onSaved?.();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to mark complete');
+    } finally { setSubmitting(false); }
+  };
+
+  if (isFinished) {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded p-2.5 text-xs space-y-0.5" data-testid="wov2-stage-finished">
+        <p className="font-semibold text-emerald-800 flex items-center gap-1"><CheckCheck className="h-3.5 w-3.5" /> Stage Finished</p>
+        {stage.work_complete_remarks && <p className="italic text-emerald-700">"{stage.work_complete_remarks}"</p>}
+        {stage.work_complete_at && <p className="text-[10px] text-emerald-700">{fmtDate(stage.work_complete_at)} · by {stage.work_complete_by_name || 'SE'}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className={`rounded p-2.5 border text-xs space-y-1.5 ${
+        workComplete ? 'bg-fuchsia-50 border-fuchsia-200' : (fullyPaid ? 'bg-sky-50 border-sky-200' : 'bg-gray-50 border-gray-200')
+      }`} data-testid="wov2-work-complete-section">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Hourglass className={`h-3.5 w-3.5 ${workComplete ? 'text-fuchsia-700' : (fullyPaid ? 'text-sky-700' : 'text-gray-600')}`} />
+            <span className={`font-semibold ${workComplete ? 'text-fuchsia-800' : (fullyPaid ? 'text-sky-800' : 'text-gray-700')}`}>
+              {workComplete && !fullyPaid ? 'Work Done · Payment Pending' :
+               fullyPaid && !workComplete ? 'Paid in Full · Work Pending' : 'Work in progress'}
+            </span>
+          </div>
+          {!workComplete && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              onClick={() => setOpen(true)}
+              data-testid="wov2-mark-work-complete"
+            >
+              <CheckCheck className="h-3 w-3" /> Mark Work Complete
+            </Button>
+          )}
+        </div>
+        {workComplete && stage.work_complete_remarks && (
+          <p className="italic text-fuchsia-700 text-[11px]">"{stage.work_complete_remarks}"</p>
+        )}
+        {fullyPaid && !workComplete && (
+          <p className="text-[10px] text-sky-700">Payment is fully released. Click "Mark Work Complete" with remarks to move this stage to Finished.</p>
+        )}
+        {workComplete && !fullyPaid && (
+          <p className="text-[10px] text-fuchsia-700">Work is done. Stage will move to Finished automatically once the balance payment is released.</p>
+        )}
+      </div>
+
+      <Dialog open={open} onOpenChange={(v) => { if (!v) setOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <CheckCheck className="h-5 w-5" /> Mark Stage Work Complete
+            </DialogTitle>
+          </DialogHeader>
+          <div className="bg-gray-50 border rounded p-2 text-xs">
+            <p className="text-gray-500 text-[10px] uppercase">Stage</p>
+            <p className="font-semibold">{stage.name}</p>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold">Work-Complete Remarks *</Label>
+            <Textarea
+              rows={3}
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Describe the completed work (e.g. centering removed, slab cured, ready for next stage)"
+              className="text-sm mt-1"
+              data-testid="wov2-work-complete-remarks"
+            />
+          </div>
+          {!fullyPaid && (
+            <div className="bg-fuchsia-50 border border-fuchsia-200 rounded p-2 text-[11px] text-fuchsia-700">
+              ⚠ Payment is not yet fully released. After marking complete, this stage will move to <span className="font-semibold">"Work Done · Pay Pending"</span>. It will become Finished once the balance is released.
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={submitting}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={submit} disabled={submitting} data-testid="wov2-work-complete-confirm">
+              <CheckCheck className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Saving…' : 'Confirm Complete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -643,6 +772,14 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
                 )}
               </div>
             )}
+            {/* Work-complete status indicator + Mark-Complete trigger */}
+            <WorkCompleteSection
+              stage={stage}
+              wo={wo}
+              projectId={projectId}
+              fullyPaid={(stage.amount || 0) > 0 && released >= (stage.amount || 0)}
+              onSaved={onSaved}
+            />
           </>
         )}
 
