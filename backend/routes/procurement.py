@@ -2418,6 +2418,60 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
     remarks = (data.get("remarks") or "").strip()
     now = datetime.now(timezone.utc).isoformat()
 
+    # ---- Timeline (date OR days) ----
+    timeline_type = (data.get("timeline_type") or "date").lower()
+    if timeline_type not in ("date", "days"):
+        raise HTTPException(status_code=400, detail="timeline_type must be 'date' or 'days'")
+    timeline_value = data.get("timeline_value") or ""
+    expected_delivery_iso = ""
+    if timeline_type == "date" and timeline_value:
+        # Accept YYYY-MM-DD
+        try:
+            d = datetime.strptime(str(timeline_value)[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            expected_delivery_iso = d.isoformat()
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="timeline_value must be a valid date (YYYY-MM-DD)")
+    elif timeline_type == "days" and timeline_value not in ("", None):
+        try:
+            days = int(timeline_value)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="timeline_value must be a positive integer (days)")
+        if days <= 0:
+            raise HTTPException(status_code=400, detail="timeline days must be positive")
+        expected_delivery_iso = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+    # ---- Payment mode ----
+    payment_mode = (data.get("payment_mode") or "pre_paid").lower()
+    if payment_mode not in ("pre_paid", "credit", "advance", "post_delivery"):
+        raise HTTPException(status_code=400, detail="payment_mode must be pre_paid|credit|advance|post_delivery")
+    credit_days = 0
+    advance_pct = None
+    advance_amount = 0.0
+    if payment_mode == "credit":
+        try:
+            credit_days = int(data.get("credit_days") or 0)
+        except (ValueError, TypeError):
+            credit_days = 0
+        if credit_days <= 0:
+            raise HTTPException(status_code=400, detail="credit_days must be positive for credit mode")
+    if payment_mode == "advance":
+        adv_mode = (data.get("advance_input_mode") or "amount").lower()
+        if adv_mode == "percent":
+            try:
+                advance_pct = float(data.get("advance_percent") or 0)
+            except (ValueError, TypeError):
+                advance_pct = 0
+            if advance_pct <= 0 or advance_pct > 100:
+                raise HTTPException(status_code=400, detail="advance_percent must be between 0 and 100")
+            advance_amount = round(estimated_price * advance_pct / 100, 2)
+        else:
+            try:
+                advance_amount = float(data.get("advance_amount") or 0)
+            except (ValueError, TypeError):
+                advance_amount = 0
+            if advance_amount <= 0 or advance_amount > estimated_price + 0.01:
+                raise HTTPException(status_code=400, detail="advance_amount must be > 0 and ≤ total")
+
     update = {
         "status": "procurement_priced",
         "vendor_id": vendor_id,
@@ -2434,6 +2488,15 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "procurement_priced_by": user.user_id,
         "procurement_priced_by_name": user.name,
         "procurement_priced_at": now,
+        # New phase-1 fields:
+        "timeline_type": timeline_type,
+        "timeline_value": timeline_value,
+        "expected_delivery": expected_delivery_iso,
+        "payment_mode": payment_mode,
+        "credit_days": credit_days,
+        "advance_percent": advance_pct,
+        "advance_amount": advance_amount,
+        "balance_amount": max(0.0, estimated_price - advance_amount) if payment_mode == "advance" else 0.0,
     }
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 

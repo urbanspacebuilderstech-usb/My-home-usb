@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import {
   Package, ClipboardList, Building2, Truck, Eye, Send, ThumbsDown, RefreshCw,
   CheckCircle2, AlertCircle, Wallet, IndianRupee, ShoppingCart, Hourglass,
+  CalendarClock, FileClock, Banknote, ListChecks, CheckCheck, PackageCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppHeader } from '../components/AppHeader';
@@ -143,40 +144,77 @@ function DashboardTab({ onJump }) {
 // =====================================================================
 // REQUESTS — Material approvals queue
 // =====================================================================
-const QUEUE_TABS = [
-  { key: 'pending', label: 'Pending Assignment', icon: Hourglass, cls: 'border-amber-600 text-amber-700 bg-amber-50/50' },
-  { key: 'forwarded', label: 'Forwarded to Planning', icon: Send, cls: 'border-blue-600 text-blue-700 bg-blue-50/50' },
-  { key: 'rejected', label: 'Rejected', icon: ThumbsDown, cls: 'border-red-600 text-red-700 bg-red-50/50' },
+// Lifecycle filter cards spanning the full Procurement → Delivery pipeline.
+// Each card maps to one or more material_request statuses.
+const LIFECYCLE_BUCKETS = [
+  { key: 'all',      label: 'All',              Icon: ListChecks,  cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new',      label: 'New (SE)',         Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',  active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'forwarded', label: 'Vendor Assigned', Icon: Send,        cls: 'bg-blue-50 border-blue-200 text-blue-700',       active: 'bg-blue-600 text-white border-blue-600' },
+  { key: 'planning_approved', label: 'Planning Approved', Icon: CheckCircle2, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
+  { key: 'awaiting_payment', label: 'Awaiting Payment', Icon: Wallet,    cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'transit',  label: 'In Transit',       Icon: Truck,       cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'delivered', label: 'Delivered',       Icon: PackageCheck, cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'rejected', label: 'Rejected',         Icon: ThumbsDown,  cls: 'bg-red-50 border-red-200 text-red-700',           active: 'bg-red-600 text-white border-red-600' },
 ];
 
+const STATUS_TO_BUCKET = {
+  requested: 'new',
+  pm_approved: 'new',
+  procurement_priced: 'forwarded',
+  planning_approved: 'planning_approved',
+  pending_accounts_approval: 'awaiting_payment',
+  accounts_approved: 'awaiting_payment',
+  payment_approved: 'awaiting_payment',
+  in_transit: 'transit',
+  delivered: 'delivered',
+  completed: 'delivered',
+  closed: 'delivered',
+  procurement_rejected: 'rejected',
+  rejected: 'rejected',
+};
+
 function RequestsTab() {
-  const [queue, setQueue] = useState('pending');
-  const [items, setItems] = useState([]);
+  const [bucket, setBucket] = useState('new');
+  const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [counts, setCounts] = useState({ pending: 0, forwarded: 0, rejected: 0 });
   const [open, setOpen] = useState(null);
   const [rejectDialog, setRejectDialog] = useState({ open: false, req: null, reason: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  const fetchQueue = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [q, all] = await Promise.all([
-        axios.get(`${API}/procurement-simple/queue?queue=${queue}`),
-        axios.get(`${API}/procurement-simple/dashboard`).catch(() => ({ data: {} })),
+      // The "all" queue returns the procurement-relevant slice; for the post-procurement
+      // statuses (planning_approved/transit/delivered) we union with the global list.
+      const [procRes, globalRes] = await Promise.all([
+        axios.get(`${API}/procurement-simple/queue?queue=all`),
+        axios.get(`${API}/material-requests`).catch(() => ({ data: [] })),
       ]);
-      setItems(q.data?.requests || []);
-      setCounts({
-        pending: all.data?.pending_assignment || 0,
-        forwarded: all.data?.forwarded_to_planning || 0,
-        rejected: all.data?.rejected || 0,
-      });
+      const procList = procRes.data?.requests || [];
+      const procIds = new Set(procList.map(r => r.request_id));
+      const extras = (globalRes.data || []).filter(r => !procIds.has(r.request_id));
+      setAllItems([...procList, ...extras]);
     } catch {
-      setItems([]);
+      setAllItems([]);
     } finally { setLoading(false); }
-  }, [queue]);
+  }, []);
 
-  useEffect(() => { fetchQueue(); }, [fetchQueue]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const counts = useMemo(() => {
+    const c = { all: allItems.length };
+    LIFECYCLE_BUCKETS.forEach(b => { if (b.key !== 'all') c[b.key] = 0; });
+    allItems.forEach(r => {
+      const b = STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'new';
+      c[b] = (c[b] || 0) + 1;
+    });
+    return c;
+  }, [allItems]);
+
+  const visibleItems = useMemo(() => {
+    if (bucket === 'all') return allItems;
+    return allItems.filter(r => (STATUS_TO_BUCKET[(r.status || '').toLowerCase()] || 'new') === bucket);
+  }, [allItems, bucket]);
 
   const submitReject = async () => {
     if (!rejectDialog.reason.trim()) { toast.error('Reason is required'); return; }
@@ -185,7 +223,7 @@ function RequestsTab() {
       await axios.patch(`${API}/procurement-simple/material-requests/${rejectDialog.req.request_id}/reject`, { reason: rejectDialog.reason });
       toast.success('Request rejected');
       setRejectDialog({ open: false, req: null, reason: '' });
-      fetchQueue();
+      fetchAll();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to reject');
     } finally { setSubmitting(false); }
@@ -194,103 +232,56 @@ function RequestsTab() {
   return (
     <div className="space-y-3" data-testid="proc-requests-tab">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Requests</h1>
-        <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchQueue} data-testid="proc-refresh">
+        <div>
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900">Material Requests</h1>
+          <p className="text-[11px] text-gray-500">SE → Procurement → Planning → Accountant → Transit → Delivery</p>
+        </div>
+        <Button size="sm" variant="outline" className="h-8 gap-1" onClick={fetchAll} data-testid="proc-refresh">
           <RefreshCw className="h-3 w-3" /> Refresh
         </Button>
       </div>
 
-      {/* Queue tabs */}
-      <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
-        {QUEUE_TABS.map(t => {
-          const active = queue === t.key;
-          const Icon = t.icon;
+      {/* Lifecycle filter cards */}
+      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5" data-testid="proc-lifecycle-cards">
+        {LIFECYCLE_BUCKETS.map(b => {
+          const Icon = b.Icon;
+          const active = bucket === b.key;
+          const count = counts[b.key] || 0;
           return (
             <button
-              key={t.key}
-              onClick={() => setQueue(t.key)}
-              className={`px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                active ? t.cls : 'border-transparent text-gray-500 hover:text-gray-700'
+              key={b.key}
+              onClick={() => setBucket(b.key)}
+              className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${
+                active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'
               }`}
-              data-testid={`proc-queue-${t.key}`}
+              data-testid={`proc-bucket-${b.key}`}
             >
               <Icon className="h-3.5 w-3.5" />
-              {t.label}
-              <Badge variant="outline" className={`ml-0.5 text-[10px] h-5 ${counts[t.key] > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
-                {counts[t.key] || 0}
-              </Badge>
+              <span className="leading-tight text-center">{b.label}</span>
+              <span className={`text-xs font-bold ${active ? 'text-white' : ''}`}>{count}</span>
             </button>
           );
         })}
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          {loading ? (
-            <p className="text-center text-xs text-gray-400 py-10">Loading…</p>
-          ) : items.length === 0 ? (
-            <p className="text-center text-xs text-gray-400 py-10">
-              {queue === 'pending' ? 'No material requests awaiting your action' :
-               queue === 'forwarded' ? 'Nothing forwarded yet' : 'No rejected requests'}
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-100 border-y">
-                  <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Order</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Project</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Material</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-600">Qty</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">SE</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-600">Vendor / Price</th>
-                    <th className="text-right px-3 py-2 font-semibold text-gray-600 w-32">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {items.map((r) => (
-                    <tr key={r.request_id} className="hover:bg-amber-50/40" data-testid={`proc-row-${r.request_id}`}>
-                      <td className="px-3 py-2 font-mono text-[10px] text-gray-400">{r.order_id || r.request_id?.slice(-6)}</td>
-                      <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
-                      <td className="px-3 py-2">
-                        <p className="font-medium">{r.material_name}</p>
-                        {r.brand && <p className="text-[10px] text-gray-500">Brand: {r.brand}</p>}
-                      </td>
-                      <td className="px-3 py-2 text-right">{r.quantity} {r.unit || ''}</td>
-                      <td className="px-3 py-2 text-gray-700">{r.site_engineer_name}</td>
-                      <td className="px-3 py-2 text-right">
-                        {r.vendor_name ? (
-                          <>
-                            <p className="font-medium">{r.vendor_name}</p>
-                            <p className="text-[10px] text-gray-500">{fmt(r.estimated_price || r.total_amount || 0)}</p>
-                          </>
-                        ) : <span className="text-gray-400">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        {queue === 'pending' ? (
-                          <Button size="sm" className="h-7 text-xs gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => setOpen(r)} data-testid={`proc-assign-${r.request_id}`}>
-                            <Eye className="h-3 w-3" /> Assign
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setOpen(r)} data-testid={`proc-view-${r.request_id}`}>
-                            <Eye className="h-3 w-3" /> View
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Card-style request list */}
+      {loading ? (
+        <p className="text-center text-xs text-gray-400 py-10">Loading…</p>
+      ) : visibleItems.length === 0 ? (
+        <Card><CardContent className="p-10"><p className="text-center text-xs text-gray-400">No requests in this bucket</p></CardContent></Card>
+      ) : (
+        <div className="space-y-2" data-testid="proc-card-list">
+          {visibleItems.map(r => (
+            <RequestCard key={r.request_id} req={r} onClick={() => setOpen(r)} />
+          ))}
+        </div>
+      )}
 
       <AssignVendorDialog
         item={open}
-        readOnly={queue !== 'pending'}
+        readOnly={open ? !['requested', 'pm_approved'].includes((open.status || '').toLowerCase()) : false}
         onClose={() => setOpen(null)}
-        onDone={() => { setOpen(null); fetchQueue(); }}
+        onDone={() => { setOpen(null); fetchAll(); }}
         onReject={(req) => { setOpen(null); setRejectDialog({ open: true, req, reason: '' }); }}
       />
 
@@ -317,6 +308,127 @@ function RequestsTab() {
   );
 }
 
+// Single material request card (clickable)
+function RequestCard({ req, onClick }) {
+  const status = (req.status || '').toLowerCase();
+  const bucket = STATUS_TO_BUCKET[status] || 'new';
+  const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
+  const isActionable = ['requested', 'pm_approved'].includes(status);
+  // Compute "deliver in" label
+  let deliveryLabel = '—';
+  if (req.expected_delivery) {
+    deliveryLabel = fmtDate(req.expected_delivery);
+  } else if (req.timeline_type === 'days' && req.timeline_value) {
+    deliveryLabel = `${req.timeline_value} days`;
+  }
+  const pmCfg = PAYMENT_MODE_DISPLAY[req.payment_mode];
+  return (
+    <Card
+      className="hover:shadow-md transition-shadow cursor-pointer border-l-4 hover:bg-amber-50/30"
+      style={{ borderLeftColor: cardCfg ? `var(--tw-${cardCfg.key})` : '#f59e0b' }}
+      onClick={onClick}
+      data-testid={`proc-card-${req.request_id}`}
+    >
+      <CardContent className="p-3 sm:p-4">
+        {/* Top row: status + amount */}
+        <div className="flex items-center justify-between mb-2 gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Badge variant="outline" className={`text-[10px] ${cardCfg?.cls || ''}`}>
+              {cardCfg?.label || status}
+            </Badge>
+            {pmCfg && (
+              <Badge variant="outline" className={`text-[10px] ${pmCfg.cls}`} title={pmCfg.desc}>
+                {pmCfg.label}
+              </Badge>
+            )}
+            {req.order_id && (
+              <span className="text-[10px] text-gray-400 font-mono">#{req.order_id}</span>
+            )}
+          </div>
+          {(req.estimated_price || req.total_amount) ? (
+            <span className="text-sm font-semibold text-emerald-700 shrink-0">{fmt(req.estimated_price || req.total_amount)}</span>
+          ) : null}
+        </div>
+
+        {/* Main grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs">
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Date</p>
+            <p className="font-medium">{fmtDate(req.created_at)}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Material</p>
+            <p className="font-medium truncate">{req.material_name}</p>
+            {req.brand && <p className="text-[10px] text-gray-500">Brand: {req.brand}</p>}
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Category</p>
+            <p className="font-medium capitalize">{req.material_category || req.category || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Qty</p>
+            <p className="font-medium">{req.quantity} {req.unit || ''}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase font-semibold text-gray-400 flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" /> Delivery</p>
+            <p className="font-medium">{deliveryLabel}</p>
+          </div>
+          <div className="col-span-2 sm:col-span-3">
+            <p className="text-[10px] uppercase font-semibold text-gray-400">Project</p>
+            <p className="font-medium truncate">{req.project_name}</p>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-[10px] uppercase font-semibold text-gray-400">SE</p>
+            <p className="font-medium truncate">{req.site_engineer_name || '—'}</p>
+          </div>
+          <div>
+            {isActionable ? (
+              <Button
+                size="sm"
+                className="h-8 w-full text-xs gap-1 bg-amber-600 hover:bg-amber-700 mt-3 sm:mt-0"
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                data-testid={`proc-card-approve-${req.request_id}`}
+              >
+                <Eye className="h-3 w-3" /> Approve
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 w-full text-xs gap-1 mt-3 sm:mt-0"
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                data-testid={`proc-card-view-${req.request_id}`}
+              >
+                <Eye className="h-3 w-3" /> View
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Vendor + remarks tail */}
+        {(req.vendor_name || req.procurement_remarks) && (
+          <div className="mt-2 pt-2 border-t flex items-start justify-between gap-2 text-[11px]">
+            {req.vendor_name && (
+              <span className="text-gray-700"><span className="text-gray-400 mr-1">Vendor:</span><strong>{req.vendor_name}</strong></span>
+            )}
+            {req.procurement_remarks && (
+              <span className="italic text-gray-500 truncate">"{req.procurement_remarks}"</span>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Payment mode lookup table — reused in card + dialog
+const PAYMENT_MODE_DISPLAY = {
+  pre_paid:      { label: 'Pre-paid',     cls: 'bg-blue-50 text-blue-700 border-blue-200',     desc: 'Accountant pays full amount upfront before delivery' },
+  credit:        { label: 'Credit',       cls: 'bg-purple-50 text-purple-700 border-purple-200', desc: 'Post-paid after N days of delivery' },
+  advance:       { label: 'Advance',      cls: 'bg-orange-50 text-orange-700 border-orange-200', desc: 'Pay advance now, balance after delivery' },
+  post_delivery: { label: 'Post-delivery', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', desc: 'Pay full amount on delivery' },
+};
+
 // =====================================================================
 // Vendor Assign Dialog
 // =====================================================================
@@ -329,6 +441,15 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [discount, setDiscount] = useState('0');
   const [remarks, setRemarks] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // Phase-1 new fields
+  const [timelineType, setTimelineType] = useState('date'); // 'date' | 'days'
+  const [timelineDate, setTimelineDate] = useState('');
+  const [timelineDays, setTimelineDays] = useState('');
+  const [paymentMode, setPaymentMode] = useState('pre_paid');
+  const [creditDays, setCreditDays] = useState('30');
+  const [advanceMode, setAdvanceMode] = useState('percent'); // 'percent' | 'amount'
+  const [advancePercent, setAdvancePercent] = useState('30');
+  const [advanceAmount, setAdvanceAmount] = useState('');
 
   useEffect(() => {
     if (!item) return;
@@ -338,22 +459,59 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     setTransport(String(item.transport_cost || 0));
     setDiscount(String(item.discount || 0));
     setRemarks(item.procurement_remarks || '');
+    setTimelineType(item.timeline_type || 'date');
+    if (item.timeline_type === 'days') {
+      setTimelineDays(String(item.timeline_value || ''));
+      setTimelineDate('');
+    } else {
+      setTimelineDate(item.expected_delivery ? String(item.expected_delivery).slice(0, 10) : (item.timeline_value || ''));
+      setTimelineDays('');
+    }
+    setPaymentMode(item.payment_mode || 'pre_paid');
+    setCreditDays(String(item.credit_days || 30));
+    setAdvancePercent(String(item.advance_percent || 30));
+    setAdvanceAmount(String(item.advance_amount || ''));
+    setAdvanceMode(item.advance_percent ? 'percent' : 'amount');
     // Load material vendors only
     axios.get(`${API}/vendor-master?category=material`).then(r => setVendors(r.data?.vendors || r.data || [])).catch(() => setVendors([]));
   }, [item]);
 
-  if (!item) return null;
   const qty = parseFloat(approvedQty) || 0;
   const price = parseFloat(unitPrice) || 0;
   const tCost = parseFloat(transport) || 0;
   const disc = parseFloat(discount) || 0;
   const total = Math.max(0, qty * price + tCost - disc);
+  const computedAdvance = useMemo(() => {
+    if (paymentMode !== 'advance') return 0;
+    if (advanceMode === 'percent') {
+      const p = parseFloat(advancePercent) || 0;
+      return Math.round(total * p / 100);
+    }
+    return parseFloat(advanceAmount) || 0;
+  }, [paymentMode, advanceMode, advancePercent, advanceAmount, total]);
+  const balance = paymentMode === 'advance' ? Math.max(0, total - computedAdvance) : 0;
+
+  if (!item) return null;
   const selectedVendor = vendors.find(v => v.vendor_id === vendorId);
 
   const submit = async () => {
     if (!vendorId) { toast.error('Select a vendor'); return; }
     if (!price || price <= 0) { toast.error('Enter a valid unit price'); return; }
     if (!qty || qty <= 0) { toast.error('Enter a valid quantity'); return; }
+    // Timeline validation
+    if (timelineType === 'date' && !timelineDate) { toast.error('Select expected delivery date'); return; }
+    if (timelineType === 'days' && (!timelineDays || parseInt(timelineDays) <= 0)) { toast.error('Enter delivery days'); return; }
+    // Payment mode validation
+    if (paymentMode === 'credit' && (!creditDays || parseInt(creditDays) <= 0)) { toast.error('Enter credit days'); return; }
+    if (paymentMode === 'advance') {
+      if (advanceMode === 'percent' && (!advancePercent || parseFloat(advancePercent) <= 0 || parseFloat(advancePercent) > 100)) {
+        toast.error('Enter advance % between 0-100'); return;
+      }
+      if (advanceMode === 'amount' && (!advanceAmount || parseFloat(advanceAmount) <= 0 || parseFloat(advanceAmount) > total)) {
+        toast.error('Advance amount must be > 0 and ≤ total'); return;
+      }
+    }
+
     setSubmitting(true);
     try {
       await axios.patch(`${API}/procurement-simple/material-requests/${item.request_id}/assign-vendor`, {
@@ -364,6 +522,13 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         transport_cost: tCost,
         discount: disc,
         remarks,
+        timeline_type: timelineType,
+        timeline_value: timelineType === 'date' ? timelineDate : timelineDays,
+        payment_mode: paymentMode,
+        credit_days: paymentMode === 'credit' ? parseInt(creditDays) : 0,
+        advance_input_mode: paymentMode === 'advance' ? advanceMode : null,
+        advance_percent: paymentMode === 'advance' && advanceMode === 'percent' ? parseFloat(advancePercent) : null,
+        advance_amount: paymentMode === 'advance' && advanceMode === 'amount' ? parseFloat(advanceAmount) : null,
       });
       toast.success('Vendor assigned & forwarded to Planning');
       onDone();
@@ -377,7 +542,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
       <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="proc-assign-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-amber-700">
-            <Package className="h-5 w-5" /> {readOnly ? 'View' : 'Assign'} Vendor & Pricing
+            <Package className="h-5 w-5" /> {readOnly ? 'View' : 'Approve'} Material Request
           </DialogTitle>
           <DialogDescription className="text-xs">
             {item.material_name} · Qty {item.quantity} {item.unit} · {item.project_name}
@@ -402,8 +567,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
 
         {/* Vendor + pricing form */}
         <div className="space-y-3">
+          {/* Section header — Vendor & Pricing */}
+          <div className="border-b pb-1.5 flex items-center gap-1.5"><Truck className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Vendor & Pricing</h4></div>
+
           <div>
-            <Label className="text-xs">Vendor *</Label>
+            <Label className="text-xs">Material Vendor *</Label>
             <Select value={vendorId} onValueChange={setVendorId} disabled={readOnly}>
               <SelectTrigger className="mt-1" data-testid="proc-assign-vendor-select">
                 <SelectValue placeholder="Select a material vendor…" />
@@ -447,10 +615,130 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             <span className="text-xl font-bold text-emerald-700">{fmt(total)}</span>
           </div>
 
+          {/* Section — Delivery Timeline */}
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Delivery Timeline</h4></div>
+
           <div>
-            <Label className="text-xs">Remarks (optional)</Label>
-            <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={readOnly} className="mt-1 text-sm" placeholder="Any notes for Planning…" data-testid="proc-assign-remarks" />
+            <div className="flex gap-1 mb-2">
+              <button
+                type="button"
+                onClick={() => !readOnly && setTimelineType('date')}
+                disabled={readOnly}
+                className={`flex-1 px-3 py-1.5 text-xs rounded border ${timelineType === 'date' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                data-testid="proc-timeline-mode-date"
+              >Specific Date</button>
+              <button
+                type="button"
+                onClick={() => !readOnly && setTimelineType('days')}
+                disabled={readOnly}
+                className={`flex-1 px-3 py-1.5 text-xs rounded border ${timelineType === 'days' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                data-testid="proc-timeline-mode-days"
+              >Number of Days</button>
+            </div>
+            {timelineType === 'date' ? (
+              <Input
+                type="date"
+                value={timelineDate}
+                onChange={(e) => setTimelineDate(e.target.value)}
+                disabled={readOnly}
+                min={new Date().toISOString().slice(0, 10)}
+                data-testid="proc-timeline-date"
+              />
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  value={timelineDays}
+                  onChange={(e) => setTimelineDays(e.target.value)}
+                  disabled={readOnly}
+                  placeholder="e.g. 7"
+                  className="flex-1"
+                  data-testid="proc-timeline-days"
+                />
+                <span className="text-xs text-gray-500 whitespace-nowrap">days from today</span>
+              </div>
+            )}
           </div>
+
+          {/* Section — Payment Mode */}
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><Banknote className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Payment Mode</h4></div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {Object.entries(PAYMENT_MODE_DISPLAY).map(([key, cfg]) => (
+              <button
+                key={key}
+                type="button"
+                disabled={readOnly}
+                onClick={() => setPaymentMode(key)}
+                className={`flex flex-col items-center justify-center px-2 py-2 rounded border text-xs transition-all min-h-[60px] ${
+                  paymentMode === key ? 'bg-amber-600 text-white border-amber-600 shadow-sm' : 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
+                } ${readOnly ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+                data-testid={`proc-payment-${key}`}
+              >
+                <span className="font-semibold leading-tight text-center">{cfg.label}</span>
+              </button>
+            ))}
+          </div>
+          {/* Mode description */}
+          <p className="text-[11px] text-gray-500 italic px-1">{PAYMENT_MODE_DISPLAY[paymentMode]?.desc}</p>
+
+          {/* Conditional payment fields */}
+          {paymentMode === 'credit' && (
+            <div>
+              <Label className="text-xs">Credit Period (days) *</Label>
+              <Input
+                type="number"
+                min="1"
+                value={creditDays}
+                onChange={(e) => setCreditDays(e.target.value)}
+                disabled={readOnly}
+                placeholder="e.g. 30"
+                className="mt-1"
+                data-testid="proc-credit-days"
+              />
+              <p className="text-[10px] text-gray-500 mt-1">Payment due {creditDays || '0'} days after delivery</p>
+            </div>
+          )}
+          {paymentMode === 'advance' && (
+            <div className="space-y-2 bg-orange-50/50 border border-orange-200 rounded p-2">
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => setAdvanceMode('percent')}
+                  className={`flex-1 px-2 py-1 text-[11px] rounded border ${advanceMode === 'percent' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                  data-testid="proc-advance-mode-percent"
+                >By Percent</button>
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => setAdvanceMode('amount')}
+                  className={`flex-1 px-2 py-1 text-[11px] rounded border ${advanceMode === 'amount' ? 'bg-orange-600 text-white border-orange-600' : 'bg-white border-gray-200 text-gray-600'}`}
+                  data-testid="proc-advance-mode-amount"
+                >By Amount</button>
+              </div>
+              {advanceMode === 'percent' ? (
+                <div>
+                  <Label className="text-xs">Advance % *</Label>
+                  <Input type="number" min="1" max="100" value={advancePercent} onChange={(e) => setAdvancePercent(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-advance-percent" />
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-xs">Advance Amount (₹) *</Label>
+                  <Input type="number" min="1" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} disabled={readOnly} className="mt-1" data-testid="proc-advance-amount" />
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 pt-1.5 border-t border-orange-200 text-xs">
+                <div className="text-orange-700"><p className="text-[10px] font-semibold uppercase">Advance Now</p><p className="font-bold">{fmt(computedAdvance)}</p></div>
+                <div className="text-orange-700 text-right"><p className="text-[10px] font-semibold uppercase">Balance on Delivery</p><p className="font-bold">{fmt(balance)}</p></div>
+              </div>
+            </div>
+          )}
+
+          {/* Section — Remarks */}
+          <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><FileClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Notes for Planning</h4></div>
+          <Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={readOnly} className="text-sm" placeholder="Any notes for Planning…" data-testid="proc-assign-remarks" />
 
           {/* If forwarded already, show what Planning sees */}
           {readOnly && item.status === 'procurement_priced' && (
