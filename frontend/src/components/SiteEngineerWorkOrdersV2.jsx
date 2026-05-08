@@ -321,61 +321,69 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 // =====================================================================
 // Payment Schedule Tab: compact list — title + status + View button
 // =====================================================================
-// Bucket a stage into one of the 6 lifecycle filter cards.
-// Priority order matters: a single stage can match many predicates, so we pick
-// the most "actionable" bucket (e.g. an Open stage with a pending Planning
-// request shows under "Planning Payment Approve", not "Open").
+// Lifecycle filter cards. A single stage may legitimately match multiple
+// buckets — e.g. Week 01 can have a ₹50K pm_approved request (Planning queue)
+// AND a ₹1L planning_approved request (Accountant queue) simultaneously. So
+// `bucketsForStage` returns an ARRAY of bucket keys, and counts/filtering use
+// any-match semantics.
 const STAGE_BUCKETS = [
-  { key: 'open',     label: 'Open Stage',         Icon: Unlock,      color: 'green',   ring: 'ring-green-500',   pillBg: 'bg-green-50 border-green-200 text-green-700',     activeBg: 'bg-green-600 text-white border-green-600' },
-  { key: 'locked',   label: 'Locked Stages',      Icon: Lock,        color: 'gray',    ring: 'ring-gray-400',    pillBg: 'bg-gray-50 border-gray-200 text-gray-700',        activeBg: 'bg-gray-700 text-white border-gray-700' },
-  { key: 'request',  label: 'Request Stage',      Icon: FileClock,   color: 'amber',   ring: 'ring-amber-500',   pillBg: 'bg-amber-50 border-amber-200 text-amber-700',     activeBg: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'planning', label: 'Planning Approve',   Icon: ShieldCheck, color: 'orange',  ring: 'ring-orange-500',  pillBg: 'bg-orange-50 border-orange-200 text-orange-700',  activeBg: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'accountant', label: 'Accountant Approve', Icon: Wallet,    color: 'indigo',  ring: 'ring-indigo-500',  pillBg: 'bg-indigo-50 border-indigo-200 text-indigo-700',  activeBg: 'bg-indigo-600 text-white border-indigo-600' },
-  { key: 'finished', label: 'Finished Stages',    Icon: CheckCheck,  color: 'emerald', ring: 'ring-emerald-500', pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeBg: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',      label: 'All Stages',         Icon: ClipboardList, color: 'violet',  pillBg: 'bg-violet-50 border-violet-200 text-violet-700',   activeBg: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'open',     label: 'Open Stage',         Icon: Unlock,        color: 'green',   pillBg: 'bg-green-50 border-green-200 text-green-700',     activeBg: 'bg-green-600 text-white border-green-600' },
+  { key: 'locked',   label: 'Locked Stages',      Icon: Lock,          color: 'gray',    pillBg: 'bg-gray-50 border-gray-200 text-gray-700',        activeBg: 'bg-gray-700 text-white border-gray-700' },
+  { key: 'request',  label: 'Request Stage',      Icon: FileClock,     color: 'amber',   pillBg: 'bg-amber-50 border-amber-200 text-amber-700',     activeBg: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning', label: 'Planning Approve',   Icon: ShieldCheck,   color: 'orange',  pillBg: 'bg-orange-50 border-orange-200 text-orange-700',  activeBg: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'accountant', label: 'Accountant Approve', Icon: Wallet,      color: 'indigo',  pillBg: 'bg-indigo-50 border-indigo-200 text-indigo-700',  activeBg: 'bg-indigo-600 text-white border-indigo-600' },
+  { key: 'finished', label: 'Finished Stages',    Icon: CheckCheck,    color: 'emerald', pillBg: 'bg-emerald-50 border-emerald-200 text-emerald-700', activeBg: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
-function bucketForStage(stage) {
+function bucketsForStage(stage) {
   const prs = stage.payment_requests || [];
   const released = prs.filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
-  const carryover = stage.carryover_deduction || 0;
   const stageAmount = stage.amount || 0;
   const fullyPaid = stageAmount > 0 && released >= stageAmount;
-  // Finished if SE marked it finished or fully paid out
-  if (stage.stage_status === 'finished' || stage.finished_at || fullyPaid) return 'finished';
-  // Pending payment request determines accountant/planning bucket
-  const pending = prs.find(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status));
-  if (pending) {
-    if (pending.status === 'planning_approved') return 'accountant';
-    return 'planning'; // pm_approved or legacy 'requested'
+  const set = new Set();
+  set.add('all');
+  // Finished if SE marked it finished or fully paid out (terminal state — skip
+  // the other lifecycle buckets so it shows only here).
+  if (stage.stage_status === 'finished' || stage.finished_at || fullyPaid) {
+    set.add('finished');
+    return set;
   }
-  // No pending request: open / request / locked
+  // Pending payment request buckets — a stage can be in BOTH planning AND
+  // accountant simultaneously when it has multiple in-flight requests.
+  const hasPlanning = prs.some(p => ['requested', 'pm_approved'].includes(p.status));
+  const hasAccountant = prs.some(p => p.status === 'planning_approved');
+  if (hasPlanning) set.add('planning');
+  if (hasAccountant) set.add('accountant');
+  // Non-pending lifecycle: open / request / locked
   if (!stage.is_open) {
-    if (stage.open_requested) return 'request';
-    return 'locked';
+    if (stage.open_requested) set.add('request');
+    else set.add('locked');
+  } else if (!hasPlanning && !hasAccountant) {
+    // Open with no pending request — actionable, ready for next payment ask
+    set.add('open');
   }
-  // Open with no pending request — actionable
-  void carryover;
-  return 'open';
+  return set;
 }
 
 function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
   const stages = wo.stages || [];
-  const [filterKey, setFilterKey] = useState(null); // null = show all
+  const [filterKey, setFilterKey] = useState('all'); // 'all' shows all stages
   const paidStages = stages.filter(s => {
     const released = (s.payment_requests || []).filter(p => p.status === 'approved').reduce((acc, p) => acc + (p.approved_amount || 0), 0);
     return released >= (s.amount || 0) && (s.amount || 0) > 0;
   }).length;
 
   // Pre-bucket every stage once so cards + list filter share the same logic
-  const stageBuckets = useMemo(() => stages.map(s => bucketForStage(s)), [stages]);
+  const stageBuckets = useMemo(() => stages.map(s => bucketsForStage(s)), [stages]);
   const counts = useMemo(() => {
-    const c = { open: 0, locked: 0, request: 0, planning: 0, accountant: 0, finished: 0 };
-    stageBuckets.forEach(k => { c[k] = (c[k] || 0) + 1; });
+    const c = { all: 0, open: 0, locked: 0, request: 0, planning: 0, accountant: 0, finished: 0 };
+    stageBuckets.forEach(set => set.forEach(k => { c[k] = (c[k] || 0) + 1; }));
     return c;
   }, [stageBuckets]);
-  const visibleStages = filterKey
-    ? stages.filter((_, i) => stageBuckets[i] === filterKey)
-    : stages;
+  const visibleStages = filterKey === 'all'
+    ? stages
+    : stages.filter((_, i) => stageBuckets[i].has(filterKey));
 
   return (
     <Card>
@@ -387,9 +395,9 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
         <Badge variant="outline" className="text-[10px]">{paidStages}/{stages.length} paid</Badge>
       </CardHeader>
 
-      {/* Lifecycle filter cards — click to filter the list, click active to clear */}
+      {/* Lifecycle filter cards — click to filter the list. "All Stages" shows everything. */}
       <div className="px-3 pb-2" data-testid="wov2-stage-filter-cards">
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+        <div className="grid grid-cols-3 sm:grid-cols-7 gap-1.5">
           {STAGE_BUCKETS.map(b => {
             const Icon = b.Icon;
             const active = filterKey === b.key;
@@ -397,7 +405,7 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
             return (
               <button
                 key={b.key}
-                onClick={() => setFilterKey(active ? null : b.key)}
+                onClick={() => setFilterKey(b.key)}
                 className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${
                   active ? b.activeBg + ' shadow-sm' : b.pillBg + ' hover:shadow-sm'
                 }`}
@@ -410,10 +418,10 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
             );
           })}
         </div>
-        {filterKey && (
+        {filterKey !== 'all' && (
           <div className="flex items-center justify-between mt-1.5 px-1">
             <span className="text-[10px] text-gray-500">Filtered: <span className="font-medium">{STAGE_BUCKETS.find(b => b.key === filterKey)?.label}</span></span>
-            <button onClick={() => setFilterKey(null)} className="text-[10px] text-gray-500 hover:text-gray-700 underline" data-testid="wov2-bucket-clear">Clear filter</button>
+            <button onClick={() => setFilterKey('all')} className="text-[10px] text-gray-500 hover:text-gray-700 underline" data-testid="wov2-bucket-clear">Clear filter</button>
           </div>
         )}
       </div>
