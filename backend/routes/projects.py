@@ -4473,6 +4473,9 @@ async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user
             stage["opened_by"] = user.user_id
             stage["opened_by_name"] = user.name
             stage["opened_at"] = now
+            # Clear any pending open-request
+            stage["open_requested"] = False
+            stage["open_request_resolved_at"] = now
             updated = True
             break
 
@@ -4484,6 +4487,100 @@ async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
     return {"message": "Stage opened for Site Engineer"}
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/request-open")
+async def wo_request_stage_open(project_id: str, work_order_id: str, stage_id: str, data: dict = None, user: User = Depends(get_current_user)):
+    """Site Engineer requests Planning to open this stage."""
+    if user.role not in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    data = data or {}
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    target_stage = None
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            target_stage = stage
+            if stage.get("is_open"):
+                raise HTTPException(status_code=400, detail="Stage is already open")
+            stage["open_requested"] = True
+            stage["open_requested_by"] = user.user_id
+            stage["open_requested_by_name"] = user.name
+            stage["open_requested_at"] = now
+            stage["open_request_notes"] = data.get("notes", "")
+            break
+    if not target_stage:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+
+    # Notify Planning team
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+    planning_users = await db.users.find(
+        {"role": {"$in": [UserRole.PLANNING.value, UserRole.SUPER_ADMIN.value]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1}
+    ).to_list(20)
+    for pu in planning_users:
+        try:
+            notif = Notification(
+                user_id=pu.get("user_id"),
+                title="Stage Open Request",
+                message=f"{user.name} requested to open '{target_stage.get('name','')}' for {wo.get('contractor_name','')} ({(project or {}).get('name','')})",
+                link=f"/planning-board",
+            )
+            notif_dict = notif.model_dump()
+            notif_dict["created_at"] = notif_dict["created_at"].isoformat()
+            await db.notifications.insert_one(notif_dict)
+        except Exception:
+            pass
+
+    return {"message": "Open request sent to Planning"}
+
+
+@router.get("/planning/stage-open-requests")
+async def planning_stage_open_requests(user: User = Depends(get_current_user)):
+    """Planning queue of stages that Site Engineers want opened."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    work_orders = await db.project_work_orders.find(
+        {"is_active": {"$ne": False}, "stages.open_requested": True},
+        {"_id": 0}
+    ).to_list(500)
+
+    project_ids = list({wo.get("project_id") for wo in work_orders if wo.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1}
+    ).to_list(500)}
+
+    out = []
+    for wo in work_orders:
+        proj = projects.get(wo.get("project_id"), {})
+        for stage in wo.get("stages", []) or []:
+            if not stage.get("open_requested") or stage.get("is_open"):
+                continue
+            out.append({
+                "project_id": wo.get("project_id"),
+                "project_name": proj.get("name") or wo.get("project_name", ""),
+                "work_order_id": wo.get("work_order_id"),
+                "contractor_name": wo.get("contractor_name", ""),
+                "contractor_type": wo.get("contractor_type", ""),
+                "stage_id": stage.get("stage_id"),
+                "stage_name": stage.get("name", ""),
+                "stage_amount": stage.get("amount", 0),
+                "requested_by_name": stage.get("open_requested_by_name", ""),
+                "requested_at": stage.get("open_requested_at"),
+                "notes": stage.get("open_request_notes", ""),
+            })
+    out.sort(key=lambda r: r.get("requested_at") or "", reverse=True)
+    return {"count": len(out), "requests": out}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/approve")

@@ -19,6 +19,8 @@ export default function PlanningLabourPayments() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(null);
+  const [openReqs, setOpenReqs] = useState([]);
+  const [openingId, setOpeningId] = useState('');
 
   const fetchItems = async () => {
     setLoading(true);
@@ -30,7 +32,26 @@ export default function PlanningLabourPayments() {
     } finally { setLoading(false); }
   };
 
+  const fetchOpenReqs = async () => {
+    try {
+      const res = await axios.get(`${API}/planning/stage-open-requests`);
+      setOpenReqs(res.data?.requests || []);
+    } catch { setOpenReqs([]); }
+  };
+
+  const approveOpen = async (r) => {
+    setOpeningId(r.stage_id);
+    try {
+      await axios.patch(`${API}/projects/${r.project_id}/work-orders/${r.work_order_id}/stages/${r.stage_id}/open`);
+      toast.success(`Opened ${r.stage_name}`);
+      fetchOpenReqs();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to open stage');
+    } finally { setOpeningId(''); }
+  };
+
   useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [tab]);
+  useEffect(() => { fetchOpenReqs(); }, []);
 
   const tabs = [
     { key: 'new', label: 'New Req' },
@@ -39,6 +60,52 @@ export default function PlanningLabourPayments() {
 
   return (
     <div className="space-y-3" data-testid="planning-labour-payments">
+      {/* Stage Open Requests panel */}
+      {openReqs.length > 0 && (
+        <Card className="border-amber-300">
+          <CardHeader className="p-3 pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-amber-800">
+              <Eye className="h-4 w-4 text-amber-600" /> Stage Open Requests · {openReqs.length}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-amber-50 border-y border-amber-200">
+                  <tr>
+                    <th className="text-left px-3 py-1.5 font-semibold text-amber-700">Project</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-amber-700">Contractor</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-amber-700">Stage</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-amber-700">Requested By</th>
+                    <th className="text-left px-3 py-1.5 font-semibold text-amber-700">Reason</th>
+                    <th className="text-right px-3 py-1.5 font-semibold text-amber-700 w-24">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {openReqs.map((r) => (
+                    <tr key={`${r.work_order_id}_${r.stage_id}`} className="hover:bg-amber-50/40" data-testid={`pls-open-req-${r.stage_id}`}>
+                      <td className="px-3 py-2">{r.project_name}</td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{r.contractor_name}</p>
+                        <p className="text-[10px] text-gray-500">{r.contractor_type}</p>
+                      </td>
+                      <td className="px-3 py-2 font-medium">{r.stage_name}</td>
+                      <td className="px-3 py-2">{r.requested_by_name}</td>
+                      <td className="px-3 py-2 text-gray-600 text-[11px]">{r.notes || '—'}</td>
+                      <td className="px-3 py-2 text-right">
+                        <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" disabled={openingId === r.stage_id} onClick={() => approveOpen(r)} data-testid={`pls-open-approve-${r.stage_id}`}>
+                          <CheckCircle className="h-3 w-3" /> {openingId === r.stage_id ? 'Opening...' : 'Open Stage'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
         {tabs.map(t => (
           <button

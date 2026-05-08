@@ -367,6 +367,9 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
                       {stage.is_open && balance > 0 && (
                         <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300">Open</Badge>
                       )}
+                      {!stage.is_open && stage.open_requested && (
+                        <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300 animate-pulse">Open Requested</Badge>
+                      )}
                       {carryover > 0 && (
                         <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-200">−{fmt(carryover)} carryover</Badge>
                       )}
@@ -392,8 +395,68 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
 }
 
 // =====================================================================
-// Stage Detail Dialog: summary + sub-tabs (Request Payment / Payment Summary)
+// Request-Open section (shown inside Stage popup when stage is locked)
 // =====================================================================
+function RequestOpenSection({ stage, wo, projectId, onSent }) {
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const alreadyRequested = !!stage.open_requested;
+
+  const sendRequest = async () => {
+    setSubmitting(true);
+    try {
+      await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-open`, { notes });
+      toast.success('Open request sent to Planning');
+      onSent?.();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to send open request');
+    } finally { setSubmitting(false); }
+  };
+
+  if (alreadyRequested) {
+    return (
+      <div className="text-xs bg-amber-50 border border-amber-200 rounded p-3 space-y-1.5" data-testid="wov2-open-req-pending">
+        <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
+          <Clock className="h-3.5 w-3.5" /> Open Request Pending
+        </div>
+        <p className="text-amber-800">Planning has been notified. You'll be alerted when this stage is opened.</p>
+        {stage.open_requested_at && (
+          <p className="text-[10px] text-amber-700">Requested {fmtDate(stage.open_requested_at)}</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid="wov2-open-req-form">
+      <div className="text-xs bg-gray-50 border rounded p-3 text-gray-700">
+        <Clock className="h-3.5 w-3.5 inline mr-1" /> This stage is locked by Planning. Send an open request below.
+      </div>
+      <div>
+        <Label className="text-xs">Reason (optional)</Label>
+        <Textarea
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Why does this stage need to be opened? (e.g. work nearing completion, materials ready)"
+          className="text-sm mt-1"
+          data-testid="wov2-open-req-notes"
+        />
+      </div>
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          className="bg-amber-600 hover:bg-amber-700 gap-1"
+          disabled={submitting}
+          onClick={sendRequest}
+          data-testid="wov2-open-req-submit"
+        >
+          <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Request Open'}
+        </Button>
+      </div>
+    </div>
+  );
+}
 function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved }) {
   const [subTab, setSubTab] = useState('request');
   const [amount, setAmount] = useState('');
@@ -497,9 +560,7 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         {subTab === 'request' && (
           <div>
             {!stage.is_open ? (
-              <div className="text-xs bg-gray-50 border rounded p-3 text-gray-600">
-                <Clock className="h-3.5 w-3.5 inline mr-1" /> Stage not yet opened by Planning.
-              </div>
+              <RequestOpenSection stage={stage} wo={wo} projectId={projectId} onSent={onSaved} />
             ) : (
               <div className="space-y-3">
                 <div>
