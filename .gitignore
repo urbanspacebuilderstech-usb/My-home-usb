@@ -2195,3 +2195,12 @@ frontend/node_modules/.cache/default-development/420.pack
 frontend/node_modules/.cache/default-development/417.pack
 frontend/node_modules/.cache/default-development/418.pack
 frontend/node_modules/.cache/default-development/423.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
