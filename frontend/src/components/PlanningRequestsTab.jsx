@@ -343,6 +343,36 @@ export default function PlanningRequestsTab({ projects = [] }) {
         state={approveDialog}
         onCancel={() => setApproveDialog({ open: false, req: null, type: '' })}
         onSubmit={submitApprove}
+        onRevision={async (revRemarks) => {
+          const { req } = approveDialog;
+          if (!req) return;
+          const id = getId(req, 'material');
+          setProcessing(id);
+          try {
+            await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-revision`, {
+              revision_remarks: revRemarks,
+            });
+            toast.success('Sent back to Procurement for revision');
+            setApproveDialog({ open: false, req: null, type: '' });
+            loadAll();
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || 'Failed to send for revision');
+          } finally { setProcessing(null); }
+        }}
+        onReject={async (reason) => {
+          const { req } = approveDialog;
+          if (!req) return;
+          const id = getId(req, 'material');
+          setProcessing(id);
+          try {
+            await axios.patch(`${API}/procurement-simple/material-requests/${id}/planning-reject`, { reason });
+            toast.success('Rejected');
+            setApproveDialog({ open: false, req: null, type: '' });
+            loadAll();
+          } catch (e) {
+            toast.error(e?.response?.data?.detail || 'Failed to reject');
+          } finally { setProcessing(null); }
+        }}
         processing={!!processing}
       />
 
@@ -385,15 +415,22 @@ export default function PlanningRequestsTab({ projects = [] }) {
 }
 
 // ---- Approve Review Dialog (review then approve) ----
-function ApproveReviewDialog({ state, onCancel, onSubmit, processing }) {
+function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, processing }) {
   const { open, req, type } = state;
   const [approvedQty, setApprovedQty] = useState('');
   const [remarks, setRemarks] = useState('');
+  // Inline revision/reject prompts so Planning can act without leaving the dialog.
+  const [mode, setMode] = useState('review'); // 'review' | 'revision' | 'reject'
+  const [revisionRemarks, setRevisionRemarks] = useState('');
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => {
     if (open && req) {
       setApprovedQty(type === 'material' ? String(req.quantity || '') : '');
       setRemarks('');
+      setMode('review');
+      setRevisionRemarks('');
+      setRejectReason('');
     }
   }, [open, req, type]);
 
@@ -406,6 +443,14 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, processing }) {
     if (type === 'material' && approvedQty) extra.approved_qty = parseFloat(approvedQty);
     if (type === 'petty') extra.remarks = remarks;
     onSubmit(extra);
+  };
+  const handleRevision = () => {
+    if (!revisionRemarks.trim()) return;
+    onRevision?.(revisionRemarks);
+  };
+  const handleReject = () => {
+    if (!rejectReason.trim()) return;
+    onReject?.(rejectReason);
   };
 
   return (
@@ -558,12 +603,97 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, processing }) {
               <p className="text-gray-700 italic">"{req.remarks}"</p>
             </div>
           )}
+
+          {/* Inline revision-request box — appears when Planning clicks "Send for Revision" */}
+          {mode === 'revision' && (
+            <div className="bg-orange-50 border border-orange-200 rounded p-3 space-y-2" data-testid="planning-revision-box">
+              <Label className="text-xs font-semibold text-orange-800">Revision remarks for Procurement *</Label>
+              <Textarea
+                rows={3}
+                value={revisionRemarks}
+                onChange={(e) => setRevisionRemarks(e.target.value)}
+                placeholder="What needs to be corrected? (e.g. wrong vendor, price too high, change brand…)"
+                className="text-sm"
+                data-testid="planning-revision-remarks"
+                autoFocus
+              />
+            </div>
+          )}
+
+          {/* Inline reject box */}
+          {mode === 'reject' && (
+            <div className="bg-red-50 border border-red-200 rounded p-3 space-y-2" data-testid="planning-reject-box">
+              <Label className="text-xs font-semibold text-red-800">Rejection reason *</Label>
+              <Textarea
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Why is this rejected entirely?"
+                className="text-sm"
+                data-testid="planning-reject-remarks"
+                autoFocus
+              />
+            </div>
+          )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={onCancel} disabled={processing}>Cancel</Button>
-          <Button className="bg-green-600 hover:bg-green-700" onClick={handle} disabled={processing} data-testid="approve-confirm-btn">
-            {processing ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Approving…</> : <><ThumbsUp className="h-4 w-4 mr-1" /> Approve</>}
-          </Button>
+          {mode === 'review' && (
+            <>
+              {/* Show Send-for-Revision + Reject only for material requests (Procurement-priced flow). */}
+              {type === 'material' && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="text-orange-700 border-orange-300 hover:bg-orange-50"
+                    onClick={() => setMode('revision')}
+                    disabled={processing}
+                    data-testid="planning-revision-btn"
+                  >
+                    <FileText className="h-4 w-4 mr-1" /> Send for Revision
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="text-red-700 border-red-300 hover:bg-red-50"
+                    onClick={() => setMode('reject')}
+                    disabled={processing}
+                    data-testid="planning-reject-btn-inline"
+                  >
+                    <ThumbsDown className="h-4 w-4 mr-1" /> Reject
+                  </Button>
+                </>
+              )}
+              <Button className="bg-green-600 hover:bg-green-700" onClick={handle} disabled={processing} data-testid="approve-confirm-btn">
+                {processing ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Approving…</> : <><ThumbsUp className="h-4 w-4 mr-1" /> Approve</>}
+              </Button>
+            </>
+          )}
+          {mode === 'revision' && (
+            <>
+              <Button variant="outline" onClick={() => setMode('review')} disabled={processing}>Back</Button>
+              <Button
+                className="bg-orange-600 hover:bg-orange-700"
+                onClick={handleRevision}
+                disabled={processing || !revisionRemarks.trim()}
+                data-testid="planning-revision-confirm"
+              >
+                {processing ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Sending…</> : <>Send to Procurement</>}
+              </Button>
+            </>
+          )}
+          {mode === 'reject' && (
+            <>
+              <Button variant="outline" onClick={() => setMode('review')} disabled={processing}>Back</Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700"
+                onClick={handleReject}
+                disabled={processing || !rejectReason.trim()}
+                data-testid="planning-reject-confirm-inline"
+              >
+                {processing ? <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Rejecting…</> : <><ThumbsDown className="h-4 w-4 mr-1" /> Confirm Reject</>}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

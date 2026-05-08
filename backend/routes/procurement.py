@@ -2349,10 +2349,11 @@ async def procurement_simple_queue(
         raise HTTPException(status_code=403, detail="Permission denied")
 
     status_map = {
-        "pending": ["requested", "pm_approved"],
+        "pending": ["requested", "pm_approved", "procurement_revision"],
         "forwarded": ["procurement_priced"],
         "rejected": ["procurement_rejected"],
-        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected"],
+        "revision": ["procurement_revision"],
+        "all": ["requested", "pm_approved", "procurement_priced", "procurement_rejected", "procurement_revision"],
     }
     target = status_map.get(queue, status_map["pending"])
 
@@ -2397,7 +2398,7 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
     req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
     if not req:
         raise HTTPException(status_code=404, detail="Request not found")
-    if req.get("status") not in ["requested", "pm_approved"]:
+    if req.get("status") not in ["requested", "pm_approved", "procurement_revision"]:
         raise HTTPException(status_code=400, detail=f"Cannot assign vendor — current status: {req.get('status')}")
 
     vendor_id = data.get("vendor_id")
@@ -2681,6 +2682,59 @@ async def procurement_simple_planning_reject(request_id: str, data: dict, user: 
         "planning_rejected_at": now,
     }})
     return {"message": "Rejected by Planning"}
+
+
+@router.patch("/procurement-simple/material-requests/{request_id}/planning-revision")
+async def procurement_simple_planning_revision(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Planning sends a Procurement-priced request back to Procurement for revision
+    (e.g. wrong vendor, price mismatch, timeline concern). Status becomes
+    `procurement_revision` so Procurement can see + edit + resend without
+    creating a brand-new request.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can request revision")
+    req = await db.material_requests.find_one({"request_id": request_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    if req.get("status") != "procurement_priced":
+        raise HTTPException(status_code=400, detail=f"Cannot request revision in status: {req.get('status')}")
+    remarks = (data.get("revision_remarks") or data.get("remarks") or "").strip()
+    if not remarks:
+        raise HTTPException(status_code=400, detail="Revision remarks are required")
+    now = datetime.now(timezone.utc).isoformat()
+    history_entry = {
+        "at": now,
+        "by": user.user_id,
+        "by_name": user.name,
+        "remarks": remarks,
+    }
+    await db.material_requests.update_one({"request_id": request_id}, {
+        "$set": {
+            "status": "procurement_revision",
+            "revision_remarks": remarks,
+            "revision_requested_by": user.user_id,
+            "revision_requested_by_name": user.name,
+            "revision_requested_at": now,
+        },
+        "$push": {"revision_history": history_entry},
+    })
+
+    # Notify Procurement
+    procurement_users = await db.users.find(
+        {"role": {"$in": ["procurement", "super_admin"]}, "is_active": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ).to_list(50)
+    for p in procurement_users:
+        try:
+            await create_notification(
+                p["user_id"],
+                f"Revision requested for {req.get('material_name')} → {req.get('vendor_name')}: {remarks}",
+            )
+        except Exception:
+            pass
+    await create_audit_log(user.user_id, "request_revision", "material_request", request_id, {"remarks": remarks})
+    return {"message": "Sent back to Procurement for revision", "status": "procurement_revision"}
+
 
 
 def fmt_money(n):

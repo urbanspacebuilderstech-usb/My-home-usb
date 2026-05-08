@@ -74,6 +74,7 @@ export default function ProcurementBoardSimple() {
 const LIFECYCLE_BUCKETS = [
   { key: 'all',      label: 'All',              Icon: ListChecks,  cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new',      label: 'New (SE)',         Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',  active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'revision', label: 'Revision',         Icon: FileClock,   cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'forwarded', label: 'Vendor Assigned', Icon: Send,        cls: 'bg-blue-50 border-blue-200 text-blue-700',       active: 'bg-blue-600 text-white border-blue-600' },
   { key: 'planning_approved', label: 'Planning Approved', Icon: CheckCircle2, cls: 'bg-indigo-50 border-indigo-200 text-indigo-700', active: 'bg-indigo-600 text-white border-indigo-600' },
   { key: 'awaiting_payment', label: 'Awaiting Payment', Icon: Wallet,    cls: 'bg-orange-50 border-orange-200 text-orange-700', active: 'bg-orange-600 text-white border-orange-600' },
@@ -85,6 +86,7 @@ const LIFECYCLE_BUCKETS = [
 const STATUS_TO_BUCKET = {
   requested: 'new',
   pm_approved: 'new',
+  procurement_revision: 'revision',
   procurement_priced: 'forwarded',
   planning_approved: 'planning_approved',
   pending_accounts_approval: 'awaiting_payment',
@@ -204,7 +206,7 @@ function RequestsTab() {
 
       <AssignVendorDialog
         item={open}
-        readOnly={open ? !['requested', 'pm_approved'].includes((open.status || '').toLowerCase()) : false}
+        readOnly={open ? !['requested', 'pm_approved', 'procurement_revision'].includes((open.status || '').toLowerCase()) : false}
         onClose={() => setOpen(null)}
         onDone={() => { setOpen(null); fetchAll(); }}
         onReject={(req) => { setOpen(null); setRejectDialog({ open: true, req, reason: '' }); }}
@@ -238,7 +240,7 @@ function RequestCard({ req, onClick }) {
   const status = (req.status || '').toLowerCase();
   const bucket = STATUS_TO_BUCKET[status] || 'new';
   const cardCfg = LIFECYCLE_BUCKETS.find(b => b.key === bucket);
-  const isActionable = ['requested', 'pm_approved'].includes(status);
+  const isActionable = ['requested', 'pm_approved', 'procurement_revision'].includes(status);
   // Compute "deliver in" label
   let deliveryLabel = '—';
   if (req.expected_delivery) {
@@ -310,11 +312,11 @@ function RequestCard({ req, onClick }) {
             {isActionable ? (
               <Button
                 size="sm"
-                className="h-8 w-full text-xs gap-1 bg-amber-600 hover:bg-amber-700 mt-3 sm:mt-0"
+                className={`h-8 w-full text-xs gap-1 mt-3 sm:mt-0 ${status === 'procurement_revision' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-amber-600 hover:bg-amber-700'}`}
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
                 data-testid={`proc-card-approve-${req.request_id}`}
               >
-                <Eye className="h-3 w-3" /> Approve
+                <Eye className="h-3 w-3" /> {status === 'procurement_revision' ? 'Revise' : 'Approve'}
               </Button>
             ) : (
               <Button
@@ -489,6 +491,20 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             </div>
           )}
         </div>
+
+        {/* Planning revision feedback — surfaces when Planning sent it back */}
+        {item.status === 'procurement_revision' && item.revision_remarks && (
+          <div className="bg-orange-50 border-2 border-orange-300 rounded p-3 space-y-1" data-testid="proc-revision-banner">
+            <p className="text-orange-800 text-[10px] uppercase font-bold flex items-center gap-1">
+              <FileClock className="h-3 w-3" /> Planning sent back for revision
+            </p>
+            <p className="text-sm font-medium text-gray-800 italic">"{item.revision_remarks}"</p>
+            <p className="text-[10px] text-orange-700">
+              {item.revision_requested_by_name ? `by ${item.revision_requested_by_name}` : ''}
+              {item.revision_requested_at ? ` · ${fmtDate(item.revision_requested_at)}` : ''}
+            </p>
+          </div>
+        )}
 
         {/* Vendor + pricing form */}
         <div className="space-y-3">
@@ -689,7 +705,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 <ThumbsDown className="h-3.5 w-3.5 mr-1" /> Reject
               </Button>
               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={submit} disabled={submitting} data-testid="proc-assign-submit">
-                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Forwarding…' : 'Forward to Planning'}
+                <Send className="h-3.5 w-3.5 mr-1" /> {submitting ? 'Forwarding…' : (item.status === 'procurement_revision' ? 'Resubmit to Planning' : 'Forward to Planning')}
               </Button>
             </>
           )}
