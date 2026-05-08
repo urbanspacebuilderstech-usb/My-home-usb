@@ -13,6 +13,18 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — PM Dashboard: Read-Only Requests + Petty Cash Income/Expense Sub-tabs
+- **Frontend** (`/app/frontend/src/components/PMReadOnlyLifecycle.jsx` — NEW):
+  - Two read-only viewer components mirroring the Planning Board's lifecycle pattern: `PMMaterialReadOnlyList` (7 buckets: All / New Request / Planning Awaiting / Revision / Awaiting Accountant / Transit / Delivered) and `PMLabourReadOnlyList` (5 buckets: All / New Request / Planning Awaiting / Awaiting Accountant / Paid). Both are explicitly **(VIEW-ONLY)** — no Approve/Reject buttons rendered. PM cannot approve material or labour at this stage; they can only see lifecycle progress.
+- **Frontend** (`/app/frontend/src/components/PMPettyCashTabs.jsx` — NEW):
+  - Pill-style sub-tabs **Expense | Income** at the top (orange / emerald accents).
+  - **Expense** sub-tab — 4 buckets: `New Expense / Awaiting Accountant / Revisions / Expense Recorded`. PM can **Approve** (calls existing `PATCH /pm/petty-cash/{id}/approve`) and **Reject** (calls `PATCH /pm/petty-cash/{id}/reject`) entries in the `New Expense` bucket. Status mapping: `requested → New Expense`, `pm_approved → Awaiting Accountant`, `pm_rejected/rejected → Revisions`, `issued/partially_settled/settled/completed/approved → Expense Recorded`.
+  - **Income** sub-tab — 5 buckets per spec: `New Request / Awaiting Accountant / Revisions / Acknowledged / Payment Done`. Reads from existing `/income` endpoint. Status mapping: `requested/pending → New Request`, `pm_approved/under_review → Awaiting Accountant`, `rejected/revision_requested → Revisions`, `acknowledged/pm_acknowledged → Acknowledged`, `approved/payment_done → Payment Done`. Income is currently view-only on the PM Dashboard (existing accountant-side flow handles approval).
+- **Frontend** (`/app/frontend/src/pages/PMDashboard.jsx`):
+  - Replaced the simple Material/Labour list in the Requests tab with `<PMMaterialReadOnlyList />` and `<PMLabourReadOnlyList />`.
+  - Replaced the legacy Petty Cash table with `<PMPettyCashTabs />`. Approve/Reject still flow through the existing PM endpoints; refresh hooks back into the existing `fetchData(false)` polling.
+- **Verified via screenshot**: PM logs in → Requests tab shows Material Requests (3) with 7 lifecycle cards labeled view-only and 3 cards rendered in "New Request (SE)" bucket; Work Order/Labour shows 5 cards. Petty Cash tab shows Expense (orange active) + Income pill bar; 4 buckets render with empty-state.
+
 ### Session — May 8, 2026 — Site Engineer Dashboard Simplification + Curing Video Moved to Project View
 - **Frontend** (`/app/frontend/src/pages/SiteEngineerDashboard.jsx`):
   - **Header cleaned up**: removed inline action buttons (Site Login / Site Logout / Material Receipt / Curing Video). Only the standard `<AppHeader />` (logo + Dashboard nav + bell + profile) remains.

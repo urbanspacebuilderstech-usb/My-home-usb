@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { PMMaterialReadOnlyList, PMLabourReadOnlyList } from '../components/PMReadOnlyLifecycle';
+import PMPettyCashTabs from '../components/PMPettyCashTabs';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -298,131 +300,16 @@ export default function PMDashboard() {
 
           {/* ==================== REQUESTS ==================== */}
           <TabsContent value="requests">
-            <div className="space-y-4">
-              {/* Material Requests */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-blue-600" />Material Requests ({materialRequests.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {materialRequests.length === 0 ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No pending material requests</div>
-                  ) : (
-                    <div className="divide-y">
-                      {materialRequests.map((req) => (
-                        <div key={req.request_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`mat-req-${req.request_id}`}>
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{req.material_name}</p>
-                            <p className="text-xs text-gray-500">Project: {req.project_name} | By: {req.requester_name}</p>
-                            <p className="text-xs text-gray-500">Qty: {req.quantity} {req.unit} | Priority: <span className={req.priority === 'urgent' ? 'text-red-600 font-medium' : ''}>{req.priority || 'normal'}</span></p>
-                            {req.notes && <p className="text-xs text-gray-400 mt-0.5">{req.notes}</p>}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveMaterial(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>
-                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => openRejectDialog(req, 'material')}><X className="h-3 w-3 mr-1" />Reject</Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Labour Requests */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2"><HardHat className="h-4 w-4 text-amber-600" />Labour Requests ({labourRequests.length})</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {labourRequests.length === 0 ? (
-                    <div className="p-6 text-center text-gray-400 text-sm">No pending labour requests</div>
-                  ) : (
-                    <div className="divide-y">
-                      {labourRequests.map((req) => (
-                        <div key={req.labour_expense_id} className="flex items-center justify-between p-4 hover:bg-gray-50" data-testid={`lab-req-${req.labour_expense_id}`}>
-                          <div className="flex-1">
-                            <p className="font-medium text-sm">{req.labour_type || req.description}</p>
-                            <p className="text-xs text-gray-500">Project: {req.project_name} | Workers: {req.workers_count} | Days: {req.days}</p>
-                            {req.contractor_name && <p className="text-xs text-gray-500">Contractor: {req.contractor_name}</p>}
-                          </div>
-                          <div className="flex gap-2">
-                            <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApproveLabour(req)}><Check className="h-3 w-3 mr-1" />Approve</Button>
-                            <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => openRejectDialog(req, 'labour')}><X className="h-3 w-3 mr-1" />Reject</Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+            <div className="space-y-4" data-testid="pm-requests-tab">
+              <PMMaterialReadOnlyList items={materialRequests} />
+              <PMLabourReadOnlyList items={labourRequests} />
             </div>
           </TabsContent>
 
 
           {/* ==================== PETTY CASH ==================== */}
           <TabsContent value="petty_cash" data-testid="pm-petty-cash-tab">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Package className="h-4 w-4 text-green-600" /> Petty Cash Requests ({pettyCashRequests.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {pettyCashRequests.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400"><Package className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No petty cash requests</p></div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm" data-testid="pm-pc-table">
-                      <thead className="bg-gray-50 border-y">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Date</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Project</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Requested By</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Purpose</th>
-                          <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Status</th>
-                          <th className="px-3 py-2 text-center text-xs font-medium text-gray-500">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {pettyCashRequests.map(pc => (
-                          <tr key={pc.petty_cash_id} className="hover:bg-gray-50" data-testid={`pm-pc-row-${pc.petty_cash_id}`}>
-                            <td className="px-3 py-2 text-xs whitespace-nowrap">{new Date(pc.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</td>
-                            <td className="px-3 py-2 text-xs font-medium">{pc.project_name}</td>
-                            <td className="px-3 py-2 text-xs">{pc.requested_by_name}</td>
-                            <td className="px-3 py-2 text-xs text-gray-600 max-w-[200px] truncate">{pc.purpose}</td>
-                            <td className="px-3 py-2 text-xs text-right font-semibold">₹{(pc.amount_requested || 0).toLocaleString('en-IN')}</td>
-                            <td className="px-3 py-2 text-center">
-                              <Badge className={`text-[10px] ${
-                                pc.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
-                                pc.status === 'pm_approved' ? 'bg-green-100 text-green-700' :
-                                pc.status === 'pm_rejected' ? 'bg-red-100 text-red-700' :
-                                pc.status === 'payment_done' ? 'bg-teal-100 text-teal-700' :
-                                pc.status === 'acknowledged' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{pc.status.replace(/_/g, ' ')}</Badge>
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              {pc.status === 'requested' && (
-                                <div className="flex gap-1 justify-center">
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700 h-7 text-xs" onClick={() => handleApprovePettyCash(pc.petty_cash_id)} data-testid={`pm-pc-approve-${pc.petty_cash_id}`}>
-                                    <Check className="h-3 w-3 mr-1" /> Approve
-                                  </Button>
-                                  <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-300" onClick={() => { setPcRejectTarget(pc); setPcRejectReason(''); setPcRejectDialog(true); }} data-testid={`pm-pc-reject-${pc.petty_cash_id}`}>
-                                    <X className="h-3 w-3 mr-1" /> Reject
-                                  </Button>
-                                </div>
-                              )}
-                              {pc.status !== 'requested' && <span className="text-[10px] text-gray-400">-</span>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <PMPettyCashTabs pettyCashRequests={pettyCashRequests} onRefresh={() => fetchData(false)} />
           </TabsContent>
 
           {/* ==================== TEAM ==================== */}
