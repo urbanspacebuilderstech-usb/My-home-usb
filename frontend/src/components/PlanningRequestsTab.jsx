@@ -589,12 +589,33 @@ function ApproveReviewDialog({ state, onCancel, onSubmit, onRevision, onReject, 
                 )}
                 {(req.expected_delivery || req.timeline_value) && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded p-2">
-                    <p className="text-emerald-700 text-[10px] uppercase font-semibold">Delivery Timeline</p>
+                    <p className="text-emerald-700 text-[10px] uppercase font-semibold">Procurement Delivery</p>
                     <p className="font-bold text-sm">
                       {req.expected_delivery
                         ? new Date(req.expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
                         : `${req.timeline_value} days`}
                     </p>
+                  </div>
+                )}
+                {req.se_requested_hours && (
+                  <div className={`rounded p-2 border ${req.delivery_delta_hours > 0 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                    <p className={`text-[10px] uppercase font-semibold ${req.delivery_delta_hours > 0 ? 'text-red-700' : 'text-blue-700'}`}>SE Expected</p>
+                    <p className="font-bold text-sm">{req.se_delivery_choice === '24h' ? '24 hours' : req.se_delivery_choice === '48h' ? '48 hours' : (req.se_expected_delivery ? new Date(req.se_expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : `${req.se_requested_hours}h`)}</p>
+                    {req.delivery_delta_hours > 0 && (
+                      <p className="text-[10px] text-red-700 italic mt-0.5">⚠ +{req.delivery_delta_hours}h late vs SE</p>
+                    )}
+                  </div>
+                )}
+                {req.late_delivery_reason && (
+                  <div className="bg-red-50 border border-red-200 rounded p-2 col-span-2">
+                    <p className="text-red-700 text-[10px] uppercase font-semibold">Late Delivery Reason (Procurement)</p>
+                    <p className="italic text-red-700">"{req.late_delivery_reason}"</p>
+                  </div>
+                )}
+                {req.se_emergency_reason && (
+                  <div className="bg-orange-50 border border-orange-200 rounded p-2 col-span-2">
+                    <p className="text-orange-700 text-[10px] uppercase font-semibold">⚡ SE Emergency Reason</p>
+                    <p className="italic text-orange-700">"{req.se_emergency_reason}"</p>
                   </div>
                 )}
                 {req.procurement_remarks && (

@@ -81,7 +81,7 @@ export default function SiteEngineerProject() {
   
   const [quickAttPopup, setQuickAttPopup] = useState(false);
   
-  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
+  const [materialForm, setMaterialForm] = useState({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
   const [vendorSuggestion, setVendorSuggestion] = useState(null);
   const [approvedMaterials, setApprovedMaterials] = useState([]);
   const [materialSearch, setMaterialSearch] = useState('');
@@ -455,7 +455,32 @@ export default function SiteEngineerProject() {
       toast.error('Please fill material name and quantity');
       return;
     }
-    
+
+    // Compute requested delivery hours from the SE delivery choice. Standard SLA is 48h —
+    // anything below requires an emergency reason.
+    let requestedHours = 48;
+    let expectedDeliveryISO = '';
+    if (materialForm.delivery_choice === '24h') {
+      requestedHours = 24;
+    } else if (materialForm.delivery_choice === '48h') {
+      requestedHours = 48;
+    } else if (materialForm.delivery_choice === 'custom') {
+      if (!materialForm.delivery_custom_date) {
+        toast.error('Pick a delivery date'); return;
+      }
+      const target = new Date(materialForm.delivery_custom_date);
+      const now = new Date();
+      requestedHours = Math.max(1, Math.round((target - now) / 36e5));
+      expectedDeliveryISO = target.toISOString();
+    }
+    if (!expectedDeliveryISO) {
+      expectedDeliveryISO = new Date(Date.now() + requestedHours * 36e5).toISOString();
+    }
+    if (requestedHours < 48 && !materialForm.emergency_reason.trim()) {
+      toast.error('Emergency reason required for delivery under 48 hours');
+      return;
+    }
+
     try {
       const payload = {
         project_id: projectId,
@@ -463,7 +488,13 @@ export default function SiteEngineerProject() {
         unit: materialForm.unit || 'kg',
         remarks: materialForm.remarks || null,
         is_approved_material: materialForm.is_approved,
-        brand: materialForm.brand || null
+        brand: materialForm.brand || null,
+        // Phase-1 SE delivery expectation. Procurement will see this and must justify
+        // any quote that exceeds it (late delivery reason).
+        se_delivery_choice: materialForm.delivery_choice,
+        se_requested_hours: requestedHours,
+        se_expected_delivery: expectedDeliveryISO,
+        se_emergency_reason: requestedHours < 48 ? materialForm.emergency_reason.trim() : '',
       };
       if (materialForm.material_id) {
         payload.material_id = materialForm.material_id;
@@ -475,7 +506,7 @@ export default function SiteEngineerProject() {
       await axios.post(`${API}/site-engineer/material-requests`, payload);
       toast.success('Material request submitted! Goes to Planning for approval');
       setMaterialRequestDialog(false);
-      setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true });
+      setMaterialForm({ material_id: '', material_name: '', brand: '', quantity: '', unit: 'kg', remarks: '', is_approved: true, delivery_choice: '48h', delivery_custom_date: '', emergency_reason: '' });
       setVendorSuggestion(null);
       setMaterialSearch('');
       fetchData(false);
@@ -907,6 +938,60 @@ export default function SiteEngineerProject() {
                           rows={2}
                           className="text-sm"
                         />
+                      </div>
+
+                      {/* Expected Delivery Time — SE picks 24h / 48h / Custom Date.
+                          Standard SLA is 48h. Below 48h triggers an emergency-reason input. */}
+                      <div className="border rounded-lg p-2.5 bg-amber-50/30 border-amber-200" data-testid="se-delivery-section">
+                        <Label className="text-xs sm:text-sm font-semibold text-amber-800 mb-1.5 block">Expected Delivery</Label>
+                        <div className="grid grid-cols-3 gap-1.5 mb-2">
+                          {[
+                            { v: '24h',    label: '24 Hours' },
+                            { v: '48h',    label: '48 Hours' },
+                            { v: 'custom', label: 'Custom' },
+                          ].map(opt => (
+                            <button
+                              key={opt.v}
+                              type="button"
+                              onClick={() => setMaterialForm({ ...materialForm, delivery_choice: opt.v, ...(opt.v !== 'custom' ? { delivery_custom_date: '' } : {}) })}
+                              className={`px-2 py-1.5 text-xs rounded border transition-all ${
+                                materialForm.delivery_choice === opt.v
+                                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                                  : 'bg-white border-gray-200 text-gray-700 hover:border-amber-300'
+                              }`}
+                              data-testid={`se-delivery-${opt.v}`}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                        {materialForm.delivery_choice === 'custom' && (
+                          <Input
+                            type="datetime-local"
+                            value={materialForm.delivery_custom_date}
+                            onChange={(e) => setMaterialForm({ ...materialForm, delivery_custom_date: e.target.value })}
+                            min={new Date(Date.now() + 30 * 60 * 1000).toISOString().slice(0, 16)}
+                            className="text-sm mb-2"
+                            data-testid="se-delivery-custom"
+                          />
+                        )}
+                        {/* Emergency reason — required when SE picks <48h */}
+                        {(materialForm.delivery_choice === '24h' ||
+                          (materialForm.delivery_choice === 'custom' && materialForm.delivery_custom_date &&
+                           ((new Date(materialForm.delivery_custom_date) - new Date()) / 36e5) < 48)) && (
+                          <div className="bg-red-50 border border-red-200 rounded p-2 mt-1.5" data-testid="se-emergency-box">
+                            <Label className="text-xs font-semibold text-red-700 mb-0.5 block">⚠ Emergency Reason *</Label>
+                            <p className="text-[10px] text-red-600 mb-1">Standard delivery SLA is 48 hours. Please justify the urgency.</p>
+                            <Textarea
+                              rows={2}
+                              value={materialForm.emergency_reason}
+                              onChange={(e) => setMaterialForm({ ...materialForm, emergency_reason: e.target.value })}
+                              placeholder="Why is this needed sooner than 48h?"
+                              className="text-sm"
+                              data-testid="se-emergency-reason"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                     <DialogFooter className="gap-2 sm:gap-0">

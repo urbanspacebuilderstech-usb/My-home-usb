@@ -2498,7 +2498,18 @@ async def procurement_simple_assign_vendor(request_id: str, data: dict, user: Us
         "advance_percent": advance_pct,
         "advance_amount": advance_amount,
         "balance_amount": max(0.0, estimated_price - advance_amount) if payment_mode == "advance" else 0.0,
+        # SE delivery comparison
+        "procurement_hours": data.get("procurement_hours"),
+        "delivery_delta_hours": data.get("delivery_delta_hours"),
+        "late_delivery_reason": (data.get("late_delivery_reason") or "").strip(),
     }
+    # Validate: if procurement quote is later than SE asked, late_delivery_reason is mandatory.
+    try:
+        delta = int(update.get("delivery_delta_hours") or 0)
+    except (TypeError, ValueError):
+        delta = 0
+    if delta > 0 and not update.get("late_delivery_reason"):
+        raise HTTPException(status_code=400, detail="Late delivery reason is required when delivery exceeds SE's expected timeline")
     await db.material_requests.update_one({"request_id": request_id}, {"$set": update})
 
     # Notify Planning so it appears in their Materials Approval queue

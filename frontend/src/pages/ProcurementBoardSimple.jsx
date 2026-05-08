@@ -377,6 +377,8 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   const [advanceMode, setAdvanceMode] = useState('percent'); // 'percent' | 'amount'
   const [advancePercent, setAdvancePercent] = useState('30');
   const [advanceAmount, setAdvanceAmount] = useState('');
+  // Late delivery justification — required when Procurement quotes longer than SE asked
+  const [lateReason, setLateReason] = useState('');
 
   useEffect(() => {
     if (!item) return;
@@ -399,6 +401,7 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     setAdvancePercent(String(item.advance_percent || 30));
     setAdvanceAmount(String(item.advance_amount || ''));
     setAdvanceMode(item.advance_percent ? 'percent' : 'amount');
+    setLateReason(item.late_delivery_reason || '');
     // Load material vendors only
     axios.get(`${API}/vendor-master?category=material`).then(r => setVendors(r.data?.vendors || r.data || [])).catch(() => setVendors([]));
   }, [item]);
@@ -418,6 +421,27 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
   }, [paymentMode, advanceMode, advancePercent, advanceAmount, total]);
   const balance = paymentMode === 'advance' ? Math.max(0, total - computedAdvance) : 0;
 
+  // Compute Procurement's chosen delivery in HOURS from now, then compare vs SE's asked hours.
+  // Late delivery (procurement_hours > se_hours) must be justified before submit.
+  const procHours = useMemo(() => {
+    if (!item) return null;
+    if (timelineType === 'date' && timelineDate) {
+      const ms = new Date(timelineDate).getTime() - Date.now();
+      return Math.max(1, Math.round(ms / 36e5));
+    }
+    if (timelineType === 'days' && timelineDays) {
+      return Math.max(1, parseInt(timelineDays) * 24);
+    }
+    return null;
+  }, [timelineType, timelineDate, timelineDays, item]);
+  const seHours = item?.se_requested_hours ?? 48;
+  const deliveryDelta = procHours !== null ? (procHours - seHours) : null;
+  const isLate = deliveryDelta !== null && deliveryDelta > 0;
+  const isEarly = deliveryDelta !== null && deliveryDelta < 0;
+  const deliveryStatusLabel = procHours === null
+    ? null
+    : (isLate ? `+${deliveryDelta}h late vs SE` : (isEarly ? `${deliveryDelta}h earlier than SE` : 'On time'));
+
   if (!item) return null;
   const selectedVendor = vendors.find(v => v.vendor_id === vendorId);
 
@@ -428,6 +452,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
     // Timeline validation
     if (timelineType === 'date' && !timelineDate) { toast.error('Select expected delivery date'); return; }
     if (timelineType === 'days' && (!timelineDays || parseInt(timelineDays) <= 0)) { toast.error('Enter delivery days'); return; }
+    // Late delivery justification
+    if (isLate && !lateReason.trim()) {
+      toast.error(`SE asked for ${seHours}h delivery but you're quoting ${procHours}h. Please provide a late-delivery reason.`);
+      return;
+    }
     // Payment mode validation
     if (paymentMode === 'credit' && (!creditDays || parseInt(creditDays) <= 0)) { toast.error('Enter credit days'); return; }
     if (paymentMode === 'advance') {
@@ -456,6 +485,9 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
         advance_input_mode: paymentMode === 'advance' ? advanceMode : null,
         advance_percent: paymentMode === 'advance' && advanceMode === 'percent' ? parseFloat(advancePercent) : null,
         advance_amount: paymentMode === 'advance' && advanceMode === 'amount' ? parseFloat(advanceAmount) : null,
+        procurement_hours: procHours,
+        delivery_delta_hours: deliveryDelta,
+        late_delivery_reason: isLate ? lateReason.trim() : '',
       });
       toast.success('Vendor assigned & forwarded to Planning');
       onDone();
@@ -559,6 +591,20 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
           {/* Section — Delivery Timeline */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><CalendarClock className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Delivery Timeline</h4></div>
 
+          {/* SE expectation banner */}
+          <div className={`rounded p-2 border text-xs flex items-center justify-between gap-2 ${item.se_emergency_reason ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`} data-testid="proc-se-expected-banner">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CalendarClock className={`h-3.5 w-3.5 ${item.se_emergency_reason ? 'text-red-700' : 'text-blue-700'}`} />
+              <span className={`font-semibold ${item.se_emergency_reason ? 'text-red-700' : 'text-blue-700'}`}>SE asked for delivery in:</span>
+              <Badge variant="outline" className={`text-[10px] ${item.se_emergency_reason ? 'bg-red-100 text-red-800 border-red-300' : 'bg-blue-100 text-blue-800 border-blue-300'}`}>
+                {item.se_delivery_choice === '24h' ? '24 hours' : item.se_delivery_choice === '48h' ? '48 hours' : (item.se_expected_delivery ? fmtDate(item.se_expected_delivery) : `${seHours}h`)}
+              </Badge>
+            </div>
+            {item.se_emergency_reason && (
+              <span className="text-[10px] text-red-700 italic flex-1 text-right">⚠ Emergency: "{item.se_emergency_reason}"</span>
+            )}
+          </div>
+
           <div>
             <div className="flex gap-1 mb-2">
               <button
@@ -578,11 +624,11 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
             </div>
             {timelineType === 'date' ? (
               <Input
-                type="date"
+                type="datetime-local"
                 value={timelineDate}
                 onChange={(e) => setTimelineDate(e.target.value)}
                 disabled={readOnly}
-                min={new Date().toISOString().slice(0, 10)}
+                min={new Date().toISOString().slice(0, 16)}
                 data-testid="proc-timeline-date"
               />
             ) : (
@@ -600,7 +646,37 @@ function AssignVendorDialog({ item, readOnly, onClose, onDone, onReject }) {
                 <span className="text-xs text-gray-500 whitespace-nowrap">days from today</span>
               </div>
             )}
+            {/* Live delta vs SE expectation */}
+            {deliveryStatusLabel && (
+              <div className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium px-2 py-0.5 rounded ${
+                isLate ? 'bg-red-100 text-red-700' : (isEarly ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')
+              }`} data-testid="proc-delivery-delta">
+                {isLate ? '⚠' : isEarly ? '⚡' : '✓'} {deliveryStatusLabel} ({procHours}h vs {seHours}h)
+              </div>
+            )}
           </div>
+
+          {/* Late delivery reason — required when Procurement quote > SE asked */}
+          {isLate && !readOnly && (
+            <div className="bg-red-50 border border-red-200 rounded p-2.5 space-y-1.5" data-testid="proc-late-reason-box">
+              <Label className="text-xs font-semibold text-red-800">Late delivery reason *</Label>
+              <p className="text-[10px] text-red-700">SE asked for {seHours}h but you're quoting {procHours}h. Please justify the delay.</p>
+              <Textarea
+                rows={2}
+                value={lateReason}
+                onChange={(e) => setLateReason(e.target.value)}
+                placeholder="e.g. Vendor stock shortage, transit constraint…"
+                className="text-sm"
+                data-testid="proc-late-reason"
+              />
+            </div>
+          )}
+          {item.late_delivery_reason && readOnly && (
+            <div className="bg-red-50 border border-red-200 rounded p-2 text-xs">
+              <p className="font-semibold text-red-800">Late delivery reason:</p>
+              <p className="italic text-red-700">"{item.late_delivery_reason}"</p>
+            </div>
+          )}
 
           {/* Section — Payment Mode */}
           <div className="border-b pb-1.5 mt-3 flex items-center gap-1.5"><Banknote className="h-3.5 w-3.5 text-amber-600" /><h4 className="text-xs font-semibold text-amber-800 uppercase tracking-wide">Payment Mode</h4></div>

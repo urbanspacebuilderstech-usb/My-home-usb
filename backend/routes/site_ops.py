@@ -811,6 +811,12 @@ class MaterialRequestCreate(BaseModel):
     unit: Optional[str] = None
     required_date: Optional[str] = None
     remarks: Optional[str] = None
+    # Phase-1: SE delivery expectation. Procurement compares against this and
+    # must explain late deliveries; SE must justify <48h emergency requests.
+    se_delivery_choice: Optional[str] = "48h"  # "24h" | "48h" | "custom"
+    se_requested_hours: Optional[int] = 48
+    se_expected_delivery: Optional[str] = None  # ISO datetime
+    se_emergency_reason: Optional[str] = None
 
 
 @router.post("/site-engineer/material-requests")
@@ -873,6 +879,13 @@ async def create_material_request(
     req_dict["required_date"] = data.required_date
     req_dict["brand"] = mat_brand
     req_dict["is_approved_material"] = data.is_approved_material
+    # Persist SE delivery expectation
+    req_dict["se_delivery_choice"] = data.se_delivery_choice or "48h"
+    req_dict["se_requested_hours"] = data.se_requested_hours or 48
+    req_dict["se_expected_delivery"] = data.se_expected_delivery
+    req_dict["se_emergency_reason"] = data.se_emergency_reason or ""
+    if (data.se_requested_hours or 48) < 48 and not (data.se_emergency_reason or "").strip():
+        raise HTTPException(status_code=400, detail="Emergency reason is required for delivery under 48 hours")
 
     # Auto-lookup assigned vendor for this material category
     vendor_match = await find_assigned_vendor_for_material(data.project_id, mat_name)
