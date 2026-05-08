@@ -4402,9 +4402,52 @@ async def accountant_release_labour_payment(request_id: str, data: dict, user: U
             "created_by_name": user.name,
         })
 
+    # Record expense in cashbook so it shows up in Accountant Expense ledger / project P&L.
+    # Cash outflow = approved_amount - use_suspense (suspense usage is a non-cash settlement)
+    cash_paid = max(0.0, approved_amount - use_suspense)
+    expense_id = f"exp_{uuid.uuid4().hex[:12]}"
+    cashbook_method_map = {"bank": "bank_transfer", "cash": "cash", "cheque": "cheque"}
+    project_doc = await db.projects.find_one({"project_id": wo.get("project_id")}, {"_id": 0, "name": 1})
+    cashbook_entry = {
+        "expense_id": expense_id,
+        "project_id": wo.get("project_id"),
+        "project_name": (project_doc or {}).get("name", ""),
+        "category": "labour",
+        "expense_type": "labour",
+        "description": f"{wo.get('contractor_name', '')} - {target_stage.get('name', '')}",
+        "amount": cash_paid,
+        "approved_amount": approved_amount,
+        "suspense_applied": use_suspense,
+        "payment_method": cashbook_method_map.get(payment_method, payment_method),
+        "transaction_id": bank_ref or cheque_no or "",
+        "cheque_no": cheque_no if payment_method == "cheque" else None,
+        "cheque_amount": cheque_amount if payment_method == "cheque" else None,
+        "bank_ref": bank_ref if payment_method == "bank" else None,
+        "vendor_name": wo.get("contractor_name", ""),
+        "contractor_id": contractor_id,
+        "contractor_type": wo.get("contractor_type", ""),
+        "work_order_id": work_order_id,
+        "stage_id": stage_id,
+        "stage_name": target_stage.get("name", ""),
+        "request_id": request_id,
+        "request_type": "labour_stage_payment",
+        "remarks": notes,
+        "status": "approved",
+        "source": "wo_stage_release",
+        "recorded_by": user.user_id,
+        "recorded_by_name": user.name,
+        "created_at": now,
+        "approved_at": now,
+        "approved_by": user.user_id,
+        "payment_date": payment_date,
+    }
+    await db.recorded_expenses.insert_one(cashbook_entry)
+
     return {
         "message": "Payment released",
         "approved_amount": approved_amount,
+        "expense_id": expense_id,
+        "cash_paid": cash_paid,
         "cheque_excess_to_suspense": cheque_excess,
         "suspense_used": use_suspense,
     }

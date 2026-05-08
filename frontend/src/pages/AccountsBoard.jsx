@@ -29,6 +29,7 @@ import {
 import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
+import AccountantLabourPayments from '../components/AccountantLabourPayments';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -2874,6 +2875,9 @@ function ChequeManagementTab({ projects }) {
 function ApprovalsTab() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ income: [], materials: [], labour: [], vendor: [], summary: {} });
+  // WO stage payment requests forwarded by Planning (new SE Work Order V2 flow).
+  // Lives in db.project_work_orders.stages.payment_requests, separate from legacy labour_expenses.
+  const [woStagePayments, setWoStagePayments] = useState([]);
   const [activeTab, setActiveTab] = useState('income');
   const [rejectDialog, setRejectDialog] = useState({ open: false, type: '', id: '', reason: '' });
   const [processing, setProcessing] = useState(null);
@@ -2899,8 +2903,12 @@ function ApprovalsTab() {
   const fetchApprovals = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
-      const res = await axios.get(`${API}/approvals/unified`);
-      setData(res.data);
+      const [unifiedRes, woRes] = await Promise.all([
+        axios.get(`${API}/approvals/unified`),
+        axios.get(`${API}/accountant/labour-payments?status=pending`).catch(() => ({ data: { requests: [] } })),
+      ]);
+      setData(unifiedRes.data);
+      setWoStagePayments(woRes.data?.requests || []);
     } catch {
       toast.error('Failed to load approvals');
     } finally {
@@ -3095,13 +3103,22 @@ function ApprovalsTab() {
   const filteredMaterials = filterByDateRange(data.materials || [], appDateFrom, appDateTo, r => r.created_at);
   const filteredLabour = filterByDateRange(data.labour || [], appDateFrom, appDateTo, r => r.created_at);
   const filteredVendor = filterByDateRange(data.vendor || [], appDateFrom, appDateTo, r => r.created_at);
+  // WO stage payments use planning_approved_at (or requested_at) — apply same date filter so the
+  // labour tab badge/count stays consistent with what's actually rendered.
+  const filteredWoStagePayments = filterByDateRange(
+    woStagePayments,
+    appDateFrom,
+    appDateTo,
+    r => r.planning_approved_at || r.requested_at,
+  );
   const fSummary = {
     income_count: filteredIncome.length,
     income_total: filteredIncome.reduce((sum, x) => sum + (x.amount || 0), 0),
     material_count: filteredMaterials.length,
     material_total: filteredMaterials.reduce((sum, x) => sum + (x.estimated_cost || x.final_amount || 0), 0),
-    labour_count: filteredLabour.length,
-    labour_total: filteredLabour.reduce((sum, x) => sum + (x.total_amount || 0), 0),
+    labour_count: filteredLabour.length + filteredWoStagePayments.length,
+    labour_total: filteredLabour.reduce((sum, x) => sum + (x.total_amount || 0), 0)
+                 + filteredWoStagePayments.reduce((sum, x) => sum + (x.amount || 0), 0),
     vendor_count: filteredVendor.length,
     vendor_total: filteredVendor.reduce((sum, x) => sum + (x.amount || 0), 0),
   };
@@ -3302,6 +3319,13 @@ function ApprovalsTab() {
 
         {/* Labour Approvals */}
         <TabsContent value="labour">
+          {/* SE Work Order V2 stage payments — forwarded by Planning, awaiting accountant release.
+              Lives in db.project_work_orders.stages.payment_requests (separate from legacy labour_expenses). */}
+          {filteredWoStagePayments.length > 0 && (
+            <div className="mb-3" data-testid="approvals-wo-stage-payments">
+              <AccountantLabourPayments />
+            </div>
+          )}
           <ApprovalExpenseTable
             items={filteredLabour}
             type="labour"
