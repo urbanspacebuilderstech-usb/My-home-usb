@@ -48,7 +48,7 @@ async def upload_file(
     data = await file.read()
 
     if len(data) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="File too large. Maximum 10MB.")
+        raise HTTPException(status_code=413, detail=f"File too large. Maximum {MAX_FILE_SIZE // (1024 * 1024)}MB.")
 
     ext = file.filename.split(".")[-1].lower() if "." in file.filename else "bin"
     content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")

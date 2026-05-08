@@ -13,6 +13,22 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — Receipt Flow Overhaul: No-OTP, Big Image Uploads, Photo Visibility for Procurement/Planning, Lifecycle Card Cleanup
+- **Backend** (`/app/backend/routes/site_ops.py`):
+  - **Removed email-OTP step** for material receipts. `/site-engineer/material-receipts/initiate` now does the entire receipt in one call: persists the receipt with `otp_verified=true`, advances the parent `material_request` per payment-mode rules (`pre_paid`, `advance` → `pending_balance_payment`, `credit` → `delivered` + auto-creates `vendor_credit_ledger` entry, `post_delivery` → `pending_accounts_approval`), legacy flow → `received_partial`/`received_completed`. Stamps `lorry_image_id` and `material_image_id` on the parent request so Procurement/Planning can see them. The legacy `/verify-otp` endpoint is now unused (left in place to avoid breaking older mobile clients).
+- **Backend** (`/app/backend/routes/files.py`):
+  - Fixed misleading "Maximum 10MB" 413 error message (actual limit is 50MB).
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - **Image upload bug fixed** — was setting `Content-Type: multipart/form-data` manually, which stripped the auto-generated multipart boundary causing every upload to fail. Now lets axios set it. Bumped client size cap 10MB → 25MB to match real-world phone photos. Surfaces actual backend error message in toast.
+  - **Receive dialog**: removed the "OTP will be sent" banner, removed the entire OTP entry dialog, removed `otpDialog` / `otpCode` state. Submit button is now **"Confirm Receipt"** — single click, no email step. The auto-redirect after submit refreshes the request list.
+  - **GPS function hardened** — distinguishes permission-denied vs unavailable vs timeout, retries with `enableHighAccuracy:false` if the high-accuracy attempt fails (covers indoor sites without GPS lock), and shows captured location accuracy in the success toast.
+  - **Lifecycle cards updated** to user spec: 7 cards = **All / Awaiting Procurement / Awaiting Planning / Awaiting Accountant / Revision / Transit / Delivered**. Removed "New Request" (renamed to Awaiting Procurement) and "Credit" (credit-mode delivered items now fall under Delivered; vendor settlement remains tracked in Procurement → Credit Management).
+- **Frontend** (`/app/frontend/src/pages/ProcurementBoardSimple.jsx`, `/app/frontend/src/components/PlanningRequestsTab.jsx`):
+  - Removed the **Credit** lifecycle card from both Procurement and Planning Material Req views. Kept the existing "New Request (SE)" label since those views are reviewing SE-raised requests. Credit-mode delivered items now fall into Delivered. Vendor settlement still tracked in Procurement Dashboard → Credit Management sub-tab. Grid recolumned to 7.
+- **Frontend** (`/app/frontend/src/components/OrderDetailDialog.jsx`):
+  - Added **Delivery Photos & Receipt** card (visible to Procurement, Planning, Accountant after SE marks received). Shows lorry image + material image side-by-side (clickable to open full-size). Plus received qty, received-by, received-at metadata. Falls back to placeholder if either image missing. Uses cookie-authed `/api/files/{id}/download` so it Just Works for any logged-in role.
+- **Tested end-to-end via curl** — uploaded 2 images → POST `/site-engineer/material-receipts/initiate` (no OTP) → 200 OK; the parent `material_request` (mreq_97d51ae8c2d5) status flipped from `in_transit` to `received_partial`, `lorry_image_id` and `material_image_id` populated, `received_at` stamped. Verified via screenshot — SE Materials tab now shows the new 7 cards (no Credit/New Request), Procurement Material Req shows 7 cards (no Credit).
+
 ### Session — May 8, 2026 — Procurement Dashboard: Sub-tabs + Credit Management 3-step Settlement Chain
 - **Frontend** (`/app/frontend/src/components/MetaDateFilter.jsx` — NEW):
   - Reusable Meta Ads-style date filter component with preset chips (Today, Yesterday, Last 7 days, This month, Last month) + Custom range picker. Returns `{from, to, label, preset}` via `onChange`. Default preset configurable.

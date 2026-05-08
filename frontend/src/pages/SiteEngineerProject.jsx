@@ -63,31 +63,27 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// Material lifecycle filter cards — unified across SE / Procurement / Planning.
-// Order matches the actual workflow: SE → Planning → Revision → Accountant → Transit → Credit/Delivered.
+// Material lifecycle filter cards — Site Engineer view.
+// Order matches the actual workflow: SE → Procurement → Planning → Accountant → Transit → Delivered.
+// Credit-mode delivered items roll into "Delivered" — vendor settlement lives in Procurement → Credit Management.
 const LIFECYCLE_BUCKETS = [
-  { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
-  { key: 'new_request',         label: 'New Request',         Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
-  { key: 'planning_awaiting',   label: 'Planning Awaiting',   Icon: Send,          cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    active: 'bg-yellow-600 text-white border-yellow-600' },
-  { key: 'revision',            label: 'Revision',            Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',    active: 'bg-orange-600 text-white border-orange-600' },
-  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white border-cyan-600' },
-  { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',             active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'credit',              label: 'Credit',              Icon: CheckCircle2,  cls: 'bg-purple-50 border-purple-200 text-purple-700',    active: 'bg-purple-600 text-white border-purple-600' },
-  { key: 'delivered',           label: 'Delivered',           Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+  { key: 'all',                 label: 'All',                  Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'awaiting_procurement',label: 'Awaiting Procurement', Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning_awaiting',   label: 'Awaiting Planning',    Icon: Send,          cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'awaiting_accountant', label: 'Awaiting Accountant',  Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'revision',            label: 'Revision',             Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',    active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'transit',             label: 'Transit',              Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',             active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'delivered',           label: 'Delivered',            Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
-  const paymentMode = (req.payment_mode || '').toLowerCase();
-  if (status === 'requested' || status === 'pm_approved') return 'new_request';
+  if (status === 'requested' || status === 'pm_approved') return 'awaiting_procurement';
   if (status === 'procurement_priced') return 'planning_awaiting';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved'].includes(status)) return 'awaiting_accountant';
   if (['in_transit', 'ready_for_delivery'].includes(status)) return 'transit';
-  if (['delivered', 'completed', 'closed', 'received_partial', 'received_completed'].includes(status)) {
-    if (paymentMode === 'credit' && !req.credit_settled_at) return 'credit';
-    return 'delivered';
-  }
+  if (['delivered', 'completed', 'closed', 'received_partial', 'received_completed'].includes(status)) return 'delivered';
   return 'all';
 }
 
@@ -106,7 +102,6 @@ export default function SiteEngineerProject() {
   
   const [materialRequestDialog, setMaterialRequestDialog] = useState(false);
   const [receiveDialog, setReceiveDialog] = useState({ open: false, request: null });
-  const [otpDialog, setOtpDialog] = useState({ open: false, receipt: null });
   
   const [quickAttPopup, setQuickAttPopup] = useState(false);
   
@@ -117,7 +112,6 @@ export default function SiteEngineerProject() {
   const [labourForm, setLabourForm] = useState({ labour_type: '', num_workers: '', num_days: '', rate_per_day: '', remarks: '' });
   const [receiveForm, setReceiveForm] = useState({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [otpCode, setOtpCode] = useState('');
   const [gpsLocation, setGpsLocation] = useState(null);
   const [gettingLocation, setGettingLocation] = useState(false);
   const [lorryImageId, setLorryImageId] = useState(null);
@@ -449,25 +443,42 @@ export default function SiteEngineerProject() {
   const getGPSLocation = () => {
     setGettingLocation(true);
     if (!navigator.geolocation) {
-      toast.error('Geolocation is not supported');
+      toast.error('Geolocation is not supported on this device');
       setGettingLocation(false);
       return;
     }
-    
+
+    const explain = (err) => {
+      if (err.code === 1) return 'Location permission denied. Tap the lock icon → Site settings → enable Location.';
+      if (err.code === 2) return 'GPS signal unavailable. Move outdoors or near a window and retry.';
+      if (err.code === 3) return 'GPS request timed out. Retry once you have a clear signal.';
+      return 'Failed to get location.';
+    };
+
+    const onSuccess = (position) => {
+      setGpsLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      });
+      setGettingLocation(false);
+      toast.success(`Location captured (±${Math.round(position.coords.accuracy)}m)`);
+    };
+
+    // First try high-accuracy (GPS hardware), fall back to network/IP if it fails.
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setGpsLocation({
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        });
-        setGettingLocation(false);
-        toast.success('Location captured');
+      onSuccess,
+      (err1) => {
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          (err2) => {
+            toast.error(explain(err2));
+            setGettingLocation(false);
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 },
+        );
       },
-      (error) => {
-        toast.error('Failed to get location. Enable GPS.');
-        setGettingLocation(false);
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     );
   };
 
@@ -583,18 +594,23 @@ export default function SiteEngineerProject() {
 
   const handleImageUpload = async (file, type) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error('Image must be under 10MB'); return; }
+    // Mobile photos can be 5–15MB; allow up to 25MB.
+    if (file.size > 25 * 1024 * 1024) { toast.error('Image must be under 25MB'); return; }
     setUploadingImage(type);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('category', 'material_receipt');
     formData.append('project_id', projectId);
     try {
-      const res = await axios.post(`${API}/files/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      // Do NOT set Content-Type — axios will generate the multipart boundary automatically.
+      const res = await axios.post(`${API}/files/upload`, formData);
       if (type === 'lorry') setLorryImageId(res.data.file_id);
       else setMaterialImageId(res.data.file_id);
       toast.success(`${type === 'lorry' ? 'Lorry' : 'Material'} image uploaded`);
-    } catch { toast.error('Image upload failed'); }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || 'Image upload failed';
+      toast.error(typeof msg === 'string' ? msg : 'Image upload failed');
+    }
     finally { setUploadingImage(null); }
   };
 
@@ -607,9 +623,9 @@ export default function SiteEngineerProject() {
       toast.error('Enter received quantity');
       return;
     }
-    
+
     try {
-      const response = await axios.post(`${API}/site-engineer/material-receipts/initiate`, {
+      await axios.post(`${API}/site-engineer/material-receipts/initiate`, {
         request_id: receiveDialog.request.request_id,
         received_qty: parseFloat(receiveForm.received_qty),
         gps_latitude: gpsLocation.latitude,
@@ -620,37 +636,17 @@ export default function SiteEngineerProject() {
         material_image_id: materialImageId,
         remarks: receiveForm.remarks || null
       });
-      
-      setReceiveDialog({ open: false, request: null });
-      setOtpDialog({ open: true, receipt: response.data });
-      
-      if (response.data.otp_sent) {
-        toast.success(`OTP sent to ${response.data.otp_email}`);
-      } else if (response.data.test_otp) {
-        toast.info(`Demo OTP: ${response.data.test_otp}`);
-      }
-    } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to initiate receipt');
-    }
-  };
 
-  const handleVerifyOTP = async () => {
-    if (!otpCode || otpCode.length !== 6) {
-      toast.error('Enter valid 6-digit OTP');
-      return;
-    }
-    
-    try {
-      await axios.post(`${API}/site-engineer/material-receipts/verify-otp`, {
-        receipt_id: otpDialog.receipt.receipt_id,
-        otp_code: otpCode
-      });
-      toast.success('Receipt verified!');
-      setOtpDialog({ open: false, receipt: null });
-      setOtpCode('');
+      toast.success('Material receipt recorded');
+      setReceiveDialog({ open: false, request: null });
+      // Reset form
+      setLorryImageId(null);
+      setMaterialImageId(null);
+      setGpsLocation(null);
+      setReceiveForm({ received_qty: '', remarks: '', receive_date: new Date().toISOString().split('T')[0], receive_time: new Date().toTimeString().slice(0,5) });
       fetchData(false);
     } catch (error) {
-      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Invalid OTP');
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to record receipt');
     }
   };
 
@@ -1064,7 +1060,7 @@ export default function SiteEngineerProject() {
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-0">
                 {/* Unified lifecycle filter cards (mirrors Procurement / Planning) */}
-                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
                   {LIFECYCLE_BUCKETS.map(b => {
                     const Icon = b.Icon;
                     const active = materialBucket === b.key;
@@ -1100,12 +1096,11 @@ export default function SiteEngineerProject() {
                       const cfg = LIFECYCLE_BUCKETS.find(b => b.key === bKey);
                       const isReceivable = canReceive(req.status);
                       const accentMap = {
-                        new_request: 'border-l-amber-500',
+                        awaiting_procurement: 'border-l-amber-500',
                         planning_awaiting: 'border-l-yellow-500',
                         revision: 'border-l-orange-500',
                         awaiting_accountant: 'border-l-cyan-500',
                         transit: 'border-l-sky-500',
-                        credit: 'border-l-purple-500',
                         delivered: 'border-l-emerald-500',
                         all: 'border-l-violet-500',
                       };
@@ -1680,10 +1675,10 @@ export default function SiteEngineerProject() {
                 />
               </div>
               
-              <div className="bg-yellow-50 border border-yellow-200 p-2 rounded-lg">
+              <div className="bg-blue-50 border border-blue-200 p-2 rounded-lg">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-yellow-800">OTP will be sent to your email for verification</p>
+                  <CheckCircle className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-800">Submit will record the receipt and notify Procurement &amp; Planning with the uploaded images.</p>
                 </div>
               </div>
             </div>
@@ -1697,49 +1692,12 @@ export default function SiteEngineerProject() {
               className="bg-green-600 hover:bg-green-700"
               data-testid="submit-receive-btn"
             >
-              <Send className="h-3 w-3 mr-1" />Get OTP
+              <Send className="h-3 w-3 mr-1" />Confirm Receipt
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* OTP Dialog */}
-      <Dialog open={otpDialog.open} onOpenChange={(open) => !open && setOtpDialog({ open: false, receipt: null })}>
-        <DialogContent className="max-w-[95vw] sm:max-w-sm mx-auto">
-          <DialogHeader>
-            <DialogTitle className="text-base">Enter OTP</DialogTitle>
-            <DialogDescription className="text-xs">6-digit code sent to your email</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input 
-              type="text"
-              maxLength={6}
-              value={otpCode}
-              onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              placeholder="000000"
-              className="text-center text-2xl tracking-widest font-mono"
-            />
-            {otpDialog.receipt?.test_otp && (
-              <div className="bg-amber-50 p-2 rounded-lg text-center">
-                <p className="text-xs text-amber-700">
-                  <strong>Demo OTP:</strong> {otpDialog.receipt.test_otp}
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setOtpDialog({ open: false, receipt: null })}>Cancel</Button>
-            <Button 
-              size="sm"
-              onClick={handleVerifyOTP}
-              disabled={otpCode.length !== 6}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <CheckCircle className="h-3 w-3 mr-1" />Verify
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <MobileBottomNav user={user} />
       <OrderDetailDialog
         open={!!selectedOrder}

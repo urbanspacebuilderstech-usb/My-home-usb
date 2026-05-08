@@ -467,6 +467,72 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
             </div>
           )}
 
+          {/* Delivery photos & GPS — visible to Procurement / Planning / Accountant after SE marks received */}
+          {(req.lorry_image_id || req.material_image_id || req.received_at) && !editing && (
+            <div className="bg-emerald-50/50 rounded-lg p-3 border border-emerald-100" data-testid="order-delivery-photos">
+              <h3 className="text-xs sm:text-sm font-semibold text-emerald-800 mb-2 flex items-center gap-2">
+                <Package className="h-4 w-4 text-emerald-600" /> Delivery Photos & Receipt
+              </h3>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                {req.lorry_image_id ? (
+                  <a
+                    href={`${API}/files/${req.lorry_image_id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
+                    data-testid="lorry-image-link"
+                  >
+                    <img
+                      src={`${API}/files/${req.lorry_image_id}/download`}
+                      alt="Lorry"
+                      className="w-full h-32 sm:h-40 object-cover"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                    <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">Lorry / Truck</p>
+                  </a>
+                ) : (
+                  <div className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">
+                    <p className="text-[11px] text-gray-400">No lorry image</p>
+                  </div>
+                )}
+                {req.material_image_id ? (
+                  <a
+                    href={`${API}/files/${req.material_image_id}/download`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-md overflow-hidden border border-emerald-200 bg-white hover:border-emerald-400 transition-colors"
+                    data-testid="material-image-link"
+                  >
+                    <img
+                      src={`${API}/files/${req.material_image_id}/download`}
+                      alt="Material"
+                      className="w-full h-32 sm:h-40 object-cover"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                    <p className="text-[10px] uppercase tracking-wide font-semibold text-emerald-700 bg-emerald-100/60 py-1 px-2">Material / Product</p>
+                  </a>
+                ) : (
+                  <div className="rounded-md border border-dashed border-gray-300 bg-white h-32 sm:h-40 flex items-center justify-center">
+                    <p className="text-[11px] text-gray-400">No material image</p>
+                  </div>
+                )}
+              </div>
+              {(req.received_quantity || req.received_at || req.received_by_name) && (
+                <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  {req.received_quantity != null && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received Qty</p><p className="font-medium">{req.received_quantity} {req.unit || ''}</p></div>
+                  )}
+                  {req.received_at && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received At</p><p className="font-medium">{formatDate(req.received_at)}</p></div>
+                  )}
+                  {req.received_by_name && (
+                    <div><p className="text-[10px] uppercase font-semibold text-gray-500">Received By</p><p className="font-medium">{req.received_by_name}</p></div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Save Button when Editing */}
           {editing && (
             <div className="sticky bottom-0 bg-white border-t pt-3 pb-1 flex gap-2 justify-end">

@@ -1584,26 +1584,26 @@ async def initiate_material_receipt(
     data: MaterialReceiptCreate,
     user: User = Depends(get_current_user)
 ):
-    """Initiate material receipt - sends OTP to site engineer email"""
+    """Receive material — OTP step removed, receipt is auto-verified.
+    Captures GPS, lorry/material images, qty, remarks, then advances the
+    underlying material_request through the same payment-mode-aware logic
+    that previously lived in /verify-otp."""
     if user.role != UserRole.SITE_ENGINEER:
         raise HTTPException(status_code=403, detail="Only Site Engineers can receive materials")
-    
-    # Get the material request
+
     request = await db.material_requests.find_one({"request_id": data.request_id}, {"_id": 0})
     if not request:
         raise HTTPException(status_code=404, detail="Material request not found")
-    
+
     if request["site_engineer_id"] != user.user_id:
         raise HTTPException(status_code=403, detail="You can only receive materials for your own requests")
-    
+
     if request["status"] not in ["accountant_approved", "ready_for_delivery", "received_partial", "in_transit", "order_placed"]:
         raise HTTPException(status_code=400, detail="Material is not ready for receiving")
-    
-    # Generate OTP
-    otp_code = generate_otp()
-    otp_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
-    
-    # Create receipt record
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Build receipt record (auto-verified — no OTP)
     receipt = MaterialReceipt(
         request_id=data.request_id,
         project_id=request["project_id"],
@@ -1614,14 +1614,14 @@ async def initiate_material_receipt(
         gps_longitude=data.gps_longitude,
         photo_url=data.photo_url,
         remarks=data.remarks,
-        otp_code=otp_code,
-        otp_expires_at=otp_expires_at
+        otp_code="",
+        otp_expires_at=datetime.now(timezone.utc),
     )
-    
     rcpt_dict = receipt.model_dump()
     rcpt_dict["created_at"] = rcpt_dict["created_at"].isoformat()
-    rcpt_dict["otp_expires_at"] = rcpt_dict["otp_expires_at"].isoformat()
-    # Store additional Phase 2 fields
+    rcpt_dict["otp_expires_at"] = now_iso
+    rcpt_dict["otp_verified"] = True
+    rcpt_dict["verified_at"] = now_iso
     rcpt_dict["receive_date"] = data.receive_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rcpt_dict["receive_time"] = data.receive_time or datetime.now(timezone.utc).strftime("%H:%M")
     rcpt_dict["lorry_image_id"] = data.lorry_image_id
@@ -1629,48 +1629,89 @@ async def initiate_material_receipt(
     rcpt_dict["material_name"] = request.get("material_name", "")
     rcpt_dict["unit"] = request.get("unit", "")
     rcpt_dict["brand"] = request.get("brand", "")
+    rcpt_dict.pop("otp_code", None)  # never persist empty OTP
     await db.material_receipts.insert_one(rcpt_dict)
     rcpt_dict.pop("_id", None)
-    
-    # Get user email
-    user_doc = await db.users.find_one({"user_id": user.user_id}, {"_id": 0})
-    user_email = user_doc.get("email") if user_doc else None
-    
-    # Send OTP via Resend
-    otp_sent = False
-    if resend and resend.api_key and user_email:
-        try:
-            params = {
-                "from": SENDER_EMAIL,
-                "to": [user_email],
-                "subject": f"ConstructionOS - Material Receipt OTP: {otp_code}",
-                "html": f"""
-                <h2>Material Receipt Verification</h2>
-                <p>Your OTP for material receipt verification is:</p>
-                <h1 style="color: #2563eb; font-size: 32px; letter-spacing: 4px;">{otp_code}</h1>
-                <p><strong>Material:</strong> {request['material_name']}</p>
-                <p><strong>Quantity:</strong> {data.received_qty} / {request['quantity']} {request['unit']}</p>
-                <p>This OTP expires in 10 minutes.</p>
-                <p style="color: #666;">If you did not request this, please ignore this email.</p>
-                """
-            }
-            await asyncio.to_thread(resend.Emails.send, params)
-            otp_sent = True
-            logger.info(f"OTP sent to {user_email}")
-        except Exception as e:
-            logger.error(f"Failed to send OTP email: {str(e)}")
-    
-    # Remove OTP from response (security)
-    rcpt_dict.pop("otp_code", None)
-    rcpt_dict["otp_sent"] = otp_sent
-    rcpt_dict["otp_email"] = user_email if otp_sent else None
-    
-    # For testing: if OTP not sent, log it
-    if not otp_sent:
-        logger.warning(f"OTP not sent via email. OTP for testing: {otp_code}")
-        rcpt_dict["test_otp"] = otp_code  # Only for demo/testing
-    
-    return rcpt_dict
+
+    # === Advance the parent material_request (same logic as old verify-otp) ===
+    total_received = data.received_qty
+    other_receipts = await db.material_receipts.find({
+        "request_id": data.request_id,
+        "otp_verified": True,
+        "receipt_id": {"$ne": rcpt_dict["receipt_id"]},
+    }, {"_id": 0}).to_list(100)
+    for r in other_receipts:
+        total_received += r.get("received_qty", 0)
+
+    payment_mode = (request.get("payment_mode") or "").lower()
+    is_new_flow = payment_mode in ("pre_paid", "advance", "credit", "post_delivery")
+
+    if is_new_flow:
+        update = {
+            "received_at": now_iso,
+            "received_by": user.user_id,
+            "received_by_name": user.name,
+            "received_quantity": total_received,
+            "lorry_image_id": data.lorry_image_id,
+            "material_image_id": data.material_image_id,
+        }
+        if payment_mode == "advance":
+            update["status"] = "pending_balance_payment"
+            update["next_payment_phase"] = "balance"
+        elif payment_mode == "post_delivery":
+            update["status"] = "pending_accounts_approval"
+            update["next_payment_phase"] = "full"
+        elif payment_mode == "credit":
+            update["status"] = "delivered"
+            update["delivered_at"] = now_iso
+            try:
+                credit_days = int(request.get("credit_days") or 30)
+            except (TypeError, ValueError):
+                credit_days = 30
+            due_date = (datetime.now(timezone.utc) + timedelta(days=credit_days)).isoformat()
+            ledger_id = f"vc_{uuid.uuid4().hex[:10]}"
+            await db.vendor_credit_ledger.insert_one({
+                "ledger_id": ledger_id,
+                "request_id": request["request_id"],
+                "vendor_id": request.get("vendor_id"),
+                "vendor_name": request.get("vendor_name"),
+                "project_id": request.get("project_id"),
+                "material_name": request.get("material_name"),
+                "amount": float(request.get("total_amount") or 0),
+                "credit_days": credit_days,
+                "delivered_at": now_iso,
+                "due_date": due_date,
+                "status": "pending",
+                "created_at": now_iso,
+            })
+            update["credit_ledger_id"] = ledger_id
+            update["credit_due_date"] = due_date
+        else:  # pre_paid
+            update["status"] = "delivered"
+            update["delivered_at"] = now_iso
+        await db.material_requests.update_one({"request_id": data.request_id}, {"$set": update})
+    else:
+        # Legacy flow
+        if total_received >= request["quantity"]:
+            new_status = MaterialRequestStatus.RECEIVED_COMPLETED.value
+        else:
+            new_status = MaterialRequestStatus.RECEIVED_PARTIAL.value
+        await db.material_requests.update_one(
+            {"request_id": data.request_id},
+            {"$set": {
+                "status": new_status,
+                "lorry_image_id": data.lorry_image_id,
+                "material_image_id": data.material_image_id,
+                "received_at": now_iso,
+            }},
+        )
+
+    await create_audit_log(user.user_id, "receive_material", "material_receipt", rcpt_dict["receipt_id"], {
+        "received_qty": data.received_qty,
+        "gps": f"{data.gps_latitude}, {data.gps_longitude}",
+    })
+
+    return {"message": "Material receipt recorded", "status": "verified", **rcpt_dict}
 
 
 class OTPVerifyRequest(BaseModel):

@@ -18,10 +18,9 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => '₹' + (Number(n) || 0).toLocaleString('en-IN');
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-// Material lifecycle filter cards — unified across Planning + Procurement views.
-// Order is the actual workflow: SE → Planning → Revision → Accountant → Transit → Credit/Delivered.
-// Credit = payment_mode='credit' items delivered but vendor still owed.
-// Delivered = everything else delivered (pre_paid / advance settled / credit settled).
+// Material lifecycle filter cards — Planning view.
+// Order: SE → Procurement → Planning → Revision → Accountant → Transit → Delivered.
+// Credit-mode delivered items roll into Delivered — vendor settlement lives in Procurement → Credit Management.
 const MAT_LIFECYCLE_BUCKETS = [
   { key: 'all',                label: 'All',                Icon: ListChecks,     cls: 'bg-violet-50 border-violet-200 text-violet-700',  active: 'bg-violet-600 text-white border-violet-600' },
   { key: 'new_request',        label: 'New Request (SE)',   Icon: ClipboardCheck, cls: 'bg-amber-50 border-amber-200 text-amber-700',     active: 'bg-amber-600 text-white border-amber-600' },
@@ -29,24 +28,19 @@ const MAT_LIFECYCLE_BUCKETS = [
   { key: 'revision',           label: 'Revision (Planning)',Icon: FileClock,      cls: 'bg-orange-50 border-orange-200 text-orange-700',  active: 'bg-orange-600 text-white border-orange-600' },
   { key: 'awaiting_accountant',label: 'Awaiting Accountant',Icon: Wallet,         cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',        active: 'bg-cyan-600 text-white border-cyan-600' },
   { key: 'transit',            label: 'Transit',            Icon: Truck,          cls: 'bg-sky-50 border-sky-200 text-sky-700',           active: 'bg-sky-600 text-white border-sky-600' },
-  { key: 'credit',             label: 'Credit',             Icon: CreditCard,     cls: 'bg-purple-50 border-purple-200 text-purple-700',  active: 'bg-purple-600 text-white border-purple-600' },
   { key: 'delivered',          label: 'Delivered',          Icon: PackageCheck,   cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
 ];
 
-// Smart bucketer — needs payment_mode + credit_settled_at, not just status.
+// Smart bucketer — credit-mode delivered items now roll into "delivered"
+// (vendor settlement is tracked separately in Procurement → Credit Management).
 function bucketForMaterial(req) {
   const status = (req.status || '').toLowerCase();
-  const paymentMode = (req.payment_mode || '').toLowerCase();
   if (status === 'requested' || status === 'pm_approved') return 'new_request';
   if (status === 'procurement_priced') return 'planning_awaiting';
   if (status === 'procurement_revision') return 'revision';
   if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved'].includes(status)) return 'awaiting_accountant';
   if (status === 'in_transit') return 'transit';
-  // Delivered (or completed/closed): credit + not yet settled → 'credit'; else 'delivered'
-  if (['delivered', 'completed', 'closed'].includes(status)) {
-    if (paymentMode === 'credit' && !req.credit_settled_at) return 'credit';
-    return 'delivered';
-  }
+  if (['delivered', 'completed', 'closed'].includes(status)) return 'delivered';
   if (['rejected', 'procurement_rejected'].includes(status)) return 'all'; // hidden in lifecycle, accessible via "All"
   return 'all';
 }
@@ -825,7 +819,7 @@ function MaterialLifecycleView({ items, loading, bucket, setBucket, onApprove, p
   return (
     <div className="space-y-3">
       {/* Lifecycle filter cards — "Planning Approval" first */}
-      <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5" data-testid="planning-mat-lifecycle-cards">
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5" data-testid="planning-mat-lifecycle-cards">
         {MAT_LIFECYCLE_BUCKETS.map(b => {
           const Icon = b.Icon;
           const active = bucket === b.key;
