@@ -41,6 +41,8 @@ export function rangeForPreset(key) {
 
 export default function MetaDateFilter({ value, onChange, defaultPreset = 'last_month' }) {
   // value: {from, to, label, preset?}
+  // Pass defaultPreset={null} (or any falsy value) to NOT auto-apply any range — useful when
+  // the parent wants "All time" / no filter as the initial state.
   const [open, setOpen] = useState(false);
   const [preset, setPreset] = useState(value?.preset || defaultPreset);
   const [customFrom, setCustomFrom] = useState(value?.from || '');
@@ -48,7 +50,7 @@ export default function MetaDateFilter({ value, onChange, defaultPreset = 'last_
   const ref = useRef(null);
 
   useEffect(() => {
-    if (!value) {
+    if (!value && defaultPreset) {
       const r = rangeForPreset(defaultPreset);
       if (r) onChange?.({ ...r, preset: defaultPreset });
     }

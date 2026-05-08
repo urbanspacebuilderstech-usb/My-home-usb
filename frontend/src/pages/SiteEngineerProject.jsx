@@ -842,7 +842,7 @@ export default function SiteEngineerProject() {
                   <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and collect materials across the lifecycle</CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
-                  <MetaDateFilter value={matReqDateRange} onChange={setMatReqDateRange} defaultPreset="this_month" />
+                  <MetaDateFilter value={matReqDateRange} onChange={setMatReqDateRange} defaultPreset={null} />
                   <Button
                     size="sm"
                     variant="outline"
@@ -1242,7 +1242,7 @@ export default function SiteEngineerProject() {
                     <CardDescription className="text-xs sm:text-sm">Auto-tracks stock from each material receipt — opening, received, used, closing.</CardDescription>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <MetaDateFilter value={inventoryDateRange} onChange={setInventoryDateRange} defaultPreset="this_month" />
+                    <MetaDateFilter value={inventoryDateRange} onChange={setInventoryDateRange} defaultPreset={null} />
                     <Calendar className="h-4 w-4 text-gray-500" />
                     <Input
                       type="date"
