@@ -3871,9 +3871,7 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
             stage_total = stage.get("amount", 0)
             balance = stage_total - released - pending
-
-            if request_amount > balance + 0.01:  # small tolerance
-                raise HTTPException(status_code=400, detail=f"Request amount ₹{request_amount:,.0f} exceeds available balance ₹{balance:,.0f}")
+            # Note: SE may request more than current stage balance; Planning can approve and overflow will deduct from next stage.
             
             import uuid
             payment_req = {
@@ -3890,6 +3888,8 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
                 "pm_notes": "Auto-skipped (PM approval bypassed)",
                 "notes": data.get("notes", ""),
                 "dlr_summary": data.get("dlr_summary", ""),
+                "se_exceeds_balance": request_amount > balance + 0.01,
+                "se_balance_at_request": balance,
             }
             stage["payment_requests"].append(payment_req)
             
@@ -4024,6 +4024,13 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
                 released = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
                 pending = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
                 stage_total = stage.get("amount", 0)
+                carryover_ded = float(stage.get("carryover_deduction", 0))
+                stage_idx_ = wo.get("stages", []).index(stage)
+                next_stage_obj = wo["stages"][stage_idx_ + 1] if stage_idx_ + 1 < len(wo["stages"]) else None
+                next_stage_capacity = 0
+                if next_stage_obj:
+                    ns_rel = sum(p.get("approved_amount", 0) for p in (next_stage_obj.get("payment_requests") or []) if p.get("status") == "approved")
+                    next_stage_capacity = max(0, float(next_stage_obj.get("amount", 0)) - ns_rel - float(next_stage_obj.get("carryover_deduction", 0)))
                 out.append({
                     "request_id": pr.get("request_id"),
                     "status": pr.get("status"),
@@ -4043,7 +4050,12 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
                     "stage_amount": stage_total,
                     "stage_released": released,
                     "stage_pending": pending,
-                    "stage_balance": max(0, stage_total - released - pending + pr.get("amount", 0)),
+                    "stage_carryover_deduction": carryover_ded,
+                    "stage_balance": max(0, stage_total - released - pending - carryover_ded + pr.get("amount", 0)),
+                    "se_exceeds_balance": pr.get("se_exceeds_balance", False),
+                    "se_balance_at_request": pr.get("se_balance_at_request", 0),
+                    "next_stage_name": (next_stage_obj or {}).get("name"),
+                    "next_stage_capacity": next_stage_capacity,
                     "wo_total_value": wo.get("total_value", 0),
                     "wo_paid_amount": wo.get("paid_amount", 0),
                 })
@@ -4432,7 +4444,8 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
                         target_pr["pm_approved_at"] = now
                         target_pr["pm_notes"] = data.get("notes", "")
                     elif user.role == UserRole.PLANNING and current == "pm_approved":
-                        # Planning may approve a different amount with reason
+                        # Planning may approve a different amount with reason.
+                        # If approved_amount exceeds the available balance, the overflow is auto-deducted from the NEXT stage.
                         approved_amount = data.get("approved_amount")
                         try:
                             approved_amount = float(approved_amount) if approved_amount not in (None, "") else target_pr.get("amount", 0)
@@ -4440,10 +4453,36 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
                             approved_amount = target_pr.get("amount", 0)
                         if approved_amount <= 0:
                             raise HTTPException(status_code=400, detail="Approved amount must be positive")
+
+                        # Compute current stage balance for overflow detection
+                        released_so_far = sum(p.get("approved_amount", 0) for p in stage["payment_requests"] if p.get("status") == "approved")
+                        pending_so_far = sum(p.get("amount", 0) for p in stage["payment_requests"] if p.get("status") in ["requested", "pm_approved", "planning_approved"] and p.get("request_id") != target_pr.get("request_id"))
+                        carryover = float(stage.get("carryover_deduction", 0))
+                        stage_balance = float(stage.get("amount", 0)) - released_so_far - pending_so_far - carryover
+                        overflow = max(0.0, approved_amount - stage_balance)
+
+                        if overflow > 0.01:
+                            # Find next stage (by order in array)
+                            stage_idx = wo["stages"].index(stage)
+                            next_stage = wo["stages"][stage_idx + 1] if stage_idx + 1 < len(wo["stages"]) else None
+                            if not next_stage:
+                                raise HTTPException(status_code=400, detail="No next stage to absorb the overflow. Cannot approve more than total work order balance.")
+                            # Validate next stage capacity
+                            ns_released = sum(p.get("approved_amount", 0) for p in (next_stage.get("payment_requests") or []) if p.get("status") == "approved")
+                            ns_carry = float(next_stage.get("carryover_deduction", 0))
+                            ns_capacity = float(next_stage.get("amount", 0)) - ns_released - ns_carry
+                            if overflow > ns_capacity + 0.01:
+                                raise HTTPException(status_code=400, detail=f"Overflow ₹{overflow:,.0f} exceeds next stage's capacity ₹{ns_capacity:,.0f}")
+                            # Deduct from next stage
+                            next_stage["carryover_deduction"] = ns_carry + overflow
+                            target_pr["overflow_to_next_stage"] = overflow
+                            target_pr["overflow_target_stage_id"] = next_stage.get("stage_id")
+                            target_pr["overflow_target_stage_name"] = next_stage.get("name")
+                            target_pr["exceeds_balance"] = True
+
                         target_pr["status"] = "planning_approved"
-                        # Persist requested vs approved
                         target_pr["original_amount"] = target_pr.get("amount", 0)
-                        target_pr["amount"] = approved_amount  # this becomes the value moving forward
+                        target_pr["amount"] = approved_amount
                         target_pr["planning_approved_amount"] = approved_amount
                         if abs(approved_amount - target_pr.get("original_amount", 0)) > 0.01:
                             target_pr["planning_amount_changed"] = True

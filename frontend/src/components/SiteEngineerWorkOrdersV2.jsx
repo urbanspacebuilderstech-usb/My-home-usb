@@ -315,6 +315,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
         stage={stageDialog}
         wo={wo}
         projectId={projectId}
+        suspenseBalance={suspenseBalance}
         onClose={() => setStageDialog(null)}
         onSaved={() => { setStageDialog(null); onChange(); }}
       />
@@ -323,7 +324,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 }
 
 // =====================================================================
-// Payment Schedule Tab: list of stages, each row shows inline summary
+// Payment Schedule Tab: compact list — title + status + View button
 // =====================================================================
 function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
   const stages = wo.stages || [];
@@ -350,51 +351,36 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
               const sb = stageStatusBadge(stage);
               const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
               const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
-              const balance = (stage.amount || 0) - released - pending;
-              const canRequest = stage.is_open && balance > 0;
+              const carryover = stage.carryover_deduction || 0;
+              const balance = Math.max(0, (stage.amount || 0) - released - pending - carryover);
               return (
-                <div key={stage.stage_id || i} className="px-3 py-3 hover:bg-amber-50/40" data-testid={`wov2-stage-row-${stage.stage_id || i}`}>
-                  <div className="flex items-center gap-2 flex-wrap mb-2">
-                    <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name}</span>
-                    <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
-                    {stage.is_open && balance > 0 && pending === 0 && (
-                      <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300 animate-pulse">Stage Opened</Badge>
-                    )}
-                  </div>
-                  {/* Inline payment summary: Total / Released / Pending / Extra (suspense) */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
-                    <div className="bg-gray-50 border rounded px-2 py-1">
-                      <p className="text-[9px] text-gray-500 uppercase">Total</p>
-                      <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1">
-                      <p className="text-[9px] text-blue-600 uppercase">Balance</p>
-                      <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
-                    </div>
-                    <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
-                      <p className="text-[9px] text-green-600 uppercase">Released</p>
-                      <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
-                    </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                      <p className="text-[9px] text-amber-600 uppercase">Extra</p>
-                      <p className="text-xs font-bold text-amber-800">{fmt(suspenseBalance || 0)}</p>
+                <div
+                  key={stage.stage_id || i}
+                  className="px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-amber-50/40 cursor-pointer"
+                  onClick={() => onClickStage(stage)}
+                  data-testid={`wov2-stage-row-${stage.stage_id || i}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name}</span>
+                      <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
+                      {stage.is_open && balance > 0 && (
+                        <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300">Open</Badge>
+                      )}
+                      {carryover > 0 && (
+                        <Badge variant="outline" className="text-[9px] bg-orange-50 text-orange-700 border-orange-200">−{fmt(carryover)} carryover</Badge>
+                      )}
                     </div>
                   </div>
-                  {/* Action row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[10px] text-gray-500">
-                      {pending > 0 && <span>Pipeline: <span className="font-medium text-amber-700">{fmt(pending)}</span></span>}
-                    </div>
-                    <Button
-                      size="sm"
-                      className={`h-7 text-xs gap-1 ${canRequest ? 'bg-amber-600 hover:bg-amber-700' : 'bg-gray-300 hover:bg-gray-300 cursor-not-allowed'}`}
-                      disabled={!canRequest}
-                      onClick={() => onClickStage(stage)}
-                      data-testid={`wov2-stage-request-${stage.stage_id || i}`}
-                    >
-                      <Send className="h-3 w-3" /> Request Payment
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1 border-amber-300 text-amber-700 hover:bg-amber-100 shrink-0"
+                    onClick={(e) => { e.stopPropagation(); onClickStage(stage); }}
+                    data-testid={`wov2-stage-view-${stage.stage_id || i}`}
+                  >
+                    <Eye className="h-3 w-3" /> View
+                  </Button>
                 </div>
               );
             })}
@@ -406,27 +392,29 @@ function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
 }
 
 // =====================================================================
-// Stage Request Dialog: amount + remarks
+// Stage Detail Dialog: summary + sub-tabs (Request Payment / Payment Summary)
 // =====================================================================
-function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
+function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved }) {
+  const [subTab, setSubTab] = useState('request');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (stage) { setAmount(''); setNotes(''); }
+    if (stage) { setAmount(''); setNotes(''); setSubTab('request'); }
   }, [stage]);
 
   if (!stage) return null;
 
   const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
   const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
-  const balance = (stage.amount || 0) - released - pending;
+  const carryover = stage.carryover_deduction || 0;
+  const balance = Math.max(0, (stage.amount || 0) - released - pending - carryover);
+  const allRequests = stage.payment_requests || [];
 
   const submit = async () => {
     const amt = parseFloat(amount || 0);
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (amt > balance + 0.01) { toast.error(`Amount exceeds balance ${fmt(balance)}`); return; }
     if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
     setSubmitting(true);
     try {
@@ -434,7 +422,10 @@ function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
         amount: amt,
         notes,
       });
-      toast.success('Payment request sent to Planning');
+      const exceedsBalance = amt > balance + 0.01;
+      toast.success(exceedsBalance
+        ? `Request sent (₹${(amt - balance).toLocaleString('en-IN')} over balance — Planning will review).`
+        : 'Payment request sent to Planning');
       onSaved();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to request payment');
@@ -443,55 +434,141 @@ function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
 
   return (
     <Dialog open={!!stage} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md" data-testid="wov2-stage-dialog">
+      <DialogContent className="max-w-[95vw] sm:max-w-xl max-h-[90vh] overflow-y-auto" data-testid="wov2-stage-dialog">
         <DialogHeader>
-          <DialogTitle className="text-base">Request Payment</DialogTitle>
-          <DialogDescription className="text-xs">{stage.name} · Balance {fmt(balance)}</DialogDescription>
+          <DialogTitle className="text-base">{stage.name}</DialogTitle>
+          <DialogDescription className="text-xs">{wo.contractor_name} ({wo.contractor_type || '—'})</DialogDescription>
         </DialogHeader>
 
-        {!stage.is_open ? (
-          <div className="text-xs bg-gray-50 border rounded p-3 text-gray-600">
-            <Clock className="h-3.5 w-3.5 inline mr-1" /> Stage not yet opened by Planning.
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+          <div className="bg-gray-50 border rounded px-2 py-1.5">
+            <p className="text-[9px] text-gray-500 uppercase">Total</p>
+            <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
           </div>
-        ) : balance <= 0 ? (
-          <div className="text-xs bg-green-50 border border-green-200 rounded p-3 text-green-700">
-            <CheckCircle className="h-3.5 w-3.5 inline mr-1" /> Stage fully paid — no balance remaining.
+          <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1.5">
+            <p className="text-[9px] text-blue-600 uppercase">Balance</p>
+            <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <Label className="text-xs">Amount (max {fmt(balance)})</Label>
-              <Input
-                type="number"
-                placeholder="Enter amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="text-sm mt-1"
-                data-testid="wov2-pr-amount"
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Remarks (optional)</Label>
-              <Textarea
-                rows={3}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add a note about this payment request"
-                className="text-sm mt-1"
-                data-testid="wov2-pr-notes"
-              />
-            </div>
+          <div className="bg-green-50 border border-green-200 rounded px-2 py-1.5">
+            <p className="text-[9px] text-green-600 uppercase">Released</p>
+            <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+            <p className="text-[9px] text-amber-600 uppercase">Extra</p>
+            <p className="text-xs font-bold text-amber-800">{fmt(suspenseBalance || 0)}</p>
+          </div>
+        </div>
+        {(carryover > 0 || pending > 0) && (
+          <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+            {pending > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                <p className="text-[9px] text-amber-600 uppercase">In Pipeline</p>
+                <p className="text-xs font-bold text-amber-800">{fmt(pending)}</p>
+              </div>
+            )}
+            {carryover > 0 && (
+              <div className="bg-orange-50 border border-orange-200 rounded px-2 py-1">
+                <p className="text-[9px] text-orange-600 uppercase">Carryover Deduction</p>
+                <p className="text-xs font-bold text-orange-800">−{fmt(carryover)}</p>
+              </div>
+            )}
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose} data-testid="wov2-pr-cancel">Cancel</Button>
-          {stage.is_open && balance > 0 && (
-            <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" disabled={submitting} onClick={submit} data-testid="wov2-pr-submit">
-              <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Submit Request'}
-            </Button>
-          )}
-        </DialogFooter>
+        {/* Sub-tabs */}
+        <div className="flex gap-1 border-b">
+          <button
+            onClick={() => setSubTab('request')}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500'}`}
+            data-testid="wov2-subtab-request"
+          >
+            Request Payment
+          </button>
+          <button
+            onClick={() => setSubTab('history')}
+            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'history' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500'}`}
+            data-testid="wov2-subtab-history"
+          >
+            Payment Summary {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
+          </button>
+        </div>
+
+        {subTab === 'request' && (
+          <div>
+            {!stage.is_open ? (
+              <div className="text-xs bg-gray-50 border rounded p-3 text-gray-600">
+                <Clock className="h-3.5 w-3.5 inline mr-1" /> Stage not yet opened by Planning.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs">Amount</Label>
+                  <Input
+                    type="number"
+                    placeholder={`Suggested ${fmt(balance)}`}
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="text-sm mt-1"
+                    data-testid="wov2-pr-amount"
+                  />
+                  {parseFloat(amount || 0) > balance + 0.01 && (
+                    <p className="text-[11px] text-orange-700 mt-1">
+                      ⚠ Exceeds current balance by {fmt(parseFloat(amount) - balance)}. Planning may approve, and the overflow will be deducted from the next stage.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs">Remarks (optional)</Label>
+                  <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add a note about this payment request" className="text-sm mt-1" data-testid="wov2-pr-notes" />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+                  <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" disabled={submitting} onClick={submit} data-testid="wov2-pr-submit">
+                    <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Submit Request'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {subTab === 'history' && (
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {allRequests.length === 0 ? (
+              <p className="text-center text-xs text-gray-400 py-6">No payment requests yet for this stage</p>
+            ) : (
+              allRequests.slice().reverse().map((pr, i) => {
+                const sb = prStatusBadge(pr.status);
+                return (
+                  <div key={pr.request_id || i} className="border rounded p-2 text-xs" data-testid={`wov2-history-${pr.request_id || i}`}>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <p className="font-bold">{fmt(pr.approved_amount || pr.amount)}
+                          {pr.original_amount && pr.original_amount !== pr.amount && (
+                            <span className="text-[10px] text-gray-500 ml-1.5">(req {fmt(pr.original_amount)})</span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-gray-500">{fmtDate(pr.requested_at)}</p>
+                      </div>
+                      <Badge variant="outline" className={`text-[9px] ${sb.cls}`}>{sb.label}</Badge>
+                    </div>
+                    {pr.notes && <p className="text-[11px] text-gray-600 mt-1">📝 {pr.notes}</p>}
+                    {pr.planning_change_reason && (
+                      <p className="text-[11px] text-amber-700 mt-1">Planning: {pr.planning_change_reason}</p>
+                    )}
+                    {pr.overflow_to_next_stage > 0 && (
+                      <p className="text-[10px] text-orange-700 mt-1">Overflow {fmt(pr.overflow_to_next_stage)} → "{pr.overflow_target_stage_name}"</p>
+                    )}
+                    {pr.rejection_reason && (
+                      <p className="text-[11px] text-red-600 mt-1">Rejected: {pr.rejection_reason}</p>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

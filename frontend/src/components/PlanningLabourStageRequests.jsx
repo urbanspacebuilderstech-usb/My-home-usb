@@ -177,6 +177,16 @@ function DetailDialog({ item, onClose, onActionDone }) {
           <p className="text-[10px] text-amber-700 mt-1">Stage Total: {fmt(item.stage_amount)}</p>
         </div>
 
+        {item.se_exceeds_balance && (
+          <div className="bg-orange-50 border border-orange-300 rounded p-2 text-xs">
+            <p className="font-bold text-orange-900">⚠ Exceeds current stage balance</p>
+            <p className="text-orange-800 mt-0.5">
+              Stage balance was <span className="font-medium">{fmt(item.se_balance_at_request)}</span>, request is <span className="font-medium">{fmt(item.amount)}</span>.
+              {item.next_stage_name ? <> If you approve, <span className="font-medium">{fmt(item.amount - item.se_balance_at_request)}</span> overflow will be deducted from <span className="font-medium">"{item.next_stage_name}"</span> (capacity {fmt(item.next_stage_capacity)}).</> : ' No next stage available — cannot absorb overflow.'}
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2 text-xs">
           <div className="bg-green-50 border border-green-200 rounded p-2">
             <p className="text-green-700">Released</p>
