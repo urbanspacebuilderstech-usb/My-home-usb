@@ -14,7 +14,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-export default function PlanningLabourPayments() {
+export default function PlanningLabourPayments({ mode = 'all' }) {
   const [tab, setTab] = useState('new');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,8 +60,8 @@ export default function PlanningLabourPayments() {
 
   return (
     <div className="space-y-3" data-testid="planning-labour-payments">
-      {/* Stage Open Requests panel */}
-      {openReqs.length > 0 && (
+      {/* Stage Open Requests panel — shown for 'stages' or 'all' modes */}
+      {(mode === 'stages' || mode === 'all') && openReqs.length > 0 && (
         <Card className="border-amber-300">
           <CardHeader className="p-3 pb-2">
             <CardTitle className="text-sm flex items-center gap-2 text-amber-800">
@@ -106,6 +106,14 @@ export default function PlanningLabourPayments() {
         </Card>
       )}
 
+      {/* Stages-only mode + empty state */}
+      {mode === 'stages' && openReqs.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-xs text-gray-400">No pending stage-open requests</CardContent></Card>
+      )}
+
+      {/* Labour Payments queue — shown for 'payments' or 'all' modes */}
+      {(mode === 'payments' || mode === 'all') && (
+      <>
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
         {tabs.map(t => (
           <button
@@ -173,6 +181,8 @@ export default function PlanningLabourPayments() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       <DetailDialog item={open} onClose={() => setOpen(null)} onActionDone={() => { setOpen(null); fetchItems(); }} />
     </div>

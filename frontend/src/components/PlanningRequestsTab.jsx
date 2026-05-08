@@ -102,12 +102,18 @@ export default function PlanningRequestsTab({ projects = [] }) {
   const fLabourPayments = useMemo(() => applyFilters(labourPayments), [labourPayments, dateFrom, dateTo, projectFilter]);
   const fPetty = useMemo(() => applyFilters(petty), [petty, dateFrom, dateTo, projectFilter]);
 
-  const counts = { material: fMaterials.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPetty.length };
+  // For Petty Cash, show only items already approved by Project Manager (i.e. forwarded to Planning).
+  const fPettyPMApproved = useMemo(
+    () => fPetty.filter(p => ['pm_approved', 'planning_approved', 'approved'].includes((p.status || '').toLowerCase())),
+    [fPetty]
+  );
+
+  const counts = { material: fMaterials.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
   const totalRequests = counts.material + counts.labour_stages + counts.labour_payments + counts.petty;
   const baseList = activeType === 'material' ? fMaterials
     : activeType === 'labour_stages' ? fLabourStages
     : activeType === 'labour_payments' ? fLabourPayments
-    : fPetty;
+    : fPettyPMApproved;
 
   // Status pipeline counts for the currently-active category (post date+project filters).
   const statusCounts = useMemo(() => {
@@ -253,10 +259,11 @@ export default function PlanningRequestsTab({ projects = [] }) {
         />
       )}
 
-      {/* For Labour Stages / Labour Payments — render the unified Stage Open + Labour Payments queue */}
-      {(activeType === 'labour_stages' || activeType === 'labour_payments') ? (
-        <PlanningLabourStageRequests />
-      ) : (
+      {/* Labour Stages → Stage Open Requests only */}
+      {activeType === 'labour_stages' && <PlanningLabourStageRequests mode="stages" />}
+      {/* Labour Payments → Payment Queue only */}
+      {activeType === 'labour_payments' && <PlanningLabourStageRequests mode="payments" />}
+      {(activeType !== 'labour_stages' && activeType !== 'labour_payments') && (
       <>
       {/* Request Rows */}
       <Card>
