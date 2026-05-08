@@ -597,7 +597,13 @@ async def get_project_approved_materials(
     project_id: str,
     user: User = Depends(get_current_user)
 ):
-    """Get approved materials (with brands) for a project - accessible by Site Engineers"""
+    """Get materials available for a Site Engineer to request.
+
+    Sources (deduped by name+brand, project-specific items first):
+      1. db.project_materials (legacy approved materials with brand)
+      2. project.package_materials (RE/Quotation package materials with brand)
+      3. db.materials master catalog (industry-standard fallback)
+    """
     allowed_roles = [
         UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER, UserRole.ASSOCIATE_PM,
         UserRole.PLANNING, UserRole.PROCUREMENT, UserRole.SUPER_ADMIN,
@@ -616,11 +622,182 @@ async def get_project_approved_materials(
         if not assignment:
             raise HTTPException(status_code=403, detail="You are not assigned to this project")
 
-    materials = await db.project_materials.find(
-        {"project_id": project_id}, {"_id": 0}
-    ).to_list(200)
+    out = []
+    seen = set()  # (name_lower, brand_lower)
 
-    return materials
+    def _add(item, source):
+        name = (item.get("name") or item.get("material_name") or "").strip()
+        if not name:
+            return
+        brand = (item.get("brand") or "").strip()
+        key = (name.lower(), brand.lower())
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "material_id": item.get("material_id") or f"src_{source}_{len(out)}",
+            "name": name,
+            "brand": brand,
+            "unit": item.get("unit") or "kg",
+            "category": item.get("category") or "",
+            "specification": item.get("specification") or item.get("specs") or "",
+            "standard_rate": item.get("standard_rate"),
+            "source": source,  # "project" | "package" | "master"
+            "project_approved": source in ("project", "package"),
+        })
+
+    # 1) project_materials collection
+    pm_rows = await db.project_materials.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+    for r in pm_rows:
+        _add(r, "project")
+
+    # 2) project doc -> package_materials
+    proj = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "package_materials": 1})
+    for r in (proj or {}).get("package_materials") or []:
+        _add(r, "package")
+
+    # 3) Industry-wide master catalog
+    master_rows = await db.materials.find({}, {"_id": 0}).to_list(2000)
+    if not master_rows:
+        # Master catalog is empty — seed a comprehensive default list once so SEs always
+        # have construction materials to pick from. Idempotent: skipped on subsequent calls.
+        try:
+            await _seed_default_materials_catalog()
+            master_rows = await db.materials.find({}, {"_id": 0}).to_list(2000)
+        except Exception:
+            master_rows = []
+    for r in master_rows:
+        _add(r, "master")
+
+    return out
+
+
+async def _seed_default_materials_catalog():
+    """Seed db.materials with a baseline construction industry materials catalog.
+    Idempotent — only inserts if collection is empty.
+    """
+    if await db.materials.count_documents({}) > 0:
+        return
+    catalog = [
+        # Cement & Binders
+        ("OPC 53 Grade Cement", "cement", "bags", "53 grade Ordinary Portland Cement, 50kg bag"),
+        ("OPC 43 Grade Cement", "cement", "bags", "43 grade Ordinary Portland Cement, 50kg bag"),
+        ("PPC Cement", "cement", "bags", "Portland Pozzolana Cement, 50kg bag"),
+        ("PSC Cement", "cement", "bags", "Portland Slag Cement, 50kg bag"),
+        ("White Cement", "cement", "bags", "20kg / 50kg bag"),
+        ("Cement Plaster (Wall Care Putty)", "cement", "bags", "20kg / 40kg bag"),
+        # Sand & Aggregate
+        ("M-Sand", "sand", "tonnes", "Manufactured sand for concrete & plastering"),
+        ("River Sand", "sand", "tonnes", "Natural river sand for plastering"),
+        ("P-Sand", "sand", "tonnes", "Plastering sand"),
+        ("20mm Aggregate", "aggregate", "tonnes", "Coarse aggregate, 20mm jelly"),
+        ("12mm Aggregate", "aggregate", "tonnes", "Coarse aggregate, 12mm jelly"),
+        ("40mm Aggregate", "aggregate", "tonnes", "Coarse aggregate, 40mm jelly"),
+        ("GSB Aggregate", "aggregate", "tonnes", "Granular Sub Base"),
+        ("Stone Dust", "aggregate", "tonnes", "Quarry stone dust"),
+        # Steel & Reinforcement
+        ("TMT Bar Fe500 8mm", "steel", "kg", "Thermo-mechanically treated bar, 8mm dia"),
+        ("TMT Bar Fe500 10mm", "steel", "kg", "TMT bar, 10mm dia"),
+        ("TMT Bar Fe500 12mm", "steel", "kg", "TMT bar, 12mm dia"),
+        ("TMT Bar Fe500 16mm", "steel", "kg", "TMT bar, 16mm dia"),
+        ("TMT Bar Fe500 20mm", "steel", "kg", "TMT bar, 20mm dia"),
+        ("TMT Bar Fe500 25mm", "steel", "kg", "TMT bar, 25mm dia"),
+        ("Binding Wire", "steel", "kg", "Annealed binding wire 18 SWG"),
+        ("MS Angle", "steel", "kg", "Mild Steel angle"),
+        ("MS Channel", "steel", "kg", "Mild Steel channel"),
+        ("MS Flat", "steel", "kg", "Mild Steel flat"),
+        ("MS Square Pipe", "steel", "kg", "MS square hollow section"),
+        ("GI Pipe", "steel", "metres", "Galvanised iron pipe"),
+        # Bricks & Blocks
+        ("Red Brick", "bricks", "nos", "Standard red clay brick"),
+        ("Fly Ash Brick", "bricks", "nos", "Eco-friendly fly ash brick"),
+        ("Concrete Solid Block 4inch", "bricks", "nos", "100mm solid block"),
+        ("Concrete Solid Block 6inch", "bricks", "nos", "150mm solid block"),
+        ("AAC Block", "bricks", "cubic metres", "Autoclaved Aerated Concrete block"),
+        ("Hollow Block 6inch", "bricks", "nos", "Hollow concrete block 150mm"),
+        # Tiles & Stones
+        ("Vitrified Floor Tile 600x600", "tiles", "sqft", "Glossy vitrified, 2x2 ft"),
+        ("Vitrified Floor Tile 800x800", "tiles", "sqft", "Glossy vitrified"),
+        ("Ceramic Wall Tile", "tiles", "sqft", "Bathroom / Kitchen wall"),
+        ("Granite Tile", "tiles", "sqft", "Polished granite"),
+        ("Marble Tile", "tiles", "sqft", "Polished marble"),
+        ("Anti-skid Tile", "tiles", "sqft", "Bathroom / outdoor anti-skid"),
+        ("Tile Adhesive", "tiles", "bags", "20kg bag"),
+        ("Grout", "tiles", "kg", "Tile gap filler"),
+        # Plumbing
+        ("CPVC Pipe 1/2 inch", "plumbing", "metres", "Hot/cold water pipe"),
+        ("CPVC Pipe 3/4 inch", "plumbing", "metres", "Hot/cold water pipe"),
+        ("CPVC Pipe 1 inch", "plumbing", "metres", "Hot/cold water pipe"),
+        ("PVC Pipe 4 inch", "plumbing", "metres", "Drain pipe"),
+        ("PVC Pipe 6 inch", "plumbing", "metres", "Drain pipe"),
+        ("UPVC Pipe", "plumbing", "metres", "Cold water pipe"),
+        ("Bathroom Fittings Set", "plumbing", "set", "Tap/shower/health faucet bundle"),
+        ("Wash Basin", "plumbing", "nos", "Ceramic wash basin"),
+        ("EWC (Toilet)", "plumbing", "nos", "European water closet"),
+        ("Kitchen Sink", "plumbing", "nos", "Stainless steel kitchen sink"),
+        ("Water Tank 1000L", "plumbing", "nos", "Overhead 1000 litre tank"),
+        ("Solenoid / Ball Valve", "plumbing", "nos", "Brass valve"),
+        # Electrical
+        ("Conduit Pipe 20mm", "electrical", "metres", "PVC conduit"),
+        ("Conduit Pipe 25mm", "electrical", "metres", "PVC conduit"),
+        ("Wire 1.5 sqmm", "electrical", "metres", "Single core copper wire"),
+        ("Wire 2.5 sqmm", "electrical", "metres", "Single core copper wire"),
+        ("Wire 4 sqmm", "electrical", "metres", "Single core copper wire"),
+        ("Wire 6 sqmm", "electrical", "metres", "Single core copper wire"),
+        ("MCB Switch", "electrical", "nos", "Miniature circuit breaker"),
+        ("RCCB", "electrical", "nos", "Residual current circuit breaker"),
+        ("Distribution Box", "electrical", "nos", "Modular DB"),
+        ("Modular Switch", "electrical", "nos", "Wall switch"),
+        ("Modular Socket", "electrical", "nos", "Wall socket"),
+        ("LED Bulb", "electrical", "nos", "9W / 12W LED"),
+        ("Fan", "electrical", "nos", "Ceiling fan"),
+        # Paint & Finishes
+        ("Primer", "paint", "litres", "Wall primer"),
+        ("Wall Putty", "paint", "kg", "Acrylic wall putty"),
+        ("Emulsion Paint - Interior", "paint", "litres", "Premium interior emulsion"),
+        ("Emulsion Paint - Exterior", "paint", "litres", "Weatherproof exterior emulsion"),
+        ("Distemper Paint", "paint", "kg", "Acrylic distemper"),
+        ("Enamel Paint", "paint", "litres", "Synthetic enamel for metal/wood"),
+        ("Wood Polish", "paint", "litres", "Melamine / lacquer"),
+        # Wood & Doors
+        ("Plywood 19mm", "wood", "sqft", "BWP grade plywood"),
+        ("Plywood 12mm", "wood", "sqft", "BWP grade plywood"),
+        ("Veneer Sheet", "wood", "sqft", "Decorative veneer"),
+        ("Door Frame", "wood", "nos", "Hardwood door frame"),
+        ("Wooden Door Shutter", "wood", "nos", "Solid panel door"),
+        ("Aluminium Window", "wood", "sqft", "Sliding aluminium window"),
+        ("UPVC Window", "wood", "sqft", "UPVC sliding window"),
+        # Hardware
+        ("Door Hinge", "hardware", "nos", "Stainless steel hinge"),
+        ("Door Lock", "hardware", "nos", "Mortise lock"),
+        ("Cabinet Handle", "hardware", "nos", "SS / brass handle"),
+        ("Screws", "hardware", "kg", "Drywall / wood screws"),
+        ("Nails", "hardware", "kg", "Common nails"),
+        # Waterproofing
+        ("Waterproofing Compound", "waterproofing", "kg", "Cement-based waterproofing"),
+        ("Bitumen", "waterproofing", "litres", "Roof waterproofing"),
+        ("PU Sealant", "waterproofing", "tubes", "Polyurethane sealant"),
+        # Misc
+        ("Curing Compound", "misc", "litres", "Concrete curing"),
+        ("Form Oil / Shuttering Oil", "misc", "litres", "Mould release"),
+        ("Plaster of Paris", "misc", "kg", "POP for ceiling"),
+        ("Gypsum Board", "misc", "sqft", "False ceiling sheet"),
+        ("Mortar Mix", "misc", "kg", "Ready-mix mortar"),
+    ]
+    docs = []
+    for name, category, unit, spec in catalog:
+        docs.append({
+            "material_id": f"mat_{uuid.uuid4().hex[:10]}",
+            "name": name,
+            "category": category,
+            "unit": unit,
+            "specification": spec,
+            "is_active": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "source": "seed",
+        })
+    if docs:
+        await db.materials.insert_many(docs)
 
 
 # Material Request Endpoints

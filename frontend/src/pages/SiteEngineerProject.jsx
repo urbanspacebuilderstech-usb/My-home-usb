@@ -781,15 +781,19 @@ export default function SiteEngineerProject() {
                             />
                           </div>
 
-                          {/* Approved material list */}
-                          <div className="max-h-44 overflow-y-auto border rounded-lg divide-y" data-testid="approved-materials-list">
+                          {/* Approved material list — project items first, then full master catalog */}
+                          <div className="max-h-72 overflow-y-auto border rounded-lg divide-y" data-testid="approved-materials-list">
                             {approvedMaterials
                               .filter(m => {
                                 const q = materialSearch.toLowerCase();
-                                return !q || m.name.toLowerCase().includes(q) || (m.brand || '').toLowerCase().includes(q);
+                                return !q
+                                  || (m.name || '').toLowerCase().includes(q)
+                                  || (m.brand || '').toLowerCase().includes(q)
+                                  || (m.category || '').toLowerCase().includes(q);
                               })
                               .map(mat => {
                                 const isSelected = materialForm.material_id === mat.material_id;
+                                const isProjectApproved = mat.project_approved || mat.source === 'project' || mat.source === 'package';
                                 return (
                                   <button
                                     key={mat.material_id}
@@ -807,21 +811,27 @@ export default function SiteEngineerProject() {
                                     }}
                                     data-testid={`approved-mat-${mat.material_id}`}
                                   >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-2">
                                       <div className="flex-1 min-w-0">
                                         <span className="font-medium">{mat.name}</span>
                                         {mat.brand && (
                                           <span className="ml-2 text-[10px] sm:text-xs px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium">{mat.brand}</span>
                                         )}
+                                        {isProjectApproved && (
+                                          <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-medium">project</span>
+                                        )}
+                                        {!isProjectApproved && mat.category && (
+                                          <span className="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium capitalize">{mat.category}</span>
+                                        )}
                                       </div>
-                                      <span className="text-gray-400 text-xs flex-shrink-0 ml-2">{mat.unit}</span>
+                                      <span className="text-gray-400 text-xs flex-shrink-0">{mat.unit}</span>
                                     </div>
-                                    {mat.specification && <p className="text-[10px] text-gray-400 mt-0.5">{mat.specification}</p>}
+                                    {mat.specification && <p className="text-[10px] text-gray-400 mt-0.5 truncate">{mat.specification}</p>}
                                   </button>
                                 );
                               })}
                             {approvedMaterials.length === 0 && (
-                              <div className="text-center py-4 text-gray-400 text-xs">No approved materials configured for this project</div>
+                              <div className="text-center py-4 text-gray-400 text-xs">No materials available — try Custom / Other</div>
                             )}
                           </div>
 
