@@ -31,6 +31,7 @@ import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
 import { SortableList, SortableTableRow, DragHandle } from '../components/SortableList';
 import DLRPanel from '../components/DLRPanel';
+import ProjectAttendanceDLR from '../components/ProjectAttendanceDLR';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -487,7 +488,7 @@ export default function ProjectDetail() {
   const [woSubTab, setWoSubTab] = useState('scope');
   const [assignVendorDialog, setAssignVendorDialog] = useState(false);
   const [assignForm, setAssignForm] = useState({ category: '', vendor_id: '', brand: '' });
-  const [labourSubTab, setLabourSubTab] = useState('requests');
+  const [labourSubTab, setLabourSubTab] = useState('workorders');
   const [labourWoViewId, setLabourWoViewId] = useState(null);
   const [expandedWoStages, setExpandedWoStages] = useState({});
   const [labourAttendance, setLabourAttendance] = useState([]);
@@ -5693,8 +5694,7 @@ export default function ProjectDetail() {
                 </div>
 
                 <Tabs value={labourSubTab} onValueChange={setLabourSubTab}>
-                  <TabsList className="grid grid-cols-3 w-full">
-                    <TabsTrigger value="requests" data-testid="subtab-labour-req">Labour Requests</TabsTrigger>
+                  <TabsList className="grid grid-cols-2 w-full">
                     <TabsTrigger value="workorders" data-testid="subtab-workorders">Work Orders</TabsTrigger>
                     <TabsTrigger value="attendance" data-testid="subtab-attendance">Attendance</TabsTrigger>
                   </TabsList>
@@ -5959,66 +5959,18 @@ export default function ProjectDetail() {
                     )}
                   </TabsContent>
 
-                  {/* ATTENDANCE SUB-TAB */}
+                  {/* ATTENDANCE SUB-TAB — reflects project-wide DLR (Daily Labour Report) data with summary cards */}
                   <TabsContent value="attendance" className="mt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <p className="text-sm text-gray-500">{labourAttendance.length} entries</p>
-                      {['super_admin','planning','site_engineer'].includes(user?.role) && (
-                        <Button size="sm" data-testid="add-attendance-btn" onClick={() => {
-                          setAttForm({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
-                          setShowAttendanceForm(true);
-                        }}>
-                          <Plus className="h-4 w-4 mr-1" /> Daily Entry
-                        </Button>
-                      )}
-                    </div>
-                    {/* Daily summary */}
-                    {labourAttendance.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-                        <div className="rounded-lg p-3 text-center border bg-blue-50 border-blue-200">
-                          <p className="text-xl font-bold text-blue-700">{labourAttendance.reduce((s, a) => s + (a.total_workers || 0), 0)}</p>
-                          <p className="text-xs text-gray-500">Total Workers (All Days)</p>
-                        </div>
-                        <div className="rounded-lg p-3 text-center border bg-green-50 border-green-200">
-                          <p className="text-xl font-bold text-green-700">{formatCurrency(labourAttendance.reduce((s, a) => s + (a.total_cost || 0), 0))}</p>
-                          <p className="text-xs text-gray-500">Total Cost</p>
-                        </div>
-                        <div className="rounded-lg p-3 text-center border bg-gray-50">
-                          <p className="text-xl font-bold">{labourAttendance.length}</p>
-                          <p className="text-xs text-gray-500">Total Entries</p>
-                        </div>
-                      </div>
-                    )}
-                    {labourAttendance.length > 0 ? (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50 border-b">
-                            <tr>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Contractor</th>
-                              <th className="px-3 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Workers</th>
-                              <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Details</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {labourAttendance.map(a => (
-                              <tr key={a.attendance_id} className="hover:bg-gray-50">
-                                <td className="px-3 py-2.5 font-medium">{a.date}</td>
-                                <td className="px-3 py-2.5">{a.contractor_name || '-'}</td>
-                                <td className="px-3 py-2.5 text-center font-bold">{a.total_workers}</td>
-                                <td className="px-3 py-2.5 text-right">{formatCurrency(a.total_cost || 0)}</td>
-                                <td className="px-3 py-2.5 text-xs">
-                                  {a.entries?.map((e, i) => (
-                                    <span key={i} className="mr-2">{e.label || e.type}: {e.count}</span>
-                                  ))}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : <div className="text-center py-8 text-gray-400"><Users className="h-10 w-10 mx-auto mb-2 opacity-30" /><p className="text-sm">No attendance entries</p></div>}
+                    <ProjectAttendanceDLR
+                      projectId={projectId}
+                      user={user}
+                      labourAttendance={labourAttendance}
+                      formatCurrency={formatCurrency}
+                      onAddDailyEntry={() => {
+                        setAttForm({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
+                        setShowAttendanceForm(true);
+                      }}
+                    />
                   </TabsContent>
                 </Tabs>
 
