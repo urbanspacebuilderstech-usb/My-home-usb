@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { AppHeader } from '../components/AppHeader';
-import { LineChart, BarChart3, CalendarClock, FolderKanban } from 'lucide-react';
+import { LineChart, BarChart3, CalendarClock, FolderKanban, Banknote } from 'lucide-react';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -12,6 +12,7 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const TABS = [
   { value: 'accounts',  label: 'Accounts',         icon: BarChart3,    src: '/accounts-board?embedded=1&navRole=accountant' },
   { value: 'payments',  label: 'Payment Schedule', icon: CalendarClock, src: '/payment-schedule?embedded=1' },
+  { value: 'labour',    label: 'Labour Payments',  icon: Banknote,      src: '/labour-payments?embedded=1' },
   { value: 'projects',  label: 'Project Wise',     icon: FolderKanban,  src: '/accounts-board?tab=projects&embedded=1&navRole=accountant' },
   { value: 'projection', label: 'Projection',      icon: LineChart,     src: null },
 ];

@@ -3,16 +3,18 @@ import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { Eye, Send, CheckCircle, XCircle, Clock, Banknote } from 'lucide-react';
+import { Eye, CheckCircle, XCircle, Banknote, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
 const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); } catch { return s || '—'; } };
 
-export default function PlanningLabourStageRequests() {
+export default function PlanningLabourPayments() {
   const [tab, setTab] = useState('new');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,9 +27,7 @@ export default function PlanningLabourStageRequests() {
       setItems(res.data?.requests || []);
     } catch {
       setItems([]);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchItems(); /* eslint-disable-next-line */ }, [tab]);
@@ -38,8 +38,7 @@ export default function PlanningLabourStageRequests() {
   ];
 
   return (
-    <div className="space-y-3" data-testid="planning-labour-stage-req">
-      {/* Sub-tabs */}
+    <div className="space-y-3" data-testid="planning-labour-payments">
       <div className="flex gap-1 border-b bg-white rounded-t-lg px-2 pt-1">
         {tabs.map(t => (
           <button
@@ -62,38 +61,41 @@ export default function PlanningLabourStageRequests() {
         <CardHeader className="p-3 pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Banknote className="h-4 w-4 text-amber-600" />
-            Labour Stage Requests {!loading && `· ${items.length}`}
+            Labour Payments {!loading && `· ${items.length}`}
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
             <p className="text-center text-xs text-gray-400 py-8">Loading...</p>
           ) : items.length === 0 ? (
-            <p className="text-center text-xs text-gray-400 py-10">No {tab === 'new' ? 'new' : 'forwarded'} labour stage requests</p>
+            <p className="text-center text-xs text-gray-400 py-10">No {tab === 'new' ? 'new' : 'forwarded'} labour payment requests</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-100 border-y">
                   <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Project Name</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Contractor Type</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Contractor Name</th>
                     <th className="text-left px-3 py-2 font-semibold text-gray-600">Site Engineer</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage Name</th>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Requested</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Project Name</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-600">Stage</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-600">Amount</th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-600 w-28">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {items.map((r) => (
                     <tr key={r.request_id} className="hover:bg-amber-50/40" data-testid={`pls-row-${r.request_id}`}>
-                      <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
-                      <td className="px-3 py-2"><Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">{r.contractor_type || '—'}</Badge></td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-gray-900">{r.contractor_name}</p>
+                        <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-200 mt-0.5">{r.contractor_type || '—'}</Badge>
+                      </td>
                       <td className="px-3 py-2 text-gray-700">{r.site_engineer_name || '—'}</td>
-                      <td className="px-3 py-2 font-medium">{r.stage_name}</td>
-                      <td className="px-3 py-2 text-gray-500 text-[11px]">{fmtDate(r.requested_at)}</td>
+                      <td className="px-3 py-2 font-medium text-gray-900">{r.project_name}</td>
+                      <td className="px-3 py-2 text-gray-700">{r.stage_name}</td>
+                      <td className="px-3 py-2 text-right font-bold text-amber-700">{fmt(r.amount)}</td>
                       <td className="px-3 py-2 text-right">
-                        <Button size="sm" className="h-7 text-xs gap-1 bg-amber-600 hover:bg-amber-700" onClick={() => setOpen(r)} data-testid={`pls-open-${r.request_id}`}>
-                          <Eye className="h-3 w-3" /> Open
+                        <Button size="sm" className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700" onClick={() => setOpen(r)} data-testid={`pls-open-${r.request_id}`}>
+                          <Eye className="h-3 w-3" /> {tab === 'new' ? 'Approve' : 'View'}
                         </Button>
                       </td>
                     </tr>
@@ -110,31 +112,46 @@ export default function PlanningLabourStageRequests() {
   );
 }
 
-// =============================================================
-// Detail dialog: shows stage amount, payment summary, approve/reject
-// =============================================================
 function DetailDialog({ item, onClose, onActionDone }) {
-  const [notes, setNotes] = useState('');
+  const [mode, setMode] = useState('approve_same');  // approve_same | approve_diff | reject
+  const [diffAmount, setDiffAmount] = useState('');
+  const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { if (item) setNotes(''); }, [item]);
+  useEffect(() => {
+    if (item) { setMode('approve_same'); setDiffAmount(String(item.amount || '')); setReason(''); }
+  }, [item]);
 
   if (!item) return null;
-
   const isNew = item.status === 'pm_approved';
 
-  const act = async (action) => {
+  const act = async (action, payload = {}) => {
     setSubmitting(true);
     try {
       await axios.patch(
         `${API}/projects/${item.project_id}/work-orders/${item.work_order_id}/stages/${item.stage_id}/approve`,
-        { request_id: item.request_id, action, notes }
+        { request_id: item.request_id, action, ...payload }
       );
       toast.success(action === 'approve' ? 'Forwarded to Accountant' : 'Request rejected');
       onActionDone();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Action failed');
     } finally { setSubmitting(false); }
+  };
+
+  const handleSubmit = () => {
+    if (mode === 'reject') {
+      if (!reason.trim()) { toast.error('Rejection reason is required'); return; }
+      act('reject', { notes: reason });
+    } else if (mode === 'approve_same') {
+      act('approve', { notes: reason });
+    } else if (mode === 'approve_diff') {
+      const amt = parseFloat(diffAmount || 0);
+      if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
+      if (amt > item.stage_balance + 0.01) { toast.error(`Amount exceeds stage balance (${fmt(item.stage_balance)})`); return; }
+      if (!reason.trim()) { toast.error('Reason is required when changing the amount'); return; }
+      act('approve', { approved_amount: amt, notes: reason });
+    }
   };
 
   return (
@@ -153,44 +170,32 @@ function DetailDialog({ item, onClose, onActionDone }) {
           <p className="text-gray-500 text-[10px] mt-0.5">on {fmtDate(item.requested_at)}</p>
         </div>
 
-        {/* Stage Amount + Payment Summary */}
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1.5">Stage Amount</p>
-          <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
-            <p className="text-[10px] text-amber-700 uppercase tracking-wide">This Stage Total</p>
-            <p className="text-2xl font-bold text-amber-900">{fmt(item.stage_amount)}</p>
+        {/* Stage Amount + summary */}
+        <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
+          <p className="text-[10px] text-amber-700 uppercase tracking-wide">Site Engineer's Request</p>
+          <p className="text-2xl font-bold text-amber-900">{fmt(item.amount)}</p>
+          <p className="text-[10px] text-amber-700 mt-1">Stage Total: {fmt(item.stage_amount)}</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="bg-green-50 border border-green-200 rounded p-2">
+            <p className="text-green-700">Released</p>
+            <p className="font-bold text-green-800">{fmt(item.stage_released)}</p>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded p-2">
+            <p className="text-blue-700">In Pipeline</p>
+            <p className="font-bold text-blue-800">{fmt(item.stage_pending)}</p>
+          </div>
+          <div className="bg-gray-50 border rounded p-2">
+            <p className="text-gray-500">Stage Balance</p>
+            <p className="font-bold text-gray-900">{fmt(item.stage_balance)}</p>
+          </div>
+          <div className="bg-violet-50 border border-violet-200 rounded p-2">
+            <p className="text-violet-700">WO Paid / Total</p>
+            <p className="font-bold text-violet-900 text-[11px]">{fmt(item.wo_paid_amount)} / {fmt(item.wo_total_value)}</p>
           </div>
         </div>
 
-        <div>
-          <p className="text-xs font-semibold text-gray-700 mb-1.5">Payment Summary</p>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-amber-50 border border-amber-200 rounded p-2">
-              <p className="text-amber-700">This Request</p>
-              <p className="font-bold text-amber-900">{fmt(item.amount)}</p>
-            </div>
-            <div className="bg-green-50 border border-green-200 rounded p-2">
-              <p className="text-green-700">Released</p>
-              <p className="font-bold text-green-800">{fmt(item.stage_released)}</p>
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded p-2">
-              <p className="text-blue-700">In Pipeline</p>
-              <p className="font-bold text-blue-800">{fmt(item.stage_pending)}</p>
-            </div>
-            <div className="bg-gray-50 border border-gray-200 rounded p-2">
-              <p className="text-gray-700">Stage Balance</p>
-              <p className="font-bold text-gray-900">{fmt(item.stage_balance)}</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Work-order summary */}
-        <div className="border rounded p-2 text-[11px]">
-          <div className="flex justify-between"><span className="text-gray-500">Work Order Total</span><span className="font-medium">{fmt(item.wo_total_value)}</span></div>
-          <div className="flex justify-between"><span className="text-gray-500">Work Order Paid</span><span className="font-medium text-green-700">{fmt(item.wo_paid_amount)}</span></div>
-        </div>
-
-        {/* Site engineer remarks */}
         {item.notes && (
           <div className="border rounded p-2 text-xs">
             <p className="text-[10px] text-gray-500 uppercase mb-0.5">Site Engineer Remarks</p>
@@ -198,30 +203,75 @@ function DetailDialog({ item, onClose, onActionDone }) {
           </div>
         )}
 
-        {/* Planning notes */}
-        {isNew && (
-          <div>
-            <p className="text-xs font-semibold text-gray-700 mb-1">Planning Notes (optional)</p>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add note before approving / rejecting" className="text-sm" data-testid="pls-notes" />
-          </div>
+        {isNew ? (
+          <>
+            {/* Mode pills */}
+            <div className="flex gap-1 flex-wrap">
+              <button
+                onClick={() => setMode('approve_same')}
+                className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors ${mode === 'approve_same' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                data-testid="pls-mode-same"
+              >
+                <CheckCircle className="h-3 w-3 inline mr-1" /> Approve as-is ({fmt(item.amount)})
+              </button>
+              <button
+                onClick={() => setMode('approve_diff')}
+                className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors ${mode === 'approve_diff' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                data-testid="pls-mode-diff"
+              >
+                <Pencil className="h-3 w-3 inline mr-1" /> Different Amount
+              </button>
+              <button
+                onClick={() => setMode('reject')}
+                className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors ${mode === 'reject' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                data-testid="pls-mode-reject"
+              >
+                <XCircle className="h-3 w-3 inline mr-1" /> Reject
+              </button>
+            </div>
+
+            {mode === 'approve_diff' && (
+              <div>
+                <Label className="text-xs">Approved Amount (max {fmt(item.stage_balance)})</Label>
+                <Input type="number" value={diffAmount} onChange={(e) => setDiffAmount(e.target.value)} className="mt-1 text-sm" data-testid="pls-diff-amount" />
+              </div>
+            )}
+
+            <div>
+              <Label className="text-xs">{mode === 'reject' ? 'Rejection Reason *' : mode === 'approve_diff' ? 'Reason for Change *' : 'Planning Notes (optional)'}</Label>
+              <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1 text-sm" placeholder={mode === 'reject' ? 'Why rejecting...' : 'Optional remarks'} data-testid="pls-reason" />
+            </div>
+          </>
+        ) : (
+          <>
+            {item.planning_amount_changed && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs">
+                <p className="font-semibold text-amber-900">Planning adjusted the amount</p>
+                <p className="text-amber-800 mt-0.5">SE requested: <span className="font-medium">{fmt(item.original_amount)}</span> · Approved: <span className="font-medium">{fmt(item.amount)}</span></p>
+                {item.planning_change_reason && <p className="text-amber-700 mt-1 italic">"{item.planning_change_reason}"</p>}
+              </div>
+            )}
+            {item.planning_notes && !item.planning_amount_changed && (
+              <div className="border rounded p-2 text-xs">
+                <p className="text-[10px] text-gray-500 uppercase mb-0.5">Planning Notes</p>
+                <p className="text-gray-700">{item.planning_notes}</p>
+              </div>
+            )}
+          </>
         )}
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>Close</Button>
           {isNew && (
-            <>
-              <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" onClick={() => act('reject')} disabled={submitting} data-testid="pls-reject">
-                <XCircle className="h-3 w-3 mr-1" /> Reject
-              </Button>
-              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => act('approve')} disabled={submitting} data-testid="pls-approve">
-                <CheckCircle className="h-3 w-3 mr-1" /> {submitting ? 'Forwarding...' : 'Approve & Forward to Accountant'}
-              </Button>
-            </>
-          )}
-          {!isNew && (
-            <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[11px]">
-              <Clock className="h-3 w-3 mr-1" /> Awaiting Accountant
-            </Badge>
+            <Button
+              size="sm"
+              className={mode === 'reject' ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'}
+              onClick={handleSubmit}
+              disabled={submitting}
+              data-testid="pls-submit"
+            >
+              {submitting ? 'Submitting...' : mode === 'reject' ? 'Reject Request' : 'Approve & Forward to Accountant'}
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>

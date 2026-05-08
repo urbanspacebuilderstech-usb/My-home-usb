@@ -47,6 +47,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import REProjectsPage from './REProjectsPage';
 import { NumericInput } from '../components/NumericInput';
 import PlanningLabourStageRequests from '../components/PlanningLabourStageRequests';
+import LabourContractorPaymentSummary from '../components/LabourContractorPaymentSummary';
 
 import { UnitSelect } from '../components/UnitSelect';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -1125,7 +1126,8 @@ export default function PlanningBoard() {
               {[
                 { key: 'all_projects', label: 'All Projects', badge: newProjectCount },
                 { key: 'requests', label: 'Requests', badge: requestCount },
-                { key: 'labour_stage_req', label: 'Labour Stage Req' },
+                { key: 'labour_stage_req', label: 'Labour Payments' },
+                { key: 'labour_summary', label: 'Contractor Summary' },
                 { key: 'rough_estimates', label: 'Rough Estimates', badge: reNewCount },
                 { key: 'payment_schedule', label: 'Payment Schedule' },
               ].map(tab => (
@@ -1367,6 +1369,11 @@ export default function PlanningBoard() {
             {/* ---- Dashboard > Labour Stage Req ---- */}
             {dashSubTab === 'labour_stage_req' && (
               <PlanningLabourStageRequests />
+            )}
+
+            {/* ---- Dashboard > Contractor Summary ---- */}
+            {dashSubTab === 'labour_summary' && (
+              <LabourContractorPaymentSummary />
             )}
 
             {/* ---- Dashboard > Rough Estimates ---- */}

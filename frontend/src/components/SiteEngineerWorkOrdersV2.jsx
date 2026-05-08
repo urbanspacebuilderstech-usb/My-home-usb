@@ -79,6 +79,30 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 
   useEffect(() => { fetchWOs(); /* eslint-disable-next-line */ }, [projectId]);
 
+  // Poll for "Stage Opened" notifications and surface as toast
+  useEffect(() => {
+    let lastSeen = new Set();
+    let alive = true;
+    const tick = async () => {
+      try {
+        const res = await axios.get(`${API}/notifications?unread=true`);
+        const list = res.data?.notifications || res.data || [];
+        for (const n of list) {
+          if (n.title === 'Stage Opened' && n.notification_id && !lastSeen.has(n.notification_id)) {
+            lastSeen.add(n.notification_id);
+            toast.success(n.message, { duration: 7000 });
+            // refresh WO list so the newly opened stage shows immediately
+            fetchWOs();
+          }
+        }
+      } catch { /* silent */ }
+    };
+    tick();
+    const id = setInterval(() => { if (alive) tick(); }, 20000);
+    return () => { alive = false; clearInterval(id); };
+    /* eslint-disable-next-line */
+  }, [projectId]);
+
   // Group work orders by contractor type
   const grouped = useMemo(() => {
     const g = {};
@@ -164,6 +188,19 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
   const [tab, setTab] = useState('scope');
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
+  const [suspenseBalance, setSuspenseBalance] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!wo?.contractor_id) return;
+      try {
+        const res = await axios.get(`${API}/contractors/${wo.contractor_id}/suspense`);
+        if (alive) setSuspenseBalance(res.data?.balance || 0);
+      } catch { /* silent */ }
+    })();
+    return () => { alive = false; };
+  }, [wo?.contractor_id, wo?.paid_amount]);
 
   return (
     <div className="space-y-3" data-testid="wov2-detail">
@@ -255,7 +292,7 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 
         {/* PAYMENT SCHEDULE TAB */}
         <TabsContent value="payments" className="mt-3">
-          <PaymentScheduleTab wo={wo} onClickStage={(stage) => setStageDialog(stage)} />
+          <PaymentScheduleTab wo={wo} suspenseBalance={suspenseBalance} onClickStage={(stage) => setStageDialog(stage)} />
         </TabsContent>
 
         {/* DLR REPORT TAB */}
@@ -286,9 +323,9 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
 }
 
 // =====================================================================
-// Payment Schedule Tab: list of stages, click → opens detail dialog
+// Payment Schedule Tab: list of stages, each row shows inline summary
 // =====================================================================
-function PaymentScheduleTab({ wo, onClickStage }) {
+function PaymentScheduleTab({ wo, suspenseBalance, onClickStage }) {
   const stages = wo.stages || [];
   const paidStages = stages.filter(s => {
     const released = (s.payment_requests || []).filter(p => p.status === 'approved').reduce((acc, p) => acc + (p.approved_amount || 0), 0);
@@ -311,27 +348,53 @@ function PaymentScheduleTab({ wo, onClickStage }) {
           <div className="divide-y">
             {stages.map((stage, i) => {
               const sb = stageStatusBadge(stage);
+              const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+              const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
+              const balance = (stage.amount || 0) - released - pending;
+              const canRequest = stage.is_open && balance > 0;
               return (
-                <div
-                  key={stage.stage_id || i}
-                  className="px-3 py-3 flex items-center justify-between gap-2 hover:bg-amber-50/40 cursor-pointer"
-                  onClick={() => onClickStage(stage)}
-                  data-testid={`wov2-stage-row-${stage.stage_id || i}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-gray-900">{i + 1}. {stage.name}</span>
-                      <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
+                <div key={stage.stage_id || i} className="px-3 py-3 hover:bg-amber-50/40" data-testid={`wov2-stage-row-${stage.stage_id || i}`}>
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    <span className="text-sm font-semibold text-gray-900">{i + 1}. {stage.name}</span>
+                    <Badge variant="outline" className={`text-[10px] ${sb.cls}`}>{sb.label}</Badge>
+                    {stage.is_open && balance > 0 && pending === 0 && (
+                      <Badge className="text-[10px] bg-green-100 text-green-800 border-green-300 animate-pulse">Stage Opened</Badge>
+                    )}
+                  </div>
+                  {/* Inline payment summary: Total / Released / Pending / Extra (suspense) */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 mb-2">
+                    <div className="bg-gray-50 border rounded px-2 py-1">
+                      <p className="text-[9px] text-gray-500 uppercase">Total</p>
+                      <p className="text-xs font-bold text-gray-900">{fmt(stage.amount || 0)}</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                      <p className="text-[9px] text-blue-600 uppercase">Balance</p>
+                      <p className="text-xs font-bold text-blue-800">{fmt(balance)}</p>
+                    </div>
+                    <div className="bg-green-50 border border-green-200 rounded px-2 py-1">
+                      <p className="text-[9px] text-green-600 uppercase">Released</p>
+                      <p className="text-xs font-bold text-green-800">{fmt(released)}</p>
+                    </div>
+                    <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <p className="text-[9px] text-amber-600 uppercase">Extra</p>
+                      <p className="text-xs font-bold text-amber-800">{fmt(suspenseBalance || 0)}</p>
                     </div>
                   </div>
-                  <Button
-                    size="sm"
-                    className="h-7 text-xs gap-1 bg-amber-600 hover:bg-amber-700 shrink-0"
-                    onClick={(e) => { e.stopPropagation(); onClickStage(stage); }}
-                    data-testid={`wov2-stage-request-${stage.stage_id || i}`}
-                  >
-                    <Send className="h-3 w-3" /> Request
-                  </Button>
+                  {/* Action row */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[10px] text-gray-500">
+                      {pending > 0 && <span>Pipeline: <span className="font-medium text-amber-700">{fmt(pending)}</span></span>}
+                    </div>
+                    <Button
+                      size="sm"
+                      className={`h-7 text-xs gap-1 ${canRequest ? 'bg-amber-600 hover:bg-amber-700' : 'bg-gray-300 hover:bg-gray-300 cursor-not-allowed'}`}
+                      disabled={!canRequest}
+                      onClick={() => onClickStage(stage)}
+                      data-testid={`wov2-stage-request-${stage.stage_id || i}`}
+                    >
+                      <Send className="h-3 w-3" /> Request Payment
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -343,27 +406,32 @@ function PaymentScheduleTab({ wo, onClickStage }) {
 }
 
 // =====================================================================
-// Stage Request Dialog: simple remarks-only confirmation popup
-// (no amount inputs, no stage summary — Planning sees the details)
+// Stage Request Dialog: amount + remarks
 // =====================================================================
 function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
+  const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (stage) setNotes('');
+    if (stage) { setAmount(''); setNotes(''); }
   }, [stage]);
 
   if (!stage) return null;
 
+  const released = (stage.payment_requests || []).filter(p => p.status === 'approved').reduce((s, p) => s + (p.approved_amount || 0), 0);
+  const pending = (stage.payment_requests || []).filter(p => ['requested', 'pm_approved', 'planning_approved'].includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0);
+  const balance = (stage.amount || 0) - released - pending;
+
   const submit = async () => {
-    if (!stage.is_open) {
-      toast.error('Stage is not yet opened by Planning'); return;
-    }
+    const amt = parseFloat(amount || 0);
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return; }
+    if (amt > balance + 0.01) { toast.error(`Amount exceeds balance ${fmt(balance)}`); return; }
+    if (!stage.is_open) { toast.error('Stage is not yet opened by Planning'); return; }
     setSubmitting(true);
     try {
       await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${stage.stage_id}/request-payment`, {
-        // amount is intentionally omitted — backend defaults to remaining stage balance
+        amount: amt,
         notes,
       });
       toast.success('Payment request sent to Planning');
@@ -378,30 +446,47 @@ function StageRequestDialog({ stage, wo, projectId, onClose, onSaved }) {
       <DialogContent className="max-w-[95vw] sm:max-w-md" data-testid="wov2-stage-dialog">
         <DialogHeader>
           <DialogTitle className="text-base">Request Payment</DialogTitle>
-          <DialogDescription className="text-xs">{stage.name}</DialogDescription>
+          <DialogDescription className="text-xs">{stage.name} · Balance {fmt(balance)}</DialogDescription>
         </DialogHeader>
 
         {!stage.is_open ? (
           <div className="text-xs bg-gray-50 border rounded p-3 text-gray-600">
-            <Clock className="h-3.5 w-3.5 inline mr-1" /> This stage has not yet been opened by Planning. Once opened you can request payment.
+            <Clock className="h-3.5 w-3.5 inline mr-1" /> Stage not yet opened by Planning.
+          </div>
+        ) : balance <= 0 ? (
+          <div className="text-xs bg-green-50 border border-green-200 rounded p-3 text-green-700">
+            <CheckCircle className="h-3.5 w-3.5 inline mr-1" /> Stage fully paid — no balance remaining.
           </div>
         ) : (
-          <div className="space-y-2">
-            <Label className="text-xs">Remarks</Label>
-            <Textarea
-              rows={4}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Add a note about this payment request (optional)"
-              className="text-sm"
-              data-testid="wov2-pr-notes"
-            />
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Amount (max {fmt(balance)})</Label>
+              <Input
+                type="number"
+                placeholder="Enter amount"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="text-sm mt-1"
+                data-testid="wov2-pr-amount"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Remarks (optional)</Label>
+              <Textarea
+                rows={3}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add a note about this payment request"
+                className="text-sm mt-1"
+                data-testid="wov2-pr-notes"
+              />
+            </div>
           </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} data-testid="wov2-pr-cancel">Cancel</Button>
-          {stage.is_open && (
+          {stage.is_open && balance > 0 && (
             <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" disabled={submitting} onClick={submit} data-testid="wov2-pr-submit">
               <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Submit Request'}
             </Button>

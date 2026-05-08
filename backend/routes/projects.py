@@ -3843,12 +3843,15 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
         raise HTTPException(status_code=404, detail="Work order not found")
     
     request_amount = data.get("amount")
-    # If amount not provided, default to the remaining stage balance.
-    auto_amount = request_amount is None or request_amount == ""
-    if not auto_amount:
-        if float(request_amount) <= 0:
-            raise HTTPException(status_code=400, detail="Amount must be positive")
+    if request_amount is None or request_amount == "":
+        raise HTTPException(status_code=400, detail="Amount is required")
+    try:
         request_amount = float(request_amount)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Amount must be a number")
+    if request_amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    auto_amount = False  # SE always provides amount now
     
     now = datetime.now(timezone.utc).isoformat()
     updated = False
@@ -3868,11 +3871,6 @@ async def wo_request_stage_payment(project_id: str, work_order_id: str, stage_id
             pending = sum(pr.get("amount", 0) for pr in stage["payment_requests"] if pr.get("status") in ["requested", "pm_approved", "planning_approved"])
             stage_total = stage.get("amount", 0)
             balance = stage_total - released - pending
-
-            if auto_amount:
-                request_amount = balance
-                if request_amount <= 0:
-                    raise HTTPException(status_code=400, detail="No remaining balance for this stage")
 
             if request_amount > balance + 0.01:  # small tolerance
                 raise HTTPException(status_code=400, detail=f"Request amount ₹{request_amount:,.0f} exceeds available balance ₹{balance:,.0f}")
@@ -4057,6 +4055,301 @@ async def planning_labour_stage_requests(status: str = "new", user: User = Depen
 
 
 
+# =====================================================================
+# CONTRACTOR SUSPENSE / EXTRA CREDIT — visible only to Accountant, Planning, Super Admin
+# =====================================================================
+async def _get_contractor_suspense_balance(contractor_id: str) -> float:
+    if not contractor_id:
+        return 0.0
+    pipeline = [
+        {"$match": {"contractor_id": contractor_id}},
+        {"$group": {"_id": None, "credit": {"$sum": {"$cond": [{"$eq": ["$type", "credit"]}, "$amount", 0]}},
+                    "debit": {"$sum": {"$cond": [{"$eq": ["$type", "debit"]}, "$amount", 0]}}}},
+    ]
+    res = await db.contractor_suspense_ledger.aggregate(pipeline).to_list(1)
+    if not res:
+        return 0.0
+    return float(res[0].get("credit", 0)) - float(res[0].get("debit", 0))
+
+
+@router.get("/contractors/{contractor_id}/suspense")
+async def get_contractor_suspense(contractor_id: str, user: User = Depends(get_current_user)):
+    """Returns suspense balance + ledger for a contractor."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER, UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    balance = await _get_contractor_suspense_balance(contractor_id)
+    # SE only gets the balance, not the ledger
+    if user.role in [UserRole.SITE_ENGINEER, UserRole.SR_SITE_ENGINEER]:
+        return {"contractor_id": contractor_id, "balance": balance, "ledger": []}
+    ledger = await db.contractor_suspense_ledger.find(
+        {"contractor_id": contractor_id}, {"_id": 0}
+    ).sort("date", -1).limit(200).to_list(200)
+    return {"contractor_id": contractor_id, "balance": balance, "ledger": ledger}
+
+
+@router.get("/accountant/labour-payments")
+async def accountant_labour_payments(status: str = "pending", user: User = Depends(get_current_user)):
+    """Accountant queue: stage payment requests forwarded by Planning.
+    status:
+      - pending → planning_approved (awaiting accountant action)
+      - released → approved (already paid)
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    target_statuses = {"pending": ["planning_approved"], "released": ["approved"]}.get(status, ["planning_approved"])
+    work_orders = await db.project_work_orders.find(
+        {"is_active": {"$ne": False}, "stages.payment_requests.status": {"$in": target_statuses}},
+        {"_id": 0}
+    ).to_list(500)
+
+    project_ids = list({wo.get("project_id") for wo in work_orders if wo.get("project_id")})
+    projects = {p["project_id"]: p for p in await db.projects.find(
+        {"project_id": {"$in": project_ids}}, {"_id": 0, "project_id": 1, "name": 1, "team": 1}
+    ).to_list(500)}
+
+    # Pre-fetch suspense balances per contractor
+    contractor_ids = list({wo.get("contractor_id") for wo in work_orders if wo.get("contractor_id")})
+    suspense_map = {}
+    for cid in contractor_ids:
+        suspense_map[cid] = await _get_contractor_suspense_balance(cid)
+
+    out = []
+    for wo in work_orders:
+        proj = projects.get(wo.get("project_id"), {})
+        team = proj.get("team") or {}
+        se_id = team.get("site_engineer") or team.get("sr_site_engineer")
+        se_user = await db.users.find_one({"user_id": se_id}, {"_id": 0, "name": 1}) if se_id else None
+        se_name = (se_user or {}).get("name", "—")
+        for stage in wo.get("stages", []):
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("status") not in target_statuses:
+                    continue
+                released_total = sum(p.get("approved_amount", 0) for p in stage.get("payment_requests", []) if p.get("status") == "approved")
+                pending_total = sum(p.get("amount", 0) for p in stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+                stage_total = stage.get("amount", 0)
+                out.append({
+                    "request_id": pr.get("request_id"),
+                    "status": pr.get("status"),
+                    "amount": pr.get("amount", 0),
+                    "original_amount": pr.get("original_amount", pr.get("amount", 0)),
+                    "planning_amount_changed": pr.get("planning_amount_changed", False),
+                    "planning_change_reason": pr.get("planning_change_reason", ""),
+                    "planning_notes": pr.get("planning_notes", ""),
+                    "notes": pr.get("notes", ""),
+                    "requested_at": pr.get("requested_at"),
+                    "planning_approved_at": pr.get("planning_approved_at"),
+                    "site_engineer_name": se_name,
+                    "project_id": wo.get("project_id"),
+                    "project_name": proj.get("name") or wo.get("project_name", ""),
+                    "work_order_id": wo.get("work_order_id"),
+                    "contractor_id": wo.get("contractor_id"),
+                    "contractor_name": wo.get("contractor_name", ""),
+                    "contractor_type": wo.get("contractor_type", ""),
+                    "stage_id": stage.get("stage_id"),
+                    "stage_name": stage.get("name", ""),
+                    "stage_amount": stage_total,
+                    "stage_released": released_total,
+                    "stage_pending": pending_total,
+                    "stage_balance": max(0, stage_total - released_total),
+                    "wo_total_value": wo.get("total_value", 0),
+                    "wo_paid_amount": wo.get("paid_amount", 0),
+                    "suspense_balance": suspense_map.get(wo.get("contractor_id"), 0.0),
+                })
+    out.sort(key=lambda r: r.get("planning_approved_at") or r.get("requested_at") or "", reverse=True)
+    return {"count": len(out), "requests": out}
+
+
+@router.post("/accountant/labour-payments/{request_id}/release")
+async def accountant_release_labour_payment(request_id: str, data: dict, user: User = Depends(get_current_user)):
+    """Accountant releases a planning-approved payment.
+    Body:
+      - work_order_id, stage_id (required)
+      - payment_method: 'cash' | 'bank' | 'cheque'
+      - bank_amount: amount being released to contractor in this transaction (= approved_amount by default)
+      - cheque_amount (optional, only for cheque mode): if greater than approved_amount, the extra goes into suspense
+      - use_suspense_amount (optional): subtract this from contractor's suspense balance (debits suspense, contractor receives it)
+      - bank_ref, cheque_no, payment_date, notes
+    """
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Accountant / Super Admin can release labour payments")
+
+    work_order_id = data.get("work_order_id")
+    stage_id = data.get("stage_id")
+    if not (work_order_id and stage_id):
+        raise HTTPException(status_code=400, detail="work_order_id and stage_id are required")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    payment_method = (data.get("payment_method") or "bank").lower()
+    if payment_method not in ("cash", "bank", "cheque"):
+        raise HTTPException(status_code=400, detail="Invalid payment method")
+
+    cheque_no = data.get("cheque_no", "")
+    bank_ref = data.get("bank_ref", "")
+    payment_date = data.get("payment_date") or datetime.now(timezone.utc).isoformat()
+    notes = data.get("notes", "")
+    use_suspense = float(data.get("use_suspense_amount") or 0)
+    cheque_amount_input = data.get("cheque_amount")
+
+    now = datetime.now(timezone.utc).isoformat()
+    target_pr = None
+    target_stage = None
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            target_stage = stage
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("request_id") == request_id and pr.get("status") == "planning_approved":
+                    target_pr = pr
+                    break
+            break
+    if not target_pr:
+        raise HTTPException(status_code=404, detail="No matching planning-approved request found")
+
+    approved_amount = float(target_pr.get("amount", 0))
+
+    # Handle suspense usage
+    contractor_id = wo.get("contractor_id")
+    if use_suspense > 0:
+        current_suspense = await _get_contractor_suspense_balance(contractor_id)
+        if use_suspense > current_suspense + 0.01:
+            raise HTTPException(status_code=400, detail=f"Insufficient suspense balance (₹{current_suspense:,.0f})")
+
+    # For cheque mode: if cheque_amount > approved_amount → diff credits suspense
+    cheque_excess = 0.0
+    cheque_amount = approved_amount
+    if payment_method == "cheque" and cheque_amount_input not in (None, ""):
+        try:
+            cheque_amount = float(cheque_amount_input)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid cheque amount")
+        if cheque_amount < approved_amount - 0.01:
+            raise HTTPException(status_code=400, detail="Cheque amount cannot be less than approved amount")
+        cheque_excess = max(0.0, cheque_amount - approved_amount)
+
+    # Payment record
+    payment_record = {
+        "request_id": request_id,
+        "method": payment_method,
+        "approved_amount": approved_amount,
+        "cheque_amount": cheque_amount if payment_method == "cheque" else None,
+        "cheque_no": cheque_no if payment_method == "cheque" else None,
+        "bank_ref": bank_ref if payment_method == "bank" else None,
+        "use_suspense_amount": use_suspense,
+        "suspense_credited": cheque_excess,
+        "payment_date": payment_date,
+        "notes": notes,
+        "released_by": user.user_id,
+        "released_by_name": user.name,
+        "released_at": now,
+    }
+
+    # Mark request approved
+    target_pr["status"] = "approved"
+    target_pr["approved_amount"] = approved_amount
+    target_pr["accountant_approved_by"] = user.user_id
+    target_pr["accountant_approved_at"] = now
+    target_pr["accountant_notes"] = notes
+    target_pr["payment_record"] = payment_record
+
+    # Update WO totals
+    wo["paid_amount"] = float(wo.get("paid_amount", 0)) + approved_amount
+    target_stage["amount_released"] = sum(p.get("approved_amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") == "approved")
+    target_stage["amount_pending"] = sum(p.get("amount", 0) for p in target_stage.get("payment_requests", []) if p.get("status") in ["requested", "pm_approved", "planning_approved"])
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id},
+        {"$set": {"stages": wo["stages"], "paid_amount": wo["paid_amount"], "updated_at": now}}
+    )
+
+    # Suspense ledger entries
+    if cheque_excess > 0:
+        await db.contractor_suspense_ledger.insert_one({
+            "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+            "contractor_id": contractor_id,
+            "contractor_name": wo.get("contractor_name", ""),
+            "project_id": wo.get("project_id"),
+            "amount": cheque_excess,
+            "type": "credit",
+            "source_type": "cheque_excess",
+            "reference_id": request_id,
+            "cheque_no": cheque_no,
+            "date": now,
+            "notes": f"Cheque {cheque_no} excess from approved ₹{approved_amount:,.0f}",
+            "created_by": user.user_id,
+            "created_by_name": user.name,
+        })
+    if use_suspense > 0:
+        await db.contractor_suspense_ledger.insert_one({
+            "ledger_id": f"sl_{uuid.uuid4().hex[:8]}",
+            "contractor_id": contractor_id,
+            "contractor_name": wo.get("contractor_name", ""),
+            "project_id": wo.get("project_id"),
+            "amount": use_suspense,
+            "type": "debit",
+            "source_type": "release",
+            "reference_id": request_id,
+            "date": now,
+            "notes": f"Suspense applied to {target_stage.get('name', '')} payment",
+            "created_by": user.user_id,
+            "created_by_name": user.name,
+        })
+
+    return {
+        "message": "Payment released",
+        "approved_amount": approved_amount,
+        "cheque_excess_to_suspense": cheque_excess,
+        "suspense_used": use_suspense,
+    }
+
+
+@router.get("/labour-contractor-payments/summary")
+async def labour_contractor_payment_summary(user: User = Depends(get_current_user)):
+    """Cross-project payment summary per contractor — accountant/planning/super-admin only."""
+    if user.role not in [UserRole.ACCOUNTANT, UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    work_orders = await db.project_work_orders.find({"is_active": {"$ne": False}}, {"_id": 0}).to_list(2000)
+    proj_ids = list({wo.get("project_id") for wo in work_orders})
+    projects = {p["project_id"]: p for p in await db.projects.find({"project_id": {"$in": proj_ids}}, {"_id": 0, "project_id": 1, "name": 1}).to_list(2000)}
+
+    by_contractor = {}
+    for wo in work_orders:
+        cid = wo.get("contractor_id") or wo.get("contractor_name")
+        if not cid:
+            continue
+        bucket = by_contractor.setdefault(cid, {
+            "contractor_id": wo.get("contractor_id"),
+            "contractor_name": wo.get("contractor_name", ""),
+            "contractor_type": wo.get("contractor_type", ""),
+            "projects": [],
+            "total_value": 0.0,
+            "paid_amount": 0.0,
+            "pending_amount": 0.0,
+        })
+        proj_name = (projects.get(wo.get("project_id")) or {}).get("name") or wo.get("project_name", "")
+        if proj_name and proj_name not in bucket["projects"]:
+            bucket["projects"].append(proj_name)
+        bucket["total_value"] += float(wo.get("total_value", 0))
+        bucket["paid_amount"] += float(wo.get("paid_amount", 0))
+        for stage in wo.get("stages", []):
+            for pr in stage.get("payment_requests", []) or []:
+                if pr.get("status") in ["requested", "pm_approved", "planning_approved"]:
+                    bucket["pending_amount"] += float(pr.get("amount", 0))
+
+    rows = []
+    for cid, bucket in by_contractor.items():
+        bucket["balance"] = bucket["total_value"] - bucket["paid_amount"]
+        bucket["suspense_balance"] = await _get_contractor_suspense_balance(bucket.get("contractor_id"))
+        rows.append(bucket)
+    rows.sort(key=lambda r: r.get("contractor_name", "").lower())
+    return {"count": len(rows), "rows": rows}
+
+
+
+
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/open")
 async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
     """Planning opens a stage so Site Engineer can request payment for it."""
@@ -4139,7 +4432,22 @@ async def wo_approve_stage(project_id: str, work_order_id: str, stage_id: str, d
                         target_pr["pm_approved_at"] = now
                         target_pr["pm_notes"] = data.get("notes", "")
                     elif user.role == UserRole.PLANNING and current == "pm_approved":
+                        # Planning may approve a different amount with reason
+                        approved_amount = data.get("approved_amount")
+                        try:
+                            approved_amount = float(approved_amount) if approved_amount not in (None, "") else target_pr.get("amount", 0)
+                        except (ValueError, TypeError):
+                            approved_amount = target_pr.get("amount", 0)
+                        if approved_amount <= 0:
+                            raise HTTPException(status_code=400, detail="Approved amount must be positive")
                         target_pr["status"] = "planning_approved"
+                        # Persist requested vs approved
+                        target_pr["original_amount"] = target_pr.get("amount", 0)
+                        target_pr["amount"] = approved_amount  # this becomes the value moving forward
+                        target_pr["planning_approved_amount"] = approved_amount
+                        if abs(approved_amount - target_pr.get("original_amount", 0)) > 0.01:
+                            target_pr["planning_amount_changed"] = True
+                            target_pr["planning_change_reason"] = data.get("notes", "")
                         target_pr["planning_approved_by"] = user.user_id
                         target_pr["planning_approved_at"] = now
                         target_pr["planning_notes"] = data.get("notes", "")
@@ -4595,3 +4903,4 @@ async def get_project_dlr_summary(project_id: str, date: Optional[str] = None, u
         "by_contractor": by_contractor,
         "entries": entries,
     }
+
