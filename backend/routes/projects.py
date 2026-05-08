@@ -2060,8 +2060,8 @@ async def get_comprehensive_project_view(project_id: str, user: User = Depends(g
     boq_items = await db.boq_items.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     boq_total = sum(item.get("total_cost", 0) for item in boq_items)
     
-    # Get payment schedule stages
-    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    # Get payment schedule stages (sorted by user-assigned sort_order, fallback to created_at)
+    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("created_at", 1)]).to_list(1000)
     for stage in payment_stages:
         if isinstance(stage.get("due_date"), str):
             stage["due_date"] = datetime.fromisoformat(stage["due_date"])
@@ -2856,6 +2856,20 @@ async def reorder_deductions(request: Request, user: User = Depends(get_current_
     updates = [db.deductions.update_one({"deduction_id": did}, {"$set": {"sort_order": i}}) for i, did in enumerate(ordered_ids)]
     await asyncio.gather(*updates)
     return {"message": "Deductions reordered"}
+
+
+@router.post("/payment-stages/reorder")
+async def reorder_payment_stages(request: Request, user: User = Depends(get_current_user)):
+    """Reorder client-side payment stages (Payment Schedule)"""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    body = await request.json()
+    ordered_ids = body.get("stage_ids", [])
+    if not ordered_ids:
+        raise HTTPException(status_code=400, detail="stage_ids required")
+    updates = [db.payment_stages.update_one({"stage_id": sid}, {"$set": {"sort_order": i}}) for i, sid in enumerate(ordered_ids)]
+    await asyncio.gather(*updates)
+    return {"message": "Payment stages reordered"}
 
 
 

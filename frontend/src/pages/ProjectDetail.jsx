@@ -1500,6 +1500,20 @@ export default function ProjectDetail() {
     } catch { toast.error('Failed to save stage order'); }
   };
 
+  // Reorder Payment Schedule rows (Payment Stages tab) — drag-to-reorder, persists server-side.
+  // Excludes virtual rows (e.g., "__virtual_advance__") which are auto-injected client-side.
+  const handlePaymentScheduleReorder = async (newIds) => {
+    const realIds = newIds.filter(id => id && !id.startsWith('__virtual_'));
+    const newStages = realIds.map(id => (payment_stages || []).find(s => s.stage_id === id)).filter(Boolean);
+    setProjectData(prev => ({
+      ...prev,
+      payment_stages: newStages,
+    }));
+    try {
+      await axios.post(`${API}/payment-stages/reorder`, { stage_ids: realIds });
+    } catch { toast.error('Failed to save payment order'); }
+  };
+
   const handleDeletePayment = async (stageId) => {
     if (!confirm('Delete this payment stage?')) return;
     try {
@@ -3719,10 +3733,15 @@ export default function ProjectDetail() {
                 );
               })()}
 
+              <SortableList
+                items={(payment_stages || []).filter(s => s && s.stage_id).map(s => s.stage_id)}
+                onReorder={handlePaymentScheduleReorder}
+              >
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b">
                     <tr>
+                      {canManage && !psMonthFilter && <th className="px-2 py-3 w-8"></th>}
                       {canManage && (
                         <th className="px-3 py-3 text-center w-10">
                           <input 
@@ -3786,7 +3805,7 @@ export default function ProjectDetail() {
                       if (filteredStages.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={canManage ? 10 : 8} className="px-4 py-8 text-center text-gray-500">
+                            <td colSpan={(canManage ? 10 : 8) + (canManage && !psMonthFilter ? 1 : 0)} className="px-4 py-8 text-center text-gray-500">
                               {psMonthFilter ? 'No payments scheduled for this month.' : 'No payment stages defined yet. Click "Add Payments" to define milestones.'}
                             </td>
                           </tr>
@@ -3810,8 +3829,21 @@ export default function ProjectDetail() {
                           statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Pending</span>;
                         }
                         
+                        const isVirtual = stage._virtual || stage.stage_id === '__virtual_advance__';
+                        const canDrag = canManage && !psMonthFilter && !isVirtual;
                         return (
-                          <tr key={stage.stage_id} data-testid={`payment-row-${stage.stage_id}`} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''} ${selectedPaymentIds.includes(stage.stage_id) ? 'bg-blue-50' : ''}`}>
+                          <SortableTableRow
+                            key={stage.stage_id}
+                            id={stage.stage_id}
+                            className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''} ${selectedPaymentIds.includes(stage.stage_id) ? 'bg-blue-50' : ''}`}
+                          >
+                            {({ listeners, attributes }) => (
+                              <>
+                            {canManage && !psMonthFilter && (
+                              <td className="px-2 py-3 text-center">
+                                {canDrag ? <DragHandle listeners={listeners} attributes={attributes} /> : null}
+                              </td>
+                            )}
                             {canManage && (
                               <td className="px-3 py-3 text-center">
                                 <input 
@@ -3897,7 +3929,9 @@ export default function ProjectDetail() {
                                 )}
                               </div>
                             </td>
-                          </tr>
+                              </>
+                            )}
+                          </SortableTableRow>
                         );
                       });
                     })()}
@@ -3905,7 +3939,7 @@ export default function ProjectDetail() {
                   {payment_stages.length > 0 && (
                     <tfoot className="bg-green-50 border-t-2">
                       <tr>
-                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Totals:</td>
+                        <td colSpan={canManage && !psMonthFilter ? 4 : 3} className="px-4 py-3 text-right font-bold">Totals:</td>
                         <td className="px-4 py-3 text-right font-bold">₹{(summary.payment_schedule_total || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-green-600">₹{(summary.payment_received || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-red-600">₹{((summary.payment_schedule_total || 0) - (summary.payment_received || 0)).toLocaleString()}</td>
@@ -3915,6 +3949,7 @@ export default function ProjectDetail() {
                   )}
                 </table>
               </div>
+              </SortableList>
             </TabsContent>
 
             {/* ==================== ADDITIONS TAB ==================== */}

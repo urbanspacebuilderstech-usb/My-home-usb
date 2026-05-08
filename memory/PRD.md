@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Planning role — Edit Additions/Deductions permission — `PATCH /api/additional-costs/{id}`, `PATCH /api/deductions/{id}`, and `DELETE /api/additional-costs/{id}` now permit Planning role (in addition to Super Admin, PM, Accountant). Frontend `canManage` already included Planning, so the edit pencil now works end-to-end for them.
-  - Files: `backend/routes/projects.py` (3 role-check updates)
+- 2026-02: Payment Schedule reorder — Drag-to-reorder enabled on the Payment Schedule tab (matching the existing pattern used for Final Estimate / Additions / Deductions). Adds a grip column visible only when canManage and no month filter; persists order via new `POST /api/payment-stages/reorder` and reads via `sort_order` ascending in `comprehensive` endpoint.
+  - Files: `backend/routes/projects.py` (new endpoint + sort on `payment_stages.find`); `frontend/src/pages/ProjectDetail.jsx` (`handlePaymentScheduleReorder`, SortableList wrap, drag column header + DragHandle in row, virtual advance excluded from drag)
+- 2026-02: Planning role — Edit Additions/Deductions permission
 - 2026-02: Edit Additions & Deductions — Added clean Edit dialog (Name + Qty + Amount) on each Additional Work and Deduction row.
 - 2026-02: Simplified Add Additions/Deductions dialogs — Now uses **Name | Qty | Amount** only.
 - 2026-02: WO Header & Stage Order — Total Contract amount is now displayed as a big highlighted card; Auto Additional payment stages save & render LAST (after user-defined stages).
