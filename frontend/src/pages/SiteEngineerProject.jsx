@@ -5,7 +5,8 @@ import {
   HardHat, LogOut, ArrowLeft, Plus, Package, Users, MapPin, Building2,
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
-  ChevronRight, Banknote, ArrowRight, Eye, Circle
+  ChevronRight, Banknote, ArrowRight, Eye, Circle,
+  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -62,6 +63,34 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// Material lifecycle filter cards — unified across SE / Procurement / Planning.
+// Order matches the actual workflow: SE → Planning → Revision → Accountant → Transit → Credit/Delivered.
+const LIFECYCLE_BUCKETS = [
+  { key: 'all',                 label: 'All',                 Icon: ListChecks,    cls: 'bg-violet-50 border-violet-200 text-violet-700',    active: 'bg-violet-600 text-white border-violet-600' },
+  { key: 'new_request',         label: 'New Request',         Icon: ClipboardList, cls: 'bg-amber-50 border-amber-200 text-amber-700',       active: 'bg-amber-600 text-white border-amber-600' },
+  { key: 'planning_awaiting',   label: 'Planning Awaiting',   Icon: Send,          cls: 'bg-yellow-50 border-yellow-200 text-yellow-700',    active: 'bg-yellow-600 text-white border-yellow-600' },
+  { key: 'revision',            label: 'Revision',            Icon: FileClock,     cls: 'bg-orange-50 border-orange-200 text-orange-700',    active: 'bg-orange-600 text-white border-orange-600' },
+  { key: 'awaiting_accountant', label: 'Awaiting Accountant', Icon: Wallet,        cls: 'bg-cyan-50 border-cyan-200 text-cyan-700',          active: 'bg-cyan-600 text-white border-cyan-600' },
+  { key: 'transit',             label: 'Transit',             Icon: Truck,         cls: 'bg-sky-50 border-sky-200 text-sky-700',             active: 'bg-sky-600 text-white border-sky-600' },
+  { key: 'credit',              label: 'Credit',              Icon: CheckCircle2,  cls: 'bg-purple-50 border-purple-200 text-purple-700',    active: 'bg-purple-600 text-white border-purple-600' },
+  { key: 'delivered',           label: 'Delivered',           Icon: PackageCheck,  cls: 'bg-emerald-50 border-emerald-200 text-emerald-700', active: 'bg-emerald-600 text-white border-emerald-600' },
+];
+
+function bucketForMaterial(req) {
+  const status = (req.status || '').toLowerCase();
+  const paymentMode = (req.payment_mode || '').toLowerCase();
+  if (status === 'requested' || status === 'pm_approved') return 'new_request';
+  if (status === 'procurement_priced') return 'planning_awaiting';
+  if (status === 'procurement_revision') return 'revision';
+  if (['pending_accounts_approval', 'pending_balance_payment', 'accounts_approved', 'payment_approved', 'accountant_approved'].includes(status)) return 'awaiting_accountant';
+  if (['in_transit', 'ready_for_delivery'].includes(status)) return 'transit';
+  if (['delivered', 'completed', 'closed', 'received_partial', 'received_completed'].includes(status)) {
+    if (paymentMode === 'credit' && !req.credit_settled_at) return 'credit';
+    return 'delivered';
+  }
+  return 'all';
+}
+
 export default function SiteEngineerProject() {
   const { projectId } = useParams();
   const [user, setUser] = useState(null);
@@ -72,7 +101,7 @@ export default function SiteEngineerProject() {
   
   const [activeTab, setActiveTab] = useState('materials');
   const [materialsSubTab, setMaterialsSubTab] = useState('requests'); // requests | inventory
-  const [materialSubTab, setMaterialSubTab] = useState('orders');
+  const [materialBucket, setMaterialBucket] = useState('all'); // lifecycle filter
   const [labourSubTab, setLabourSubTab] = useState('orders');
   
   const [materialRequestDialog, setMaterialRequestDialog] = useState(false);
@@ -647,10 +676,22 @@ export default function SiteEngineerProject() {
   }
 
   const { project, material_requests, labour_requests } = projectData;
-  const myMaterialOrders = material_requests.filter(r => !['received_completed', 'rejected'].includes(r.status));
-  const receivedMaterials = material_requests.filter(r => ['received_partial', 'received_completed'].includes(r.status));
   const myLabourOrders = labour_requests.filter(r => !['approved', 'rejected'].includes(r.status));
   const approvedLabour = labour_requests.filter(r => r.status === 'approved');
+
+  // Lifecycle bucketing — exclude rejected from all views
+  const lifecycleItems = material_requests.filter(r => !['rejected', 'procurement_rejected'].includes((r.status || '').toLowerCase()));
+  const bucketCounts = lifecycleItems.reduce((acc, r) => {
+    acc.all = (acc.all || 0) + 1;
+    const b = bucketForMaterial(r);
+    acc[b] = (acc[b] || 0) + 1;
+    return acc;
+  }, {});
+  const visibleLifecycleItems = materialBucket === 'all'
+    ? lifecycleItems
+    : lifecycleItems.filter(r => bucketForMaterial(r) === materialBucket);
+  const collectableCount = lifecycleItems.filter(r => canReceive(r.status)).length;
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -745,8 +786,25 @@ export default function SiteEngineerProject() {
               <CardHeader className="p-3 sm:p-6 flex flex-row items-center justify-between gap-2">
                 <div className="min-w-0">
                   <CardTitle className="text-base sm:text-lg">Materials</CardTitle>
-                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and track orders</CardDescription>
+                  <CardDescription className="text-xs sm:text-sm hidden sm:block">Request and collect materials across the lifecycle</CardDescription>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-xs sm:text-sm whitespace-nowrap border-green-300 text-green-700 hover:bg-green-50"
+                    onClick={() => setMaterialBucket('transit')}
+                    data-testid="collect-material-btn"
+                  >
+                    <Package className="h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">Collect Material</span>
+                    <span className="sm:hidden">Collect</span>
+                    {collectableCount > 0 && (
+                      <span className="ml-1 inline-flex items-center justify-center rounded-full bg-green-600 text-white text-[10px] font-bold h-4 min-w-[16px] px-1">
+                        {collectableCount}
+                      </span>
+                    )}
+                  </Button>
                 <Dialog open={materialRequestDialog} onOpenChange={(open) => {
                   setMaterialRequestDialog(open);
                   if (!open) {
@@ -1002,106 +1060,111 @@ export default function SiteEngineerProject() {
                     </DialogFooter>
                   </DialogContent>
                 </Dialog>
+                </div>
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-0">
-                <Tabs value={materialSubTab} onValueChange={setMaterialSubTab}>
-                  <TabsList className="mb-3 w-full grid grid-cols-2 h-8">
-                    <TabsTrigger value="orders" className="text-xs">My Orders ({myMaterialOrders.length})</TabsTrigger>
-                    <TabsTrigger value="received" className="text-xs">Received ({receivedMaterials.length})</TabsTrigger>
-                  </TabsList>
+                {/* Unified lifecycle filter cards (mirrors Procurement / Planning) */}
+                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mb-3" data-testid="se-mat-lifecycle-cards">
+                  {LIFECYCLE_BUCKETS.map(b => {
+                    const Icon = b.Icon;
+                    const active = materialBucket === b.key;
+                    const count = bucketCounts[b.key] || 0;
+                    return (
+                      <button
+                        key={b.key}
+                        type="button"
+                        onClick={() => setMaterialBucket(b.key)}
+                        className={`flex flex-col items-center justify-center gap-0.5 px-1 py-2 rounded-md border text-[10px] sm:text-[11px] font-medium transition-all min-h-[58px] ${
+                          active ? b.active + ' shadow-sm' : b.cls + ' hover:shadow-sm'
+                        }`}
+                        data-testid={`se-mat-bucket-${b.key}`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        <span className="leading-tight text-center">{b.label}</span>
+                        <span className={`text-xs font-bold ${active ? 'text-white' : ''}`}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                  <TabsContent value="orders">
-                    {myMaterialOrders.length === 0 ? (
-                      <div className="text-center py-6 text-gray-500">
-                        <Package className="h-10 w-10 mx-auto mb-3 text-gray-400" />
-                        <p className="text-sm">No active orders</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 sm:space-y-3">
-                        {myMaterialOrders.map(req => (
-                          <Card 
-                            key={req.request_id} 
-                            className="border-l-4 border-l-amber-500 cursor-pointer hover:shadow-md hover:border-l-amber-600 transition-all"
-                            onClick={() => setSelectedOrder(req)}
-                            data-testid={`order-card-${req.request_id}`}
-                          >
-                            <CardContent className="p-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                    <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
-                                    <StatusBadge status={req.status} />
-                                  </div>
-                                  <div className="text-xs text-gray-600 space-y-0.5">
-                                    <p><strong>ID:</strong> {req.order_id}</p>
-                                    <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
-                                    {req.brand && (
-                                      <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
-                                    )}
-                                    {(req.assigned_vendor_name || req.vendor_name) && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
-                                        {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  {canReceive(req.status) && (
-                                    <Button 
-                                      size="sm"
-                                      onClick={(e) => { e.stopPropagation(); openReceiveDialog(req); }}
-                                      className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
-                                      data-testid={`receive-btn-${req.request_id}`}
-                                    >
-                                      <Package className="h-3 w-3" />{req.status === 'in_transit' ? 'Receive Now' : 'Receive'}
-                                    </Button>
+                {/* Filtered request list */}
+                {visibleLifecycleItems.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Package className="h-10 w-10 mx-auto mb-3 text-gray-400" />
+                    <p className="text-sm">No requests in this bucket</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 sm:space-y-3" data-testid="se-mat-list">
+                    {visibleLifecycleItems.map(req => {
+                      const bKey = bucketForMaterial(req);
+                      const cfg = LIFECYCLE_BUCKETS.find(b => b.key === bKey);
+                      const isReceivable = canReceive(req.status);
+                      const accentMap = {
+                        new_request: 'border-l-amber-500',
+                        planning_awaiting: 'border-l-yellow-500',
+                        revision: 'border-l-orange-500',
+                        awaiting_accountant: 'border-l-cyan-500',
+                        transit: 'border-l-sky-500',
+                        credit: 'border-l-purple-500',
+                        delivered: 'border-l-emerald-500',
+                        all: 'border-l-violet-500',
+                      };
+                      return (
+                        <Card
+                          key={req.request_id}
+                          className={`border-l-4 ${accentMap[bKey] || 'border-l-amber-500'} cursor-pointer hover:shadow-md transition-all`}
+                          onClick={() => setSelectedOrder(req)}
+                          data-testid={`se-mat-card-${req.request_id}`}
+                        >
+                          <CardContent className="p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                  <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
+                                  <StatusBadge status={req.status} />
+                                  {cfg && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.cls}`}>
+                                      {cfg.label}
+                                    </span>
                                   )}
-                                  <Eye className="h-4 w-4 text-gray-400" />
+                                </div>
+                                <div className="text-xs text-gray-600 space-y-0.5">
+                                  <p><strong>ID:</strong> {req.order_id || req.request_id}</p>
+                                  <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
+                                  {req.brand && (
+                                    <p className="text-blue-600"><strong>Brand:</strong> {req.brand}</p>
+                                  )}
+                                  {(req.assigned_vendor_name || req.vendor_name) && (
+                                    <div className="flex items-center gap-1 flex-wrap">
+                                      <span className="font-medium text-blue-700">Vendor:</span> {req.vendor_name || req.assigned_vendor_name}
+                                      {req.po_id && <Badge variant="outline" className="text-[9px] ml-1 border-green-300 text-green-700">PO: {req.po_id}</Badge>}
+                                    </div>
+                                  )}
+                                  {req.payment_mode && (
+                                    <p className="text-purple-700"><strong>Payment:</strong> {req.payment_mode}</p>
+                                  )}
                                 </div>
                               </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="received">
-                    {receivedMaterials.length === 0 ? (
-                      <div className="text-center py-6 text-gray-500">
-                        <CheckCircle className="h-10 w-10 mx-auto mb-3 text-gray-400" />
-                        <p className="text-sm">No received materials</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 sm:space-y-3">
-                        {receivedMaterials.map(req => (
-                          <Card 
-                            key={req.request_id} 
-                            className="border-l-4 border-l-green-500 cursor-pointer hover:shadow-md transition-all"
-                            onClick={() => setSelectedOrder(req)}
-                            data-testid={`received-card-${req.request_id}`}
-                          >
-                            <CardContent className="p-3">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <h4 className="text-sm font-semibold truncate">{req.material_name}</h4>
-                                    <StatusBadge status={req.status} />
-                                  </div>
-                                  <div className="text-xs text-gray-600">
-                                    <p><strong>Qty:</strong> {req.quantity} {req.unit}</p>
-                                  </div>
-                                </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                {isReceivable && (
+                                  <Button
+                                    size="sm"
+                                    onClick={(e) => { e.stopPropagation(); openReceiveDialog(req); }}
+                                    className="gap-1 bg-green-600 hover:bg-green-700 text-xs whitespace-nowrap"
+                                    data-testid={`receive-btn-${req.request_id}`}
+                                  >
+                                    <Package className="h-3 w-3" />Collect
+                                  </Button>
+                                )}
                                 <Eye className="h-4 w-4 text-gray-400" />
                               </div>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </div>
-                    )}
-                  </TabsContent>
-                </Tabs>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
             )}

@@ -13,6 +13,17 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — May 8, 2026 — SE Materials Tab: Unified Lifecycle Cards UI
+- **Frontend** (`/app/frontend/src/pages/SiteEngineerProject.jsx`):
+  - Added `LIFECYCLE_BUCKETS` and `bucketForMaterial()` helpers (mirroring `ProcurementBoardSimple.jsx` / `PlanningRequestsTab.jsx`) so the Site Engineer's Materials tab now shows the same 8 unified lifecycle cards: **All / New Request / Planning Awaiting / Revision / Awaiting Accountant / Transit / Credit / Delivered**. Counts update live from `material_requests` and clicking a card filters the list.
+  - Replaced the old inner `Tabs` (orders/received) with a single flat list of cards. Each card shows: title, status badge, lifecycle bucket pill, ID, qty/unit, brand, vendor, payment mode, plus a green **Collect** action whenever `canReceive()` is true.
+  - Two prominent header buttons:
+    - **Request Order** (amber) — opens the existing material request dialog.
+    - **Collect Material** (green outline + count badge) — jumps the bucket filter to **Transit**, surfacing the items awaiting collection.
+  - Color-coded `border-l-4` accent per bucket (amber / yellow / orange / cyan / sky / purple / emerald / violet).
+- **Bug fix** (`/app/frontend/src/components/SiteEngineerWorkOrdersV2.jsx`): Imported missing `Hourglass` icon from `lucide-react` (the page was throwing `ReferenceError: Hourglass is not defined` and not rendering at all).
+- **Verified** via screenshot tool with `engineer@constructionos.com` / `Demo@1234` on `proj_classic001` (Swathi 60L G+2): cards render with counts (All=17, Transit=1, Delivered=5, etc), Collect Material button correctly switches to Transit bucket with the in-transit Bricks 9x4x3 item visible.
+
 ### Session — May 7, 2026 — HR CSV Bulk Import: Correct Field Mapping + Duplicate Update
 - **Frontend** (`/app/frontend/src/pages/HRPortal.jsx`):
   - Replaced naive `line.split(',')` CSV parser with an **RFC4180-compliant parser** that respects quoted commas, escaped quotes and CRLF. This was the root cause — any address like `"2/312 kovalan street, perumbakkam, chennai-600100"` used to split into 3 fields, shifting every column to the right (aadhar landed in bank, basic salary landed in IFSC, etc.).
