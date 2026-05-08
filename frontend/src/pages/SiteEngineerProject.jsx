@@ -71,6 +71,7 @@ export default function SiteEngineerProject() {
   const [loading, setLoading] = useState(true);
   
   const [activeTab, setActiveTab] = useState('materials');
+  const [materialsSubTab, setMaterialsSubTab] = useState('requests'); // requests | inventory
   const [materialSubTab, setMaterialSubTab] = useState('orders');
   const [labourSubTab, setLabourSubTab] = useState('orders');
   
@@ -636,47 +637,25 @@ export default function SiteEngineerProject() {
         }
       />
 
-      <div className="max-w-6xl mx-auto px-3 py-3 sm:px-6 sm:py-8">
-        {/* Project Name Heading */}
-        <div className="mb-3 sm:mb-4">
-          <h1 className="text-lg sm:text-2xl font-bold text-gray-900" data-testid="project-name-heading">{project.name}</h1>
-          <p className="text-xs sm:text-sm text-gray-500">{project.client_name}</p>
-        </div>
-        {/* Project Info - Compact on mobile */}
-        <Card className="mb-3 sm:mb-8 bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
-          <CardContent className="p-3 sm:p-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Project</p>
-                  <p className="text-xs sm:text-sm font-semibold truncate">{project.name}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Client</p>
-                  <p className="text-xs sm:text-sm font-semibold truncate">{project.client_name}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Location</p>
-                  <p className="text-xs sm:text-sm font-semibold truncate">{project.location}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 sm:h-8 sm:w-8 text-amber-600 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Type</p>
-                  <p className="text-xs sm:text-sm font-semibold truncate">{project.building_type || 'Building'}</p>
-                </div>
+      <div className="max-w-6xl mx-auto px-3 py-3 sm:px-6 sm:py-6">
+        {/* Compact Project Header */}
+        <div className="bg-gradient-to-r from-amber-50 via-white to-amber-50 border border-amber-200 rounded-lg p-3 sm:p-4 mb-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <div className="bg-amber-100 p-2 rounded-lg shrink-0">
+              <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-amber-700" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate" data-testid="project-name-heading">{project.name}</h1>
+              <div className="flex items-center gap-3 sm:gap-4 mt-1 flex-wrap text-sm text-gray-600">
+                <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5 text-amber-600" /> {project.client_name}</span>
+                <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-amber-600" /> {project.location}</span>
+                {project.building_type && (
+                  <span className="flex items-center gap-1"><Building2 className="h-3.5 w-3.5 text-amber-600" /> {project.building_type}</span>
+                )}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
         {/* Quick Attendance Button */}
         <div className="flex items-center justify-end mb-2">
@@ -691,32 +670,44 @@ export default function SiteEngineerProject() {
         </div>
 
         {/* Main Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
-            <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-xs sm:text-sm">
-              <Package className="h-3 w-3 sm:h-4 sm:w-4" />
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'materials') setMaterialsSubTab('requests'); }}>
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-3">
+            <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-sm sm:text-base">
+              <Package className="h-4 w-4" />
               <span className="hidden sm:inline">Materials</span>
-              <span className="sm:hidden">Mat</span>
+              <span className="sm:hidden">Materials</span>
             </TabsTrigger>
-            <TabsTrigger value="work_orders" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-work-orders">
-              <ClipboardList className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Work Orders</span>
-              <span className="sm:hidden">WO</span>
+            <TabsTrigger value="work_orders" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-work-orders">
+              <ClipboardList className="h-4 w-4" />
+              <span className="hidden sm:inline">Work Order (Labour)</span>
+              <span className="sm:hidden">WO (Labour)</span>
             </TabsTrigger>
-            <TabsTrigger value="stock_register" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-stock-register">
-              <Warehouse className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Inventory</span>
-              <span className="sm:hidden">Inv</span>
-            </TabsTrigger>
-            <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-xs sm:text-sm" data-testid="tab-daily-progress">
-              <Calendar className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Progress</span>
-              <span className="sm:hidden">Prog</span>
+            <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-daily-progress">
+              <Calendar className="h-4 w-4" />
+              <span>Progress</span>
             </TabsTrigger>
           </TabsList>
 
-          {/* MATERIALS TAB */}
+          {/* MATERIALS TAB (with Requests | Inventory sub-tabs) */}
           <TabsContent value="materials">
+            {/* Materials sub-tabs: Requests | Inventory */}
+            <div className="flex gap-1 mb-3 border-b">
+              <button
+                onClick={() => setMaterialsSubTab('requests')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${materialsSubTab === 'requests' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                data-testid="mat-subtab-requests"
+              >
+                Material Requests
+              </button>
+              <button
+                onClick={() => setMaterialsSubTab('inventory')}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${materialsSubTab === 'inventory' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                data-testid="mat-subtab-inventory"
+              >
+                Inventory
+              </button>
+            </div>
+            {materialsSubTab === 'requests' && (
             <Card>
               <CardHeader className="p-3 sm:p-6 flex flex-row items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -1016,6 +1007,7 @@ export default function SiteEngineerProject() {
                 </Tabs>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* WORK ORDERS TAB — Redesigned (V2) */}
@@ -1023,8 +1015,9 @@ export default function SiteEngineerProject() {
             <SiteEngineerWorkOrdersV2 projectId={projectId} />
           </TabsContent>
 
-          {/* INVENTORY TAB */}
-          <TabsContent value="stock_register">
+          {/* INVENTORY (rendered as second pane within Materials tab) */}
+          <TabsContent value="materials" forceMount={false}>
+            {materialsSubTab === 'inventory' && (
             <Card>
               <CardHeader className="p-3 sm:p-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1299,6 +1292,7 @@ export default function SiteEngineerProject() {
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* DAILY PROGRESS TAB */}
