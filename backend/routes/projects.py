@@ -2674,7 +2674,7 @@ async def create_additional_cost(cost_input: AdditionalCostCreate, user: User = 
 
 @router.patch("/additional-costs/{cost_id}")
 async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
@@ -2686,7 +2686,7 @@ async def update_additional_cost(cost_id: str, update_data: AdditionalCostUpdate
 
 @router.delete("/additional-costs/{cost_id}")
 async def delete_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     await db.additional_costs.delete_one({"cost_id": cost_id})
@@ -2915,7 +2915,7 @@ async def create_deduction(deduction_input: DeductionCreate, user: User = Depend
 
 @router.patch("/deductions/{deduction_id}")
 async def update_deduction(deduction_id: str, update_data: DeductionUpdate, user: User = Depends(get_current_user)):
-    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT, UserRole.PLANNING]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
