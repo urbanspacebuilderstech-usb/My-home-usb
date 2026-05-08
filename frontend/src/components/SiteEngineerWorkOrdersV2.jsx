@@ -179,7 +179,7 @@ export default function SiteEngineerWorkOrdersV2({ projectId }) {
 // Detail view: header + DLR button + tabs (Scope / Payment Schedule / DLR Report)
 // =====================================================================
 function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
-  const [tab, setTab] = useState('scope');
+  const [tab, setTab] = useState('payments');
   const [dlrPopupOpen, setDlrPopupOpen] = useState(false);
   const [stageDialog, setStageDialog] = useState(null); // selected stage for detail dialog
   const [suspenseBalance, setSuspenseBalance] = useState(0);
@@ -226,8 +226,8 @@ function WorkOrderDetail({ wo, projectId, onBack, onChange }) {
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="w-full grid grid-cols-3">
-          <TabsTrigger value="scope" data-testid="wov2-tab-scope">Scope</TabsTrigger>
-          <TabsTrigger value="payments" data-testid="wov2-tab-payments">Payment Schedule</TabsTrigger>
+          <TabsTrigger value="payments" data-testid="wov2-tab-payments">Payment Schedule Stages</TabsTrigger>
+          <TabsTrigger value="scope" data-testid="wov2-tab-scope">Scope of Work</TabsTrigger>
           <TabsTrigger value="dlr" data-testid="wov2-tab-dlr">DLR Report</TabsTrigger>
         </TabsList>
 
