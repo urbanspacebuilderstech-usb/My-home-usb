@@ -865,7 +865,8 @@ export default function ProjectDetail() {
           source: 'additional',
         }));
       const userStages = (woForm.stages || []).map(s => ({ ...s, source: null }));
-      const payload = { ...woForm, stages: [...autoStages, ...userStages] };
+      // Auto-additional stages appear LAST so user-defined % stages run first.
+      const payload = { ...woForm, stages: [...userStages, ...autoStages] };
       if (editingWo) {
         await axios.patch(`${API}/projects/${projectId}/work-orders/${editingWo.work_order_id}`, payload);
         toast.success('Work order updated');
@@ -4951,16 +4952,23 @@ export default function ProjectDetail() {
                         <Button variant="ghost" size="sm" onClick={() => setWoViewId(null)} className="mb-3"><ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to List</Button>
                         <div className="border rounded-lg overflow-hidden">
                           <div className={`p-4 border-b flex items-center justify-between ${wo.status === 'frozen' ? 'bg-red-50' : wo.reassigned_from ? 'bg-emerald-50' : 'bg-violet-50'}`}>
-                            <div>
+                            <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <p className="font-bold text-sm">{wo.contractor_name}</p>
+                                <Badge variant="outline" className="text-[10px] bg-white">{wo.contractor_type}</Badge>
                                 {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]">Frozen</Badge>}
                                 {wo.reassigned_from && <Badge className="bg-emerald-600 text-white text-[10px]">Reassigned from {wo.reassigned_contractor || wo.reassigned_from}</Badge>}
                               </div>
-                              <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}{wo.paid_amount > 0 ? ` | Paid: ${formatCurrency(wo.paid_amount)}` : ''}</p>
+                              {wo.paid_amount > 0 && <p className="text-[11px] text-green-700 font-medium mt-1">Paid: {formatCurrency(wo.paid_amount)}</p>}
                               {wo.frozen_reason && <p className="text-xs text-red-600 mt-1">Reason: {wo.frozen_reason}</p>}
                             </div>
-                            <div className="flex gap-1">
+                            <div className="flex items-center gap-3 shrink-0">
+                              {/* Big highlighted Total Contract Amount */}
+                              <div className="text-right rounded-lg bg-white border-2 border-violet-300 px-3 py-1.5 shadow-sm" data-testid="wo-total-contract">
+                                <p className="text-[9px] font-semibold uppercase tracking-wide text-violet-600">Total Contract</p>
+                                <p className="text-xl sm:text-2xl font-extrabold text-violet-800 leading-tight">{formatCurrency(wo.total_value)}</p>
+                              </div>
+                              <div className="flex gap-1">
                               {wo.status !== 'frozen' && ['planning', 'super_admin'].includes(user?.role) && (
                                 <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50" onClick={() => startFreeze(wo.work_order_id)} data-testid="wo-freeze-btn">
                                   <Lock className="h-3 w-3 mr-1" />Freeze
@@ -4972,6 +4980,7 @@ export default function ProjectDetail() {
                                   <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
                                 </>
                               )}
+                              </div>
                             </div>
                           </div>
                           <Tabs defaultValue="scope" className="w-full">
@@ -5111,7 +5120,6 @@ export default function ProjectDetail() {
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <h4 className="font-semibold text-sm">{wo.contractor_name}</h4>
                               <Badge variant="outline" className="text-[10px]">{wo.contractor_type}</Badge>
-                              <Badge className="bg-violet-100 text-violet-700 text-[10px]">{formatCurrency(wo.total_value)}</Badge>
                               {wo.paid_amount > 0 && <Badge className="bg-green-100 text-green-700 text-[10px]">Paid: {formatCurrency(wo.paid_amount)}</Badge>}
                               {pendingRequests > 0 && <Badge className="bg-amber-100 text-amber-700 text-[10px]">{pendingRequests} pending approval</Badge>}
                               {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]"><Snowflake className="h-2.5 w-2.5 mr-0.5" />Frozen</Badge>}
@@ -5123,7 +5131,12 @@ export default function ProjectDetail() {
                               <span>{wo.additional_work?.length || 0} additional</span>
                             </div>
                           </div>
-                          <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-3 shrink-0" onClick={e => e.stopPropagation()}>
+                            <div className="text-right rounded-lg bg-violet-50 border-2 border-violet-300 px-3 py-1.5 shadow-sm">
+                              <p className="text-[9px] font-semibold uppercase tracking-wide text-violet-600">Total Contract</p>
+                              <p className="text-lg sm:text-xl font-extrabold text-violet-800 leading-tight">{formatCurrency(wo.total_value)}</p>
+                            </div>
+                            <div className="flex gap-1">
                             {wo.status !== 'frozen' && (
                               <>
                                 <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => openWoDialog(wo)}><Edit className="h-3.5 w-3.5" /></Button>
@@ -5131,6 +5144,7 @@ export default function ProjectDetail() {
                               </>
                             )}
                             {wo.status === 'frozen' && <Lock className="h-4 w-4 text-red-400" />}
+                            </div>
                           </div>
                         </div>
                       </div>);
@@ -5503,23 +5517,7 @@ export default function ProjectDetail() {
                               <div className="col-span-3 text-right">Amount</div>
                               <div className="col-span-1"></div>
                             </div>
-                            {/* Auto-derived additional cost stages — locked, one per Additional row */}
-                            {autoAdditional.map((auto, idx) => (
-                              <div key={`auto-${idx}`} className="grid grid-cols-12 gap-1 items-center bg-emerald-50/60 border border-emerald-200 rounded px-1 py-1" data-testid={`wo-auto-stage-${idx}`}>
-                                <div className="col-span-4 flex items-center gap-1">
-                                  <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
-                                  <span className="text-xs font-medium text-emerald-900 truncate">{auto.name}</span>
-                                </div>
-                                <div className="col-span-2 text-[10px] text-emerald-700 font-semibold">Auto · ₹</div>
-                                <div className="col-span-2 text-[11px] text-emerald-700">{formatCurrency(auto.amount)}</div>
-                                <div className="col-span-3 text-right pr-1">
-                                  <span className="text-xs font-semibold text-emerald-700">{formatCurrency(auto.amount)}</span>
-                                  <div className="text-[9px] text-emerald-500">from Additional</div>
-                                </div>
-                                <div className="col-span-1"></div>
-                              </div>
-                            ))}
-                            {/* User-defined stages — % base = Scope only */}
+                            {/* User-defined stages first — % base = Scope only */}
                             {woForm.stages.map((st, idx) => {
                               const v = parseFloat(st.value) || 0;
                               const resolved = st.type === 'percentage' ? (_scope * v / 100) : v;
@@ -5542,6 +5540,22 @@ export default function ProjectDetail() {
                                 <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>
                               </div>);
                             })}
+                            {/* Auto-derived additional cost stages — appear LAST, locked, one per Additional row */}
+                            {autoAdditional.map((auto, idx) => (
+                              <div key={`auto-${idx}`} className="grid grid-cols-12 gap-1 items-center bg-emerald-50/60 border border-emerald-200 rounded px-1 py-1" data-testid={`wo-auto-stage-${idx}`}>
+                                <div className="col-span-4 flex items-center gap-1">
+                                  <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
+                                  <span className="text-xs font-medium text-emerald-900 truncate">{auto.name}</span>
+                                </div>
+                                <div className="col-span-2 text-[10px] text-emerald-700 font-semibold">Auto · ₹</div>
+                                <div className="col-span-2 text-[11px] text-emerald-700">{formatCurrency(auto.amount)}</div>
+                                <div className="col-span-3 text-right pr-1">
+                                  <span className="text-xs font-semibold text-emerald-700">{formatCurrency(auto.amount)}</span>
+                                  <div className="text-[9px] text-emerald-500">from Additional</div>
+                                </div>
+                                <div className="col-span-1"></div>
+                              </div>
+                            ))}
                           </div>
                           );
                         })()}
@@ -5836,21 +5850,28 @@ export default function ProjectDetail() {
                             <Button variant="ghost" size="sm" onClick={() => setLabourWoViewId(null)} className="mb-3"><ArrowLeft className="h-3.5 w-3.5 mr-1" />Back to List</Button>
                             <div className="border rounded-lg overflow-hidden">
                               <div className={`p-4 border-b flex items-center justify-between ${wo.status === 'frozen' ? 'bg-red-50' : wo.reassigned_from ? 'bg-emerald-50' : 'bg-violet-50'}`}>
-                                <div>
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <p className="font-bold text-sm">{wo.contractor_name}</p>
+                                    <Badge variant="outline" className="text-[10px] bg-white">{wo.contractor_type}</Badge>
                                     {wo.status === 'frozen' && <Badge className="bg-red-600 text-white text-[10px]">Frozen</Badge>}
                                     {wo.reassigned_from && <Badge className="bg-emerald-600 text-white text-[10px]">Reassigned from {wo.reassigned_contractor || wo.reassigned_from}</Badge>}
                                   </div>
-                                  <p className="text-xs text-gray-500">{wo.contractor_type} | Total: {formatCurrency(wo.total_value)}{wo.paid_amount > 0 ? ` | Paid: ${formatCurrency(wo.paid_amount)}` : ''}</p>
+                                  {wo.paid_amount > 0 && <p className="text-[11px] text-green-700 font-medium mt-1">Paid: {formatCurrency(wo.paid_amount)}</p>}
                                 </div>
-                                <div className="flex gap-1">
+                                <div className="flex items-center gap-3 shrink-0">
+                                  <div className="text-right rounded-lg bg-white border-2 border-violet-300 px-3 py-1.5 shadow-sm" data-testid="labour-wo-total-contract">
+                                    <p className="text-[9px] font-semibold uppercase tracking-wide text-violet-600">Total Contract</p>
+                                    <p className="text-xl sm:text-2xl font-extrabold text-violet-800 leading-tight">{formatCurrency(wo.total_value)}</p>
+                                  </div>
+                                  <div className="flex gap-1">
                                   {wo.status !== 'frozen' && (
                                     <>
                                       <Button size="sm" variant="outline" onClick={() => openWoDialog(wo)} data-testid="labour-wo-edit-btn"><Edit className="h-3 w-3 mr-1" />Edit</Button>
                                       <Button size="sm" variant="destructive" onClick={() => handleDeleteWo(wo)} data-testid="labour-wo-delete-btn"><Trash2 className="h-3 w-3" /></Button>
                                     </>
                                   )}
+                                  </div>
                                 </div>
                               </div>
                               <Tabs defaultValue="scope" className="w-full">

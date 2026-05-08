@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Savings A/c Payment Mode + Income Edit — Added "Savings A/c" as a payment mode option across all payment-collection forms (MultiPaymentInput, AccountsBoard, AccountantCreditSettlements, ExpenseManagement, Income, SuspenseAccount, Cashbook, CRMSales, ProjectDetail). Income view dialog now has an Edit button (Accountant/Super Admin) to change payment_mode + reference/cheque/bank fields and persist via existing `PATCH /api/income/{id}` endpoint.
-  - Files: `frontend/src/components/MultiPaymentInput.jsx`, `frontend/src/pages/AccountsBoard.jsx`, `frontend/src/components/AccountantCreditSettlements.jsx`, `frontend/src/pages/ExpenseManagement.jsx`, `frontend/src/pages/Income.jsx`, `frontend/src/pages/SuspenseAccount.jsx`, `frontend/src/pages/Cashbook.jsx`, `frontend/src/pages/CRMSales.jsx`, `frontend/src/pages/ProjectDetail.jsx`
+- 2026-02: WO Header & Stage Order — Total Contract amount on each Work Order is now displayed as a big, bordered, highlighted card (top-right of WO header in both the WO list, detail view, and labour sub-tab). Auto Additional payment stages now save & render **AFTER** the user-defined % stages (Stage 01, 02 → then Additional Cost 1, 2).
+  - Files: `frontend/src/pages/ProjectDetail.jsx` (3 WO headers + dialog stage order + handleSaveWo merge order)
+- 2026-02: Savings A/c Payment Mode + Income Edit — Added "Savings A/c" everywhere; Income view dialog now editable.
 - 2026-02: Work Order Auto Payment Stages — Each Additional cost row in a Work Order now auto-becomes a separate **fixed-amount payment stage** (locked). User-defined % stages compute on **Scope only**.
 - 2026-02: Same-Role Lead Transfer — Marketing Board "Transfer Role & Leads" dialog now allows handing over leads to a teammate already in the same Pre-Sales/Sales role.
 - 2026-02: Client Portal V2 — Fixed "Final Estimate" returning 0 (now reads `scope_items`); added "Pre-Construction" tab showing 7 CRE pre-construction stages.
