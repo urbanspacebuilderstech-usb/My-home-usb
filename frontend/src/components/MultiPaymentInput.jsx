@@ -12,6 +12,7 @@ const PAYMENT_MODES = [
   { value: 'cash', label: 'Cash', icon: Banknote, color: 'text-green-600' },
   { value: 'cheque', label: 'Cheque', icon: CreditCard, color: 'text-blue-600' },
   { value: 'bank_transfer', label: 'Bank Transfer', icon: Building2, color: 'text-purple-600' },
+  { value: 'savings_account', label: 'Savings A/c', icon: Building2, color: 'text-cyan-600' },
   { value: 'upi', label: 'UPI', icon: Smartphone, color: 'text-orange-600' },
   { value: 'direct_transfer', label: 'Direct Transfer (DT)', icon: ArrowRightLeft, color: 'text-emerald-600' },
 ];

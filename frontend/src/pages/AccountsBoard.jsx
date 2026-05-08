@@ -773,6 +773,7 @@ function PettyCashManagement({ onBack }) {
                       <SelectItem value="cash">Cash</SelectItem>
                       <SelectItem value="cheque">Cheque</SelectItem>
                       <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="savings_account">Savings A/c</SelectItem>
                       <SelectItem value="upi">UPI</SelectItem>
                     </SelectContent>
                   </Select>
@@ -798,7 +799,7 @@ function PettyCashManagement({ onBack }) {
                   <Input className="h-8 text-xs" value={payForm.cheque_number} onChange={e => setPayForm({...payForm, cheque_number: e.target.value})} placeholder="e.g., 123456" />
                 </div>
               )}
-              {(payForm.payment_mode === 'bank_transfer' || payForm.payment_mode === 'upi') && (
+              {(payForm.payment_mode === 'bank_transfer' || payForm.payment_mode === 'savings_account' || payForm.payment_mode === 'upi') && (
                 <div>
                   <Label className="text-xs">Reference / Transaction Number</Label>
                   <Input className="h-8 text-xs" value={payForm.reference_number} onChange={e => setPayForm({...payForm, reference_number: e.target.value})} placeholder="e.g., TXN001" />
@@ -1371,6 +1372,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
   const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'manual' | 'approval'
   const [viewDialog, setViewDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
+  // Edit-mode for income view dialog: lets accountant change payment_mode + ref + cheque
+  const [editingIncome, setEditingIncome] = useState(false);
+  const [editIncomeForm, setEditIncomeForm] = useState({ payment_mode: 'cash', reference_number: '', cheque_number: '', bank_name: '' });
+  const [savingIncomeEdit, setSavingIncomeEdit] = useState(false);
   const [addExpenseOpen, setAddExpenseOpen] = useState(false);
   const [mobileExpenseDialog, setMobileExpenseDialog] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
@@ -1409,6 +1414,40 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       onRefresh && onRefresh();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to delete income');
+    }
+  };
+
+  const startEditIncome = () => {
+    if (!selectedEntry) return;
+    setEditIncomeForm({
+      payment_mode: selectedEntry.payment_mode || 'cash',
+      reference_number: selectedEntry.reference_number || '',
+      cheque_number: selectedEntry.cheque_number || '',
+      bank_name: selectedEntry.bank_name || '',
+    });
+    setEditingIncome(true);
+  };
+
+  const handleSaveIncomeEdit = async () => {
+    if (!selectedEntry?.income_id) return;
+    setSavingIncomeEdit(true);
+    try {
+      const payload = {
+        payment_mode: editIncomeForm.payment_mode,
+        reference_number: editIncomeForm.reference_number || null,
+        cheque_number: editIncomeForm.cheque_number || null,
+        bank_name: editIncomeForm.bank_name || null,
+      };
+      await axios.patch(`${API}/income/${selectedEntry.income_id}`, payload);
+      toast.success('Income updated');
+      setSelectedEntry({ ...selectedEntry, ...payload });
+      setEditingIncome(false);
+      fetchCashbook();
+      onRefresh && onRefresh();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to update income');
+    } finally {
+      setSavingIncomeEdit(false);
     }
   };
 
@@ -2050,6 +2089,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                             <SelectContent>
                               <SelectItem value="cash">Cash</SelectItem>
                               <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                              <SelectItem value="savings_account">Savings A/c</SelectItem>
                               <SelectItem value="cheque">Cheque</SelectItem>
                               <SelectItem value="upi">UPI</SelectItem>
                             </SelectContent>
@@ -2142,9 +2182,18 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
           <IndirectExpenseSection userRole={userRole} />
         </TabsContent>
       </Tabs>
-      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
+      <Dialog open={viewDialog} onOpenChange={(o) => { setViewDialog(o); if (!o) setEditingIncome(false); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Transaction Details</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Transaction Details</span>
+              {selectedEntry?.income_id && !editingIncome && (
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={startEditIncome} data-testid="income-edit-btn">
+                  <Edit className="h-3 w-3" /> Edit
+                </Button>
+              )}
+            </DialogTitle>
+          </DialogHeader>
           {selectedEntry && (
             <div className="space-y-3">
               <div className="text-center">
@@ -2153,23 +2202,73 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   {selectedEntry.income_id ? 'Income' : 'Expense'}
                 </Badge>
               </div>
-              <div className="space-y-2 text-sm">
-                {[
-                  ['Project', selectedEntry.project_name],
-                  ['Description', selectedEntry.stage || selectedEntry.description],
-                  ['Date', new Date(selectedEntry.approved_at || selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
-                  ['Mode', selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
-                  ['Vendor', selectedEntry.vendor_name],
-                ].filter(([, v]) => v).map(([label, value]) => (
-                  <div key={label} className="flex justify-between border-b pb-1">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium">{value}</span>
+              {!editingIncome ? (
+                <div className="space-y-2 text-sm">
+                  {[
+                    ['Project', selectedEntry.project_name],
+                    ['Description', selectedEntry.stage || selectedEntry.description],
+                    ['Date', new Date(selectedEntry.approved_at || selectedEntry.payment_date || selectedEntry.created_at).toLocaleString('en-IN')],
+                    ['Mode', MODE_LABELS[classifyMode(selectedEntry.payment_mode || selectedEntry.payment_method)] || selectedEntry.payment_mode || selectedEntry.payment_method || 'Cash'],
+                    ['Reference / Txn', selectedEntry.reference_number],
+                    ['Cheque No', selectedEntry.cheque_number],
+                    ['Bank', selectedEntry.bank_name],
+                    ['Vendor', selectedEntry.vendor_name],
+                  ].filter(([, v]) => v).map(([label, value]) => (
+                    <div key={label} className="flex justify-between border-b pb-1">
+                      <span className="text-gray-500">{label}</span>
+                      <span className="font-medium">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm bg-amber-50/40 border border-amber-200 rounded-md p-3" data-testid="income-edit-form">
+                  <p className="text-xs text-amber-700 font-medium">Edit payment details</p>
+                  <div>
+                    <Label className="text-xs">Payment Mode *</Label>
+                    <Select value={editIncomeForm.payment_mode} onValueChange={v => setEditIncomeForm(f => ({ ...f, payment_mode: v }))}>
+                      <SelectTrigger className="h-8 text-xs mt-1" data-testid="income-edit-mode"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="cheque">Cheque</SelectItem>
+                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="savings_account">Savings A/c</SelectItem>
+                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="direct_transfer">Direct Transfer (DT)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                ))}
-              </div>
-              <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
-                <Printer className="h-4 w-4 mr-2" /> Print Receipt
-              </Button>
+                  {editIncomeForm.payment_mode === 'cheque' ? (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="text-xs">Cheque No</Label>
+                        <Input className="h-8 text-xs mt-1" value={editIncomeForm.cheque_number} onChange={e => setEditIncomeForm(f => ({ ...f, cheque_number: e.target.value }))} data-testid="income-edit-cheque" />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Bank</Label>
+                        <Input className="h-8 text-xs mt-1" value={editIncomeForm.bank_name} onChange={e => setEditIncomeForm(f => ({ ...f, bank_name: e.target.value }))} data-testid="income-edit-bank" />
+                      </div>
+                    </div>
+                  ) : (
+                    editIncomeForm.payment_mode !== 'cash' && (
+                      <div>
+                        <Label className="text-xs">Reference / Txn ID</Label>
+                        <Input className="h-8 text-xs mt-1" value={editIncomeForm.reference_number} onChange={e => setEditIncomeForm(f => ({ ...f, reference_number: e.target.value }))} data-testid="income-edit-ref" />
+                      </div>
+                    )
+                  )}
+                  <div className="flex gap-2 pt-1">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingIncome(false)} disabled={savingIncomeEdit}>Cancel</Button>
+                    <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700" onClick={handleSaveIncomeEdit} disabled={savingIncomeEdit} data-testid="income-edit-save">
+                      {savingIncomeEdit ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null} Save
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!editingIncome && (
+                <Button className="w-full bg-amber-600 hover:bg-amber-700" onClick={() => handlePrintReceipt(selectedEntry)}>
+                  <Printer className="h-4 w-4 mr-2" /> Print Receipt
+                </Button>
+              )}
             </div>
           )}
         </DialogContent>
@@ -2232,6 +2331,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                   <SelectContent>
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="savings_account">Savings A/c</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
                   </SelectContent>

@@ -129,6 +129,7 @@ export default function AccountantCreditSettlements() {
                   <SelectTrigger className="h-9 text-sm" data-testid="credit-pay-method"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="bank">Bank transfer</SelectItem>
+                    <SelectItem value="savings_account">Savings A/c</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                   </SelectContent>

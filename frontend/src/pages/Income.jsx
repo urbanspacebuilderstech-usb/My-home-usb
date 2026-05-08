@@ -287,6 +287,7 @@ export default function Income({ embedded = false }) {
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="cheque">Cheque</SelectItem>
                         <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="savings_account">Savings A/c</SelectItem>
                         <SelectItem value="upi">UPI</SelectItem>
                         <SelectItem value="petty_cash">Petty Cash</SelectItem>
                       </SelectContent>
@@ -452,6 +453,7 @@ export default function Income({ embedded = false }) {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    <SelectItem value="savings_account">Savings A/c</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
                     <SelectItem value="petty_cash">Petty Cash</SelectItem>
                   </SelectContent>
