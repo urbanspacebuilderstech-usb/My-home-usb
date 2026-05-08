@@ -3282,11 +3282,11 @@ export default function MarketingBoard() {
                       </SelectItem>
                     ))}
                     {transferPreview.eligible_targets.length === 0 && (
-                      <div className="p-4 text-xs text-gray-400 text-center">No eligible users. HR must first create a user without sales/pre-sales role.</div>
+                      <div className="p-4 text-xs text-gray-400 text-center">No eligible users found.</div>
                     )}
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-gray-500 mt-1">Showing all active users without an existing Sales or Pre-Sales role.</p>
+                <p className="text-[11px] text-gray-500 mt-1">Showing all active users — pick a teammate already in {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'} (rebalance) or anyone without that role (will be promoted).</p>
               </div>
 
               {/* Reason */}
@@ -3296,14 +3296,23 @@ export default function MarketingBoard() {
               </div>
             </div>
           ) : (
+            (() => {
+              const targetUser = transferPreview.eligible_targets.find(u => u.user_id === transferForm.to_user_id) || {};
+              const sameRole = targetUser.role === transferPreview.role;
+              return (
             <div className="space-y-4">
               <div className="p-4 rounded-md bg-red-50 border border-red-200" data-testid="transfer-confirm-banner">
                 <div className="flex gap-2">
                   <ShieldAlert className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                   <div className="text-xs text-red-800 space-y-1.5">
                     <p className="font-semibold text-sm">Confirm transfer — this is irreversible.</p>
-                    <p>• <b>{transferPreview.counts.total_leads}</b> leads ({transferPreview.counts.open_leads} open, {transferPreview.counts.closed_leads} closed) will move from <b>{transferDialog.member?.name}</b> to <b>{(transferPreview.eligible_targets.find(u => u.user_id === transferForm.to_user_id) || {}).name}</b>.</p>
+                    <p>• <b>{transferPreview.counts.total_leads}</b> leads ({transferPreview.counts.open_leads} open, {transferPreview.counts.closed_leads} closed) will move from <b>{transferDialog.member?.name}</b> to <b>{targetUser.name}</b>.</p>
                     <p>• <b>{transferDialog.member?.name}</b> will lose the {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'} role and become an Employee (HR must re-assign).</p>
+                    {sameRole ? (
+                      <p>• <b>{targetUser.name}</b> stays in {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'} — only the leads are added to their pipeline.</p>
+                    ) : (
+                      <p>• <b>{targetUser.name}</b> will be promoted to {transferDialog.member?.role === 'pre_sales' ? 'Pre-Sales' : 'Sales'}.</p>
+                    )}
                     <p>• Closed-deal commissions stay attributed to <b>{transferDialog.member?.name}</b> — only future deals belong to the new owner.</p>
                     <p>• Public Quote/Package URLs keep the original "prepared by" stamp; new responses route to the new owner.</p>
                   </div>
@@ -3320,6 +3329,8 @@ export default function MarketingBoard() {
                 <Label htmlFor="transfer-ack" className="text-xs cursor-pointer">I understand this transfer is irreversible. {transferDialog.member?.name}'s entire pipeline will move and they will lose dashboard access until HR assigns a new role.</Label>
               </div>
             </div>
+              );
+            })()
           )}
 
           <DialogFooter>

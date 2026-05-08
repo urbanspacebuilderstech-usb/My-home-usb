@@ -340,3 +340,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_146.json (100% pass rate)
 - /app/test_reports/iteration_147.json (100% pass rate)
 - /app/test_reports/iteration_148.json (100% pass rate)
+
+## Recent Updates (Feb 2026)
+- 2026-02: Same-Role Lead Transfer — Marketing Board "Transfer Role & Leads" dialog now allows handing over leads to a teammate already in the same Pre-Sales/Sales role (Kalvirayan T → Bhuvaneswari J use case). Backend preview endpoint includes same-role users; POST endpoint skips target promotion when target already has the role (target keeps role, only leads move; source still demoted to employee).
+  - Files: `backend/routes/crm.py` (`/admin/transfer-sales-role/preview/{id}`, `/admin/transfer-sales-role`); `frontend/src/pages/MarketingBoard.jsx` (Step 2 confirm banner + helper text)
+- 2026-02: Client Portal V2 — Fixed "Final Estimate" returning 0 (now reads `scope_items`); added "Pre-Construction" tab showing 7 CRE pre-construction stages.
+

@@ -5697,12 +5697,17 @@ async def get_transfer_preview(from_user_id: str, user: User = Depends(get_curre
     sales_leads_total = await db.sales_leads.count_documents({"assigned_to": from_user_id})
     re_projects = await db.re_projects.count_documents({"prepared_by": from_user_id})
 
-    # Eligible targets: any ACTIVE user whose role is NOT sales/pre_sales
+    # Eligible targets: any ACTIVE user who is either:
+    #   (a) without sales/pre_sales role (will be promoted), OR
+    #   (b) already in the SAME role as source (rebalance leads between teammates)
     targets = await db.users.find(
         {
             "is_active": {"$ne": False},
-            "role": {"$nin": ["sales", "pre_sales"]},
             "user_id": {"$ne": from_user_id},
+            "$or": [
+                {"role": {"$nin": ["sales", "pre_sales"]}},
+                {"role": src_role},
+            ],
         },
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1, "phone": 1},
     ).sort("name", 1).to_list(500)
@@ -5762,8 +5767,12 @@ async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(ge
         raise HTTPException(status_code=404, detail="Target user not found")
     if tgt.get("is_active") is False:
         raise HTTPException(status_code=400, detail="Target user is inactive")
-    if tgt.get("role") in ("sales", "pre_sales"):
-        raise HTTPException(status_code=400, detail=f"Target user already has role '{tgt.get('role')}' — pick a user without sales/pre_sales role")
+    tgt_role = tgt.get("role")
+    # Allow target to either have no sales/pre_sales role (will be promoted) OR
+    # the SAME role as source (rebalance / handover within team — target keeps role)
+    if tgt_role in ("sales", "pre_sales") and tgt_role != src_role:
+        raise HTTPException(status_code=400, detail=f"Target user already has role '{tgt_role}' — pick a user without sales/pre_sales role, or with role '{src_role}'")
+    same_role_transfer = (tgt_role == src_role)
 
     if not (data.reason or "").strip():
         raise HTTPException(status_code=400, detail="Reason is required for audit trail")
@@ -5834,15 +5843,16 @@ async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(ge
         },
     )
 
-    # 7) Role swap
+    # 7) Role swap — source always demoted; target promoted only if not already same role
     await db.users.update_one(
         {"user_id": data.from_user_id},
         {"$set": {"role": "employee", "updated_at": now_iso, "previous_role": src_role}},
     )
-    await db.users.update_one(
-        {"user_id": data.to_user_id},
-        {"$set": {"role": src_role, "updated_at": now_iso, "previous_role": tgt.get("role")}},
-    )
+    if not same_role_transfer:
+        await db.users.update_one(
+            {"user_id": data.to_user_id},
+            {"$set": {"role": src_role, "updated_at": now_iso, "previous_role": tgt_role}},
+        )
 
     # 8) Audit row + notifications
     audit_id = f"rta_{uuid.uuid4().hex[:12]}"
@@ -5853,7 +5863,8 @@ async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(ge
         "from_user_role": src_role,
         "to_user_id": data.to_user_id,
         "to_user_name": target_name,
-        "to_user_previous_role": tgt.get("role"),
+        "to_user_previous_role": tgt_role,
+        "same_role_transfer": same_role_transfer,
         "reason": data.reason.strip(),
         "leads_transferred": leads_result.modified_count,
         "sales_leads_transferred": sales_leads_result.modified_count,
@@ -5863,10 +5874,16 @@ async def transfer_sales_role(data: TransferRoleRequest, user: User = Depends(ge
     })
 
     try:
-        await create_notification(
-            data.to_user_id,
-            f"You have been promoted to {src_role.replace('_', '-').title()} — {leads_result.modified_count} leads have been moved to your pipeline.",
-        )
+        if same_role_transfer:
+            await create_notification(
+                data.to_user_id,
+                f"{leads_result.modified_count} leads from {src_name} have been transferred to your pipeline.",
+            )
+        else:
+            await create_notification(
+                data.to_user_id,
+                f"You have been promoted to {src_role.replace('_', '-').title()} — {leads_result.modified_count} leads have been moved to your pipeline.",
+            )
         await create_notification(
             data.from_user_id,
             f"Your {src_role.replace('_', '-').title()} role has been transferred to {target_name}. Closed-deal commissions remain attributed to you.",
