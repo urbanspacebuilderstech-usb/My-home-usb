@@ -3754,7 +3754,7 @@ class WorkOrderStage(BaseModel):
     name: str
     type: str = "percentage"  # percentage or amount
     value: float = 0
-    
+    source: Optional[str] = None  # 'additional' for auto-derived stages from additional_work; None for user-defined
 class WorkOrderAdditionalItem(BaseModel):
     description: str
     unit: str = "nos"
@@ -3832,6 +3832,7 @@ async def create_project_work_order(project_id: str, data: WorkOrderCreate, user
         stages.append({
             "stage_id": f"wos_{uuid.uuid4().hex[:6]}",
             "name": st.name, "type": st.type, "value": st.value, "amount": amt,
+            "source": st.source or None,
             "status": "pending",
             "requested_by": None, "requested_at": None,
             "pm_approved_by": None, "pm_approved_at": None,
@@ -3908,6 +3909,7 @@ async def update_project_work_order(project_id: str, work_order_id: str, data: W
         stages.append({
             "stage_id": existing.get("stage_id", f"wos_{uuid.uuid4().hex[:6]}"),
             "name": st.name, "type": st.type, "value": st.value, "amount": amt,
+            "source": st.source or existing.get("source") or None,
             "status": existing.get("status", "pending"),
             "requested_by": existing.get("requested_by"), "requested_at": existing.get("requested_at"),
             "pm_approved_by": existing.get("pm_approved_by"), "pm_approved_at": existing.get("pm_approved_at"),

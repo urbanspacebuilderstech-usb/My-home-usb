@@ -834,7 +834,8 @@ export default function ProjectDetail() {
         contractor_id: wo.contractor_id || '',
         notes: wo.notes || '',
         scope_items: (wo.scope_items || []).map(s => ({ name: s.name, unit: s.unit, quantity: s.quantity, unit_rate: s.unit_rate })),
-        stages: (wo.stages || []).map(s => ({ name: s.name, type: s.type, value: s.value })),
+        // Strip auto-derived "additional cost" stages — they get regenerated each render from additional_work
+        stages: (wo.stages || []).filter(s => s.source !== 'additional').map(s => ({ name: s.name, type: s.type, value: s.value })),
         additional_work: (wo.additional_work || []).map(a => ({ description: a.description, unit: a.unit, quantity: a.quantity, unit_rate: a.unit_rate })),
         deductions: (wo.deductions || []).map(d => ({ description: d.description, unit: d.unit, quantity: d.quantity, unit_rate: d.unit_rate })),
         labour_rates: wo.labour_rates || { skilled: 0, semi_skilled: 0, unskilled: 0 },
@@ -851,7 +852,20 @@ export default function ProjectDetail() {
   const handleSaveWo = async () => {
     if (!woForm.contractor_id) { toast.error('Select a contractor'); return; }
     try {
-      const payload = { ...woForm };
+      // Auto-derive one fixed-amount payment stage per Additional row.
+      // Rule (per product owner): every Additional cost is its own locked
+      // payment stage; user-defined % stages compute on Scope only — never on
+      // Scope+Additional. So we prepend auto-additional stages here on save.
+      const autoStages = (woForm.additional_work || [])
+        .filter(a => (parseFloat(a.quantity) || 0) * (parseFloat(a.unit_rate) || 0) > 0)
+        .map((a, i) => ({
+          name: `Additional Cost ${i + 1}${a.description ? ` - ${a.description}` : ''}`.slice(0, 120),
+          type: 'amount',
+          value: Math.round((parseFloat(a.quantity) || 0) * (parseFloat(a.unit_rate) || 0) * 100) / 100,
+          source: 'additional',
+        }));
+      const userStages = (woForm.stages || []).map(s => ({ ...s, source: null }));
+      const payload = { ...woForm, stages: [...autoStages, ...userStages] };
       if (editingWo) {
         await axios.patch(`${API}/projects/${projectId}/work-orders/${editingWo.work_order_id}`, payload);
         toast.success('Work order updated');
@@ -5409,15 +5423,20 @@ export default function ProjectDetail() {
                       {/* ===== PAYMENT STAGES (formerly Stages tab) ===== */}
                       <TabsContent value="payment_stages" className="mt-3 space-y-3">
                         {/* Same Work Order Total card + live "Allocated vs Total" tracker so the
-                            user can see immediately whether their stages add up to the WO total. */}
+                            user can see immediately whether their stages add up to the WO total.
+                            Rules:
+                              • Each Additional row auto-becomes a fixed-amount stage (locked).
+                              • Percentage stages (Stage 01, 02 …) compute on SCOPE only (not Scope+Additional). */}
                         {(() => {
                           const scopeTotal = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
                           const addTotal = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
                           const dedTotal = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
                           const grand = scopeTotal + addTotal - dedTotal;
-                          const allocated = woForm.stages.reduce((sum, st) => sum + (st.type === 'percentage'
-                            ? grand * (parseFloat(st.value) || 0) / 100
+                          // Auto stages = sum of Additional rows; User % stages compute on scope (not grand).
+                          const userAllocated = (woForm.stages || []).reduce((sum, st) => sum + (st.type === 'percentage'
+                            ? scopeTotal * (parseFloat(st.value) || 0) / 100
                             : (parseFloat(st.value) || 0)), 0);
+                          const allocated = addTotal + userAllocated;
                           const allocatedPct = grand > 0 ? (allocated / grand * 100) : 0;
                           const remaining = grand - allocated;
                           const matches = Math.abs(remaining) < 0.5;
@@ -5428,8 +5447,8 @@ export default function ProjectDetail() {
                                 <div className="flex-1 min-w-0">
                                   <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700 mb-1">Work Order Total</div>
                                   <div className="grid grid-cols-3 gap-3 text-[11px]">
-                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div></div>
-                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div></div>
+                                    <div><div className="text-gray-500">Scope</div><div className="font-semibold text-gray-900">{formatCurrency(scopeTotal)}</div><div className="text-[9px] text-gray-400">% stages base</div></div>
+                                    <div><div className="text-emerald-600">+ Additional</div><div className="font-semibold text-emerald-700">{formatCurrency(addTotal)}</div><div className="text-[9px] text-emerald-500">→ auto-stages</div></div>
                                     <div><div className="text-red-600">− Deductions</div><div className="font-semibold text-red-700">{formatCurrency(dedTotal)}</div></div>
                                   </div>
                                 </div>
@@ -5463,12 +5482,18 @@ export default function ProjectDetail() {
                         })()}
 
                         <div className="flex justify-end mb-2"><Button size="sm" variant="outline" onClick={() => setWoForm(f => ({ ...f, stages: [...f.stages, { name: '', type: 'percentage', value: 0 }] }))} data-testid="wo-add-stage"><Plus className="h-3 w-3 mr-1" />Add Payment Stage</Button></div>
-                        {woForm.stages.length === 0 ? <p className="text-xs text-gray-400 text-center py-3">No payment stages</p> : (() => {
-                          // Compute grand total once for the row-level resolved-amount column.
+                        {(() => {
+                          // Auto-derive one locked stage per Additional row (display-only;
+                          // saved on submit via handleSaveWo).
+                          const autoAdditional = (woForm.additional_work || [])
+                            .map((a, i) => ({
+                              name: `Additional Cost ${i + 1}${a.description ? ` - ${a.description}` : ''}`,
+                              amount: (parseFloat(a.quantity) || 0) * (parseFloat(a.unit_rate) || 0),
+                            }))
+                            .filter(s => s.amount > 0);
                           const _scope = woForm.scope_items.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                          const _add = woForm.additional_work.reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                          const _ded = (woForm.deductions || []).reduce((s, i) => s + (parseFloat(i.quantity) || 0) * (parseFloat(i.unit_rate) || 0), 0);
-                          const _grand = _scope + _add - _ded;
+                          const hasAny = autoAdditional.length > 0 || woForm.stages.length > 0;
+                          if (!hasAny) return <p className="text-xs text-gray-400 text-center py-3">No payment stages</p>;
                           return (
                           <div className="space-y-2">
                             <div className="grid grid-cols-12 gap-1 text-[10px] font-semibold text-gray-400 uppercase px-1">
@@ -5478,9 +5503,26 @@ export default function ProjectDetail() {
                               <div className="col-span-3 text-right">Amount</div>
                               <div className="col-span-1"></div>
                             </div>
+                            {/* Auto-derived additional cost stages — locked, one per Additional row */}
+                            {autoAdditional.map((auto, idx) => (
+                              <div key={`auto-${idx}`} className="grid grid-cols-12 gap-1 items-center bg-emerald-50/60 border border-emerald-200 rounded px-1 py-1" data-testid={`wo-auto-stage-${idx}`}>
+                                <div className="col-span-4 flex items-center gap-1">
+                                  <Lock className="h-3 w-3 text-emerald-600 shrink-0" />
+                                  <span className="text-xs font-medium text-emerald-900 truncate">{auto.name}</span>
+                                </div>
+                                <div className="col-span-2 text-[10px] text-emerald-700 font-semibold">Auto · ₹</div>
+                                <div className="col-span-2 text-[11px] text-emerald-700">{formatCurrency(auto.amount)}</div>
+                                <div className="col-span-3 text-right pr-1">
+                                  <span className="text-xs font-semibold text-emerald-700">{formatCurrency(auto.amount)}</span>
+                                  <div className="text-[9px] text-emerald-500">from Additional</div>
+                                </div>
+                                <div className="col-span-1"></div>
+                              </div>
+                            ))}
+                            {/* User-defined stages — % base = Scope only */}
                             {woForm.stages.map((st, idx) => {
                               const v = parseFloat(st.value) || 0;
-                              const resolved = st.type === 'percentage' ? (_grand * v / 100) : v;
+                              const resolved = st.type === 'percentage' ? (_scope * v / 100) : v;
                               return (
                               <div key={idx} className="grid grid-cols-12 gap-1 items-center">
                                 <div className="col-span-4"><Input placeholder="Stage name" value={st.name} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], name: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" data-testid={`wo-stage-name-${idx}`} /></div>
@@ -5493,8 +5535,8 @@ export default function ProjectDetail() {
                                 <div className="col-span-2"><Input type="number" placeholder={st.type === 'percentage' ? '%' : 'Amount'} value={st.value} onChange={e => { const s = [...woForm.stages]; s[idx] = { ...s[idx], value: e.target.value }; setWoForm(f => ({ ...f, stages: s })); }} className="h-8 text-xs" /></div>
                                 <div className="col-span-3 text-right pr-1">
                                   <span className="text-xs font-semibold text-violet-700" data-testid={`wo-stage-amount-${idx}`}>{formatCurrency(resolved)}</span>
-                                  {st.type === 'percentage' && _grand > 0 && (
-                                    <div className="text-[9px] text-gray-400">= {v}% of {formatCurrency(_grand)}</div>
+                                  {st.type === 'percentage' && _scope > 0 && (
+                                    <div className="text-[9px] text-gray-400">= {v}% of Scope {formatCurrency(_scope)}</div>
                                   )}
                                 </div>
                                 <div className="col-span-1 flex justify-center"><Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-400" onClick={() => setWoForm(f => ({ ...f, stages: f.stages.filter((_, i) => i !== idx) }))}><X className="h-3 w-3" /></Button></div>

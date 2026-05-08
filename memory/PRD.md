@@ -342,7 +342,8 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Same-Role Lead Transfer — Marketing Board "Transfer Role & Leads" dialog now allows handing over leads to a teammate already in the same Pre-Sales/Sales role (Kalvirayan T → Bhuvaneswari J use case). Backend preview endpoint includes same-role users; POST endpoint skips target promotion when target already has the role (target keeps role, only leads move; source still demoted to employee).
-  - Files: `backend/routes/crm.py` (`/admin/transfer-sales-role/preview/{id}`, `/admin/transfer-sales-role`); `frontend/src/pages/MarketingBoard.jsx` (Step 2 confirm banner + helper text)
+- 2026-02: Work Order Auto Payment Stages — Each Additional cost row in a Work Order now auto-becomes a separate **fixed-amount payment stage** (locked, "Additional Cost N - <desc>"). User-defined % stages (Stage 01/02 etc.) compute on **Scope only**, never on Scope+Additional. Eg: Scope 10k + Add 1k + Add 1k → 4 stages: ₹1k, ₹1k, 50% of 10k = ₹5k, 50% of 10k = ₹5k. Total stays consistent with grand total.
+  - Files: `backend/routes/projects.py` (`WorkOrderStage.source` field, create + update endpoints persist `source`); `frontend/src/pages/ProjectDetail.jsx` (Work Order dialog: auto-derive locked stages from `additional_work`, % base = scope, allocation tracker, save merge)
+- 2026-02: Same-Role Lead Transfer — Marketing Board "Transfer Role & Leads" dialog now allows handing over leads to a teammate already in the same Pre-Sales/Sales role.
 - 2026-02: Client Portal V2 — Fixed "Final Estimate" returning 0 (now reads `scope_items`); added "Pre-Construction" tab showing 7 CRE pre-construction stages.
 
