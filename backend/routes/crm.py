@@ -217,6 +217,11 @@ class REProject(BaseModel):
     # Rough Scope
     rough_scope_items: List[Dict[str, Any]] = []  # [{name, quantity, unit, rate, total}]
     
+    # Rough Payment Schedule (% of estimated_total) — drafted by Planning, then converted into
+    # the project's official payment_stages once the project goes from RE → Project.
+    # Each row: {stage_name, percentage, amount, due_date}
+    payment_schedule: List[Dict[str, Any]] = []
+    
     # Estimated Value (calculated from scope items)
     estimated_total: float = 0
     
@@ -2702,6 +2707,7 @@ class REProjectUpdate(BaseModel):
     sqft: Optional[float] = None
     building_type: Optional[str] = None
     rough_scope_items: Optional[List[Dict[str, Any]]] = None
+    payment_schedule: Optional[List[Dict[str, Any]]] = None
     handover_months: Optional[int] = None
     estimated_total: Optional[float] = None
     planning_notes: Optional[str] = None
@@ -2761,6 +2767,18 @@ async def update_re_project(re_project_id: str, data: REProjectUpdate, user: Use
         if project.get("handover_months") != data.handover_months:
             changes.append({"field": "Handover Months", "old": str(project.get("handover_months", "")), "new": str(data.handover_months)})
         update["handover_months"] = data.handover_months
+    if data.payment_schedule is not None:
+        old_ps = project.get("payment_schedule", [])
+        new_ps = data.payment_schedule
+        if old_ps != new_ps:
+            old_pct = sum((p.get("percentage") or 0) for p in old_ps)
+            new_pct = sum((p.get("percentage") or 0) for p in new_ps)
+            changes.append({
+                "field": "Payment Schedule",
+                "old": f"{len(old_ps)} stages, {old_pct}% total",
+                "new": f"{len(new_ps)} stages, {new_pct}% total",
+            })
+        update["payment_schedule"] = data.payment_schedule
     if data.estimated_total is not None:
         update["estimated_total"] = data.estimated_total
     if data.planning_notes is not None:

@@ -432,6 +432,7 @@ export default function ProjectDetail() {
   
   // Rough Estimate state
   const [reProject, setReProject] = useState(null);
+  const [reInnerTab, setReInnerTab] = useState('scope'); // 'scope' | 'payments' — inside Rough Estimate tab
   const [reRevisions, setReRevisions] = useState([]);
   const [projectFiles, setProjectFiles] = useState([]);
   const [designData, setDesignData] = useState({ site_plans: [], design_files: [] });
@@ -1261,6 +1262,41 @@ export default function ProjectDetail() {
       setActiveTab('scope');
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to convert to scope');
+    }
+  };
+
+  const handleConvertToPaymentSchedule = async () => {
+    const stages = reProject?.payment_schedule || [];
+    if (!stages.length) {
+      toast.error('No payment stages in the Rough Estimate to convert');
+      return;
+    }
+    // Check if any project payment_stage already references this RE
+    const alreadyConverted = (projectData?.payment_stages || []).some(
+      s => s.notes && String(s.notes).includes('From RE:')
+    );
+    if (alreadyConverted) {
+      toast.error('Payment schedule already converted from Rough Estimate');
+      setActiveTab('payments');
+      return;
+    }
+    try {
+      const items = stages.map(s => ({
+        stage_name: s.stage_name,
+        percentage: parseFloat(s.percentage) || 0,
+        amount: parseFloat(s.amount) || 0,
+        due_date: s.due_date || null,
+        notes: `From RE: ${reProject.project_name || ''}`,
+      }));
+      await axios.post(`${API}/payment-stages/bulk`, {
+        project_id: projectId,
+        items,
+      });
+      toast.success(`Converted ${items.length} RE stages to project payment schedule`);
+      await fetchData(false);
+      setActiveTab('payments');
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to convert payment schedule');
     }
   };
 
@@ -2538,67 +2574,118 @@ export default function ProjectDetail() {
                   </div>
                   
                   {/* RE Scope Items */}
-                  {(reProject.rough_scope_items || reProject.scope_items)?.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-2 text-sm">Rough Estimate Scope Items</h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm border rounded-lg">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-2 text-left font-medium text-gray-600">Item</th>
-                              <th className="px-3 py-2 text-right font-medium text-gray-600">Qty</th>
-                              <th className="px-3 py-2 text-left font-medium text-gray-600">Unit</th>
-                              <th className="px-3 py-2 text-right font-medium text-gray-600">Rate</th>
-                              <th className="px-3 py-2 text-right font-medium text-gray-600">Total</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {(reProject.rough_scope_items || reProject.scope_items).map((item, idx) => (
-                              <tr key={idx} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">{item.name || item.item_name}</td>
-                                <td className="px-3 py-2 text-right">{item.quantity}</td>
-                                <td className="px-3 py-2">{item.unit}</td>
-                                <td className="px-3 py-2 text-right">₹{(item.rate || item.unit_rate || 0).toLocaleString()}</td>
-                                <td className="px-3 py-2 text-right font-medium">₹{(item.total || 0).toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-purple-50">
-                            <tr>
-                              <td colSpan="4" className="px-3 py-2 text-right font-semibold">Estimated Total:</td>
-                              <td className="px-3 py-2 text-right font-bold text-purple-700">
-                                ₹{(reProject.rough_scope_items || reProject.scope_items).reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
+                  {/* Inner tabs: Scope of Work / Payment Schedule — each with its own Convert action */}
+                  {((reProject.rough_scope_items || reProject.scope_items)?.length > 0 || (reProject.payment_schedule || []).length > 0) && (
+                    <div className="border rounded-lg overflow-hidden" data-testid="re-inner-tabs">
+                      <div className="flex border-b bg-gray-50">
+                        <button
+                          className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${reInnerTab === 'scope' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                          onClick={() => setReInnerTab('scope')}
+                          data-testid="re-tab-scope"
+                        >
+                          Scope of Work ({(reProject.rough_scope_items || reProject.scope_items || []).length})
+                        </button>
+                        <button
+                          className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${reInnerTab === 'payments' ? 'bg-white text-purple-700 border-b-2 border-purple-600' : 'text-gray-600 hover:bg-gray-100'}`}
+                          onClick={() => setReInnerTab('payments')}
+                          data-testid="re-tab-payments"
+                        >
+                          Payment Schedule ({(reProject.payment_schedule || []).length})
+                        </button>
                       </div>
-                    </div>
-                  )}
-                  
-                  {/* RE Payment Schedule */}
-                  {reProject.payment_schedule && reProject.payment_schedule.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-2 text-sm">Estimated Payment Schedule</h4>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm border rounded-lg">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-3 py-2 text-left font-medium text-gray-600">Stage</th>
-                              <th className="px-3 py-2 text-right font-medium text-gray-600">%</th>
-                              <th className="px-3 py-2 text-right font-medium text-gray-600">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {reProject.payment_schedule.map((stage, idx) => (
-                              <tr key={idx} className="hover:bg-gray-50">
-                                <td className="px-3 py-2">{stage.stage_name}</td>
-                                <td className="px-3 py-2 text-right">{stage.percentage}%</td>
-                                <td className="px-3 py-2 text-right font-medium">₹{(stage.amount || 0).toLocaleString()}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <div className="p-4">
+                        {reInnerTab === 'scope' ? (
+                          (reProject.rough_scope_items || reProject.scope_items)?.length > 0 ? (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-sm border rounded-lg">
+                                <thead className="bg-gray-50">
+                                  <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-gray-600">Item</th>
+                                    <th className="px-3 py-2 text-right font-medium text-gray-600">Qty</th>
+                                    <th className="px-3 py-2 text-left font-medium text-gray-600">Unit</th>
+                                    <th className="px-3 py-2 text-right font-medium text-gray-600">Rate</th>
+                                    <th className="px-3 py-2 text-right font-medium text-gray-600">Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {(reProject.rough_scope_items || reProject.scope_items).map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                      <td className="px-3 py-2">{item.name || item.item_name}</td>
+                                      <td className="px-3 py-2 text-right">{item.quantity}</td>
+                                      <td className="px-3 py-2">{item.unit}</td>
+                                      <td className="px-3 py-2 text-right">₹{(item.rate || item.unit_rate || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-2 text-right font-medium">₹{(item.total || 0).toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-purple-50">
+                                  <tr>
+                                    <td colSpan="4" className="px-3 py-2 text-right font-semibold">Estimated Total:</td>
+                                    <td className="px-3 py-2 text-right font-bold text-purple-700">
+                                      ₹{(reProject.rough_scope_items || reProject.scope_items).reduce((sum, i) => sum + (i.total || 0), 0).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="text-center text-gray-400 py-6 text-sm">No scope items in this Rough Estimate.</p>
+                          )
+                        ) : (
+                          (reProject.payment_schedule || []).length > 0 ? (
+                            <>
+                              <div className="flex justify-end mb-2">
+                                {(projectData?.payment_stages || []).some(s => s.notes && String(s.notes).includes('From RE:')) ? (
+                                  <Button disabled className="bg-gray-400 cursor-not-allowed" data-testid="convert-to-payments-btn">
+                                    <Check className="h-4 w-4 mr-2" /> Already Converted
+                                  </Button>
+                                ) : (
+                                  <Button onClick={handleConvertToPaymentSchedule} className="bg-green-600 hover:bg-green-700" data-testid="convert-to-payments-btn">
+                                    <ArrowRight className="h-4 w-4 mr-2" /> Convert to Project Payment Schedule
+                                  </Button>
+                                )}
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-sm border rounded-lg">
+                                  <thead className="bg-gray-50">
+                                    <tr>
+                                      <th className="px-3 py-2 text-left font-medium text-gray-600">#</th>
+                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Stage</th>
+                                      <th className="px-3 py-2 text-right font-medium text-gray-600">%</th>
+                                      <th className="px-3 py-2 text-right font-medium text-gray-600">Amount</th>
+                                      <th className="px-3 py-2 text-left font-medium text-gray-600">Due Date</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y">
+                                    {reProject.payment_schedule.map((stage, idx) => (
+                                      <tr key={idx} className="hover:bg-gray-50">
+                                        <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
+                                        <td className="px-3 py-2">{stage.stage_name}</td>
+                                        <td className="px-3 py-2 text-right">{stage.percentage}%</td>
+                                        <td className="px-3 py-2 text-right font-medium">₹{(stage.amount || 0).toLocaleString()}</td>
+                                        <td className="px-3 py-2">{stage.due_date ? new Date(stage.due_date).toLocaleDateString('en-IN') : '-'}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot className="bg-purple-50">
+                                    <tr>
+                                      <td colSpan="2" className="px-3 py-2 text-right font-semibold">Totals:</td>
+                                      <td className="px-3 py-2 text-right font-bold text-purple-700">
+                                        {reProject.payment_schedule.reduce((s, p) => s + (parseFloat(p.percentage) || 0), 0).toFixed(2)}%
+                                      </td>
+                                      <td className="px-3 py-2 text-right font-bold text-purple-700">
+                                        ₹{reProject.payment_schedule.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0).toLocaleString()}
+                                      </td>
+                                      <td></td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-center text-gray-400 py-6 text-sm">No payment schedule defined in this Rough Estimate. Planning can add stages from the RE Edit dialog.</p>
+                          )
+                        )}
                       </div>
                     </div>
                   )}

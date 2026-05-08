@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Add Payment Stages dialog — accounts for already-collected advance — Dialog now shows `Remaining: 99.55% (₹55,72,525) — already collected ₹25,000 (0.45%) as Advance.` instead of a flat 100% when income has been received but no explicit advance stage exists yet. Validation prevents new stages from breaching that ceiling.
-  - Files: `frontend/src/pages/ProjectDetail.jsx` (DialogDescription IIFE + `handleBulkAddPayment` validator)
+- 2026-02: Rough Estimate Payment Schedule + Convert action — Planning can now define a Payment Schedule (stage_name, %, amount, due_date) right inside the RE Edit dialog. Project's "Rough Estimate" tab shows two inner sub-tabs (Scope of Work | Payment Schedule), each with its own Convert button — Scope converts to project `scope_items`, Payment Schedule converts to project `payment_stages` (tagged with `notes: "From RE: ..."` so we can detect already-converted state). Conversion is one-shot per project.
+  - Files: `backend/routes/crm.py` (REProject + REProjectUpdate models, change-log entry on payment_schedule); `backend/routes/projects.py` (BulkPaymentStageInput.notes); `frontend/src/pages/REProjectsPage.jsx` (editForm.payment_schedule + UI rows); `frontend/src/pages/ProjectDetail.jsx` (`reInnerTab` state, `handleConvertToPaymentSchedule`, inner tabs UI)
+- 2026-02: Add Payment Stages dialog — accounts for already-collected advance.
 - 2026-02: Payment Schedule reorder — Drag-to-reorder enabled.
 - 2026-02: Planning role — Edit Additions/Deductions permission
 - 2026-02: Edit Additions & Deductions — Added clean Edit dialog (Name + Qty + Amount) on each Additional Work and Deduction row.

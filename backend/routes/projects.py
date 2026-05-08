@@ -2969,6 +2969,7 @@ class BulkPaymentStageInput(BaseModel):
     percentage: float = 0
     amount: float
     due_date: Optional[str] = None
+    notes: Optional[str] = None  # Provenance marker (e.g., "From RE: <project_name>") so we can detect already-converted stages
 
 
 class BulkPaymentCreate(BaseModel):
@@ -3088,6 +3089,8 @@ async def create_bulk_payment_stages(
         stage_dict["created_at"] = stage_dict["created_at"].isoformat()
         if stage_dict.get("due_date"):
             stage_dict["due_date"] = stage_dict["due_date"].isoformat()
+        if item.notes:
+            stage_dict["notes"] = item.notes
         stage_dict["is_advance"] = item.stage_name.lower().startswith("advance")
         await db.payment_stages.insert_one(stage_dict)
         stage_dict.pop("_id", None)

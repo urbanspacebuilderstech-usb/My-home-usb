@@ -14,7 +14,7 @@ import MobileBottomNav from '../components/MobileBottomNav';
 import { 
   Calculator, LogOut, Clock, RefreshCw, CheckCircle, XCircle, FileText,
   Building2, Send, Eye, Edit2, Plus, Trash2, Save, Phone, Mail, MapPin,
-  ArrowLeft, Target, Download, AlertCircle, Search, GitBranch, MessageSquare, Upload
+  ArrowLeft, Target, Download, AlertCircle, Search, GitBranch, MessageSquare, Upload, X
 } from 'lucide-react';
 import { AppHeader } from '../components/AppHeader';
 import { generateREPDF } from '../utils/pdfGenerator';
@@ -58,6 +58,7 @@ export default function REProjectsPage({ embedded = false }) {
     sqft: '',
     building_type: '',
     rough_scope_items: [],
+    payment_schedule: [],
     handover_months: '',
     planning_notes: ''
   });
@@ -152,6 +153,7 @@ export default function REProjectsPage({ embedded = false }) {
       sqft: project.sqft || '',
       building_type: project.building_type || '',
       rough_scope_items: project.rough_scope_items || [],
+      payment_schedule: project.payment_schedule || [],
       handover_months: project.handover_months || '',
       planning_notes: project.planning_notes || ''
     });
@@ -181,10 +183,23 @@ export default function REProjectsPage({ embedded = false }) {
     }));
     const scopeTotal = scopeItems.reduce((sum, item) => sum + (item.total || 0), 0);
     
+    // Recompute payment_schedule amount from % * scopeTotal so totals match the latest estimate.
+    const paymentSchedule = (editForm.payment_schedule || []).map(p => {
+      const pct = parseFloat(p.percentage) || 0;
+      const explicitAmt = parseFloat(p.amount) || 0;
+      return {
+        stage_name: p.stage_name || '',
+        percentage: pct,
+        amount: pct > 0 ? Math.round((scopeTotal * pct) / 100) : explicitAmt,
+        due_date: p.due_date || null,
+      };
+    }).filter(p => p.stage_name && (p.percentage > 0 || p.amount > 0));
+    
     try {
       await axios.patch(`${API}/crm/re-projects/${selectedProject.re_project_id}`, {
         ...editForm,
         rough_scope_items: scopeItems,
+        payment_schedule: paymentSchedule,
         sqft: editForm.sqft ? parseFloat(editForm.sqft) : null,
         handover_months: editForm.handover_months ? parseInt(editForm.handover_months) : null,
         estimated_total: scopeTotal
@@ -999,6 +1014,110 @@ export default function REProjectsPage({ embedded = false }) {
                   )}
                 </CardContent>
               </Card>
+              
+              {/* Rough Payment Schedule (% of Estimated Total) — drafted by Planning, converted into the
+                  project's official payment_stages once the project is created from the RE. */}
+              {(() => {
+                const scopeTotal = editForm.rough_scope_items.reduce((sum, item) => sum + (item.total || 0), 0);
+                const allocPct = (editForm.payment_schedule || []).reduce((s, p) => s + (parseFloat(p.percentage) || 0), 0);
+                const remPct = Math.max(0, Math.round((100 - allocPct) * 100) / 100);
+                const overrun = allocPct > 100.01;
+                return (
+                  <div className="border border-purple-200 rounded-md p-3 bg-white" data-testid="re-payment-schedule">
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                      <div>
+                        <h4 className="font-semibold text-sm">Rough Payment Schedule</h4>
+                        <p className="text-[11px] text-gray-500">
+                          Milestones as % of {formatCurrency(scopeTotal)} · Allocated {allocPct.toFixed(2)}% · Remaining {remPct}%
+                          {overrun && <span className="text-red-600 ml-1">⚠ Exceeds 100%</span>}
+                        </p>
+                      </div>
+                      {canEdit && (
+                        <Button size="sm" variant="outline" onClick={() => setEditForm(f => ({ ...f, payment_schedule: [...(f.payment_schedule || []), { stage_name: '', percentage: '', amount: '', due_date: '' }] }))} data-testid="re-add-payment-row">
+                          <Plus className="h-3 w-3 mr-1" />Add Stage
+                        </Button>
+                      )}
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-2 py-1.5 text-left">#</th>
+                          <th className="px-2 py-1.5 text-left">Stage Name *</th>
+                          <th className="px-2 py-1.5 text-left w-20">%</th>
+                          <th className="px-2 py-1.5 text-right w-28">Amount (₹) *</th>
+                          <th className="px-2 py-1.5 text-left w-32">Due Date</th>
+                          <th className="px-2 py-1.5 w-8"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(editForm.payment_schedule || []).length === 0 ? (
+                          <tr><td colSpan={6} className="px-2 py-3 text-center text-gray-400">No payment stages yet — click "Add Stage" to create the rough schedule.</td></tr>
+                        ) : (editForm.payment_schedule || []).map((row, idx) => (
+                          <tr key={idx} className="border-b">
+                            <td className="px-2 py-1 text-gray-500">{idx + 1}</td>
+                            <td className="px-2 py-1">
+                              <Input
+                                value={row.stage_name || ''}
+                                onChange={e => { const r = [...editForm.payment_schedule]; r[idx] = { ...r[idx], stage_name: e.target.value }; setEditForm(f => ({ ...f, payment_schedule: r })); }}
+                                placeholder="e.g., Advance"
+                                className="h-8"
+                                disabled={!canEdit}
+                                data-testid={`re-ps-name-${idx}`}
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <NumericInput
+                                value={row.percentage || ''}
+                                onChange={e => {
+                                  const pct = parseFloat(e.target.value) || 0;
+                                  const r = [...editForm.payment_schedule];
+                                  r[idx] = { ...r[idx], percentage: e.target.value, amount: scopeTotal > 0 && pct > 0 ? Math.round(scopeTotal * pct / 100) : r[idx].amount };
+                                  setEditForm(f => ({ ...f, payment_schedule: r }));
+                                }}
+                                placeholder="%"
+                                className="h-8"
+                                disabled={!canEdit}
+                                data-testid={`re-ps-pct-${idx}`}
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <NumericInput
+                                value={row.amount || ''}
+                                onChange={e => {
+                                  const amt = parseFloat(e.target.value) || 0;
+                                  const r = [...editForm.payment_schedule];
+                                  r[idx] = { ...r[idx], amount: e.target.value, percentage: scopeTotal > 0 && amt > 0 ? ((amt / scopeTotal) * 100).toFixed(2) : r[idx].percentage };
+                                  setEditForm(f => ({ ...f, payment_schedule: r }));
+                                }}
+                                placeholder="₹"
+                                className="h-8 text-right"
+                                disabled={!canEdit}
+                                data-testid={`re-ps-amount-${idx}`}
+                              />
+                            </td>
+                            <td className="px-2 py-1">
+                              <Input
+                                type="date"
+                                value={row.due_date || ''}
+                                onChange={e => { const r = [...editForm.payment_schedule]; r[idx] = { ...r[idx], due_date: e.target.value }; setEditForm(f => ({ ...f, payment_schedule: r })); }}
+                                className="h-8"
+                                disabled={!canEdit}
+                              />
+                            </td>
+                            <td className="px-2 py-1 text-center">
+                              {canEdit && (
+                                <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-red-400 hover:text-red-600" onClick={() => setEditForm(f => ({ ...f, payment_schedule: f.payment_schedule.filter((_, i) => i !== idx) }))}>
+                                  <X className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
               
               {/* Planning Notes */}
               <div>
