@@ -639,18 +639,52 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
             "category": e.get("category") or "",
         })
 
-    # Final estimate scope (scope_items already in result)
+    # Final estimate scope (scope_items already in result) - normalize legacy field names so frontend reads consistently
+    normalized_scope_items = []
+    for it in scope_items:
+        normalized_scope_items.append({
+            **it,
+            "name": it.get("name") or it.get("item_name") or it.get("description") or "",
+            "rate": it.get("rate") or it.get("unit_rate") or 0,
+            "total": it.get("total") if it.get("total") is not None else (it.get("total_amount") or 0),
+        })
+
+    # Pre-Construction stage data captured by CRE — embedded on the project doc.
+    # Uses the canonical 7 stages (bhoomi_pooja, soil_test, structural_approval, hut,
+    # borewell, agreement, eb_connection) defined in routes/pre_construction.py.
+    pc_raw = project.get("pre_construction") or {}
+    PC_STAGES = [
+        {"key": "bhoomi_pooja",         "label": "Bhoomi Pooja"},
+        {"key": "soil_test",            "label": "Soil Test"},
+        {"key": "structural_approval",  "label": "Structural Approval"},
+        {"key": "hut",                  "label": "Hut"},
+        {"key": "borewell",             "label": "Borewell"},
+        {"key": "agreement",            "label": "Agreement"},
+        {"key": "eb_connection",        "label": "EB Connection"},
+    ]
+    pre_construction = []
+    for s in PC_STAGES:
+        st = pc_raw.get(s["key"]) or {}
+        pre_construction.append({
+            "key": s["key"],
+            "label": s["label"],
+            "status": st.get("status", "pending"),
+            "scheduled_at": st.get("scheduled_at"),
+            "completed_at": st.get("completed_at"),
+        })
+
     return {
         "project": project,
         "total_paid": total_paid,
         "balance": project.get("total_value", 0) - total_paid,
         "payment_stages": payment_stages,
-        "scope_items": scope_items,
+        "scope_items": normalized_scope_items,
         "stages": stages,
         "photos": photos,
         "documents": documents,
         "income_entries": income_entries,
         "total_income": total_income,
+        "pre_construction": pre_construction,
     }
 
 

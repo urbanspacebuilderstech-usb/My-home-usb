@@ -4,6 +4,7 @@ import axios from 'axios';
 import {
   LogOut, Home, FileText, Banknote, Receipt, ListChecks,
   Building2, MapPin, ChevronRight, Calendar, IndianRupee, FolderOpen, Download, Eye,
+  Hammer, CheckCircle2, Clock, CalendarClock,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,7 @@ const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-IN', { 
 
 const FOOTER_TABS = [
   { id: 'estimates', label: 'Estimates', icon: FileText },
+  { id: 'pre',       label: 'Pre-Const', icon: Hammer },
   { id: 'stages',    label: 'Stages',    icon: ListChecks },
   { id: 'schedule',  label: 'Schedule',  icon: Calendar },
   { id: 'income',    label: 'Payments',  icon: Receipt },
@@ -255,6 +257,7 @@ function ProjectDetailScreen({ user, project, onBack, onLogout }) {
         ) : (
           <>
             {tab === 'estimates' && <EstimatesTab data={data} />}
+            {tab === 'pre' && <PreConstructionTab data={data} />}
             {tab === 'stages' && <StagesTab data={data} />}
             {tab === 'schedule' && <ScheduleTab data={data} />}
             {tab === 'income' && <IncomeTab data={data} />}
@@ -265,7 +268,7 @@ function ProjectDetailScreen({ user, project, onBack, onLogout }) {
 
       {/* Footer Nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t shadow-lg z-30">
-        <div className="max-w-md mx-auto grid grid-cols-5">
+        <div className="max-w-md mx-auto grid grid-cols-6">
           {FOOTER_TABS.map(t => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -291,6 +294,8 @@ function ProjectDetailScreen({ user, project, onBack, onLogout }) {
 // ----- TABS -----
 function EstimatesTab({ data }) {
   const items = data?.scope_items || [];
+  // Sub-total for the footer
+  const subTotal = items.reduce((s, it) => s + (Number(it.total) || 0), 0);
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-bold text-gray-700 px-1 uppercase">Final Estimates</h3>
@@ -302,13 +307,62 @@ function EstimatesTab({ data }) {
             <div className="divide-y">
               {items.map((it, i) => (
                 <div key={i} className="px-3 py-2.5">
-                  <p className="text-sm font-medium text-gray-900">{it.name || it.description}</p>
+                  <p className="text-sm font-medium text-gray-900">{it.name || it.item_name || it.description || '—'}</p>
                   <div className="flex items-center justify-between mt-1 text-[11px] text-gray-500">
-                    <span>{it.quantity} {it.unit}</span>
-                    <span className="font-bold text-amber-700">{fmt(it.total)}</span>
+                    <span>{it.quantity} {it.unit}{(it.rate || it.unit_rate) ? ` · @ ${fmt(it.rate || it.unit_rate)}` : ''}</span>
+                    <span className="font-bold text-amber-700">{fmt(it.total ?? it.total_amount ?? 0)}</span>
                   </div>
                 </div>
               ))}
+              <div className="px-3 py-2.5 bg-amber-50 flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-700 uppercase">Estimate Total</span>
+                <span className="text-base font-bold text-amber-800">{fmt(subTotal)}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function PreConstructionTab({ data }) {
+  const items = data?.pre_construction || [];
+  const completed = items.filter(it => it.status === 'completed').length;
+  return (
+    <div className="space-y-2" data-testid="pre-construction-tab">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="text-xs font-bold text-gray-700 uppercase">Pre-Construction</h3>
+        <span className="text-[11px] text-gray-500">{completed} of {items.length} done</span>
+      </div>
+      {items.length === 0 ? (
+        <Card><CardContent className="p-8 text-center text-xs text-gray-400">Pre-construction tracking will appear here once your CRE starts updates.</CardContent></Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {items.map(it => {
+                const Icon = it.status === 'completed' ? CheckCircle2 : (it.status === 'scheduled' ? CalendarClock : Clock);
+                const accent = it.status === 'completed' ? 'text-emerald-600' : (it.status === 'scheduled' ? 'text-blue-600' : 'text-gray-400');
+                const badgeCls = it.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (it.status === 'scheduled' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-600 border-gray-200');
+                return (
+                  <div key={it.key} className="px-3 py-3 flex items-start gap-3" data-testid={`pre-construction-item-${it.key}`}>
+                    <Icon className={`h-5 w-5 flex-shrink-0 mt-0.5 ${accent}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-gray-900">{it.label}</p>
+                        <Badge variant="outline" className={`text-[10px] ${badgeCls}`}>{it.status === 'completed' ? 'Completed' : (it.status === 'scheduled' ? 'Scheduled' : 'Pending')}</Badge>
+                      </div>
+                      {it.scheduled_at && it.status === 'scheduled' && (
+                        <p className="text-[11px] text-gray-500 mt-0.5">Scheduled for {fmtDate(it.scheduled_at)}</p>
+                      )}
+                      {it.completed_at && it.status === 'completed' && (
+                        <p className="text-[11px] text-gray-500 mt-0.5">Completed on {fmtDate(it.completed_at)}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
