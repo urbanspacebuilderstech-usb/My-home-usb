@@ -53,15 +53,89 @@ function formatCurrency(amount) {
 
 function buildTimeline(req) {
   const events = [];
+  // Each entry must include the canonical timestamp field name so we can sort
+  // chronologically. The lifecycle now spans: SE created → Procurement priced
+  // (or revised) → Planning approved (or sent back) → Accountant payment
+  // (full / advance / balance) → Transit → Delivered.
   if (req.created_at) events.push({ label: 'Request Created', by: req.site_engineer_name || 'Site Engineer', date: req.created_at, icon: FileText, color: 'text-gray-600' });
-  if (req.planning_approved_at) events.push({ label: 'Planning Approved', by: req.planning_approved_by || 'Planning', date: req.planning_approved_at, icon: CheckCircle, color: 'text-amber-600' });
-  if (req.procurement_approved_at) events.push({ label: 'Procurement Processed', by: req.procurement_approved_by || 'Procurement', date: req.procurement_approved_at, icon: CheckCircle, color: 'text-purple-600' });
-  if (req.accountant_approved_at) events.push({ label: 'Accounts Approved', by: req.accountant_approved_by || 'Accountant', date: req.accountant_approved_at, icon: CheckCircle, color: 'text-green-600' });
+  if (req.procurement_priced_at) events.push({
+    label: `Vendor Assigned${req.vendor_name ? ` → ${req.vendor_name}` : ''}`,
+    by: req.procurement_priced_by_name || 'Procurement',
+    date: req.procurement_priced_at,
+    icon: CheckCircle,
+    color: 'text-blue-600',
+  });
+  if (req.revision_requested_at) events.push({
+    label: `Revision Requested${req.revision_remarks ? `: "${req.revision_remarks}"` : ''}`,
+    by: req.revision_requested_by_name || 'Planning',
+    date: req.revision_requested_at,
+    icon: XCircle,
+    color: 'text-orange-600',
+  });
+  if (req.planning_approved_at) events.push({
+    label: 'Planning Approved',
+    by: req.planning_approved_by_name || req.planning_approved_by || 'Planning',
+    date: req.planning_approved_at,
+    icon: CheckCircle,
+    color: 'text-amber-600',
+  });
+  if (req.planning_rejected_at) events.push({
+    label: `Planning Rejected${req.planning_rejection_reason ? `: "${req.planning_rejection_reason}"` : ''}`,
+    by: req.planning_rejected_by_name || 'Planning',
+    date: req.planning_rejected_at,
+    icon: XCircle,
+    color: 'text-red-600',
+  });
+  // Accountant — surface awaiting state if present (no timestamp from server but
+  // status indicates we're waiting on them).
+  if ((req.status === 'pending_accounts_approval' || req.status === 'pending_balance_payment') && !req.last_payment_at) {
+    events.push({
+      label: req.status === 'pending_balance_payment' ? 'Awaiting Balance Payment (Accountant)' : 'Awaiting Accountant Approval',
+      by: '—',
+      date: req.planning_approved_at || req.procurement_priced_at || req.created_at,
+      icon: Clock,
+      color: 'text-cyan-600',
+      pending: true,
+    });
+  }
+  if (req.last_payment_at) events.push({
+    label: `Payment Released${req.last_payment_phase ? ` (${req.last_payment_phase})` : ''}`,
+    by: req.last_payment_method ? `${req.last_payment_method.toUpperCase()}` : 'Accountant',
+    date: req.last_payment_at,
+    icon: CheckCircle,
+    color: 'text-emerald-600',
+  });
+  if (req.accountant_approved_at && req.accountant_approved_at !== req.last_payment_at) events.push({
+    label: 'Accountant Approved',
+    by: req.accountant_approved_by || 'Accountant',
+    date: req.accountant_approved_at,
+    icon: CheckCircle,
+    color: 'text-emerald-600',
+  });
+  if (req.transit_started_at) events.push({
+    label: 'In Transit',
+    by: req.vendor_name || 'Vendor',
+    date: req.transit_started_at,
+    icon: Truck,
+    color: 'text-sky-600',
+  });
   if (req.po_generated_at) events.push({ label: 'PO Generated', by: 'System', date: req.po_generated_at, icon: FileText, color: 'text-cyan-600' });
-  if (req.dispatched_at) events.push({ label: 'Material Dispatched', by: req.vendor_name || 'Vendor', date: req.dispatched_at, icon: Truck, color: 'text-blue-600' });
-  if (req.received_at) events.push({ label: 'Material Received', by: req.site_engineer_name || 'Site Engineer', date: req.received_at, icon: Package, color: 'text-green-600' });
-  if (req.rejected_by) events.push({ label: `Rejected: ${req.rejection_reason || 'No reason'}`, by: req.rejected_by, date: req.rejected_at || req.updated_at, icon: XCircle, color: 'text-red-600' });
-  return events;
+  if (req.dispatched_at && req.dispatched_at !== req.transit_started_at) events.push({ label: 'Material Dispatched', by: req.vendor_name || 'Vendor', date: req.dispatched_at, icon: Truck, color: 'text-blue-600' });
+  if (req.received_at) events.push({ label: 'Material Received', by: req.received_by_name || req.site_engineer_name || 'Site Engineer', date: req.received_at, icon: Package, color: 'text-green-600' });
+  if (req.delivered_at && req.delivered_at !== req.received_at) events.push({ label: 'Delivered', by: req.received_by_name || 'Site Engineer', date: req.delivered_at, icon: Package, color: 'text-emerald-600' });
+  if (req.rejected_by || req.procurement_rejected_at) events.push({
+    label: `Rejected: ${req.rejection_reason || req.procurement_rejection_reason || 'No reason'}`,
+    by: req.rejected_by || req.procurement_rejected_by_name || 'Reviewer',
+    date: req.rejected_at || req.procurement_rejected_at || req.updated_at,
+    icon: XCircle,
+    color: 'text-red-600',
+  });
+  // Sort chronologically — defensive against missing timestamps.
+  return events.sort((a, b) => {
+    const ad = a.date ? new Date(a.date).getTime() : 0;
+    const bd = b.date ? new Date(b.date).getTime() : 0;
+    return ad - bd;
+  });
 }
 
 export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
@@ -252,7 +326,11 @@ export default function OrderDetailDialog({ open, onClose, order, onUpdate }) {
                 {editing ? (
                   <Input type="date" value={form.expected_delivery} onChange={(e) => setForm({...form, expected_delivery: e.target.value})} className="text-sm mt-1" />
                 ) : (
-                  <p className="text-sm font-medium mt-0.5">{order.expected_delivery || '—'}</p>
+                  <p className="text-sm font-medium mt-0.5">
+                    {order.expected_delivery
+                      ? new Date(order.expected_delivery).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : '—'}
+                  </p>
                 )}
               </div>
 
