@@ -1339,7 +1339,10 @@ export default function ProjectDetail() {
     const existingPct = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
     const newPct = validItems.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0);
     const totalVal = projectData?.summary?.scope_total || projectData?.project?.total_value || 0;
-    const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+    // Only treat as "explicit advance" if the stage carries an explicit is_advance / linked_income_id
+    // flag — name-based matching ("Advance payment for...") is too aggressive and would hide the
+    // virtual sales-advance row whenever a regular schedule stage happens to start with "Advance".
+    const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance === true || s.linked_income_id);
     const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
       const da = new Date(a.received_date || a.created_at || 0).getTime();
       const db = new Date(b.received_date || b.created_at || 0).getTime();
@@ -3576,7 +3579,7 @@ export default function ProjectDetail() {
                               // Income already collected against this project but NOT yet tied to a payment stage
                               // is treated as a virtual "Advance Collection" — so its % must be subtracted
                               // from the remaining schedulable percentage. Mirrors the virtual row shown in the table.
-                              const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                              const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance === true || s.linked_income_id);
                               const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                                 const da = new Date(a.received_date || a.created_at || 0).getTime();
                                 const db = new Date(b.received_date || b.created_at || 0).getTime();
@@ -3587,7 +3590,7 @@ export default function ProjectDetail() {
                               const remPct = Math.max(0, Math.round((100 - allocPct - virtualAdvancePct) * 100) / 100);
                               const remAmt = Math.max(0, totalVal - (totalVal * allocPct / 100) - virtualAdvanceAmt);
                               if (virtualAdvanceAmt > 0) {
-                                return `Remaining: ${remPct}% (₹${Math.round(remAmt).toLocaleString('en-IN')}) — already collected ₹${Math.round(virtualAdvanceAmt).toLocaleString('en-IN')} (${virtualAdvancePct.toFixed(2)}%) as Advance.`;
+                                return `Remaining: ${remPct}% (₹${Math.round(remAmt).toLocaleString('en-IN')}) — already collected ₹${Math.round(virtualAdvanceAmt).toLocaleString('en-IN')} (${virtualAdvancePct.toFixed(2)}%) as Token Advance (Sales).`;
                               }
                               return `Remaining: ${remPct}% of project value. Total stages cannot exceed 100%.`;
                             })()}
@@ -3892,7 +3895,7 @@ export default function ProjectDetail() {
                       // the user always sees their advance as the first row even before
                       // the formal payment_stages are entered.
                       const stages = (payment_stages || []);
-                      const hasExplicitAdvance = stages.some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                      const hasExplicitAdvance = stages.some(s => s.is_advance === true || s.linked_income_id);
                       const totalValueForRow = summary?.scope_total || projectData?.project?.total_value || 0;
                       const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                         const da = new Date(a.received_date || a.created_at || 0).getTime();
@@ -3901,7 +3904,7 @@ export default function ProjectDetail() {
                       })[0];
                       const virtualAdvance = (!hasExplicitAdvance && earliestIncome) ? {
                         stage_id: '__virtual_advance__',
-                        stage_name: 'Advance Collection',
+                        stage_name: 'Auto-collected (Sales)',
                         stage_label: 'ADV',
                         amount: earliestIncome.amount || 0,
                         percentage: totalValueForRow > 0 ? Math.round((earliestIncome.amount / totalValueForRow) * 10000) / 100 : 0,

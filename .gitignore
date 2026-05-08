@@ -2339,3 +2339,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/447.pack
+frontend/node_modules/.cache/default-development/458.pack

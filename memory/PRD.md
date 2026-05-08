@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Rough Estimate Payment Schedule + Convert action — Planning can now define a Payment Schedule (stage_name, %, amount, due_date) right inside the RE Edit dialog. Project's "Rough Estimate" tab shows two inner sub-tabs (Scope of Work | Payment Schedule), each with its own Convert button — Scope converts to project `scope_items`, Payment Schedule converts to project `payment_stages` (tagged with `notes: "From RE: ..."` so we can detect already-converted state). Conversion is one-shot per project.
-  - Files: `backend/routes/crm.py` (REProject + REProjectUpdate models, change-log entry on payment_schedule); `backend/routes/projects.py` (BulkPaymentStageInput.notes); `frontend/src/pages/REProjectsPage.jsx` (editForm.payment_schedule + UI rows); `frontend/src/pages/ProjectDetail.jsx` (`reInnerTab` state, `handleConvertToPaymentSchedule`, inner tabs UI)
+- 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save — Removed the over-aggressive name-based heuristic (stages whose name started with "Advance" were silently swallowing the virtual sales-collected row). Now it only treats a stage as the explicit advance when `is_advance === true` OR `linked_income_id` is set. Renamed virtual row to **"Auto-collected (Sales)"** and dialog hint mentions "Token Advance (Sales)".
+  - Files: `frontend/src/pages/ProjectDetail.jsx` (3 hasExplicitAdvance checks + virtual row label + dialog hint)
+- 2026-02: Rough Estimate Payment Schedule + Convert action.
 - 2026-02: Add Payment Stages dialog — accounts for already-collected advance.
 - 2026-02: Payment Schedule reorder — Drag-to-reorder enabled.
 - 2026-02: Planning role — Edit Additions/Deductions permission
