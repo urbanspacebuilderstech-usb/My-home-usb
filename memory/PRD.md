@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Payment Schedule reorder — Drag-to-reorder enabled on the Payment Schedule tab (matching the existing pattern used for Final Estimate / Additions / Deductions). Adds a grip column visible only when canManage and no month filter; persists order via new `POST /api/payment-stages/reorder` and reads via `sort_order` ascending in `comprehensive` endpoint.
-  - Files: `backend/routes/projects.py` (new endpoint + sort on `payment_stages.find`); `frontend/src/pages/ProjectDetail.jsx` (`handlePaymentScheduleReorder`, SortableList wrap, drag column header + DragHandle in row, virtual advance excluded from drag)
+- 2026-02: Add Payment Stages dialog — accounts for already-collected advance — Dialog now shows `Remaining: 99.55% (₹55,72,525) — already collected ₹25,000 (0.45%) as Advance.` instead of a flat 100% when income has been received but no explicit advance stage exists yet. Validation prevents new stages from breaching that ceiling.
+  - Files: `frontend/src/pages/ProjectDetail.jsx` (DialogDescription IIFE + `handleBulkAddPayment` validator)
+- 2026-02: Payment Schedule reorder — Drag-to-reorder enabled.
 - 2026-02: Planning role — Edit Additions/Deductions permission
 - 2026-02: Edit Additions & Deductions — Added clean Edit dialog (Name + Qty + Amount) on each Additional Work and Deduction row.
 - 2026-02: Simplified Add Additions/Deductions dialogs — Now uses **Name | Qty | Amount** only.

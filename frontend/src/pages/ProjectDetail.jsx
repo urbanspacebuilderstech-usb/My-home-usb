@@ -1299,13 +1299,24 @@ export default function ProjectDetail() {
       return;
     }
     
-    // Validate: total percentage cannot exceed 100%
+    // Validate: existing % + already-collected advance % + new % cannot exceed 100%
     const existingPct = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
     const newPct = validItems.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0);
+    const totalVal = projectData?.summary?.scope_total || projectData?.project?.total_value || 0;
+    const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+    const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
+      const da = new Date(a.received_date || a.created_at || 0).getTime();
+      const db = new Date(b.received_date || b.created_at || 0).getTime();
+      return da - db;
+    })[0];
+    const virtualAdvancePct = (!hasExplicitAdvance && earliestIncome && totalVal > 0)
+      ? ((earliestIncome.amount || 0) / totalVal) * 100
+      : 0;
     
-    if (existingPct + newPct > 100) {
-      const remaining = Math.round((100 - existingPct) * 100) / 100;
-      toast.error(`Total would be ${existingPct + newPct}%. Only ${remaining}% remaining.`);
+    const totalPct = existingPct + virtualAdvancePct + newPct;
+    if (totalPct > 100.01) {
+      const remaining = Math.max(0, Math.round((100 - existingPct - virtualAdvancePct) * 100) / 100);
+      toast.error(`Total would be ${totalPct.toFixed(2)}% (incl. ${virtualAdvancePct.toFixed(2)}% already collected). Only ${remaining}% remaining.`);
       return;
     }
     
@@ -3473,8 +3484,24 @@ export default function ProjectDetail() {
                           <DialogTitle>Add Payment Stages</DialogTitle>
                           <DialogDescription>
                             {(() => {
+                              const totalVal = summary?.scope_total || projectData?.project?.total_value || 0;
                               const allocPct = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
-                              const remPct = Math.round((100 - allocPct) * 100) / 100;
+                              // Income already collected against this project but NOT yet tied to a payment stage
+                              // is treated as a virtual "Advance Collection" — so its % must be subtracted
+                              // from the remaining schedulable percentage. Mirrors the virtual row shown in the table.
+                              const hasExplicitAdvance = (payment_stages || []).some(s => s.is_advance || (s.stage_name || '').toLowerCase().startsWith('advance'));
+                              const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
+                                const da = new Date(a.received_date || a.created_at || 0).getTime();
+                                const db = new Date(b.received_date || b.created_at || 0).getTime();
+                                return da - db;
+                              })[0];
+                              const virtualAdvanceAmt = (!hasExplicitAdvance && earliestIncome) ? (earliestIncome.amount || 0) : 0;
+                              const virtualAdvancePct = totalVal > 0 ? (virtualAdvanceAmt / totalVal) * 100 : 0;
+                              const remPct = Math.max(0, Math.round((100 - allocPct - virtualAdvancePct) * 100) / 100);
+                              const remAmt = Math.max(0, totalVal - (totalVal * allocPct / 100) - virtualAdvanceAmt);
+                              if (virtualAdvanceAmt > 0) {
+                                return `Remaining: ${remPct}% (₹${Math.round(remAmt).toLocaleString('en-IN')}) — already collected ₹${Math.round(virtualAdvanceAmt).toLocaleString('en-IN')} (${virtualAdvancePct.toFixed(2)}%) as Advance.`;
+                              }
                               return `Remaining: ${remPct}% of project value. Total stages cannot exceed 100%.`;
                             })()}
                           </DialogDescription>
@@ -3515,7 +3542,8 @@ export default function ProjectDetail() {
                                         const newRows = [...bulkPaymentRows];
                                         const pct = parseFloat(e.target.value) || 0;
                                         newRows[idx].percentage = e.target.value;
-                                        // Auto-calculate amount from percentage of TOTAL project value
+                                        // Auto-calculate amount: % is taken on the FULL project value, but
+                                        // the user can never schedule more than (project_total - already_collected_advance).
                                         const totalVal = summary?.scope_total || projectData?.project?.total_value || 0;
                                         if (totalVal > 0 && pct > 0) {
                                           newRows[idx].amount = Math.round((totalVal * pct) / 100);
@@ -3534,10 +3562,11 @@ export default function ProjectDetail() {
                                         const newRows = [...bulkPaymentRows];
                                         const amt = parseFloat(e.target.value) || 0;
                                         newRows[idx].amount = e.target.value;
-                                        // Auto-calculate percentage from amount based on BALANCE
-                                        const balance = (summary?.scope_total || projectData?.project?.total_value || 0) - (projectData?.project?.advance_amount || 0);
-                                        if (balance > 0 && amt > 0) {
-                                          newRows[idx].percentage = ((amt / balance) * 100).toFixed(2);
+                                        // Reverse-calc: amount → % uses the full project value (not balance)
+                                        // so the % column matches the "of project value" framing in the table.
+                                        const totalVal = summary?.scope_total || projectData?.project?.total_value || 0;
+                                        if (totalVal > 0 && amt > 0) {
+                                          newRows[idx].percentage = ((amt / totalVal) * 100).toFixed(2);
                                         }
                                         setBulkPaymentRows(newRows);
                                       }}
