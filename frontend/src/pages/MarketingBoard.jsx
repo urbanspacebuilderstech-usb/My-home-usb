@@ -38,6 +38,61 @@ import { NumericInput } from '../components/NumericInput';
 const API = process.env.REACT_APP_BACKEND_URL;
 
 // Source colors for badges
+const isLeadLost = (l) => {
+  const s = l?.current_stage_id || '';
+  const st = l?.status || '';
+  return s.includes('lost') || st === 'lost' || st === 'closed_lost';
+};
+
+const maskPhone = (p) => {
+  if (!p) return '';
+  const digits = String(p).replace(/\D/g, '');
+  if (digits.length < 4) return 'xxxxxxxx';
+  return `${'x'.repeat(Math.max(0, digits.length - 4))} xxxx`;
+};
+
+const maskEmail = (e) => {
+  if (!e) return '';
+  const [user = '', domain = ''] = String(e).split('@');
+  if (!domain) return 'xxxxx@xxxx.xxx';
+  return `${'x'.repeat(Math.max(3, user.length))}@${domain}`;
+};
+
+// MaskedContact: hides phone/email by default, reveals on hover.
+// Lost leads stay masked permanently — agents shouldn't ping disqualified leads.
+const MaskedContact = ({ phone, email, lost, testIdPrefix }) => {
+  const [revealed, setRevealed] = useState(false);
+  const showRaw = revealed && !lost;
+  return (
+    <div
+      className="space-y-0 cursor-default select-none"
+      onMouseEnter={() => !lost && setRevealed(true)}
+      onMouseLeave={() => setRevealed(false)}
+      data-testid={testIdPrefix ? `${testIdPrefix}-wrap` : undefined}
+    >
+      {phone && (
+        <p
+          className={`text-xs truncate ${lost ? 'text-gray-400 italic' : ''}`}
+          data-testid={testIdPrefix ? `${testIdPrefix}-phone` : undefined}
+          title={lost ? 'Hidden (Lost lead)' : (showRaw ? phone : 'Hover to reveal')}
+        >
+          {showRaw ? phone : maskPhone(phone)}
+        </p>
+      )}
+      {email && (
+        <p
+          className={`text-xs truncate ${lost ? 'text-gray-400 italic' : 'text-gray-500'}`}
+          data-testid={testIdPrefix ? `${testIdPrefix}-email` : undefined}
+          title={lost ? 'Hidden (Lost lead)' : (showRaw ? email : 'Hover to reveal')}
+        >
+          {showRaw ? email : maskEmail(email)}
+        </p>
+      )}
+      {!phone && !email && <span className="text-xs text-gray-400">-</span>}
+    </div>
+  );
+};
+
 const SOURCE_COLORS = {
   meta: 'bg-amber-50 text-amber-700',
   seo: 'bg-green-100 text-green-700',
@@ -1434,10 +1489,7 @@ export default function MarketingBoard() {
                             </div>
                           </td>
                           <td className="px-2 py-2">
-                            <div className="space-y-0">
-                              {lead.phone && <p className="text-xs truncate">{lead.phone}</p>}
-                              {lead.email && <p className="text-xs text-gray-500 truncate">{lead.email}</p>}
-                            </div>
+                            <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} testIdPrefix={`marketing-list-contact-${lead.lead_id}`} />
                           </td>
                           <td className="px-2 py-2">
                             <Badge className={`text-[10px] px-1.5 ${lead.stage_type === 'pre_sales' ? 'bg-amber-50 text-amber-700' : 'bg-green-100 text-green-700'}`}>
@@ -2070,7 +2122,7 @@ export default function MarketingBoard() {
                               <span className="font-medium">{lead.name}</span>
                             </td>
                             <td className="px-3 py-2 text-xs text-gray-600">
-                              {lead.phone || lead.email || '-'}
+                              <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} testIdPrefix={`person-leads-contact-${lead.lead_id}`} />
                             </td>
                             <td className="px-3 py-2">
                               <Badge className={`text-xs ${SOURCE_COLORS[lead.source] || SOURCE_COLORS.other}`}>

@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Planning Board — Requests tab badge now matches "Total Requests" — Tab badge in the navbar uses the same count as the "Total Requests:" header inside (Material + Credit + Labour Stages + Labour Payments + Petty Cash). Previously was using a stale `pendingRequests + paymentRequests` count that didn't reflect the visible inner total. Bubbles via `onCountChange` callback from `PlanningRequestsTab` → `PlanningBoard`.
-  - Files: `frontend/src/components/PlanningRequestsTab.jsx` (onCountChange prop + useEffect), `frontend/src/pages/PlanningBoard.jsx` (planningRequestsCount state + tab badge wired)
+- 2026-02: Pre-Sales contact masking — Phone numbers and emails on the Marketing Board (Pre-Sales view + per-person leads view) are masked by default (`xxxxxxxx 4762`, `xxxxxxxx@gmail.com`) and reveal on hover. Lost leads stay permanently masked (no hover reveal) — italic gray text with "Hidden (Lost lead)" tooltip. Implemented via `MaskedContact` helper component.
+  - Files: `frontend/src/pages/MarketingBoard.jsx` (`MaskedContact`, `isLeadLost`, `maskPhone`, `maskEmail`)
+- 2026-02: Public RE Sent to Client page — green branding swapped for amber/yellow.
 - 2026-02: Office Visit + Follow-up next-meeting badges visible across CRM Sales tabs.
 - 2026-02: HR Edit "Failed to save" silent error fixed (Murugan.P case).
 - 2026-02: Additional Work — Req Payment now creates a linked Payment Schedule entry with chosen due date.
