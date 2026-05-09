@@ -101,7 +101,7 @@ function QuoteView({ data }) {
         </header>
 
         <main className="flex-1 px-4 py-3 space-y-3" style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none', userSelect: 'none' }}>
-          <Card className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0 shadow-lg">
+          <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white border-0 shadow-lg">
             <CardContent className="p-4">
               <p className="text-[11px] uppercase tracking-wider opacity-80">Your Stress-Free Quote</p>
               <p className="text-lg font-bold mt-1">{projectTitle}</p>
@@ -182,14 +182,14 @@ function QuoteView({ data }) {
                             {it.remarks ? ` · ${it.remarks}` : ''}
                           </p>
                         </div>
-                        <p className="font-semibold text-emerald-700 whitespace-nowrap">{fmt(total)}</p>
+                        <p className="font-semibold text-amber-700 whitespace-nowrap">{fmt(total)}</p>
                       </div>
                     );
                   })}
                 </div>
                 <div className="mt-3 pt-2 border-t flex items-center justify-between">
                   <span className="text-sm font-bold">Total Estimate</span>
-                  <span className="text-lg font-extrabold text-emerald-700">{fmt(totalValue)}</span>
+                  <span className="text-lg font-extrabold text-amber-700">{fmt(totalValue)}</span>
                 </div>
               </CardContent>
             </Card>
