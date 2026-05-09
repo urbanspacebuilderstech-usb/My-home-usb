@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Office Visit visibility — Sales CRM Office Visit list now shows "Next: <date · time>" badge under the Created column for any lead in `stg_sales_office_visit`. Lead detail timeline event renamed to "Schedule Office Visit" and now displays Visit Date, Visit Time, Location, Remarks fields explicitly (was previously a single short line missing remarks).
-  - Files: `frontend/src/pages/CRMSales.jsx` (table row + kanban card next-meeting badge, timeline event rendering)
+- 2026-02: Planning Board — Requests tab badge now matches "Total Requests" — Tab badge in the navbar uses the same count as the "Total Requests:" header inside (Material + Credit + Labour Stages + Labour Payments + Petty Cash). Previously was using a stale `pendingRequests + paymentRequests` count that didn't reflect the visible inner total. Bubbles via `onCountChange` callback from `PlanningRequestsTab` → `PlanningBoard`.
+  - Files: `frontend/src/components/PlanningRequestsTab.jsx` (onCountChange prop + useEffect), `frontend/src/pages/PlanningBoard.jsx` (planningRequestsCount state + tab badge wired)
+- 2026-02: Office Visit + Follow-up next-meeting badges visible across CRM Sales tabs.
 - 2026-02: HR Edit "Failed to save" silent error fixed (Murugan.P case).
 - 2026-02: Additional Work — Req Payment now creates a linked Payment Schedule entry with chosen due date.
 - 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save.

@@ -249,7 +249,7 @@ export default function PlanningBoard() {
 
   // Requests (site engineer + payment)
   const [pendingRequests, setPendingRequests] = useState([]);
-  const [paymentRequests, setPaymentRequests] = useState([]);
+  const [planningRequestsCount, setPlanningRequestsCount] = useState(0);  const [paymentRequests, setPaymentRequests] = useState([]);
   const [newProjectsFromCRE, setNewProjectsFromCRE] = useState([]);
   const [reNewCount, setReNewCount] = useState(0);
   const [rejectDialog, setRejectDialog] = useState(false);
@@ -1089,7 +1089,9 @@ export default function PlanningBoard() {
   const filteredVendors = vendors.filter(v => !vendorSearch || v.name.toLowerCase().includes(vendorSearch.toLowerCase()));
 
   const newProjectCount = newProjectsFromCRE.length;
-  const requestCount = pendingRequests.length + paymentRequests.length;
+  // requestCount comes from PlanningRequestsTab (child) via onCountChange — matches the
+  // "Total Requests" sum (Material + Credit + Labour Stages + Labour Payments + Petty Cash)
+  const requestCount = planningRequestsCount;
 
   const CountBadge = ({ count }) => count > 0 ? <span className="ml-1.5 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] inline-flex items-center justify-center">{count}</span> : null;
 
@@ -1361,7 +1363,7 @@ export default function PlanningBoard() {
 
             {/* ---- Dashboard > Requests ---- */}
             {dashSubTab === 'requests' && (
-              <PlanningRequestsTab projects={projects} />
+              <PlanningRequestsTab projects={projects} onCountChange={setPlanningRequestsCount} />
             )}
 
             {/* ---- Dashboard > Contractor Summary ---- */}

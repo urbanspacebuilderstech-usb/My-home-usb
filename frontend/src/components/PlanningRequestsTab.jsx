@@ -81,7 +81,7 @@ const getTitle = (req, type) => {
 };
 const getRequester = (req) => req.requested_by_name || req.site_engineer_name || '-';
 
-export default function PlanningRequestsTab({ projects = [] }) {
+export default function PlanningRequestsTab({ projects = [], onCountChange }) {
   const [activeType, setActiveType] = useState('material');
   // 'all' | 'new' | 'in_progress' | 'awaiting' | 'approved' | 'rejected'
   const [statusFilter, setStatusFilter] = useState('all');
@@ -186,6 +186,10 @@ export default function PlanningRequestsTab({ projects = [] }) {
 
   const counts = { material: planningPendingMaterials, credit: fCreditPending.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
   const totalRequests = counts.material + counts.credit + counts.labour_stages + counts.labour_payments + counts.petty;
+  // Bubble the count up to PlanningBoard so the "Requests" tab badge stays in sync
+  useEffect(() => {
+    if (typeof onCountChange === 'function') onCountChange(totalRequests);
+  }, [totalRequests, onCountChange]);
   const baseList = activeType === 'material' ? fMaterials
     : activeType === 'labour_stages' ? fLabourStages
     : activeType === 'labour_payments' ? fLabourPayments
