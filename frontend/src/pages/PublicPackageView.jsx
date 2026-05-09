@@ -109,7 +109,7 @@ export default function PublicPackageView() {
         <div className="fixed bottom-[64px] left-0 right-0 z-30 pointer-events-none">
           <div className="max-w-md mx-auto px-3 pb-2 space-y-2 pointer-events-auto">
             <Button
-              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl gap-2"
+              className="w-full h-11 bg-amber-500 hover:bg-amber-600 text-white shadow-xl gap-2"
               onClick={() => setOfficeDialog(true)}
               data-testid="visit-office-btn"
             >
