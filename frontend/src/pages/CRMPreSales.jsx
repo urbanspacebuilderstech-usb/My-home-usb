@@ -994,6 +994,12 @@ export default function CRMPreSales() {
                         >
                           {getStageName(lead.current_stage_id)?.substring(0, 12)}
                         </Badge>
+                        {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
+                          <div className="mt-1 flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1 py-0.5 w-fit" data-testid={`appt-date-list-${lead.lead_id}`}>
+                            <Calendar className="h-2.5 w-2.5" />
+                            <span>{new Date(lead.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-2">
                         {(() => {
@@ -1155,6 +1161,14 @@ export default function CRMPreSales() {
                         <h4 className="font-semibold text-gray-900 mb-1">{lead.name}</h4>
                         
                         <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} withIcons />
+                        
+                        {/* Appointment date — show on Appointment Booked stage */}
+                        {lead.current_stage_id === 'stg_appointment' && lead.appointment_date && (
+                          <div className="mt-1.5 flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 w-fit" data-testid={`appt-date-kanban-${lead.lead_id}`}>
+                            <Calendar className="h-2.5 w-2.5" />
+                            <span>{new Date(lead.appointment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{lead.appointment_time ? ` · ${lead.appointment_time}` : ''}</span>
+                          </div>
+                        )}
                         
                         {/* RNR Button + Log (only in RNR stage) */}
                         {lead.current_stage_id === 'stg_rnr' && (
