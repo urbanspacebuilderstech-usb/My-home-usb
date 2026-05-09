@@ -1786,8 +1786,8 @@ export default function CRMSales() {
                   {/* RE-Client / RE-Planning stage actions (prominent banner) */}
                   {['stg_re_to_client', 'stg_re_from_planning'].includes(selectedLead.current_stage_id) && (
                     <div className="bg-gradient-to-r from-green-50 to-orange-50 border-2 border-dashed border-amber-300 rounded-lg p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
+                      <div className="flex flex-col gap-3">
+                        <div className="min-w-0">
                           <p className="text-sm font-semibold text-gray-800">RE Sent to Client — Awaiting Decision</p>
                           <p className="text-xs text-gray-600 mt-0.5">Share the public RE link, regenerate if revisions are needed, or record the client decision.</p>
                           {quoteLink?.link?.token && (
@@ -1805,10 +1805,10 @@ export default function CRMSales() {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-2 shrink-0 flex-wrap">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                           <Button
                             size="sm"
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
                             onClick={() => handleGenerateQuoteLink(selectedLead)}
                             disabled={quoteLinkLoading}
                             data-testid="detail-generate-re-link-btn"
@@ -1818,7 +1818,7 @@ export default function CRMSales() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-purple-700 border-purple-400 hover:bg-purple-50"
+                            className="w-full text-purple-700 border-purple-400 hover:bg-purple-50"
                             onClick={() => { setRegenDialog({ open: true, lead: selectedLead }); setRegenRemarks(''); }}
                             data-testid="detail-regenerate-re-btn"
                           >
@@ -1826,7 +1826,7 @@ export default function CRMSales() {
                           </Button>
                           <Button
                             size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white"
                             onClick={() => openReClientAction(selectedLead, 'approved')}
                             data-testid="detail-re-approve-btn"
                           >
@@ -1835,7 +1835,7 @@ export default function CRMSales() {
                           <Button
                             size="sm"
                             variant="outline"
-                            className="text-orange-700 border-orange-400 hover:bg-orange-50"
+                            className="w-full text-orange-700 border-orange-400 hover:bg-orange-50"
                             onClick={() => openReClientAction(selectedLead, 'revision')}
                             data-testid="detail-re-revision-btn"
                           >
