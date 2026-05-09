@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: HR Portal — Edit employee "Failed to save" silent error fixed (Murugan.P case) — Some legacy employee records have `date_of_joining`/`date_of_birth` stored as `"DD-MM-YYYY"` strings (CSV import). The previous code did `new Date(raw).toISOString()` which threw `RangeError: Invalid time value` and was caught silently as the generic toast. Added a `safeIsoDate(raw)` helper that handles both ISO and DD-MM-YYYY/DD/MM/YYYY formats, and the openEditEmployee now normalizes legacy dates so the `<input type="date">` gets a valid yyyy-mm-dd value.
-  - Files: `frontend/src/pages/HRPortal.jsx` (`handleSaveEmployee` + `openEditEmployee`)
+- 2026-02: Office Visit visibility — Sales CRM Office Visit list now shows "Next: <date · time>" badge under the Created column for any lead in `stg_sales_office_visit`. Lead detail timeline event renamed to "Schedule Office Visit" and now displays Visit Date, Visit Time, Location, Remarks fields explicitly (was previously a single short line missing remarks).
+  - Files: `frontend/src/pages/CRMSales.jsx` (table row + kanban card next-meeting badge, timeline event rendering)
+- 2026-02: HR Edit "Failed to save" silent error fixed (Murugan.P case).
 - 2026-02: Additional Work — Req Payment now creates a linked Payment Schedule entry with chosen due date.
 - 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save.
 - 2026-02: Rough Estimate Payment Schedule + Convert action.

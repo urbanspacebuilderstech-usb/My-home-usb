@@ -1367,6 +1367,12 @@ export default function CRMSales() {
                         <span className="text-xs text-gray-500">
                           {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                         </span>
+                        {lead.current_stage_id === 'stg_sales_office_visit' && lead.office_visit?.date && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 w-fit" data-testid={`office-visit-next-${lead.lead_id}`}>
+                            <Building2 className="h-2.5 w-2.5" />
+                            <span>Next: {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
@@ -1660,9 +1666,17 @@ export default function CRMSales() {
                         )}
                         
                         <div className="flex items-center justify-between mt-3 pt-2 border-t">
-                          <span className="text-xs text-gray-400">
-                            {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-xs text-gray-400">
+                              {new Date(lead.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })} {new Date(lead.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            {lead.current_stage_id === 'stg_sales_office_visit' && lead.office_visit?.date && (
+                              <div className="flex items-center gap-1 text-[10px] font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded px-1.5 py-0.5 w-fit">
+                                <Building2 className="h-2.5 w-2.5" />
+                                <span>Next: {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}</span>
+                              </div>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1">
                             <Button 
                               variant="ghost" 
@@ -2051,8 +2065,13 @@ export default function CRMSales() {
                                   <div key={key} className="flex items-start gap-3 relative">
                                     <div className="w-6 h-6 rounded-full bg-sky-500 flex items-center justify-center z-10 shrink-0"><Building2 className="h-3 w-3 text-white" /></div>
                                     <div className="flex-1 bg-sky-50 border border-sky-200 rounded-lg p-2">
-                                      <p className="text-xs font-semibold text-sky-700">Office Visit</p>
-                                      <p className="text-[10px] text-gray-500">{ov.date} at {ov.time} — {ov.location}</p>
+                                      <p className="text-xs font-semibold text-sky-700">Schedule Office Visit</p>
+                                      <div className="text-[10px] text-gray-600 mt-1 space-y-0.5">
+                                        {ov.date && <p><span className="font-medium text-gray-500">Visit Date:</span> {new Date(ov.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>}
+                                        {ov.time && <p><span className="font-medium text-gray-500">Visit Time:</span> {ov.time}</p>}
+                                        {ov.location && <p><span className="font-medium text-gray-500">Location:</span> {ov.location}</p>}
+                                        {ov.remarks && <p><span className="font-medium text-gray-500">Remarks:</span> {ov.remarks}</p>}
+                                      </div>
                                     </div>
                                   </div>
                                 );
