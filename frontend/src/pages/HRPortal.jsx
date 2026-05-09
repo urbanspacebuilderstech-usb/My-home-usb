@@ -357,7 +357,24 @@ export default function HRPortal() {
     setStaffForm({
       name: s.name || '', email: s.email || '', phone: s.phone || '',
       department: s.department || '', designation: s.designation || '',
-      date_of_joining: s.date_of_joining?.split('T')[0] || '', date_of_birth: s.date_of_birth?.split('T')[0] || '',
+      date_of_joining: (() => {
+        const raw = s.date_of_joining;
+        if (!raw) return '';
+        if (raw.includes('T')) return raw.split('T')[0];
+        // DD-MM-YYYY or DD/MM/YYYY → yyyy-mm-dd
+        const m = String(raw).match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        // yyyy-mm-dd already
+        return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+      })(),
+      date_of_birth: (() => {
+        const raw = s.date_of_birth;
+        if (!raw) return '';
+        if (raw.includes('T')) return raw.split('T')[0];
+        const m = String(raw).match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+      })(),
       gender: s.gender || '', marital_status: s.marital_status || '',
       blood_group: s.blood_group || '', father_name: s.father_name || '', mother_name: s.mother_name || '',
       address: s.address || '', permanent_address: s.permanent_address || '', current_address: s.current_address || '',
@@ -378,6 +395,24 @@ export default function HRPortal() {
 
   const handleSaveEmployee = async () => {
     if (!staffForm.name) { toast.error('Name is required'); return; }
+    // Safely convert form date strings to ISO. Some legacy records hold dates as
+    // "DD-MM-YYYY" (CSV-imported). Returns null when un-parseable instead of throwing.
+    const safeIsoDate = (raw) => {
+      if (!raw) return null;
+      const s = String(raw).trim();
+      if (!s) return null;
+      // ISO yyyy-mm-dd / yyyy-mm-ddT… → use as is
+      let d = new Date(s);
+      if (!isNaN(d.getTime())) return d.toISOString();
+      // Try DD-MM-YYYY or DD/MM/YYYY
+      const m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (m) {
+        const [, dd, mm, yyyy] = m;
+        d = new Date(`${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`);
+        if (!isNaN(d.getTime())) return d.toISOString();
+      }
+      return null;
+    };
     try {
       const payload = {
         ...staffForm,
@@ -387,8 +422,8 @@ export default function HRPortal() {
         esi: parseFloat(staffForm.esi_val || staffForm.esi) || 0, professional_tax: parseFloat(staffForm.professional_tax) || 0,
         tds: parseFloat(staffForm.tds) || 0, other_deductions: parseFloat(staffForm.other_deductions) || 0,
         experience_years: parseFloat(staffForm.experience_years) || 0,
-        date_of_joining: staffForm.date_of_joining ? new Date(staffForm.date_of_joining).toISOString() : null,
-        date_of_birth: staffForm.date_of_birth ? new Date(staffForm.date_of_birth).toISOString() : null
+        date_of_joining: safeIsoDate(staffForm.date_of_joining),
+        date_of_birth: safeIsoDate(staffForm.date_of_birth),
       };
       if (selectedStaff) {
         await axios.patch(`${API}/hr/staff/${selectedStaff.staff_id}`, payload);

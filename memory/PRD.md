@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Additional Work — Req Payment with Date — Clicking "Req Payment" on an Additional Work row now opens the same date-picker dialog used for payment stages. The chosen month/date is saved and a corresponding **payment_stages** row (`linked_addition_id`, `is_addition: true`, `workflow_status: requested`) is auto-created so the request shows up in the project's Payment Schedule and CRE's month filter. Idempotent retries reuse the same stage_id.
-  - Files: `backend/routes/projects.py` (request_additional_payment now accepts body w/ `expected_payment_date`, creates linked stage); `frontend/src/pages/ProjectDetail.jsx` (`handleRequestAdditionPayment` accepts date, Req Payment button opens shared `reqPayDialog` with `mode: 'addition'`, dialog submit branches by mode)
+- 2026-02: HR Portal — Edit employee "Failed to save" silent error fixed (Murugan.P case) — Some legacy employee records have `date_of_joining`/`date_of_birth` stored as `"DD-MM-YYYY"` strings (CSV import). The previous code did `new Date(raw).toISOString()` which threw `RangeError: Invalid time value` and was caught silently as the generic toast. Added a `safeIsoDate(raw)` helper that handles both ISO and DD-MM-YYYY/DD/MM/YYYY formats, and the openEditEmployee now normalizes legacy dates so the `<input type="date">` gets a valid yyyy-mm-dd value.
+  - Files: `frontend/src/pages/HRPortal.jsx` (`handleSaveEmployee` + `openEditEmployee`)
+- 2026-02: Additional Work — Req Payment now creates a linked Payment Schedule entry with chosen due date.
 - 2026-02: Payment Schedule "virtual sales advance" row no longer disappears after save.
 - 2026-02: Rough Estimate Payment Schedule + Convert action.
 - 2026-02: Add Payment Stages dialog — accounts for already-collected advance.
