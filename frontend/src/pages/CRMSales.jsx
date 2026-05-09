@@ -1373,6 +1373,21 @@ export default function CRMSales() {
                             <span>Next: {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}</span>
                           </div>
                         )}
+                        {(() => {
+                          // Show next pending follow-up date (works on Followup tab + RE-Request etc.
+                          // wherever a follow-up is scheduled but not yet closed)
+                          const pendingFup = (lead.follow_ups || [])
+                            .filter(f => !f.completed && f.scheduled_date)
+                            .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
+                          const nextDate = pendingFup?.scheduled_date || lead.next_followup_date;
+                          if (!nextDate) return null;
+                          return (
+                            <div className="flex items-center gap-1 mt-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 w-fit" data-testid={`followup-next-${lead.lead_id}`}>
+                              <Calendar className="h-2.5 w-2.5" />
+                              <span>Follow-up: {new Date(nextDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center gap-1 justify-center">
@@ -1676,6 +1691,17 @@ export default function CRMSales() {
                                 <span>Next: {new Date(lead.office_visit.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}{lead.office_visit.time ? ` · ${lead.office_visit.time}` : ''}</span>
                               </div>
                             )}
+                            {(() => {
+                              const pendingFup = (lead.follow_ups || []).filter(f => !f.completed && f.scheduled_date).sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))[0];
+                              const nextDate = pendingFup?.scheduled_date || lead.next_followup_date;
+                              if (!nextDate) return null;
+                              return (
+                                <div className="flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 w-fit">
+                                  <Calendar className="h-2.5 w-2.5" />
+                                  <span>Follow-up: {new Date(nextDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                </div>
+                              );
+                            })()}
                           </div>
                           <div className="flex items-center gap-1">
                             <Button 
