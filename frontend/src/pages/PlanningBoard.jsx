@@ -1104,7 +1104,9 @@ export default function PlanningBoard({ embedded = false }) {
   };
   stageCountMap.other = Math.max(0, allProjectsList.length - stageCountMap.pre_construction - stageCountMap.under_construction - stageCountMap.completed);
 
-  if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
+  if (loading && !user) return embedded
+    ? <div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div>
+    : <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
 
   return (
     <div className={embedded ? '' : 'min-h-screen bg-gray-50'} data-testid="planning-board">

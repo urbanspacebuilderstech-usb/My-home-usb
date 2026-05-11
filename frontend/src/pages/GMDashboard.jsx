@@ -32,7 +32,7 @@ const API = process.env.REACT_APP_BACKEND_URL + '/api';
 const GMDashboard = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('planning');  // Default to Rough Estimate
   const lastActiveTabRef = React.useRef('overview');
   
   // Dashboard Data
@@ -439,63 +439,44 @@ const GMDashboard = () => {
           </Card>
         </div>
 
-        {/* ===== Dashboard Menu — Approvals | Planning (only nav exposed to GM) =====
+        {/* ===== Dashboard Menu — 3 peer tabs at the top: 
+                Final Estimate | Rough Estimate | Planning =====
             Internally we keep using the legacy `activeTab` values so existing
-            TabsContent blocks render unchanged. Approvals ⇒ {planning|final_estimate}
-            (legacy names mapped to RE/FE buttons). Planning ⇒ planning_board. */}
+            TabsContent blocks render unchanged. RE maps to legacy 'planning'.
+            FE maps to legacy 'final_estimate'. Planning maps to 'planning_board'. */}
         {(() => {
-          // Determine which OUTER tab is currently active
-          const outer = activeTab === 'planning_board' ? 'planning' : 'approvals';
-          // Map active legacy value into inner Approvals selection
-          const innerApprovals = activeTab === 'final_estimate' ? 'final_estimate' : 'rough_estimate';
+          const isRE = activeTab === 'planning' || activeTab === 'rough_estimate';
+          const isFE = activeTab === 'final_estimate';
+          const isPlanningBoard = activeTab === 'planning_board';
           return (
-            <div className="space-y-4" data-testid="gm-dashboard-nav">
-              {/* Outer nav: Approvals | Planning */}
-              <div className="bg-white border shadow-sm p-1 rounded-md inline-flex gap-1" data-testid="gm-main-tabs">
-                <button
-                  onClick={() => setActiveTab('planning')}  // legacy = RE approval queue
-                  className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${outer === 'approvals' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
-                  data-testid="gm-tab-approvals"
-                >
-                  <ClipboardCheck className="h-4 w-4" /> Approvals
-                  {(stats.pendingREApprovals + (stats.pendingFEApprovals || 0)) > 0 && (
-                    <Badge className="bg-red-500 text-white text-xs ml-1">{stats.pendingREApprovals + (stats.pendingFEApprovals || 0)}</Badge>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveTab('planning_board')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${outer === 'planning' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
-                  data-testid="gm-tab-planning"
-                >
-                  <Calculator className="h-4 w-4" /> Planning
-                </button>
-              </div>
-              
-              {/* Inner Approvals nav (RE | FE) — only when outer = Approvals */}
-              {outer === 'approvals' && (
-                <div className="bg-gray-50 border p-1 rounded-md inline-flex gap-1 ml-0" data-testid="gm-approvals-subtabs">
-                  <button
-                    onClick={() => setActiveTab('planning')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${innerApprovals === 'rough_estimate' ? 'bg-white shadow-sm text-indigo-700' : 'text-gray-600 hover:bg-white/60'}`}
-                    data-testid="gm-approvals-re"
-                  >
-                    <Calculator className="h-4 w-4" /> Rough Estimate
-                    {stats.pendingREApprovals > 0 && (
-                      <Badge className="bg-red-500 text-white text-[10px] ml-1">{stats.pendingREApprovals}</Badge>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('final_estimate')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded text-sm font-medium transition-colors ${innerApprovals === 'final_estimate' ? 'bg-white shadow-sm text-indigo-700' : 'text-gray-600 hover:bg-white/60'}`}
-                    data-testid="gm-approvals-fe"
-                  >
-                    <FileText className="h-4 w-4" /> Final Estimate
-                    {stats.pendingFEApprovals > 0 && (
-                      <Badge className="bg-blue-500 text-white text-[10px] ml-1">{stats.pendingFEApprovals}</Badge>
-                    )}
-                  </button>
-                </div>
-              )}
+            <div className="bg-white border shadow-sm p-1 rounded-md inline-flex gap-1 flex-wrap mb-4" data-testid="gm-main-tabs">
+              <button
+                onClick={() => setActiveTab('final_estimate')}
+                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isFE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                data-testid="gm-tab-fe"
+              >
+                <FileText className="h-4 w-4" /> Final Estimate
+                {stats.pendingFEApprovals > 0 && (
+                  <Badge className="bg-blue-500 text-white text-xs ml-1">{stats.pendingFEApprovals}</Badge>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('planning')}
+                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isRE ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                data-testid="gm-tab-re"
+              >
+                <Calculator className="h-4 w-4" /> Rough Estimate
+                {stats.pendingREApprovals > 0 && (
+                  <Badge className="bg-red-500 text-white text-xs ml-1">{stats.pendingREApprovals}</Badge>
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('planning_board')}
+                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${isPlanningBoard ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                data-testid="gm-tab-planning-board"
+              >
+                <Building2 className="h-4 w-4" /> Planning
+              </button>
             </div>
           );
         })()}
