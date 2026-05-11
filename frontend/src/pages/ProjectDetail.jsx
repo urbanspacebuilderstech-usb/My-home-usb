@@ -52,11 +52,9 @@ const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
       setEditing(false);
       return;
     }
-    if (num === Number(initial)) {
-      setEditing(false);
-      return;
-    }
     setEditing(false);
+    // Always invoke onSave (even when value is unchanged) so the backend can
+    // re-sync derived fields like ₹ amount from the latest base value.
     await onSave(num);
   };
   
@@ -4237,18 +4235,49 @@ export default function ProjectDetail() {
                                   }}
                                 />
                               ) : (canManage && stage.is_advance) ? (
-                                <InlineEditRate
-                                  initial={stage.percentage}
-                                  onSave={async (newPct) => {
-                                    try {
-                                      await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { percentage: newPct });
-                                      toast.success(`Rate set to ${newPct}%`);
-                                      fetchData(false);
-                                    } catch (e) {
-                                      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update rate');
+                                <div className="flex items-center justify-end gap-1">
+                                  <InlineEditRate
+                                    initial={stage.percentage}
+                                    onSave={async (newPct) => {
+                                      try {
+                                        await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { percentage: newPct });
+                                        toast.success(`Rate set to ${newPct}%`);
+                                        fetchData(false);
+                                      } catch (e) {
+                                        toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update rate');
+                                      }
+                                    }}
+                                  />
+                                  {(() => {
+                                    // Auto-detect drift between % and amount vs. project total value.
+                                    // Show a 1-click ↻ to re-sync if the math is off by more than ₹100.
+                                    const totalValProj = Number(projectData?.project?.total_value || 0);
+                                    const expectedAmt = Math.round((totalValProj * (stage.percentage || 0)) / 100);
+                                    const drift = Math.abs((stage.amount || 0) - expectedAmt);
+                                    if (totalValProj > 0 && drift > 100) {
+                                      return (
+                                        <button
+                                          type="button"
+                                          className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 transition"
+                                          title={`Recompute amount from %: ${stage.percentage}% × ₹${totalValProj.toLocaleString()} = ₹${expectedAmt.toLocaleString()}`}
+                                          data-testid={`recompute-amt-${stage.stage_id}`}
+                                          onClick={async () => {
+                                            try {
+                                              await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { percentage: stage.percentage });
+                                              toast.success(`Recomputed: ₹${expectedAmt.toLocaleString()}`);
+                                              fetchData(false);
+                                            } catch (e) {
+                                              toast.error('Failed to recompute');
+                                            }
+                                          }}
+                                        >
+                                          ↻ Fix
+                                        </button>
+                                      );
                                     }
-                                  }}
-                                />
+                                    return null;
+                                  })()}
+                                </div>
                               ) : (
                                 <span>{stage.percentage}%</span>
                               )}
