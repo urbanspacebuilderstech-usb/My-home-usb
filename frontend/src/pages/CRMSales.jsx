@@ -1514,6 +1514,19 @@ export default function CRMSales() {
                           {lead.onboarding_status === 'moved_to_planning' && (
                             <Badge className="bg-green-100 text-green-700 text-[10px]">In Planning</Badge>
                           )}
+                          {/* Quick Reassign — only when lead is still owned by a salesperson and not in terminal/onboarded stage */}
+                          {lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-purple-600 hover:text-purple-800 hover:bg-purple-50"
+                              onClick={(e) => { e.stopPropagation(); setReassignDialog({ open: true, lead, new_owner: '', reason: '', submitting: false }); }}
+                              title={`Reassign (current: ${lead.assigned_to_name || '—'})`}
+                              data-testid={`reassign-row-btn-${lead.lead_id}`}
+                            >
+                              <UserCheck className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button 
                             variant="ghost" 
                             size="sm"
@@ -1747,6 +1760,18 @@ export default function CRMSales() {
                             })()}
                           </div>
                           <div className="flex items-center gap-1">
+                            {lead.assigned_to && !['stg_project_onboarded', 'stg_lost'].includes(lead.current_stage_id) && lead.onboarding_status !== 'moved_to_planning' && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 w-6 p-0 text-purple-600 hover:text-purple-800 hover:bg-purple-50"
+                                onClick={(e) => { e.stopPropagation(); setReassignDialog({ open: true, lead, new_owner: '', reason: '', submitting: false }); }}
+                                title={`Reassign (current: ${lead.assigned_to_name || '—'})`}
+                                data-testid={`reassign-kanban-btn-${lead.lead_id}`}
+                              >
+                                <UserCheck className="h-3 w-3" />
+                              </Button>
+                            )}
                             <Button 
                               variant="ghost" 
                               size="sm"
