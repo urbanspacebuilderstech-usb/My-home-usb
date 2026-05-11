@@ -141,7 +141,7 @@ function getModuleKey(pathname, role) {
   return null;
 }
 
-export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions }) {
+export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, onCustomNavChange, headerActions, hideNav = false }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -266,9 +266,9 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
             </div>
           </div>
 
-          {/* Center: Desktop Nav */}
+          {/* Center: Desktop Nav (hidden when caller passes hideNav) */}
           <nav className="hidden lg:flex items-center gap-0.5 mx-4 overflow-x-auto" data-testid="header-nav">
-            {hasCustomNav && !customNavAsSub ? (
+            {hideNav ? null : hasCustomNav && !customNavAsSub ? (
               customNav.map((item) => (
                 <button
                   key={item.value}
@@ -328,7 +328,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
 
       {/* Sub-navigation bar — for super_admin we surface the page's customNav
           here so the Super Admin shell stays visible at the top. */}
-      {customNavAsSub && customNav && customNav.length > 0 && (
+      {!hideNav && customNavAsSub && customNav && customNav.length > 0 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
           <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {customNav.map((item) => (
@@ -350,7 +350,7 @@ export function AppHeader({ user, unreadNotifs = 0, customNav, activeCustomNav, 
       )}
 
       {/* Sub-navigation bar (only for roles with sub-menus, hidden when custom nav is active) */}
-      {!hasCustomNav && subItems && subItems.length > 1 && (
+      {!hideNav && !hasCustomNav && subItems && subItems.length > 1 && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 lg:px-6" data-testid="sub-nav">
           <div className="flex items-center gap-1 overflow-x-auto py-1.5 scrollbar-hide">
             {subItems.map((item) => (

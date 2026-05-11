@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import PlanningBoard from './PlanningBoard';
+import { AppHeader } from '../components/AppHeader';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
@@ -367,30 +368,10 @@ const GMDashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Slim header — GM Dashboard now uses Approvals + Planning sub-tabs only.
-          AppHeader removed per request; we keep a minimal title bar with user info + logout. */}
-      <header className="bg-white border-b shadow-sm" data-testid="gm-slim-header">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-indigo-600" />
-            <span className="font-semibold text-gray-900">GM Dashboard</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <div className="text-sm font-medium text-gray-900">{user?.name}</div>
-              <div className="text-[10px] uppercase tracking-wide text-gray-500">General Manager</div>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { localStorage.removeItem('token'); window.location.href = '/login'; }}
-              data-testid="gm-logout-btn"
-            >
-              <LogOut className="h-4 w-4 mr-1" /> Logout
-            </Button>
-          </div>
-        </div>
-      </header>
+      {/* AppHeader rendered with `hideNav` — keeps logo, role badge, notifications,
+          user menu but suppresses the role-based top nav. GM users navigate via
+          the Final Estimate / Rough Estimate / Planning pill buttons below. */}
+      <AppHeader user={user} hideNav />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Stats Overview */}
