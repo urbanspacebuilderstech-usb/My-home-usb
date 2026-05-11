@@ -342,8 +342,9 @@ Per your choice **b-i**, the **3 sub-tabs merge** inside Final Estimate (moving 
 - /app/test_reports/iteration_148.json (100% pass rate)
 
 ## Recent Updates (Feb 2026)
-- 2026-02: Pre-Sales contact masking — Phone numbers and emails on the Marketing Board (Pre-Sales view + per-person leads view) are masked by default (`xxxxxxxx 4762`, `xxxxxxxx@gmail.com`) and reveal on hover. Lost leads stay permanently masked (no hover reveal) — italic gray text with "Hidden (Lost lead)" tooltip. Implemented via `MaskedContact` helper component.
-  - Files: `frontend/src/pages/MarketingBoard.jsx` (`MaskedContact`, `isLeadLost`, `maskPhone`, `maskEmail`)
+- 2026-02: Sales — Per-lead Reassign action — Lead detail dialog now has a purple **"Reassign"** button next to Edit. Opens a dialog with: New Salesperson dropdown (auto-filtered to active users with matching stage_type role) + optional Reason. Submitting hits new `POST /api/crm/leads/{lead_id}/reassign` which validates role, swaps `assigned_to` + `assigned_to_name`, logs to `activity_log`, and notifies both old and new owner. Works on every tab.
+  - Files: `backend/routes/crm.py` (new `LeadReassignInput` + `reassign_lead` endpoint); `frontend/src/pages/CRMSales.jsx` (Reassign button in detail header, `reassignDialog` state + `handleReassignSubmit` + dialog UI)
+- 2026-02: Pre-Sales contact masking + Appointment Booked date chip + Public RE amber theme.
 - 2026-02: Public RE Sent to Client page — green branding swapped for amber/yellow.
 - 2026-02: Office Visit + Follow-up next-meeting badges visible across CRM Sales tabs.
 - 2026-02: HR Edit "Failed to save" silent error fixed (Murugan.P case).

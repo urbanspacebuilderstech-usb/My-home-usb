@@ -160,6 +160,49 @@ export default function CRMSales() {
   const [quoteLinkLoading, setQuoteLinkLoading] = useState(false);
   // Regenerate-RE remarks dialog
   const [regenDialog, setRegenDialog] = useState({ open: false, lead: null });
+  // Reassign — change lead owner to another salesperson
+  const [reassignDialog, setReassignDialog] = useState({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+  const [reassignOptions, setReassignOptions] = useState([]);
+
+  // Load eligible owners (sales / pre_sales role users) when reassign dialog opens
+  useEffect(() => {
+    if (!reassignDialog.open) return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/users`);
+        const list = Array.isArray(res.data) ? res.data : (res.data?.users || []);
+        const stageType = reassignDialog.lead?.stage_type;
+        const allowed = stageType === 'pre_sales' ? ['pre_sales', 'super_admin', 'cre'] : ['sales', 'super_admin', 'cre'];
+        const filtered = list
+          .filter(u => u.is_active !== false && allowed.includes(u.role) && u.user_id !== reassignDialog.lead?.assigned_to)
+          .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setReassignOptions(filtered);
+      } catch {
+        setReassignOptions([]);
+      }
+    })();
+  }, [reassignDialog.open, reassignDialog.lead?.lead_id, reassignDialog.lead?.assigned_to, reassignDialog.lead?.stage_type]);
+
+  const handleReassignSubmit = async () => {
+    if (!reassignDialog.lead?.lead_id || !reassignDialog.new_owner) {
+      toast.error('Pick a salesperson to reassign to');
+      return;
+    }
+    setReassignDialog(d => ({ ...d, submitting: true }));
+    try {
+      await axios.post(`${API}/crm/leads/${reassignDialog.lead.lead_id}/reassign`, {
+        new_owner_user_id: reassignDialog.new_owner,
+        reason: reassignDialog.reason || null,
+      });
+      const newName = (reassignOptions.find(u => u.user_id === reassignDialog.new_owner) || {}).name || '';
+      toast.success(`Lead reassigned to ${newName}`);
+      setReassignDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false });
+      fetchData();
+    } catch (e) {
+      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to reassign');
+      setReassignDialog(d => ({ ...d, submitting: false }));
+    }
+  };
   const [regenRemarks, setRegenRemarks] = useState('');
   const [remarksLeadId, setRemarksLeadId] = useState(null);
   const [remarksStageId, setRemarksStageId] = useState(null);
@@ -1763,9 +1806,21 @@ export default function CRMSales() {
                   )}
                 </div>
               </div>
-              <Button variant="ghost" size="sm" className="ml-auto" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn">
-                <Edit className="h-4 w-4" />
-              </Button>
+              <div className="ml-auto flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 gap-1 text-purple-700 hover:bg-purple-50"
+                  onClick={() => setReassignDialog({ open: true, lead: leadDetail || selectedLead, new_owner: '', reason: '', submitting: false })}
+                  data-testid="reassign-lead-btn"
+                  title="Reassign to another salesperson"
+                >
+                  <UserCheck className="h-4 w-4" /> Reassign
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => openEditDialog(leadDetail || selectedLead)} data-testid="edit-lead-btn">
+                  <Edit className="h-4 w-4" />
+                </Button>
+              </div>
             </DialogTitle>
             <DialogDescription className="sr-only">Lead details and actions</DialogDescription>
           </DialogHeader>
@@ -3392,6 +3447,51 @@ export default function CRMSales() {
             <Button variant="outline" onClick={() => setRegenDialog({ open: false, lead: null })}>Cancel</Button>
             <Button onClick={handleRegenerateRE} className="bg-purple-600 hover:bg-purple-700 text-white" data-testid="regen-submit-btn">
               <RefreshCw className="h-4 w-4 mr-1" /> Send to Planning
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reassign Lead — change owner to another salesperson */}
+      <Dialog open={reassignDialog.open} onOpenChange={(o) => !o && !reassignDialog.submitting && setReassignDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false })}>
+        <DialogContent className="max-w-md" data-testid="reassign-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><UserCheck className="h-5 w-5 text-purple-600" /> Reassign Lead</DialogTitle>
+            <DialogDescription>
+              Move this lead to another teammate. Current owner: <b>{reassignDialog.lead?.assigned_to_name || '—'}</b>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">New Salesperson <span className="text-red-500">*</span></Label>
+              <Select value={reassignDialog.new_owner} onValueChange={v => setReassignDialog(d => ({ ...d, new_owner: v }))}>
+                <SelectTrigger className="h-9 mt-1" data-testid="reassign-owner-select"><SelectValue placeholder="Pick a teammate..." /></SelectTrigger>
+                <SelectContent>
+                  {reassignOptions.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-gray-400 text-center">No eligible teammates found.</div>
+                  ) : reassignOptions.map(u => (
+                    <SelectItem key={u.user_id} value={u.user_id}>
+                      <span className="flex items-center gap-2"><span>{u.name}</span><span className="text-[10px] text-gray-400">{u.role}</span></span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Reason (optional)</Label>
+              <Textarea
+                rows={3}
+                value={reassignDialog.reason}
+                onChange={e => setReassignDialog(d => ({ ...d, reason: e.target.value }))}
+                placeholder="Why is this being reassigned?"
+                data-testid="reassign-reason-input"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReassignDialog({ open: false, lead: null, new_owner: '', reason: '', submitting: false })} disabled={reassignDialog.submitting}>Cancel</Button>
+            <Button onClick={handleReassignSubmit} disabled={reassignDialog.submitting || !reassignDialog.new_owner} className="bg-purple-600 hover:bg-purple-700 text-white" data-testid="reassign-submit-btn">
+              <UserCheck className="h-4 w-4 mr-1" /> Reassign
             </Button>
           </DialogFooter>
         </DialogContent>

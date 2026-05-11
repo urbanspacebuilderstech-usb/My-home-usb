@@ -1973,6 +1973,85 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     return {"message": "Lead updated successfully"}
 
 
+class LeadReassignInput(BaseModel):
+    new_owner_user_id: str
+    reason: Optional[str] = None
+
+
+@router.post("/crm/leads/{lead_id}/reassign")
+async def reassign_lead(lead_id: str, data: LeadReassignInput, user: User = Depends(get_current_user)):
+    """Reassign a single lead to a different sales/pre-sales person.
+    
+    Permitted to Super Admin, CRE, the current owner, and any sales/pre-sales user
+    (so a person can hand off their own lead to a peer). The target user must
+    already have a sales/pre-sales role; otherwise admins should use the
+    team-level Transfer flow instead.
+    """
+    lead = await db.leads.find_one({"lead_id": lead_id}, {"_id": 0})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Role gate: super_admin, CRE, sales/pre_sales (peer-to-peer) or current owner
+    role_str = user.role if isinstance(user.role, str) else getattr(user.role, "value", str(user.role))
+    if role_str not in ("super_admin", "cre", "sales", "pre_sales") and lead.get("assigned_to") != user.user_id:
+        raise HTTPException(status_code=403, detail="Not permitted to reassign this lead")
+    
+    new_owner = await db.users.find_one({"user_id": data.new_owner_user_id}, {"_id": 0})
+    if not new_owner:
+        raise HTTPException(status_code=404, detail="Target user not found")
+    if new_owner.get("is_active") is False:
+        raise HTTPException(status_code=400, detail="Target user is inactive")
+    
+    # Stage-type vs role check: pre_sales lead → must go to pre_sales/super_admin/cre,
+    # sales lead → must go to sales/super_admin/cre
+    new_owner_role = new_owner.get("role")
+    if lead.get("stage_type") == "pre_sales" and new_owner_role not in ("pre_sales", "super_admin", "cre"):
+        raise HTTPException(status_code=400, detail=f"Target user role '{new_owner_role}' cannot own pre-sales leads")
+    if lead.get("stage_type") == "sales" and new_owner_role not in ("sales", "super_admin", "cre"):
+        raise HTTPException(status_code=400, detail=f"Target user role '{new_owner_role}' cannot own sales leads")
+    if data.new_owner_user_id == lead.get("assigned_to"):
+        raise HTTPException(status_code=400, detail="Target user already owns this lead")
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    old_owner_id = lead.get("assigned_to")
+    old_owner = await db.users.find_one({"user_id": old_owner_id}, {"_id": 0, "name": 1}) if old_owner_id else None
+    old_owner_name = (old_owner or {}).get("name", "Unassigned")
+    new_owner_name = new_owner.get("name", "")
+    
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {
+            "assigned_to": data.new_owner_user_id,
+            "assigned_to_name": new_owner_name,
+            "previous_owner": old_owner_id,
+            "reassigned_at": now_iso,
+            "reassigned_by": user.user_id,
+            "updated_at": datetime.now(timezone.utc),
+        }, "$push": {
+            "activity_log": {
+                "type": "reassigned",
+                "from_user_id": old_owner_id,
+                "from_user_name": old_owner_name,
+                "to_user_id": data.new_owner_user_id,
+                "to_user_name": new_owner_name,
+                "reason": data.reason or "",
+                "performed_by": user.user_id,
+                "performed_at": now_iso,
+            }
+        }},
+    )
+    
+    # Notify both parties
+    try:
+        await create_notification(data.new_owner_user_id, f"Lead '{lead.get('name','')}' reassigned to you by {user.name}{' — ' + data.reason if data.reason else ''}.")
+        if old_owner_id and old_owner_id != user.user_id:
+            await create_notification(old_owner_id, f"Lead '{lead.get('name','')}' has been reassigned from you to {new_owner_name}.")
+    except Exception:
+        pass
+    
+    return {"message": "Lead reassigned", "lead_id": lead_id, "new_owner": new_owner_name}
+
+
 
 class AppointmentInput(BaseModel):
     appointment_date: str
