@@ -212,7 +212,7 @@ function LiveMapSection() {
   );
 }
 
-export default function PlanningBoard() {
+export default function PlanningBoard({ embedded = false }) {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1107,17 +1107,41 @@ export default function PlanningBoard() {
   if (loading && !user) return <div className="min-h-screen bg-gray-50"><div className="max-w-7xl mx-auto px-4 py-8"><div className="bg-white rounded-lg border p-8 animate-pulse"><div className="h-6 bg-gray-200 rounded w-48 mb-4" /><div className="h-4 bg-gray-200 rounded w-full" /></div></div></div>;
 
   return (
-    <div className="min-h-screen bg-gray-50" data-testid="planning-board">
-      <AppHeader user={user} customNav={[
-        { label: 'Dashboard', value: 'dashboard', icon: 'Building2' },
-        { label: 'Packages', value: 'packages', icon: 'Package' },
-        { label: 'Material Vendors', value: 'material_vendors', icon: 'Truck' },
-        { label: 'Labour Contractors', value: 'labour_contractors', icon: 'Users' },
-        { label: 'RE Templates', value: 're_templates', icon: 'FileText' },
-        { label: 'Live Map', value: 'live_map', icon: 'Radio' },
-      ]} activeCustomNav={activeTab} onCustomNavChange={handleTabChange} />
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'} data-testid="planning-board">
+      {!embedded && (
+        <AppHeader user={user} customNav={[
+          { label: 'Dashboard', value: 'dashboard', icon: 'Building2' },
+          { label: 'Packages', value: 'packages', icon: 'Package' },
+          { label: 'Material Vendors', value: 'material_vendors', icon: 'Truck' },
+          { label: 'Labour Contractors', value: 'labour_contractors', icon: 'Users' },
+          { label: 'RE Templates', value: 're_templates', icon: 'FileText' },
+          { label: 'Live Map', value: 'live_map', icon: 'Radio' },
+        ]} activeCustomNav={activeTab} onCustomNavChange={handleTabChange} />
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6">
+      <div className={embedded ? '' : 'max-w-7xl mx-auto px-4 py-4 sm:px-6'}>
+        {/* When embedded, we render our own slim top-level nav since AppHeader is suppressed. */}
+        {embedded && (
+          <div className="flex gap-1 border-b mb-3 bg-white rounded-t-lg px-2 pt-1 overflow-x-auto" data-testid="planning-embedded-nav">
+            {[
+              { value: 'dashboard', label: 'Dashboard' },
+              { value: 'packages', label: 'Packages' },
+              { value: 'material_vendors', label: 'Material Vendors' },
+              { value: 'labour_contractors', label: 'Labour Contractors' },
+              { value: 're_templates', label: 'RE Templates' },
+              { value: 'live_map', label: 'Live Map' },
+            ].map(t => (
+              <button
+                key={t.value}
+                onClick={() => handleTabChange(t.value)}
+                className={`px-3 py-1.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab === t.value ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                data-testid={`planning-embedded-tab-${t.value}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <Tabs value={activeTab} onValueChange={handleTabChange}>
 
           {/* ==================== DASHBOARD ==================== */}
