@@ -4065,6 +4065,19 @@ export default function ProjectDetail() {
                                     }
                                   }}
                                 />
+                              ) : (canManage && stage.is_advance) ? (
+                                <InlineEditRate
+                                  initial={stage.percentage}
+                                  onSave={async (newPct) => {
+                                    try {
+                                      await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { percentage: newPct });
+                                      toast.success(`Rate set to ${newPct}%`);
+                                      fetchData(false);
+                                    } catch (e) {
+                                      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update rate');
+                                    }
+                                  }}
+                                />
                               ) : (
                                 <span>{stage.percentage}%</span>
                               )}
@@ -4079,6 +4092,20 @@ export default function ProjectDetail() {
                                       onSave={async (newAmt) => {
                                         try {
                                           await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, { amount: newAmt });
+                                          toast.success(`Amount set to ₹${newAmt.toLocaleString()}`);
+                                          fetchData(false);
+                                        } catch (e) {
+                                          toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update amount');
+                                        }
+                                      }}
+                                    />
+                                  ) : (canManage && stage.is_advance) ? (
+                                    <InlineEditRate
+                                      mode="amount"
+                                      initial={stage.amount}
+                                      onSave={async (newAmt) => {
+                                        try {
+                                          await axios.patch(`${API}/payment-stages/${stage.stage_id}`, { amount: newAmt });
                                           toast.success(`Amount set to ₹${newAmt.toLocaleString()}`);
                                           fetchData(false);
                                         } catch (e) {

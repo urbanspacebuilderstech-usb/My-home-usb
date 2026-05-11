@@ -2193,6 +2193,24 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
     if "completed_date" in update_dict and update_dict["completed_date"]:
         update_dict["completed_date"] = datetime.fromisoformat(update_dict["completed_date"]).isoformat()
     
+    # If only percentage was edited, recompute amount from the Final Estimate total
+    # (scope_items + additional_costs). Mirrors the virtual-row behaviour so editing
+    # the % of any payment stage keeps the ₹ amount in sync.
+    if "percentage" in update_dict and "amount" not in update_dict:
+        stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "project_id": 1})
+        if stage:
+            project_id = stage["project_id"]
+            project = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
+            scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+            scope_total = sum((i.get("total_amount") or 0) for i in scope_items)
+            if not scope_total:
+                scope_total = float(project.get("scope_total") or project.get("total_value") or 0)
+            additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(2000)
+            additions_total = sum((c.get("estimated_amount") or 0) for c in additional_costs)
+            total_value = float(scope_total) + float(additions_total)
+            if total_value > 0:
+                update_dict["amount"] = round(total_value * float(update_dict["percentage"]) / 100)
+    
     await db.payment_stages.update_one({"stage_id": stage_id}, {"$set": update_dict})
     await create_audit_log(user.user_id, "update", "payment_stage", stage_id, update_dict)
     return {"message": "Payment stage updated"}
@@ -2226,10 +2244,19 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "total_value": 1})
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    total_value = float(project.get("total_value") or 0)
+    
+    # Compute total = scope_total (from scope_items, falls back to project.total_value)
+    # + additions (from additional_costs) — same as Final Estimate shown in the UI.
+    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+    scope_total = sum((i.get("total_amount") or 0) for i in scope_items)
+    if not scope_total:
+        scope_total = float(project.get("scope_total") or project.get("total_value") or 0)
+    additional_costs = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1}).to_list(2000)
+    additions_total = sum((c.get("estimated_amount") or 0) for c in additional_costs)
+    total_value = float(scope_total) + float(additions_total)
     
     # Find the earliest income entry to link
     income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
@@ -2242,12 +2269,14 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     user_amt = data.amount if data.amount is not None else None
     
     if user_pct is None and user_amt is None:
-        # Defaults match the current virtual-row display
+        # Defaults match the current virtual-row display (amount = received income)
         amount = income_amount
         percentage = round((amount / total_value) * 10000) / 100 if total_value > 0 else 0
     elif user_pct is not None and user_amt is None:
+        # Edit % only → treat as a PLANNED advance percentage of total project value.
+        # This is the contractually-agreed advance; cash received stays at income.
         percentage = float(user_pct)
-        amount = income_amount  # keep amount = actually-received cash
+        amount = round((total_value * percentage) / 100) if total_value > 0 else income_amount
     elif user_amt is not None and user_pct is None:
         amount = float(user_amt)
         percentage = round((amount / total_value) * 10000) / 100 if total_value > 0 else 0
