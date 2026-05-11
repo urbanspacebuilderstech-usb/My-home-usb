@@ -1205,6 +1205,31 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     # Balance = Total Value - Income Received - Deductions
     balance = total_value - income_total - additions_received - deductions_total
     
+    # Pre-Construction stages captured by CRE — embedded on the project doc
+    # under `pre_construction.<stage_key>`. Normalize to the canonical 7 stages so
+    # the UI always has a stable shape.
+    pc_raw = project.get("pre_construction") or {}
+    PC_STAGES = [
+        {"key": "bhoomi_pooja",         "label": "Bhoomi Pooja"},
+        {"key": "soil_test",            "label": "Soil Test"},
+        {"key": "structural_approval",  "label": "Structural Approval"},
+        {"key": "hut",                  "label": "Hut"},
+        {"key": "borewell",             "label": "Borewell"},
+        {"key": "agreement",            "label": "Agreement"},
+        {"key": "eb_connection",        "label": "EB Connection"},
+    ]
+    pre_construction = []
+    for s in PC_STAGES:
+        st = pc_raw.get(s["key"]) or {}
+        pre_construction.append({
+            "key": s["key"],
+            "label": s["label"],
+            "status": st.get("status", "pending"),
+            "scheduled_at": st.get("scheduled_at"),
+            "completed_at": st.get("completed_at"),
+            "notes": st.get("notes"),
+        })
+    
     return {
         "project": project,
         "scope_items": scope_items,
@@ -1212,6 +1237,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "additional_costs": additional_costs,
         "deductions": deductions,
         "income_entries": income_entries,
+        "pre_construction": pre_construction,
         "summary": {
             "scope_total": scope_total,
             "project_value": project_value,

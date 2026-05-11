@@ -2055,7 +2055,7 @@ export default function ProjectDetail() {
     );
   }
 
-  const { project, scope_items = [], payment_stages = [], additional_costs = [], deductions = [], summary } = projectData || {};
+  const { project, scope_items = [], payment_stages = [], additional_costs = [], deductions = [], summary, pre_construction = [] } = projectData || {};
 
   // Get draft items for verification
   const draftScopeItems = (scope_items || []).filter(s => s.workflow_status === 'draft');
@@ -2492,30 +2492,35 @@ export default function ProjectDetail() {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <CardHeader className="border-b p-3 sm:p-6">
               <TabsList className="bg-transparent border-0 p-0 h-auto gap-0 w-full justify-between overflow-x-auto flex-nowrap">
+                {/* Order: Estimate → Final Estimate → Payment Schedule → Work Order → Materials →
+                    Payment Summary → Team → Construction Stage (CRE) → Project Stages → Documents */}
                 <TabsTrigger value="rough-estimate" className="data-[state=active]:border-b-2 data-[state=active]:border-purple-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Estimate
                 </TabsTrigger>
                 <TabsTrigger value="scope" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Final Estimate
                 </TabsTrigger>
-                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
-                  Stages
-                </TabsTrigger>
-                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-team">
-                  Team
+                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
+                  Payment Schedule
+                </TabsTrigger>}
+                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
+                  Work Order (Labour)
                 </TabsTrigger>
                 <TabsTrigger value="materials" className="data-[state=active]:border-b-2 data-[state=active]:border-orange-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-materials">
                   Materials
                 </TabsTrigger>
-                <TabsTrigger value="labours" className="data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-labours">
-                  Work Order (Labour)
-                </TabsTrigger>
-                {canSeeFinancials && <TabsTrigger value="payments" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-500 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
-                  Payment Schedule
-                </TabsTrigger>}
                 {canSeeFinancials && <TabsTrigger value="payment-summary" className="data-[state=active]:border-b-2 data-[state=active]:border-green-600 rounded-none px-4 py-3 text-[15px] font-medium bg-green-50 whitespace-nowrap flex-1 text-center">
                   Payment Summary
                 </TabsTrigger>}
+                <TabsTrigger value="team" className="data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-team">
+                  Team
+                </TabsTrigger>
+                <TabsTrigger value="construction-stage" className="data-[state=active]:border-b-2 data-[state=active]:border-rose-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-construction-stage">
+                  Construction Stage
+                </TabsTrigger>
+                <TabsTrigger value="project-stages" className="data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center" data-testid="tab-project-stages">
+                  Project Stages
+                </TabsTrigger>
                 {/* Cheques tab moved INSIDE Payment Summary as a sub-tab — kept as a hidden mount-point so /tab=cheques deep links still resolve */}
                 <TabsTrigger value="documents" className="data-[state=active]:border-b-2 data-[state=active]:border-amber-600 rounded-none px-4 py-3 text-[15px] font-medium whitespace-nowrap flex-1 text-center">
                   Documents
@@ -6756,6 +6761,70 @@ export default function ProjectDetail() {
             </TabsContent>
 
             {/* Cheques TabsContent removed — moved as a sub-tab under Payment Summary. */}
+
+            {/* ==================== CONSTRUCTION STAGE (from CRE Pre-Construction) ==================== */}
+            <TabsContent value="construction-stage" className="p-3 sm:p-6">
+              <div className="space-y-4" data-testid="construction-stage-tab-content">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                      <Building2 className="h-5 w-5 text-rose-600" />
+                      Pre-Construction Stages
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Captured by the CRE team. Status updates live from the CRE → Pre-Construction board.
+                    </p>
+                  </div>
+                  {(() => {
+                    const done = pre_construction.filter(s => s.status === 'completed').length;
+                    const total = pre_construction.length;
+                    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                    return (
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-rose-600">{done}<span className="text-sm text-gray-500"> / {total}</span></div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-500">Completed ({pct}%)</div>
+                      </div>
+                    );
+                  })()}
+                </div>
+                {pre_construction.length === 0 ? (
+                  <Card><CardContent className="p-8 text-center text-gray-400 text-sm">No pre-construction stages tracked yet.</CardContent></Card>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {pre_construction.map((s) => {
+                      const isDone = s.status === 'completed';
+                      const isScheduled = s.status === 'scheduled';
+                      const tone = isDone
+                        ? { bg: 'bg-green-50', border: 'border-green-300', text: 'text-green-700', badge: 'bg-green-100 text-green-700' }
+                        : isScheduled
+                        ? { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-700' }
+                        : { bg: 'bg-gray-50',  border: 'border-gray-200',  text: 'text-gray-600',  badge: 'bg-gray-100 text-gray-600' };
+                      const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+                      return (
+                        <Card key={s.key} className={`${tone.bg} border ${tone.border}`} data-testid={`pc-stage-${s.key}`}>
+                          <CardContent className="p-3">
+                            <div className="flex items-center justify-between">
+                              <p className={`font-semibold text-sm ${tone.text}`}>{s.label}</p>
+                              <Badge className={`text-[10px] capitalize ${tone.badge}`}>{(s.status || 'pending').replace('_', ' ')}</Badge>
+                            </div>
+                            <div className="mt-2 space-y-0.5 text-[11px] text-gray-600">
+                              <div className="flex justify-between"><span>Scheduled</span><span className="font-medium">{fmtDate(s.scheduled_at)}</span></div>
+                              <div className="flex justify-between"><span>Completed</span><span className="font-medium">{fmtDate(s.completed_at)}</span></div>
+                              {s.notes && (
+                                <div className="pt-1 text-gray-500 italic line-clamp-2" title={s.notes}>{s.notes}</div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-400 text-right">
+                  Read-only view. Updates must be made by the CRE team from the CRE → Pre-Construction board.
+                </p>
+              </div>
+            </TabsContent>
 
             {/* ==================== DOCUMENTS TAB ==================== */}
             <TabsContent value="documents" className="p-3 sm:p-6">
