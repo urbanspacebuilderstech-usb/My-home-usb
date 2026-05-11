@@ -1483,8 +1483,8 @@ async def get_planning_projects_filtered(
 @router.get("/planning/stage-dashboard")
 async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
     """Get planning dashboard with project stages - Tab view like CRE Board"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning / GM can access this")
     
     # Count projects by construction stage (only working/active projects)
     stage_counts = {}
@@ -1520,8 +1520,8 @@ async def get_planning_stage_dashboard(user: User = Depends(get_current_user)):
 @router.get("/planning/projects-by-stage")
 async def get_projects_by_stage(stage: Optional[str] = None, user: User = Depends(get_current_user)):
     """Get projects filtered by construction stage"""
-    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning can access this")
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning / GM can access this")
     
     query = {"status": {"$in": ["planning", "in_planning", "planning_review", "planning_approved", "active", "gm_approved", "awaiting_approval", "working"]}}
     

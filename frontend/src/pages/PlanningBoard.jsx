@@ -339,7 +339,7 @@ export default function PlanningBoard({ embedded = false }) {
     try {
       if (showLoader) setLoading(true);
       const userRes = await axios.get(`${API}/auth/me`);
-      if (!['planning', 'super_admin'].includes(userRes.data.role)) {
+      if (!['planning', 'super_admin', 'general_manager'].includes(userRes.data.role)) {
         toast.error('Access denied'); window.location.href = '/dashboard'; return;
       }
       setUser(userRes.data);
