@@ -2193,18 +2193,18 @@ async def update_payment_stage(stage_id: str, update_data: PaymentStageUpdate, u
     if "completed_date" in update_dict and update_dict["completed_date"]:
         update_dict["completed_date"] = datetime.fromisoformat(update_dict["completed_date"]).isoformat()
     
-    # If only percentage was edited, recompute amount from the TOTAL PROJECT VALUE
-    # (project.total_value). Mirrors the virtual-row behaviour so editing the % of
-    # any payment stage keeps the ₹ amount in sync with the contracted scope.
+    # If only percentage was edited, recompute amount from the Total Project Value
+    # displayed in the UI (= sum of scope_items.total_amount). Mirrors financial.py
+    # so % stored on the stage always reconciles with the Advance card's "N% of total".
     if "percentage" in update_dict and "amount" not in update_dict:
         stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0, "project_id": 1})
         if stage:
             project_id = stage["project_id"]
             project = await db.projects.find_one({"project_id": project_id}, {"_id": 0}) or {}
-            total_value = float(project.get("total_value") or 0)
+            scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+            total_value = sum((i.get("total_amount") or 0) for i in scope_items)
             if not total_value:
-                scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
-                total_value = sum((i.get("total_amount") or 0) for i in scope_items)
+                total_value = float(project.get("total_value") or 0)
             if not total_value:
                 total_value = float(project.get("scope_total") or 0)
             if total_value > 0:
@@ -2254,13 +2254,15 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    # Advance percentage is calculated against the TOTAL PROJECT VALUE (contracted scope),
-    # not the Final Estimate (scope + future additions). Use project.total_value as the
-    # canonical base, falling back to scope_items sum only if total_value is missing.
-    total_value = float(project.get("total_value") or 0)
+    # Advance percentage is calculated against the Total Project Value displayed
+    # in the UI: sum of scope_items.total_amount (preferred), falling back to
+    # project.total_value field, then project.scope_total. This MUST match
+    # financial.py's `project_value` computation so the % shown in the
+    # "Advance (Sales) — N% of total" card matches the stored stage.percentage.
+    scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
+    total_value = sum((i.get("total_amount") or 0) for i in scope_items)
     if not total_value:
-        scope_items = await db.scope_items.find({"project_id": project_id}, {"_id": 0, "total_amount": 1}).to_list(2000)
-        total_value = sum((i.get("total_amount") or 0) for i in scope_items)
+        total_value = float(project.get("total_value") or 0)
     if not total_value:
         total_value = float(project.get("scope_total") or 0)
     

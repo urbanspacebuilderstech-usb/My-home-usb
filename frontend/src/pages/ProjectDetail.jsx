@@ -2030,10 +2030,8 @@ export default function ProjectDetail() {
     ));
 
   const formatCurrency = (amount) => {
-    if (amount >= 100000) {
-      return `₹${(amount / 100000).toFixed(2)}L`;
-    }
-    return `₹${amount?.toLocaleString() || 0}`;
+    // Always show full INR value with comma grouping — no L/Cr abbreviations.
+    return `₹${Number(amount || 0).toLocaleString('en-IN')}`;
   };
 
   const canManage = user?.role === 'super_admin' || user?.role === 'project_manager' || user?.role === 'accountant' || user?.role === 'planning';
@@ -3899,9 +3897,10 @@ export default function ProjectDetail() {
                     </DialogDescription>
                   </DialogHeader>
                   {(() => {
-                    // Advance % is computed against the contracted Total Project Value
-                    // (scope total), not the Final Estimate (which includes future additions).
-                    const totalFE = Number(projectData?.project?.total_value || summary?.scope_total || summary?.project_value || 0);
+                    // Advance % must use the SAME base as the "Total Project Value" card
+                    // (summary.project_value = sum of scope_items). Anything else creates
+                    // a mismatch like "2% saved but 1.9% shown".
+                    const totalFE = Number(summary?.project_value || projectData?.project?.total_value || summary?.scope_total || 0);
                     const tokenCollected = Number(advanceDialog.income_amount || 0);
                     const pctNum = parseFloat(advanceDialog.percentage);
                     const validPct = isFinite(pctNum) && pctNum >= 0 && pctNum <= 100;
@@ -4265,9 +4264,9 @@ export default function ProjectDetail() {
                                     }}
                                   />
                                   {(() => {
-                                    // Auto-detect drift between % and amount vs. project total value.
-                                    // Show a 1-click ↻ to re-sync if the math is off by more than ₹100.
-                                    const totalValProj = Number(projectData?.project?.total_value || 0);
+                                    // Drift check: stored amount vs. % × Total Project Value (summary.project_value).
+                                    // Must use the same base as the Advance card / dialog so the math reconciles.
+                                    const totalValProj = Number(summary?.project_value || projectData?.project?.total_value || 0);
                                     const expectedAmt = Math.round((totalValProj * (stage.percentage || 0)) / 100);
                                     const drift = Math.abs((stage.amount || 0) - expectedAmt);
                                     if (totalValProj > 0 && drift > 100) {
