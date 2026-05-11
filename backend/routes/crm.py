@@ -1357,7 +1357,13 @@ class LeadUpdateInput(BaseModel):
     address: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
+    pincode: Optional[str] = None
     notes: Optional[str] = None
+    custom_fields: Optional[Dict[str, Any]] = None
+    source: Optional[str] = None
+    # Sales-only: client priority tier + the salesperson's note on why
+    client_category: Optional[str] = None        # "P1" | "P2" | "P3" | ""
+    client_category_value: Optional[str] = None  # free-text reason / qualifier
 
 
 # ==================== PROJECT ONBOARDING FLOW ====================
@@ -2018,7 +2024,15 @@ async def update_lead(lead_id: str, data: LeadUpdateInput, user: User = Depends(
     if lead["stage_type"] == "sales" and user.role not in [UserRole.SUPER_ADMIN, UserRole.CRE, "sales"]:
         raise HTTPException(status_code=403, detail="Sales access required")
     
-    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Keep empty-string explicit (so blanking a field actually persists) for free-text
+    # columns, but ignore None.
+    raw = data.model_dump(exclude_unset=True)
+    
+    # Validate client_category
+    if "client_category" in raw and raw["client_category"] not in (None, "", "P1", "P2", "P3"):
+        raise HTTPException(status_code=400, detail="client_category must be P1, P2, P3, or empty")
+    
+    update_data = {k: v for k, v in raw.items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc)
     
     await db.leads.update_one({"lead_id": lead_id}, {"$set": update_data})

@@ -110,7 +110,7 @@ export default function CRMSales() {
   const [selectedREProject, setSelectedREProject] = useState(null);
   const [reRevisions, setReRevisions] = useState([]);
   const [editDialog, setEditDialog] = useState(false);
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', alternative_phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', custom_fields: {} });
+  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '', alternative_phone: '', source: 'other', address: '', city: '', state: '', pincode: '', notes: '', client_category: '', client_category_value: '', custom_fields: {} });
   const [customFields, setCustomFields] = useState([]);
   const [summary, setSummary] = useState('');
   const [followUpForm, setFollowUpForm] = useState({ date: '', note: '' });
@@ -922,6 +922,8 @@ export default function CRMSales() {
       state: lead.state || '',
       pincode: lead.pincode || '',
       notes: lead.notes || '',
+      client_category: lead.client_category || '',
+      client_category_value: lead.client_category_value || '',
       custom_fields: lead.custom_fields || {}
     });
     setEditDialog(true);
@@ -1099,6 +1101,8 @@ export default function CRMSales() {
     let stageLeads;
     if (stageId === 'revision') {
       stageLeads = filteredLeads.filter(lead => (lead.re_revision_number || 0) > 0 && lead.current_stage_id === 'stg_re_requested');
+    } else if (stageId === 'P1' || stageId === 'P2' || stageId === 'P3') {
+      stageLeads = filteredLeads.filter(lead => (lead.client_category || '') === stageId);
     } else {
       stageLeads = filteredLeads.filter(lead => lead.current_stage_id === stageId);
     }
@@ -1190,6 +1194,35 @@ export default function CRMSales() {
                   </button>
                 );
               })()}
+
+              {/* Client Category chips — P1 / P2 / P3 priority tiers */}
+              {[
+                { key: 'P1', color: '#dc2626' },  // red — hottest
+                { key: 'P2', color: '#f59e0b' },  // amber — warm
+                { key: 'P3', color: '#3b82f6' },  // blue — cold/info
+              ].map(({ key, color }) => {
+                const count = filteredLeads.filter(l => (l.client_category || '') === key).length;
+                const isActive = activeStage === key;
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setActiveStage(key)}
+                    data-testid={`stage-chip-${key.toLowerCase()}`}
+                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    style={{
+                      backgroundColor: isActive ? color : color + '15',
+                      borderColor: color + '30',
+                      color: isActive ? '#ffffff' : color,
+                      '--tw-ring-color': color,
+                    }}
+                  >
+                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                      {key}
+                    </span>
+                    <span className="text-base sm:text-2xl font-bold mt-0.5">{count}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2375,6 +2408,47 @@ export default function CRMSales() {
             <div className="col-span-2">
               <Label className="text-xs">Notes</Label>
               <textarea value={editForm.notes} onChange={(e) => setEditForm({...editForm, notes: e.target.value})} className="w-full rounded-md border p-2 text-sm min-h-[60px]" data-testid="edit-notes" />
+            </div>
+
+            {/* Client Category — priority tier (P1/P2/P3) + free-text qualifier */}
+            <div className="col-span-2 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-3 pt-1">
+              <div>
+                <Label className="text-xs">Client Category</Label>
+                <Select
+                  value={editForm.client_category || ''}
+                  onValueChange={(v) => setEditForm({
+                    ...editForm,
+                    client_category: v === '__none__' ? '' : v,
+                    client_category_value: v === '__none__' ? '' : editForm.client_category_value,
+                  })}
+                >
+                  <SelectTrigger className="text-sm h-9" data-testid="edit-client-category">
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— None —</SelectItem>
+                    <SelectItem value="P1">P1 (Hot)</SelectItem>
+                    <SelectItem value="P2">P2 (Warm)</SelectItem>
+                    <SelectItem value="P3">P3 (Cold)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">{editForm.client_category ? `${editForm.client_category} Value` : 'Value'}</Label>
+                <Input
+                  value={editForm.client_category_value}
+                  onChange={(e) => setEditForm({...editForm, client_category_value: e.target.value})}
+                  placeholder={
+                    editForm.client_category === 'P1' ? 'Enter P1 reason / budget / timeline...' :
+                    editForm.client_category === 'P2' ? 'Enter P2 reason / budget / timeline...' :
+                    editForm.client_category === 'P3' ? 'Enter P3 reason / budget / timeline...' :
+                    'Pick a category first to add a value'
+                  }
+                  disabled={!editForm.client_category}
+                  className="text-sm"
+                  data-testid="edit-client-category-value"
+                />
+              </div>
             </div>
 
             {/* Custom Fields */}
