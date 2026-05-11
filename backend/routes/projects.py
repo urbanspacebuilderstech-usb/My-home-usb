@@ -2230,6 +2230,8 @@ class MaterializeAdvanceBody(BaseModel):
     percentage: Optional[float] = None
     amount: Optional[float] = None  # override the stated stage amount (₹). Defaults to income amount.
     stage_name: Optional[str] = None  # default "Advance (Sales)"
+    expected_payment_date: Optional[str] = None  # ISO date (YYYY-MM-DD) — when balance is expected
+    generate_remaining_schedule: bool = False  # If true, auto-create the remaining (100 - %) template rows
 
 
 @router.post("/projects/{project_id}/materialize-advance-stage")
@@ -2240,6 +2242,11 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     income but no explicit advance payment_stage. This endpoint materializes
     that row, optionally with a custom rate (%) and/or stated stage amount (₹).
     Received amount (cash already collected) remains tied to the linked income.
+    
+    If `generate_remaining_schedule=True`, also creates the remaining milestone
+    rows from `DEFAULT_PAYMENT_SCHEDULE` (skipping the first row since that's
+    the one we just created from the income), proportionally scaled to fill
+    the remaining (100 − %).
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -2319,11 +2326,58 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     stage_dict["actual_payment_date"] = (income.get("received_date") or income.get("created_at"))
     if stage_dict.get("actual_payment_date") and not isinstance(stage_dict["actual_payment_date"], str):
         stage_dict["actual_payment_date"] = stage_dict["actual_payment_date"].isoformat() if hasattr(stage_dict["actual_payment_date"], "isoformat") else str(stage_dict["actual_payment_date"])
+    # Optional expected balance collection date (used for Req Payment)
+    if data.expected_payment_date:
+        try:
+            stage_dict["expected_payment_date"] = datetime.fromisoformat(data.expected_payment_date).date().isoformat()
+            stage_dict["due_date"] = stage_dict["expected_payment_date"]
+        except Exception:
+            pass
     stage_dict.pop("_id", None)
     
     await db.payment_stages.insert_one(stage_dict)
-    await create_audit_log(user.user_id, "materialize_advance", "payment_stage", stage.stage_id, {"percentage": percentage, "amount": amount})
-    return {"message": "Advance stage materialized", "stage_id": stage.stage_id, "percentage": percentage, "amount": round(amount)}
+    
+    # Optionally generate remaining schedule from DEFAULT_PAYMENT_SCHEDULE
+    extra_stages = []
+    if data.generate_remaining_schedule:
+        remaining_pct = max(0, 100 - percentage)
+        # Sum percentages from the template, skipping the first row (which is the advance we just created)
+        template_rows = DEFAULT_PAYMENT_SCHEDULE[1:]
+        template_total = sum(r["percentage"] for r in template_rows) or 1
+        # Build & insert the remaining rows scaled so their sum == remaining_pct
+        for idx, tpl in enumerate(template_rows, start=2):
+            row_pct = round((tpl["percentage"] / template_total) * remaining_pct, 2) if tpl["percentage"] else 0
+            row_amount = round((total_value * row_pct) / 100) if total_value > 0 else 0
+            new_stage = PaymentStage(
+                project_id=project_id,
+                stage_number=idx,
+                stage_label=tpl.get("stage_label"),
+                stage_name=tpl["stage_name"],
+                percentage=row_pct,
+                amount=row_amount,
+                remarks=tpl.get("remarks"),
+                workflow_status="draft",
+                created_by=user.user_id,
+            )
+            d = new_stage.model_dump()
+            d["created_at"] = d["created_at"].isoformat()
+            d.pop("_id", None)
+            await db.payment_stages.insert_one(d)
+            extra_stages.append(d.get("stage_id"))
+    
+    await create_audit_log(user.user_id, "materialize_advance", "payment_stage", stage.stage_id, {
+        "percentage": percentage,
+        "amount": amount,
+        "generated_remaining": bool(data.generate_remaining_schedule),
+        "remaining_stages": len(extra_stages),
+    })
+    return {
+        "message": "Advance stage materialized",
+        "stage_id": stage.stage_id,
+        "percentage": percentage,
+        "amount": round(amount),
+        "generated_remaining_stages": extra_stages,
+    }
 
 
 class PaymentRequestBody(BaseModel):

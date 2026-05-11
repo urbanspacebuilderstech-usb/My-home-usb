@@ -435,6 +435,8 @@ export default function ProjectDetail() {
     income_amount: 0,
     stage_name: 'Stage 01 Payment',
     percentage: '',
+    expected_payment_date: '',
+    generate_remaining: true,
     submitting: false,
   });
   
@@ -3940,6 +3942,16 @@ export default function ProjectDetail() {
                             <span className="text-sm text-gray-500">% of Final Estimate</span>
                           </div>
                         </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="adv-date">Expected Date (for balance Req Payment)</Label>
+                          <Input
+                            id="adv-date"
+                            type="date"
+                            data-testid="adv-dialog-expected-date"
+                            value={advanceDialog.expected_payment_date}
+                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, expected_payment_date: e.target.value }))}
+                          />
+                        </div>
                         {validPct && (
                           <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 text-xs space-y-1">
                             <div className="flex justify-between">
@@ -3956,6 +3968,20 @@ export default function ProjectDetail() {
                             </div>
                           </div>
                         )}
+                        {/* Auto-schedule remaining (100 − %) using the standard template */}
+                        <label className="flex items-start gap-2 text-xs text-gray-700 select-none cursor-pointer" data-testid="adv-dialog-gen-rest-label">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                            checked={advanceDialog.generate_remaining}
+                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, generate_remaining: e.target.checked }))}
+                            data-testid="adv-dialog-gen-rest"
+                          />
+                          <span>
+                            Also schedule the remaining <strong>{validPct ? (100 - pctNum).toFixed(2) : '—'}%</strong> automatically
+                            using the standard milestone template (Foundation, Slab, Plastering, Flooring, etc.).
+                          </span>
+                        </label>
                       </div>
                     );
                   })()}
@@ -3972,12 +3998,15 @@ export default function ProjectDetail() {
                         }
                         setAdvanceDialog((s) => ({ ...s, submitting: true }));
                         try {
-                          await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
+                          const res = await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
                             percentage: pct,
                             stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
+                            expected_payment_date: advanceDialog.expected_payment_date || null,
+                            generate_remaining_schedule: !!advanceDialog.generate_remaining,
                           });
-                          toast.success('Advance stage created');
-                          setAdvanceDialog({ open: false, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', submitting: false });
+                          const extras = (res.data?.generated_remaining_stages || []).length;
+                          toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
+                          setAdvanceDialog({ open: false, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, submitting: false });
                           fetchData(false);
                         } catch (e) {
                           toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to set advance');
@@ -4182,6 +4211,8 @@ export default function ProjectDetail() {
                                     income_amount: stage.amount_received || 0,
                                     stage_name: 'Stage 01 Payment',
                                     percentage: '',
+                                    expected_payment_date: '',
+                                    generate_remaining: true,
                                     submitting: false,
                                   })}
                                 >
