@@ -2265,10 +2265,18 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     additions_total = sum((c.get("estimated_amount") or 0) for c in additional_costs)
     total_value = float(scope_total) + float(additions_total)
     
-    # Find the earliest income entry to link
-    income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
+    # Find the earliest income entry to link. Try both collections (legacy + new).
+    income = await db.income.find_one({"project_id": project_id}, sort=[("payment_date", 1), ("received_date", 1), ("created_at", 1)])
     if not income:
-        raise HTTPException(status_code=400, detail="No collected income found for this project. Add an income entry first.")
+        income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
+    if not income:
+        # Final fallback: sum any income and fabricate a placeholder reference
+        all_income = await db.income.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+        if not all_income:
+            all_income = await db.project_income.find({"project_id": project_id}, {"_id": 0}).to_list(500)
+        if not all_income:
+            raise HTTPException(status_code=400, detail="No collected income found for this project. Add an income entry first.")
+        income = all_income[0]
     income_amount = float(income.get("amount") or 0)
     
     # Resolve final percentage + amount. User may pass either, both, or none.
@@ -2319,11 +2327,11 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     stage_dict = stage.model_dump()
     stage_dict["created_at"] = stage_dict["created_at"].isoformat()
     stage_dict["is_advance"] = True
-    stage_dict["linked_income_id"] = income.get("income_id") or income.get("_id")
+    stage_dict["linked_income_id"] = income.get("income_id") or income.get("entry_id") or income.get("_id")
     stage_dict["amount_received"] = round(income_amount)
     stage_dict["workflow_status"] = "paid" if income_amount >= amount else "partial"
     stage_dict["status"] = "received" if income_amount >= amount else "partial"
-    stage_dict["actual_payment_date"] = (income.get("received_date") or income.get("created_at"))
+    stage_dict["actual_payment_date"] = (income.get("payment_date") or income.get("received_date") or income.get("created_at"))
     if stage_dict.get("actual_payment_date") and not isinstance(stage_dict["actual_payment_date"], str):
         stage_dict["actual_payment_date"] = stage_dict["actual_payment_date"].isoformat() if hasattr(stage_dict["actual_payment_date"], "isoformat") else str(stage_dict["actual_payment_date"])
     # Optional expected balance collection date (used for Req Payment)
