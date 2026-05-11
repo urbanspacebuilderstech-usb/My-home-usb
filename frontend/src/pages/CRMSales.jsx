@@ -169,12 +169,11 @@ export default function CRMSales() {
     if (!reassignDialog.open) return;
     (async () => {
       try {
-        const res = await axios.get(`${API}/users`);
+        const stageType = reassignDialog.lead?.stage_type || 'sales';
+        const res = await axios.get(`${API}/crm/reassign-targets`, { params: { stage_type: stageType } });
         const list = Array.isArray(res.data) ? res.data : (res.data?.users || []);
-        const stageType = reassignDialog.lead?.stage_type;
-        const allowed = stageType === 'pre_sales' ? ['pre_sales', 'super_admin', 'cre'] : ['sales', 'super_admin', 'cre'];
         const filtered = list
-          .filter(u => u.is_active !== false && allowed.includes(u.role) && u.user_id !== reassignDialog.lead?.assigned_to)
+          .filter(u => u.is_active !== false && u.user_id !== reassignDialog.lead?.assigned_to)
           .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         setReassignOptions(filtered);
       } catch {

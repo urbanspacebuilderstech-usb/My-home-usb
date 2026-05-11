@@ -2052,6 +2052,26 @@ async def reassign_lead(lead_id: str, data: LeadReassignInput, user: User = Depe
     return {"message": "Lead reassigned", "lead_id": lead_id, "new_owner": new_owner_name}
 
 
+@router.get("/crm/reassign-targets")
+async def get_reassign_targets(stage_type: str = "sales", user: User = Depends(get_current_user)):
+    """Return active users eligible to receive a reassigned lead of the given stage_type.
+    
+    Accessible to anyone in the CRM flow (super_admin / cre / sales / pre_sales)
+    so frontends can populate the Reassign dropdown without needing the
+    SUPER_ADMIN-only /api/users endpoint.
+    """
+    role_str = user.role if isinstance(user.role, str) else getattr(user.role, "value", str(user.role))
+    if role_str not in ("super_admin", "cre", "sales", "pre_sales"):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    allowed_roles = ["pre_sales", "super_admin", "cre"] if stage_type == "pre_sales" else ["sales", "super_admin", "cre"]
+    users = await db.users.find(
+        {"role": {"$in": allowed_roles}, "is_active": {"$ne": False}},
+        {"_id": 0, "password_hash": 0}
+    ).sort("name", 1).to_list(500)
+    # Slim payload — just what the dropdown needs
+    return [{"user_id": u.get("user_id"), "name": u.get("name"), "role": u.get("role"), "email": u.get("email")} for u in users]
+
 
 class AppointmentInput(BaseModel):
     appointment_date: str
