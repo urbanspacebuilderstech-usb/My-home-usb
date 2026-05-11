@@ -1110,6 +1110,24 @@ export default function CRMSales() {
     return stageLeads;
   };
 
+  // Pick the most meaningful "deal amount" for a lead — used in dashboard chip totals
+  const getLeadAmount = (lead) => {
+    if (!lead) return 0;
+    const advance = Number(lead?.advance_payment?.advance_amount) || 0;
+    const re = Number(lead?.re_total_amount) || Number(lead?.quoted_amount) || 0;
+    const direct = Number(lead?.amount) || Number(lead?.total_amount) || Number(lead?.deal_amount) || 0;
+    return advance || re || direct || 0;
+  };
+  const sumAmount = (leads) => leads.reduce((acc, l) => acc + getLeadAmount(l), 0);
+  // Short ₹ formatter: 1.2L / 12.5L / 1.05Cr
+  const formatINRShort = (n) => {
+    const v = Number(n) || 0;
+    if (v >= 10000000) return `₹${(v / 10000000).toFixed(v >= 100000000 ? 0 : 2)}Cr`;
+    if (v >= 100000) return `₹${(v / 100000).toFixed(v >= 1000000 ? 1 : 2)}L`;
+    if (v >= 1000) return `₹${(v / 1000).toFixed(0)}k`;
+    return `₹${v.toFixed(0)}`;
+  };
+
   const getStageName = (stageId) => {
     const stage = stages.find(s => s.stage_id === stageId);
     return stage?.name || stageId;
@@ -1136,25 +1154,28 @@ export default function CRMSales() {
         {/* All Stages Summary — matches Pre-Sales style, wraps to 2 rows */}
         {stages.length > 0 && (
           <div className="mb-6">
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2 sm:gap-3" data-testid="sales-stages-summary">
+            <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-2 sm:gap-3" data-testid="sales-stages-summary">
               <button
                 onClick={() => setActiveStage('all')}
                 data-testid="stage-chip-all"
-                className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-500' : ''}`}
+                className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-500' : ''}`}
                 style={{ backgroundColor: '#10b981', color: '#fff' }}
               >
-                <span className="text-[9px] sm:text-[11px] font-medium opacity-90">All Leads</span>
-                <span className="text-base sm:text-2xl font-bold mt-0.5">{filteredLeads.length}</span>
+                <span className="text-[9px] sm:text-[10px] font-medium opacity-90 truncate w-full text-center">All Leads</span>
+                <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{filteredLeads.length}</span>
+                <span className="text-[9px] sm:text-[10px] font-medium opacity-90 mt-0.5">{formatINRShort(sumAmount(filteredLeads))}</span>
               </button>
               {stages.map((stage) => {
-                const count = getLeadsByStage(stage.stage_id).length;
+                const stageLeads = getLeadsByStage(stage.stage_id);
+                const count = stageLeads.length;
+                const amount = sumAmount(stageLeads);
                 const isActive = activeStage === stage.stage_id;
                 return (
                   <button
                     key={stage.stage_id}
                     onClick={() => setActiveStage(stage.stage_id)}
                     data-testid={`stage-chip-${stage.stage_id}`}
-                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
                     style={{
                       backgroundColor: isActive ? stage.color : stage.color + '15',
                       borderColor: stage.color + '30',
@@ -1162,24 +1183,27 @@ export default function CRMSales() {
                       '--tw-ring-color': stage.color,
                     }}
                   >
-                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                    <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
                       {stage.name}
                     </span>
-                    <span className="text-base sm:text-2xl font-bold mt-0.5">{count}</span>
+                    <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
+                    <span className="text-[9px] sm:text-[10px] font-medium opacity-80 mt-0.5">{formatINRShort(amount)}</span>
                   </button>
                 );
               })}
 
               {/* Revision chip — RE-Requested leads with revision > 0 */}
               {(() => {
-                const revCount = filteredLeads.filter(l => (l.re_revision_number || 0) > 0 && l.current_stage_id === 'stg_re_requested').length;
+                const revLeads = filteredLeads.filter(l => (l.re_revision_number || 0) > 0 && l.current_stage_id === 'stg_re_requested');
+                const revCount = revLeads.length;
+                const revAmount = sumAmount(revLeads);
                 const isActive = activeStage === 'revision';
                 const color = '#f97316';
                 return (
                   <button
                     onClick={() => setActiveStage('revision')}
                     data-testid="stage-chip-revision"
-                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
                     style={{
                       backgroundColor: isActive ? color : color + '15',
                       borderColor: color + '30',
@@ -1187,10 +1211,11 @@ export default function CRMSales() {
                       '--tw-ring-color': color,
                     }}
                   >
-                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5 flex items-center gap-0.5 justify-center">
+                    <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5 flex items-center gap-0.5 justify-center">
                       <RefreshCw className="h-3 w-3" /> Revision
                     </span>
-                    <span className="text-base sm:text-2xl font-bold mt-0.5">{revCount}</span>
+                    <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{revCount}</span>
+                    <span className="text-[9px] sm:text-[10px] font-medium opacity-80 mt-0.5">{formatINRShort(revAmount)}</span>
                   </button>
                 );
               })()}
@@ -1201,14 +1226,16 @@ export default function CRMSales() {
                 { key: 'P2', color: '#f59e0b' },  // amber — warm
                 { key: 'P3', color: '#3b82f6' },  // blue — cold/info
               ].map(({ key, color }) => {
-                const count = filteredLeads.filter(l => (l.client_category || '') === key).length;
+                const catLeads = filteredLeads.filter(l => (l.client_category || '') === key);
+                const count = catLeads.length;
+                const amount = sumAmount(catLeads);
                 const isActive = activeStage === key;
                 return (
                   <button
                     key={key}
                     onClick={() => setActiveStage(key)}
                     data-testid={`stage-chip-${key.toLowerCase()}`}
-                    className={`flex flex-col items-center justify-center rounded-2xl px-2 py-3 sm:py-4 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
+                    className={`flex flex-col items-center justify-center rounded-2xl px-1.5 py-2.5 sm:py-3 shadow-sm border transition-all hover:shadow-md hover:-translate-y-0.5 ${isActive ? 'ring-2' : ''}`}
                     style={{
                       backgroundColor: isActive ? color : color + '15',
                       borderColor: color + '30',
@@ -1216,10 +1243,11 @@ export default function CRMSales() {
                       '--tw-ring-color': color,
                     }}
                   >
-                    <span className="text-[9px] sm:text-[11px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
+                    <span className="text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full px-0.5">
                       {key}
                     </span>
-                    <span className="text-base sm:text-2xl font-bold mt-0.5">{count}</span>
+                    <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
+                    <span className="text-[9px] sm:text-[10px] font-medium opacity-80 mt-0.5">{formatINRShort(amount)}</span>
                   </button>
                 );
               })}
