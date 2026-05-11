@@ -1108,6 +1108,59 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
     # Check for special stage triggers
     result = {"message": "Lead stage updated", "new_stage": stage["name"]}
     
+    # ROLLBACK: Pre-Sales lead moved AWAY from "Appointment Booked" -> remove the
+    # paired Sales lead from the Sales dashboard (only safe while Sales hasn't
+    # engaged it yet — i.e. still sitting in the first Sales stage).
+    if (
+        lead.get("stage_type") == "pre_sales"
+        and old_stage_id == "stg_appointment"
+        and data.stage_id != "stg_appointment"
+        and lead.get("transferred_to_lead_id")
+    ):
+        sales_lead_id = lead["transferred_to_lead_id"]
+        sales_lead = await db.leads.find_one(
+            {"lead_id": sales_lead_id},
+            {"_id": 0, "current_stage_id": 1, "project_id": 1, "assigned_to": 1, "name": 1}
+        )
+        if sales_lead:
+            # Block rollback if Sales has already progressed the lead
+            advanced_beyond_intake = (
+                sales_lead.get("current_stage_id") not in (None, "stg_new_appt")
+            )
+            if sales_lead.get("project_id") or advanced_beyond_intake:
+                # Revert the pre-sales stage move so the boards stay in sync
+                await db.leads.update_one(
+                    {"lead_id": lead_id},
+                    {"$set": {
+                        "current_stage_id": old_stage_id,
+                        "updated_at": datetime.now(timezone.utc),
+                    }}
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="This lead has already been picked up by Sales. Ask the Sales team to mark it Lost or reassign before rolling it back to Pre-Sales.",
+                )
+            # Safe to remove the paired sales lead
+            await db.leads.delete_one({"lead_id": sales_lead_id})
+            # Clear the link on the pre-sales lead so a future move to Appointment
+            # Booked re-creates a fresh sales lead with a new assignment.
+            await db.leads.update_one(
+                {"lead_id": lead_id},
+                {"$unset": {"transferred_to_lead_id": "", "transferred_at": ""}}
+            )
+            # Notify the previously-assigned salesperson (if any) so they know
+            # the lead was rolled back rather than silently disappearing.
+            if sales_lead.get("assigned_to"):
+                try:
+                    await create_notification(
+                        sales_lead["assigned_to"],
+                        f"Lead '{sales_lead.get('name','')}' was returned to Pre-Sales (rolled back from Appointment Booked).",
+                    )
+                except Exception:
+                    pass
+            result["rolled_back_from_sales"] = True
+            result["removed_sales_lead_id"] = sales_lead_id
+    
     # TRIGGER: Pre-Sales final stage -> Transfer to Sales CRM
     # Check by stage_id OR is_final flag for robustness
     is_presales_final = lead["stage_type"] == "pre_sales" and (stage.get("is_final") or data.stage_id == "stg_appointment")
