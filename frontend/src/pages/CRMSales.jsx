@@ -1111,12 +1111,33 @@ export default function CRMSales() {
   };
 
   // Pick the most meaningful "deal amount" for a lead — used in dashboard chip totals
+  const parseAmountFromText = (raw) => {
+    if (!raw) return 0;
+    const s = String(raw).toLowerCase().replace(/[₹,\s]/g, '');
+    // Match the first numeric portion (incl. decimals) optionally followed by k / l / lak(h) / c / cr
+    const m = s.match(/(\d+(?:\.\d+)?)\s*(cr|crore|crores|l|lak|lakh|lakhs|k|thousand|thousands)?/i);
+    if (!m) return 0;
+    const num = parseFloat(m[1]);
+    if (!isFinite(num) || num <= 0) return 0;
+    const unit = (m[2] || '').toLowerCase();
+    if (unit.startsWith('cr')) return num * 10000000;
+    if (unit.startsWith('l') || unit.startsWith('lak')) return num * 100000;
+    if (unit.startsWith('k') || unit.startsWith('thou')) return num * 1000;
+    return num;
+  };
   const getLeadAmount = (lead) => {
     if (!lead) return 0;
+    // 1) Salesperson's free-text "P1/P2/P3 value" — most explicit signal of the deal size
+    const fromCategory = parseAmountFromText(lead?.client_category_value);
+    if (fromCategory > 0) return fromCategory;
     const advance = Number(lead?.advance_payment?.advance_amount) || 0;
     const re = Number(lead?.re_total_amount) || Number(lead?.quoted_amount) || 0;
     const direct = Number(lead?.amount) || Number(lead?.total_amount) || Number(lead?.deal_amount) || 0;
-    return advance || re || direct || 0;
+    // 2) Fallback to budget custom field text ("50L - 1Cr" → 50L)
+    const cf = lead?.custom_fields || {};
+    const budgetText = cf.budget || cf.Budget || cf.cf_budget || '';
+    const fromBudget = parseAmountFromText(budgetText);
+    return advance || re || direct || fromBudget || 0;
   };
   const sumAmount = (leads) => leads.reduce((acc, l) => acc + getLeadAmount(l), 0);
   // Short ₹ formatter: 1.2L / 12.5L / 1.05Cr
