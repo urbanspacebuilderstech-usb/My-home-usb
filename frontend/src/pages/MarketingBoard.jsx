@@ -351,7 +351,13 @@ export default function MarketingBoard() {
   const connectGoogleSheets = async () => {
     try {
       const res = await axios.get(`${API}/api/sheets/oauth/login`, { withCredentials: true });
-      if (res.data.auth_url) {
+      if (res.data?.already_connected) {
+        toast.success('Already connected — no need to sign in again');
+        // Refresh config so UI flips to "Connected"
+        fetchSheetsConfig();
+        return;
+      }
+      if (res.data?.auth_url) {
         window.location.href = res.data.auth_url;
       }
     } catch (error) {

@@ -3997,6 +3997,11 @@ GOOGLE_SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile"
 ]
 
+# Shared key used to store ONE company-wide Google Sheets connection.
+# Once any super admin connects, every other super admin uses the same
+# token + sources without needing to re-authenticate.
+SHARED_SHEETS_KEY = "_company_shared_"
+
 
 class GoogleSheetSource(BaseModel):
     source_id: str = Field(default_factory=lambda: f"gs_{uuid.uuid4().hex[:12]}")
@@ -4084,32 +4089,97 @@ def auto_map_column(col_name: str) -> Optional[str]:
 
 @router.get("/sheets/config")
 async def get_sheets_config(user: User = Depends(get_current_user)):
-    """Get Google Sheets configuration for current user"""
+    """Get the company-wide Google Sheets configuration.
+    
+    The connection is shared across all super admins — once any of them
+    connects, the rest see the same token + sources without re-auth.
+    """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
-    if not config:
-        # Create default config
-        config = GoogleSheetsConfig(user_id=user.user_id).model_dump()
-        await db.google_sheets_config.insert_one(config)
+    config = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
     
-    # Check if OAuth tokens exist
-    tokens = await db.google_sheets_tokens.find_one({"user_id": user.user_id}, {"_id": 0})
+    # One-time migration: if a legacy per-user config exists with sources but the
+    # shared one doesn't, promote the most recently-updated legacy doc to shared.
+    if not config:
+        legacy = await db.google_sheets_config.find(
+            {"user_id": {"$ne": SHARED_SHEETS_KEY}},
+            {"_id": 0}
+        ).sort("updated_at", -1).to_list(10)
+        # Prefer the one with sources (real config), else any
+        legacy_with_sources = next((c for c in legacy if c.get("sources")), None) or (legacy[0] if legacy else None)
+        if legacy_with_sources:
+            config = {
+                **legacy_with_sources,
+                "user_id": SHARED_SHEETS_KEY,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.google_sheets_config.update_one(
+                {"user_id": SHARED_SHEETS_KEY},
+                {"$set": config},
+                upsert=True
+            )
+            # Promote the most-recent legacy token to shared too
+            legacy_token = await db.google_sheets_tokens.find_one(
+                {"user_id": legacy_with_sources.get("user_id")},
+                {"_id": 0}
+            )
+            if legacy_token:
+                legacy_token["user_id"] = SHARED_SHEETS_KEY
+                await db.google_sheets_tokens.update_one(
+                    {"user_id": SHARED_SHEETS_KEY},
+                    {"$set": legacy_token},
+                    upsert=True
+                )
+        else:
+            config = GoogleSheetsConfig(user_id=SHARED_SHEETS_KEY).model_dump()
+            await db.google_sheets_config.insert_one(config)
+    
+    # Check if shared OAuth tokens exist (any super admin's token works for everyone)
+    tokens = await db.google_sheets_tokens.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
+    if not tokens:
+        # Fallback: find any super-admin's existing token and adopt it as shared
+        any_token = await db.google_sheets_tokens.find_one(
+            {"user_id": {"$ne": SHARED_SHEETS_KEY}, "access_token": {"$exists": True, "$ne": ""}},
+            {"_id": 0}
+        )
+        if any_token:
+            any_token["user_id"] = SHARED_SHEETS_KEY
+            await db.google_sheets_tokens.update_one(
+                {"user_id": SHARED_SHEETS_KEY},
+                {"$set": any_token},
+                upsert=True
+            )
+            tokens = any_token
+    
     config["is_connected"] = bool(tokens and tokens.get("access_token"))
     config["has_credentials"] = bool(GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET)
-    
+    config.pop("_id", None)
     return config
 
 
 @router.get("/sheets/oauth/login")
-async def sheets_oauth_login(request: Request, user: User = Depends(get_current_user)):
-    """Start Google Sheets OAuth flow"""
+async def sheets_oauth_login(request: Request, force: bool = False, user: User = Depends(get_current_user)):
+    """Start Google Sheets OAuth flow.
+    
+    If a shared company connection already exists and is valid, returns
+    `{"already_connected": True}` immediately so the frontend can skip the
+    consent screen. Pass `?force=true` to force a fresh login.
+    """
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     if not GOOGLE_SHEETS_CLIENT_ID or not GOOGLE_SHEETS_CLIENT_SECRET:
         raise HTTPException(status_code=400, detail="Google Sheets credentials not configured. Please add GOOGLE_SHEETS_CLIENT_ID and GOOGLE_SHEETS_CLIENT_SECRET to backend/.env")
+    
+    # Short-circuit: if a shared connection already exists, just return that.
+    if not force:
+        existing = await db.google_sheets_tokens.find_one(
+            {"user_id": SHARED_SHEETS_KEY, "access_token": {"$exists": True, "$ne": ""}},
+            {"_id": 0}
+        )
+        if existing:
+            return {"already_connected": True, "message": "Google Sheets is already connected for the company."}
     
     # Build redirect_uri from FRONTEND_URL (which is set per environment)
     frontend_url = os.environ.get('FRONTEND_URL', '')
@@ -4131,9 +4201,12 @@ async def sheets_oauth_login(request: Request, user: User = Depends(get_current_
         }
     }, scopes=GOOGLE_SHEETS_SCOPES, redirect_uri=redirect_uri)
     
+    # Only force consent the first time (to get a refresh_token). For force-reconnect
+    # we still want consent so a fresh refresh_token is issued.
     url, state = flow.authorization_url(
         access_type='offline',
-        prompt='consent'
+        prompt='consent',
+        include_granted_scopes='true'
     )
     
     # Save state with user_id, redirect_uri, and code_verifier for callback
@@ -4213,11 +4286,24 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
         {"$set": token_doc},
         upsert=True
     )
+    # Also persist a shared copy so any super admin can use this connection
+    shared_doc = {**token_doc, "user_id": SHARED_SHEETS_KEY}
+    await db.google_sheets_tokens.update_one(
+        {"user_id": SHARED_SHEETS_KEY},
+        {"$set": shared_doc},
+        upsert=True
+    )
     
-    # Update config
+    # Update config (both per-user and shared)
+    now_iso = datetime.now(timezone.utc).isoformat()
     await db.google_sheets_config.update_one(
         {"user_id": user_id},
-        {"$set": {"is_connected": True, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"is_connected": True, "updated_at": now_iso}},
+        upsert=True
+    )
+    await db.google_sheets_config.update_one(
+        {"user_id": SHARED_SHEETS_KEY},
+        {"$set": {"is_connected": True, "updated_at": now_iso}},
         upsert=True
     )
     
@@ -4229,8 +4315,16 @@ async def sheets_oauth_callback(code: str, state: str, request: Request, respons
 
 
 async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
-    """Get valid Google Sheets credentials for a user"""
-    token_doc = await db.google_sheets_tokens.find_one({"user_id": user_id})
+    """Get valid Google Sheets credentials.
+    
+    Tries the shared company-wide token first (so any super admin can use
+    the connection), then falls back to the user's own token.
+    """
+    token_doc = await db.google_sheets_tokens.find_one({"user_id": SHARED_SHEETS_KEY})
+    using_shared = True
+    if not token_doc or not token_doc.get("access_token"):
+        token_doc = await db.google_sheets_tokens.find_one({"user_id": user_id})
+        using_shared = False
     if not token_doc or not token_doc.get("access_token"):
         return None
     
@@ -4251,9 +4345,10 @@ async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
         if datetime.now(timezone.utc) >= expires:
             try:
                 creds.refresh(GoogleRequest())
-                # Update stored token
+                # Update whichever doc we read from (shared or per-user)
+                key = SHARED_SHEETS_KEY if using_shared else user_id
                 await db.google_sheets_tokens.update_one(
-                    {"user_id": user_id},
+                    {"user_id": key},
                     {"$set": {
                         "access_token": creds.token,
                         "expires_at": creds.expiry.isoformat() if creds.expiry else None,
@@ -4269,13 +4364,15 @@ async def get_sheets_credentials(user_id: str) -> Optional[Credentials]:
 
 @router.post("/sheets/disconnect")
 async def disconnect_sheets(user: User = Depends(get_current_user)):
-    """Disconnect Google Sheets integration"""
+    """Disconnect the company-wide Google Sheets integration (affects all super admins)."""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
+    # Wipe both the shared connection and any legacy per-user tokens
+    await db.google_sheets_tokens.delete_one({"user_id": SHARED_SHEETS_KEY})
     await db.google_sheets_tokens.delete_one({"user_id": user.user_id})
     await db.google_sheets_config.update_one(
-        {"user_id": user.user_id},
+        {"user_id": SHARED_SHEETS_KEY},
         {"$set": {"is_connected": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
@@ -4717,9 +4814,9 @@ async def add_sheet_source(data: AddSheetSourceRequest, user: User = Depends(get
         custom_fields=data.custom_fields
     ).model_dump()
     
-    # Add to config
+    # Add to config (shared so all super admins see the same sources)
     await db.google_sheets_config.update_one(
-        {"user_id": user.user_id},
+        {"user_id": SHARED_SHEETS_KEY},
         {
             "$push": {"sources": source},
             "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}
@@ -4732,22 +4829,22 @@ async def add_sheet_source(data: AddSheetSourceRequest, user: User = Depends(get
 
 @router.get("/sheets/sources")
 async def get_sheet_sources(user: User = Depends(get_current_user)):
-    """Get all configured sheet sources"""
+    """Get all configured sheet sources (company-wide)."""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    config = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
     return {"sources": config.get("sources", []) if config else []}
 
 
 @router.delete("/sheets/sources/{source_id}")
 async def delete_sheet_source(source_id: str, user: User = Depends(get_current_user)):
-    """Delete a sheet source"""
+    """Delete a sheet source (company-wide)."""
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
     await db.google_sheets_config.update_one(
-        {"user_id": user.user_id},
+        {"user_id": SHARED_SHEETS_KEY},
         {"$pull": {"sources": {"source_id": source_id}}}
     )
     
@@ -4764,8 +4861,8 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
     if user.role != UserRole.SUPER_ADMIN:
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    # Get the source config
-    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    # Get the source config (shared)
+    config = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
     if not config:
         raise HTTPException(status_code=404, detail="No sheets configuration found")
     
@@ -4860,9 +4957,9 @@ async def import_leads_from_sheet(data: ImportLeadsRequest, user: User = Depends
             await db.leads.insert_one(lead_data)
             imported_count += 1
         
-        # Update last synced timestamp
+        # Update last synced timestamp (shared)
         await db.google_sheets_config.update_one(
-            {"user_id": user.user_id, "sources.source_id": source["source_id"]},
+            {"user_id": SHARED_SHEETS_KEY, "sources.source_id": source["source_id"]},
             {"$set": {
                 "sources.$.last_synced": datetime.now(timezone.utc).isoformat(),
                 "sources.$.row_count": len(data_rows)
@@ -5504,8 +5601,8 @@ async def sync_sheet(spreadsheet_id: str, user: User = Depends(get_current_user)
     if not creds:
         raise HTTPException(status_code=401, detail="Google Sheets not connected")
     
-    # Get existing column mapping from config
-    config = await db.google_sheets_config.find_one({"user_id": user.user_id}, {"_id": 0})
+    # Get existing column mapping from config (shared)
+    config = await db.google_sheets_config.find_one({"user_id": SHARED_SHEETS_KEY}, {"_id": 0})
     sources = config.get("sources", []) if config else []
     
     # Find source matching this spreadsheet
