@@ -38,15 +38,16 @@ const API = `${BACKEND_URL}/api`;
 
 // Inline editable rate (%) — used on the virtual Auto-collected (Sales) row in
 // the Payment Schedule. Click to edit, type a number, Enter / blur to save.
-const InlineEditRate = ({ initial, onSave }) => {
+const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(String(initial ?? ''));
   useEffect(() => { setVal(String(initial ?? '')); }, [initial]);
   
+  const isPct = mode === 'percent';
   const commit = async () => {
     const num = parseFloat(val);
-    if (!isFinite(num) || num < 0 || num > 100) {
-      toast.error('Rate must be between 0 and 100');
+    if (!isFinite(num) || num < 0 || (isPct && num > 100)) {
+      toast.error(isPct ? 'Rate must be between 0 and 100' : 'Amount must be a non-negative number');
       setVal(String(initial ?? ''));
       setEditing(false);
       return;
@@ -65,10 +66,14 @@ const InlineEditRate = ({ initial, onSave }) => {
         type="button"
         onClick={() => setEditing(true)}
         className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-amber-50 text-gray-800 hover:text-amber-700 transition-colors group"
-        title="Click to edit rate"
-        data-testid="edit-advance-rate-btn"
+        title={isPct ? 'Click to edit rate' : 'Click to edit amount'}
+        data-testid={isPct ? 'edit-advance-rate-btn' : 'edit-advance-amount-btn'}
       >
-        <span>{Number(initial || 0)}%</span>
+        <span>
+          {isPct
+            ? `${Number(initial || 0)}%`
+            : `₹${Number(initial || 0).toLocaleString()}`}
+        </span>
         <Edit className="h-3 w-3 opacity-0 group-hover:opacity-70" />
       </button>
     );
@@ -76,9 +81,9 @@ const InlineEditRate = ({ initial, onSave }) => {
   return (
     <input
       type="number"
-      step="0.01"
+      step={isPct ? '0.01' : '1'}
       min="0"
-      max="100"
+      {...(isPct ? { max: '100' } : {})}
       autoFocus
       value={val}
       onChange={(e) => setVal(e.target.value)}
@@ -87,8 +92,8 @@ const InlineEditRate = ({ initial, onSave }) => {
         if (e.key === 'Enter') commit();
         if (e.key === 'Escape') { setVal(String(initial ?? '')); setEditing(false); }
       }}
-      className="w-20 px-2 py-1 text-right text-sm border border-amber-400 rounded outline-none focus:ring-1 focus:ring-amber-400"
-      data-testid="edit-advance-rate-input"
+      className={`${isPct ? 'w-20' : 'w-32'} px-2 py-1 text-right text-sm border border-amber-400 rounded outline-none focus:ring-1 focus:ring-amber-400`}
+      data-testid={isPct ? 'edit-advance-rate-input' : 'edit-advance-amount-input'}
     />
   );
 };
@@ -4066,7 +4071,25 @@ export default function ProjectDetail() {
                             </td>
                             {user?.role !== 'project_manager' && (
                               <>
-                                <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-right font-semibold">
+                                  {isVirtual && canManage ? (
+                                    <InlineEditRate
+                                      mode="amount"
+                                      initial={stage.amount}
+                                      onSave={async (newAmt) => {
+                                        try {
+                                          await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, { amount: newAmt });
+                                          toast.success(`Amount set to ₹${newAmt.toLocaleString()}`);
+                                          fetchData(false);
+                                        } catch (e) {
+                                          toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update amount');
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <span>₹{stage.amount?.toLocaleString()}</span>
+                                  )}
+                                </td>
                                 <td className="px-4 py-3 text-right">
                                   <span className="text-green-600 font-semibold">₹{(stage.amount_received || 0).toLocaleString()}</span>
                                 </td>

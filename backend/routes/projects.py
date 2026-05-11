@@ -2209,7 +2209,8 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
 
 
 class MaterializeAdvanceBody(BaseModel):
-    percentage: float
+    percentage: Optional[float] = None
+    amount: Optional[float] = None  # override the stated stage amount (₹). Defaults to income amount.
     stage_name: Optional[str] = None  # default "Advance (Sales)"
 
 
@@ -2219,19 +2220,45 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     
     Planning sees an auto-generated advance row whenever a project has received
     income but no explicit advance payment_stage. This endpoint materializes
-    that row with a custom rate (%) supplied by Planning. The actual ₹ amount
-    stays equal to the received income (we don't recompute from %).
+    that row, optionally with a custom rate (%) and/or stated stage amount (₹).
+    Received amount (cash already collected) remains tied to the linked income.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    pct = float(data.percentage or 0)
-    if pct < 0 or pct > 100:
-        raise HTTPException(status_code=400, detail="Percentage must be between 0 and 100")
-    
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "total_value": 1})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    total_value = float(project.get("total_value") or 0)
+    
+    # Find the earliest income entry to link
+    income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
+    if not income:
+        raise HTTPException(status_code=400, detail="No collected income found for this project. Add an income entry first.")
+    income_amount = float(income.get("amount") or 0)
+    
+    # Resolve final percentage + amount. User may pass either, both, or none.
+    user_pct = data.percentage if data.percentage is not None else None
+    user_amt = data.amount if data.amount is not None else None
+    
+    if user_pct is None and user_amt is None:
+        # Defaults match the current virtual-row display
+        amount = income_amount
+        percentage = round((amount / total_value) * 10000) / 100 if total_value > 0 else 0
+    elif user_pct is not None and user_amt is None:
+        percentage = float(user_pct)
+        amount = income_amount  # keep amount = actually-received cash
+    elif user_amt is not None and user_pct is None:
+        amount = float(user_amt)
+        percentage = round((amount / total_value) * 10000) / 100 if total_value > 0 else 0
+    else:
+        percentage = float(user_pct)
+        amount = float(user_amt)
+    
+    if percentage < 0 or percentage > 100:
+        raise HTTPException(status_code=400, detail="Percentage must be between 0 and 100")
+    if amount < 0:
+        raise HTTPException(status_code=400, detail="Amount must be non-negative")
     
     # Refuse if an explicit advance stage already exists
     existing_advance = await db.payment_stages.find_one(
@@ -2244,37 +2271,30 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     # Validate combined percentage stays <= 100
     other_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "percentage": 1}).to_list(200)
     other_pct = sum(s.get("percentage", 0) for s in other_stages)
-    if other_pct + pct > 100:
-        raise HTTPException(status_code=400, detail=f"Total percentage would be {other_pct + pct}%. Reduce the rate so it fits within 100%.")
-    
-    # Find the earliest income entry to link
-    income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
-    if not income:
-        raise HTTPException(status_code=400, detail="No collected income found for this project. Add an income entry first.")
-    income_amount = float(income.get("amount") or 0)
+    if other_pct + percentage > 100:
+        raise HTTPException(status_code=400, detail=f"Total percentage would be {other_pct + percentage}%. Reduce the rate so it fits within 100%.")
     
     stage = PaymentStage(
         project_id=project_id,
         stage_name=(data.stage_name or "Advance (Sales)").strip() or "Advance (Sales)",
-        percentage=pct,
-        amount=round(income_amount),
+        percentage=percentage,
+        amount=round(amount),
     )
     stage_dict = stage.model_dump()
     stage_dict["created_at"] = stage_dict["created_at"].isoformat()
     stage_dict["is_advance"] = True
     stage_dict["linked_income_id"] = income.get("income_id") or income.get("_id")
     stage_dict["amount_received"] = round(income_amount)
-    stage_dict["workflow_status"] = "paid"
-    stage_dict["status"] = "received"
+    stage_dict["workflow_status"] = "paid" if income_amount >= amount else "partial"
+    stage_dict["status"] = "received" if income_amount >= amount else "partial"
     stage_dict["actual_payment_date"] = (income.get("received_date") or income.get("created_at"))
     if stage_dict.get("actual_payment_date") and not isinstance(stage_dict["actual_payment_date"], str):
         stage_dict["actual_payment_date"] = stage_dict["actual_payment_date"].isoformat() if hasattr(stage_dict["actual_payment_date"], "isoformat") else str(stage_dict["actual_payment_date"])
-    # Drop None _id reference if it came from Mongo
     stage_dict.pop("_id", None)
     
     await db.payment_stages.insert_one(stage_dict)
-    await create_audit_log(user.user_id, "materialize_advance", "payment_stage", stage.stage_id, {"percentage": pct, "amount": income_amount})
-    return {"message": "Advance stage materialized", "stage_id": stage.stage_id, "percentage": pct, "amount": round(income_amount)}
+    await create_audit_log(user.user_id, "materialize_advance", "payment_stage", stage.stage_id, {"percentage": percentage, "amount": amount})
+    return {"message": "Advance stage materialized", "stage_id": stage.stage_id, "percentage": percentage, "amount": round(amount)}
 
 
 class PaymentRequestBody(BaseModel):
