@@ -2208,6 +2208,75 @@ async def delete_payment_stage(stage_id: str, user: User = Depends(get_current_u
     return {"message": "Payment stage deleted"}
 
 
+class MaterializeAdvanceBody(BaseModel):
+    percentage: float
+    stage_name: Optional[str] = None  # default "Advance (Sales)"
+
+
+@router.post("/projects/{project_id}/materialize-advance-stage")
+async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBody, user: User = Depends(get_current_user)):
+    """Convert the virtual "Auto-collected (Sales)" row into a real, editable payment stage.
+    
+    Planning sees an auto-generated advance row whenever a project has received
+    income but no explicit advance payment_stage. This endpoint materializes
+    that row with a custom rate (%) supplied by Planning. The actual ₹ amount
+    stays equal to the received income (we don't recompute from %).
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PROJECT_MANAGER, UserRole.PLANNING, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    pct = float(data.percentage or 0)
+    if pct < 0 or pct > 100:
+        raise HTTPException(status_code=400, detail="Percentage must be between 0 and 100")
+    
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "total_value": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Refuse if an explicit advance stage already exists
+    existing_advance = await db.payment_stages.find_one(
+        {"project_id": project_id, "$or": [{"is_advance": True}, {"linked_income_id": {"$exists": True, "$ne": None}}]},
+        {"_id": 0}
+    )
+    if existing_advance:
+        raise HTTPException(status_code=400, detail="An advance payment stage already exists for this project.")
+    
+    # Validate combined percentage stays <= 100
+    other_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "percentage": 1}).to_list(200)
+    other_pct = sum(s.get("percentage", 0) for s in other_stages)
+    if other_pct + pct > 100:
+        raise HTTPException(status_code=400, detail=f"Total percentage would be {other_pct + pct}%. Reduce the rate so it fits within 100%.")
+    
+    # Find the earliest income entry to link
+    income = await db.project_income.find_one({"project_id": project_id}, sort=[("received_date", 1), ("created_at", 1)])
+    if not income:
+        raise HTTPException(status_code=400, detail="No collected income found for this project. Add an income entry first.")
+    income_amount = float(income.get("amount") or 0)
+    
+    stage = PaymentStage(
+        project_id=project_id,
+        stage_name=(data.stage_name or "Advance (Sales)").strip() or "Advance (Sales)",
+        percentage=pct,
+        amount=round(income_amount),
+    )
+    stage_dict = stage.model_dump()
+    stage_dict["created_at"] = stage_dict["created_at"].isoformat()
+    stage_dict["is_advance"] = True
+    stage_dict["linked_income_id"] = income.get("income_id") or income.get("_id")
+    stage_dict["amount_received"] = round(income_amount)
+    stage_dict["workflow_status"] = "paid"
+    stage_dict["status"] = "received"
+    stage_dict["actual_payment_date"] = (income.get("received_date") or income.get("created_at"))
+    if stage_dict.get("actual_payment_date") and not isinstance(stage_dict["actual_payment_date"], str):
+        stage_dict["actual_payment_date"] = stage_dict["actual_payment_date"].isoformat() if hasattr(stage_dict["actual_payment_date"], "isoformat") else str(stage_dict["actual_payment_date"])
+    # Drop None _id reference if it came from Mongo
+    stage_dict.pop("_id", None)
+    
+    await db.payment_stages.insert_one(stage_dict)
+    await create_audit_log(user.user_id, "materialize_advance", "payment_stage", stage.stage_id, {"percentage": pct, "amount": income_amount})
+    return {"message": "Advance stage materialized", "stage_id": stage.stage_id, "percentage": pct, "amount": round(income_amount)}
+
+
 class PaymentRequestBody(BaseModel):
     expected_payment_date: Optional[str] = None  # ISO date (YYYY-MM-DD) when Planning expects this payment to be collected
 

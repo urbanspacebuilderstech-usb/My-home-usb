@@ -36,6 +36,63 @@ import ProjectAttendanceDLR from '../components/ProjectAttendanceDLR';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Inline editable rate (%) — used on the virtual Auto-collected (Sales) row in
+// the Payment Schedule. Click to edit, type a number, Enter / blur to save.
+const InlineEditRate = ({ initial, onSave }) => {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(initial ?? ''));
+  useEffect(() => { setVal(String(initial ?? '')); }, [initial]);
+  
+  const commit = async () => {
+    const num = parseFloat(val);
+    if (!isFinite(num) || num < 0 || num > 100) {
+      toast.error('Rate must be between 0 and 100');
+      setVal(String(initial ?? ''));
+      setEditing(false);
+      return;
+    }
+    if (num === Number(initial)) {
+      setEditing(false);
+      return;
+    }
+    setEditing(false);
+    await onSave(num);
+  };
+  
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded hover:bg-amber-50 text-gray-800 hover:text-amber-700 transition-colors group"
+        title="Click to edit rate"
+        data-testid="edit-advance-rate-btn"
+      >
+        <span>{Number(initial || 0)}%</span>
+        <Edit className="h-3 w-3 opacity-0 group-hover:opacity-70" />
+      </button>
+    );
+  }
+  return (
+    <input
+      type="number"
+      step="0.01"
+      min="0"
+      max="100"
+      autoFocus
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') { setVal(String(initial ?? '')); setEditing(false); }
+      }}
+      className="w-20 px-2 py-1 text-right text-sm border border-amber-400 rounded outline-none focus:ring-1 focus:ring-amber-400"
+      data-testid="edit-advance-rate-input"
+    />
+  );
+};
+
 // Compact searchable Unit picker — used inside the Work Order dialog rows.
 // Accepts free-form values too (allows typing custom units the list doesn't have).
 const UnitCombobox = ({ value, onChange, units, testId }) => {
@@ -3989,7 +4046,24 @@ export default function ProjectDetail() {
                                 </p>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-right">{stage.percentage}%</td>
+                            <td className="px-4 py-3 text-right">
+                              {isVirtual && canManage ? (
+                                <InlineEditRate
+                                  initial={stage.percentage}
+                                  onSave={async (newPct) => {
+                                    try {
+                                      await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, { percentage: newPct });
+                                      toast.success(`Rate set to ${newPct}%`);
+                                      fetchData(false);
+                                    } catch (e) {
+                                      toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to update rate');
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <span>{stage.percentage}%</span>
+                              )}
+                            </td>
                             {user?.role !== 'project_manager' && (
                               <>
                                 <td className="px-4 py-3 text-right font-semibold">₹{stage.amount?.toLocaleString()}</td>
