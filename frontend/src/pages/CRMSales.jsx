@@ -1184,12 +1184,10 @@ export default function CRMSales() {
               >
                 <span className="text-[9px] sm:text-[10px] font-medium opacity-90 truncate w-full text-center">All Leads</span>
                 <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{filteredLeads.length}</span>
-                <span className="text-[9px] sm:text-[10px] font-medium opacity-90 mt-0.5">{formatINRShort(sumAmount(filteredLeads))}</span>
               </button>
               {stages.map((stage) => {
                 const stageLeads = getLeadsByStage(stage.stage_id);
                 const count = stageLeads.length;
-                const amount = sumAmount(stageLeads);
                 const isActive = activeStage === stage.stage_id;
                 return (
                   <button
@@ -1208,7 +1206,6 @@ export default function CRMSales() {
                       {stage.name}
                     </span>
                     <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{count}</span>
-                    <span className="text-[9px] sm:text-[10px] font-medium opacity-80 mt-0.5">{formatINRShort(amount)}</span>
                   </button>
                 );
               })}
@@ -1217,7 +1214,6 @@ export default function CRMSales() {
               {(() => {
                 const revLeads = filteredLeads.filter(l => (l.re_revision_number || 0) > 0 && l.current_stage_id === 'stg_re_requested');
                 const revCount = revLeads.length;
-                const revAmount = sumAmount(revLeads);
                 const isActive = activeStage === 'revision';
                 const color = '#f97316';
                 return (
@@ -1236,7 +1232,6 @@ export default function CRMSales() {
                       <RefreshCw className="h-3 w-3" /> Revision
                     </span>
                     <span className="text-base sm:text-xl font-bold mt-0.5 leading-tight">{revCount}</span>
-                    <span className="text-[9px] sm:text-[10px] font-medium opacity-80 mt-0.5">{formatINRShort(revAmount)}</span>
                   </button>
                 );
               })()}
