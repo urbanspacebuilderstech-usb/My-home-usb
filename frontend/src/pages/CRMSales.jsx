@@ -29,6 +29,56 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// --- Contact masking ---
+// Phone/email are hidden by default and revealed only on hover.
+// Lost leads stay permanently masked (no hover reveal).
+const isLeadLost = (l) => {
+  const s = l?.current_stage_id || '';
+  const st = l?.status || '';
+  return s.includes('lost') || st === 'lost' || st === 'closed_lost';
+};
+const maskPhone = (p) => {
+  if (!p) return '';
+  const digits = String(p).replace(/\D/g, '');
+  if (digits.length < 4) return 'xxxxxxxx';
+  return `${'x'.repeat(Math.max(0, digits.length - 4))} xxxx`;
+};
+const maskEmail = (e) => {
+  if (!e) return '';
+  const [user = '', domain = ''] = String(e).split('@');
+  if (!domain) return 'xxxxx@xxxx.xxx';
+  return `${'x'.repeat(Math.max(3, user.length))}@${domain}`;
+};
+const MaskedContact = ({ phone, email, lost, compact = false, withIcons = false }) => {
+  const [revealed, setRevealed] = useState(false);
+  const showRaw = revealed && !lost;
+  return (
+    <div
+      className="space-y-0 min-w-0 cursor-default select-none"
+      onMouseEnter={() => !lost && setRevealed(true)}
+      onMouseLeave={() => setRevealed(false)}
+      data-testid="masked-contact"
+    >
+      {phone && (
+        <p
+          className={`${withIcons ? 'flex items-center gap-1 ' : ''}text-xs text-gray-600 truncate ${lost ? 'text-gray-400 italic' : ''}`}
+          title={lost ? 'Hidden (Lost lead)' : (showRaw ? phone : 'Hover to reveal')}
+        >
+          {withIcons && <Phone className="h-3 w-3 inline" />} {showRaw ? phone : maskPhone(phone)}
+        </p>
+      )}
+      {email && (
+        <p
+          className={`${withIcons ? 'flex items-center gap-1 ' : ''}${compact ? 'text-[10px] text-gray-500' : 'text-xs text-gray-600'} truncate ${lost ? 'text-gray-400 italic' : ''}`}
+          title={lost ? 'Hidden (Lost lead)' : (showRaw ? email : 'Hover to reveal')}
+        >
+          {withIcons && <Mail className="h-3 w-3 inline" />} {showRaw ? email : maskEmail(email)}
+        </p>
+      )}
+    </div>
+  );
+};
+
 const RE_STATUS_CONFIG = {
   re_requested: { label: 'RE Requested', color: 'bg-amber-50 text-amber-700', icon: Clock },
   re_in_progress: { label: 'In Progress', color: 'bg-yellow-100 text-yellow-700', icon: RefreshCw },
@@ -1368,14 +1418,7 @@ export default function CRMSales() {
                         </div>
                       </td>
                       <td className="px-2 py-2">
-                        <div className="space-y-0 min-w-0">
-                          {lead.phone && (
-                            <p className="text-xs text-gray-600 truncate">{lead.phone}</p>
-                          )}
-                          {lead.email && (
-                            <p className="text-[10px] text-gray-500 truncate">{lead.email}</p>
-                          )}
-                        </div>
+                        <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} compact />
                       </td>
                       <td className="px-2 py-2">
                         <Badge 
@@ -1609,10 +1652,10 @@ export default function CRMSales() {
                         
                         <h4 className="font-semibold text-gray-900 mb-1">{lead.name}</h4>
                         
-                        {lead.phone && (
-                          <p className="text-xs text-gray-500 flex items-center gap-1 mb-1">
-                            <Phone className="h-3 w-3" /> {lead.phone}
-                          </p>
+                        {(lead.phone || lead.email) && (
+                          <div className="mb-1">
+                            <MaskedContact phone={lead.phone} email={lead.email} lost={isLeadLost(lead)} withIcons />
+                          </div>
                         )}
                         
                         {lead.custom_fields?.sqft && (
