@@ -3899,7 +3899,9 @@ export default function ProjectDetail() {
                     </DialogDescription>
                   </DialogHeader>
                   {(() => {
-                    const totalFE = Number(summary?.total_value || (summary?.scope_total || 0) + (summary?.additions_total || 0)) || 0;
+                    // Advance % is computed against the contracted Total Project Value
+                    // (scope total), not the Final Estimate (which includes future additions).
+                    const totalFE = Number(projectData?.project?.total_value || summary?.scope_total || summary?.project_value || 0);
                     const tokenCollected = Number(advanceDialog.income_amount || 0);
                     const pctNum = parseFloat(advanceDialog.percentage);
                     const validPct = isFinite(pctNum) && pctNum >= 0 && pctNum <= 100;
@@ -3910,7 +3912,7 @@ export default function ProjectDetail() {
                     return (
                       <div className="space-y-3 py-2">
                         <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs space-y-1">
-                          <div className="flex justify-between"><span>Total Final Estimate</span><span className="font-semibold">₹{totalFE.toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span>Total Project Value</span><span className="font-semibold">₹{totalFE.toLocaleString()}</span></div>
                           <div className="flex justify-between"><span>Token Advance Collected (Sales)</span><span className="font-semibold text-emerald-700">₹{tokenCollected.toLocaleString()} <span className="text-gray-500">({tokenPct}%)</span></span></div>
                         </div>
                         <div className="space-y-2">
@@ -3939,7 +3941,7 @@ export default function ProjectDetail() {
                               placeholder="e.g., 2"
                               className="w-32"
                             />
-                            <span className="text-sm text-gray-500">% of Final Estimate</span>
+                            <span className="text-sm text-gray-500">% of Total Project Value</span>
                           </div>
                         </div>
                         <div className="space-y-2">

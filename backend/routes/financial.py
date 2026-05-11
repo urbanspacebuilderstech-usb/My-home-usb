@@ -1194,6 +1194,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
     
     # Payment schedule totals (requested payments - milestones)
     payment_total = sum(stage.get("amount", 0) for stage in payment_stages)
+    payment_received = sum(stage.get("amount_received", 0) for stage in payment_stages)
     
     # Project value = Scope total (or original project value if no scope items)
     project_value = scope_total if scope_items else project.get("total_value", 0)
@@ -1218,6 +1219,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
             "additions_received": additions_received,
             "total_value": total_value,
             "payment_schedule_total": payment_total,
+            "payment_received": payment_received,
             "income_total": income_total,
             "income_by_mode": income_by_mode,
             "deductions_total": deductions_total,
