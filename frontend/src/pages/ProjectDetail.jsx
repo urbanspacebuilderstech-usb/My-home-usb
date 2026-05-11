@@ -428,6 +428,16 @@ export default function ProjectDetail() {
   // Fetched once per project; refreshed whenever fetchData runs.
   const [projectIncomeEntries, setProjectIncomeEntries] = useState([]);
   
+  // "Set Advance %" popup — converts the virtual Auto-collected row into a real
+  // first payment stage with a user-chosen % and stage name.
+  const [advanceDialog, setAdvanceDialog] = useState({
+    open: false,
+    income_amount: 0,
+    stage_name: 'Stage 01 Payment',
+    percentage: '',
+    submitting: false,
+  });
+  
   // Bulk dialog states
   const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
   const [bulkPaymentDialog, setBulkPaymentDialog] = useState(false);
@@ -3873,6 +3883,114 @@ export default function ProjectDetail() {
                 </DialogContent>
               </Dialog>
 
+              {/* "Set Advance % from RE" — converts the virtual Auto-collected (Sales) row
+                  into the first real payment stage. Shows live math:
+                    Total Advance @ X% of Final Estimate − Token Collected = Balance Pending */}
+              <Dialog open={advanceDialog.open} onOpenChange={(o) => setAdvanceDialog((s) => ({ ...s, open: o }))}>
+                <DialogContent className="max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Set Advance Payment %</DialogTitle>
+                    <DialogDescription>
+                      Enter the advance % agreed in the Rough Estimate. We&apos;ll convert this
+                      auto-collected row into your first payment stage and show what&apos;s
+                      still pending from the client.
+                    </DialogDescription>
+                  </DialogHeader>
+                  {(() => {
+                    const totalFE = Number(summary?.total_value || (summary?.scope_total || 0) + (summary?.additions_total || 0)) || 0;
+                    const tokenCollected = Number(advanceDialog.income_amount || 0);
+                    const pctNum = parseFloat(advanceDialog.percentage);
+                    const validPct = isFinite(pctNum) && pctNum >= 0 && pctNum <= 100;
+                    const totalAdvance = validPct ? Math.round((totalFE * pctNum) / 100) : 0;
+                    const tokenPct = totalFE > 0 ? +((tokenCollected / totalFE) * 100).toFixed(2) : 0;
+                    const balancePct = validPct ? Math.max(0, +(pctNum - tokenPct).toFixed(2)) : 0;
+                    const balanceAmt = Math.max(0, totalAdvance - tokenCollected);
+                    return (
+                      <div className="space-y-3 py-2">
+                        <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs space-y-1">
+                          <div className="flex justify-between"><span>Total Final Estimate</span><span className="font-semibold">₹{totalFE.toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span>Token Advance Collected (Sales)</span><span className="font-semibold text-emerald-700">₹{tokenCollected.toLocaleString()} <span className="text-gray-500">({tokenPct}%)</span></span></div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="adv-stage-name">Stage Name</Label>
+                          <Input
+                            id="adv-stage-name"
+                            data-testid="adv-dialog-stage-name"
+                            value={advanceDialog.stage_name}
+                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, stage_name: e.target.value }))}
+                            placeholder="Stage 01 Payment"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="adv-pct">Advance % (from Rough Estimate)</Label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="adv-pct"
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              data-testid="adv-dialog-percentage"
+                              autoFocus
+                              value={advanceDialog.percentage}
+                              onChange={(e) => setAdvanceDialog((s) => ({ ...s, percentage: e.target.value }))}
+                              placeholder="e.g., 2"
+                              className="w-32"
+                            />
+                            <span className="text-sm text-gray-500">% of Final Estimate</span>
+                          </div>
+                        </div>
+                        {validPct && (
+                          <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 text-xs space-y-1">
+                            <div className="flex justify-between">
+                              <span>Total Advance @ {pctNum}%</span>
+                              <span className="font-semibold">₹{totalAdvance.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-gray-600">
+                              <span>− Token Collected</span>
+                              <span>− ₹{tokenCollected.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between border-t border-emerald-200 pt-1 mt-1 text-emerald-700 font-semibold">
+                              <span>Pending for {advanceDialog.stage_name || 'Stage 01'}</span>
+                              <span>₹{balanceAmt.toLocaleString()} <span className="text-[10px] font-normal">({balancePct}%)</span></span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setAdvanceDialog((s) => ({ ...s, open: false }))}>Cancel</Button>
+                    <Button
+                      data-testid="adv-dialog-save-btn"
+                      disabled={advanceDialog.submitting || !(parseFloat(advanceDialog.percentage) > 0)}
+                      onClick={async () => {
+                        const pct = parseFloat(advanceDialog.percentage);
+                        if (!isFinite(pct) || pct <= 0 || pct > 100) {
+                          toast.error('Enter a valid % between 0 and 100');
+                          return;
+                        }
+                        setAdvanceDialog((s) => ({ ...s, submitting: true }));
+                        try {
+                          await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
+                            percentage: pct,
+                            stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
+                          });
+                          toast.success('Advance stage created');
+                          setAdvanceDialog({ open: false, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', submitting: false });
+                          fetchData(false);
+                        } catch (e) {
+                          toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to set advance');
+                          setAdvanceDialog((s) => ({ ...s, submitting: false }));
+                        }
+                      }}
+                    >
+                      {advanceDialog.submitting ? 'Saving…' : 'Save & Generate Req'}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
               {/* Month/Year filter — filters by expected_payment_date */}
               {(() => {
                 // Build set of YYYY-MM values present in payment_stages
@@ -4049,6 +4167,26 @@ export default function ProjectDetail() {
                                 <p className="text-[11px] text-amber-600 mt-0.5">
                                   📅 Expected: {new Date(stage.expected_payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                                 </p>
+                              )}
+                              {/* "Set Advance %" CTA — appears only on the virtual auto-collected row.
+                                  Opens a popup so Planning can enter the agreed advance % from the
+                                  Rough Estimate and convert this row into a real Stage 01. */}
+                              {isVirtual && canManage && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="mt-2 h-7 text-[11px] border-amber-300 text-amber-700 hover:bg-amber-50"
+                                  data-testid="set-advance-pct-btn"
+                                  onClick={() => setAdvanceDialog({
+                                    open: true,
+                                    income_amount: stage.amount_received || 0,
+                                    stage_name: 'Stage 01 Payment',
+                                    percentage: '',
+                                    submitting: false,
+                                  })}
+                                >
+                                  + Set Advance % from RE
+                                </Button>
                               )}
                             </td>
                             <td className="px-4 py-3 text-right">
