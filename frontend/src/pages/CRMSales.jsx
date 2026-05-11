@@ -2102,6 +2102,31 @@ export default function CRMSales() {
                     {selectedLead.source && (<div><Label className="text-xs text-gray-500">Source</Label><p className="text-sm">{selectedLead.source}</p></div>)}
                     {selectedLead.assigned_to_name && (<div><Label className="text-xs text-gray-500">Assigned To</Label><p className="text-sm">{selectedLead.assigned_to_name}</p></div>)}
                     {selectedLead.pre_sales_person_name && (<div><Label className="text-xs text-gray-500">Pre-Sales</Label><p className="text-sm">{selectedLead.pre_sales_person_name}</p></div>)}
+                    {selectedLead.client_category && (
+                      <div data-testid="lead-detail-client-category">
+                        <Label className="text-xs text-gray-500">Client Category</Label>
+                        <p className="text-sm flex items-center gap-2">
+                          <Badge
+                            className="text-[10px] font-semibold px-1.5 py-0.5"
+                            style={{
+                              backgroundColor:
+                                selectedLead.client_category === 'P1' ? '#fee2e2' :
+                                selectedLead.client_category === 'P2' ? '#fef3c7' :
+                                selectedLead.client_category === 'P3' ? '#dbeafe' : '#f3f4f6',
+                              color:
+                                selectedLead.client_category === 'P1' ? '#dc2626' :
+                                selectedLead.client_category === 'P2' ? '#d97706' :
+                                selectedLead.client_category === 'P3' ? '#2563eb' : '#374151',
+                            }}
+                          >
+                            {selectedLead.client_category}
+                          </Badge>
+                          {selectedLead.client_category_value && (
+                            <span className="text-gray-700">{selectedLead.client_category_value}</span>
+                          )}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   
                   {Object.keys(selectedLead.custom_fields || {}).length > 0 && (
