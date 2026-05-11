@@ -427,9 +427,11 @@ export default function ProjectDetail() {
   const [projectIncomeEntries, setProjectIncomeEntries] = useState([]);
   
   // "Set Advance %" popup — converts the virtual Auto-collected row into a real
-  // first payment stage with a user-chosen % and stage name.
+  // first payment stage with a user-chosen % and stage name. Also reused for
+  // EDITING an existing advance stage when `editing_stage_id` is set.
   const [advanceDialog, setAdvanceDialog] = useState({
     open: false,
+    editing_stage_id: null,        // when set → PATCH that stage instead of POST materialize
     income_amount: 0,
     stage_name: 'Stage 01 Payment',
     percentage: '',
@@ -3889,11 +3891,11 @@ export default function ProjectDetail() {
               <Dialog open={advanceDialog.open} onOpenChange={(o) => setAdvanceDialog((s) => ({ ...s, open: o }))}>
                 <DialogContent className="max-w-md">
                   <DialogHeader>
-                    <DialogTitle>Set Advance Payment %</DialogTitle>
+                    <DialogTitle>{advanceDialog.editing_stage_id ? 'Edit Advance Payment' : 'Set Advance Payment %'}</DialogTitle>
                     <DialogDescription>
-                      Enter the advance % agreed in the Rough Estimate. We&apos;ll convert this
-                      auto-collected row into your first payment stage and show what&apos;s
-                      still pending from the client.
+                      {advanceDialog.editing_stage_id
+                        ? 'Update the stage name or %. The amount will recalculate from % × Total Project Value.'
+                        : "Enter the advance % agreed in the Rough Estimate. We'll convert this auto-collected row into your first payment stage and show what's still pending from the client."}
                     </DialogDescription>
                   </DialogHeader>
                   {(() => {
@@ -3968,20 +3970,22 @@ export default function ProjectDetail() {
                             </div>
                           </div>
                         )}
-                        {/* Auto-schedule remaining (100 − %) using the standard template */}
-                        <label className="flex items-start gap-2 text-xs text-gray-700 select-none cursor-pointer" data-testid="adv-dialog-gen-rest-label">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5 h-4 w-4 rounded border-gray-300"
-                            checked={advanceDialog.generate_remaining}
-                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, generate_remaining: e.target.checked }))}
-                            data-testid="adv-dialog-gen-rest"
-                          />
-                          <span>
-                            Also schedule the remaining <strong>{validPct ? (100 - pctNum).toFixed(2) : '—'}%</strong> automatically
-                            using the standard milestone template (Foundation, Slab, Plastering, Flooring, etc.).
-                          </span>
-                        </label>
+                        {/* Auto-schedule remaining (100 − %) — only when first creating */}
+                        {!advanceDialog.editing_stage_id && (
+                          <label className="flex items-start gap-2 text-xs text-gray-700 select-none cursor-pointer" data-testid="adv-dialog-gen-rest-label">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                              checked={advanceDialog.generate_remaining}
+                              onChange={(e) => setAdvanceDialog((s) => ({ ...s, generate_remaining: e.target.checked }))}
+                              data-testid="adv-dialog-gen-rest"
+                            />
+                            <span>
+                              Also schedule the remaining <strong>{validPct ? (100 - pctNum).toFixed(2) : '—'}%</strong> automatically
+                              using the standard milestone template (Foundation, Slab, Plastering, Flooring, etc.).
+                            </span>
+                          </label>
+                        )}
                       </div>
                     );
                   })()}
@@ -3998,23 +4002,34 @@ export default function ProjectDetail() {
                         }
                         setAdvanceDialog((s) => ({ ...s, submitting: true }));
                         try {
-                          const res = await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
-                            percentage: pct,
-                            stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
-                            expected_payment_date: advanceDialog.expected_payment_date || null,
-                            generate_remaining_schedule: !!advanceDialog.generate_remaining,
-                          });
-                          const extras = (res.data?.generated_remaining_stages || []).length;
-                          toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
-                          setAdvanceDialog({ open: false, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, submitting: false });
+                          if (advanceDialog.editing_stage_id) {
+                            // EDIT existing real advance stage
+                            await axios.patch(`${API}/payment-stages/${advanceDialog.editing_stage_id}`, {
+                              stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
+                              percentage: pct,
+                              ...(advanceDialog.expected_payment_date ? { due_date: advanceDialog.expected_payment_date } : {}),
+                            });
+                            toast.success('Advance stage updated');
+                          } else {
+                            // CREATE from the virtual auto-collected row
+                            const res = await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
+                              percentage: pct,
+                              stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
+                              expected_payment_date: advanceDialog.expected_payment_date || null,
+                              generate_remaining_schedule: !!advanceDialog.generate_remaining,
+                            });
+                            const extras = (res.data?.generated_remaining_stages || []).length;
+                            toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
+                          }
+                          setAdvanceDialog({ open: false, editing_stage_id: null, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, submitting: false });
                           fetchData(false);
                         } catch (e) {
-                          toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to set advance');
+                          toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to save advance');
                           setAdvanceDialog((s) => ({ ...s, submitting: false }));
                         }
                       }}
                     >
-                      {advanceDialog.submitting ? 'Saving…' : 'Save & Generate Req'}
+                      {advanceDialog.submitting ? 'Saving…' : (advanceDialog.editing_stage_id ? 'Save Changes' : 'Save & Generate Req')}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -4208,6 +4223,7 @@ export default function ProjectDetail() {
                                   data-testid="set-advance-pct-btn"
                                   onClick={() => setAdvanceDialog({
                                     open: true,
+                                    editing_stage_id: null,
                                     income_amount: stage.amount_received || 0,
                                     stage_name: 'Stage 01 Payment',
                                     percentage: '',
@@ -4345,8 +4361,31 @@ export default function ProjectDetail() {
                                     Req Payment
                                   </Button>
                                 )}
+                                {/* Edit Advance button — opens the same "Set Advance %" popup
+                                    pre-filled with the current stage's name and percentage so
+                                    Planning can adjust without deleting/recreating the row. */}
+                                {canManage && stage.is_advance && !isVirtual && (
+                                  <Button
+                                    data-testid={`edit-advance-${stage.stage_id}`}
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Edit advance stage name / %"
+                                    onClick={() => setAdvanceDialog({
+                                      open: true,
+                                      editing_stage_id: stage.stage_id,
+                                      income_amount: stage.amount_received || 0,
+                                      stage_name: stage.stage_name || 'Stage 01 Payment',
+                                      percentage: String(stage.percentage ?? ''),
+                                      expected_payment_date: stage.expected_payment_date || stage.due_date || '',
+                                      generate_remaining: false,
+                                      submitting: false,
+                                    })}
+                                  >
+                                    <Edit className="h-4 w-4 text-amber-600" />
+                                  </Button>
+                                )}
                                 {/* Edit button - only for stages with no collection yet */}
-                                {canManage && !isPaid && !isPartial && (
+                                {canManage && !isPaid && !isPartial && !stage.is_advance && (
                                   <Button
                                     data-testid={`edit-payment-${stage.stage_id}`}
                                     variant="ghost"
