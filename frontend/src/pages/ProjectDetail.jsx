@@ -3949,14 +3949,17 @@ export default function ProjectDetail() {
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="adv-date">Expected Date (for balance Req Payment)</Label>
+                          <Label htmlFor="adv-date">Expected Month (for balance Req Payment)</Label>
                           <Input
                             id="adv-date"
-                            type="date"
-                            data-testid="adv-dialog-expected-date"
-                            value={advanceDialog.expected_payment_date}
-                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, expected_payment_date: e.target.value }))}
+                            type="month"
+                            data-testid="adv-dialog-expected-month"
+                            value={(advanceDialog.expected_payment_date || '').slice(0, 7)}
+                            onChange={(e) => setAdvanceDialog((s) => ({ ...s, expected_payment_date: e.target.value ? `${e.target.value}-01` : '' }))}
                           />
+                          <p className="text-[11px] text-gray-500">
+                            Pick the month only. The exact day is chosen later from the Payment Schedule.
+                          </p>
                         </div>
                         {validPct && (
                           <div className="rounded-md bg-emerald-50 border border-emerald-200 p-3 text-xs space-y-1">
@@ -7093,15 +7096,17 @@ export default function ProjectDetail() {
               </div>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-700 mb-1 block">Expected Payment Date <span className="text-red-500">*</span></label>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Expected Payment Month <span className="text-red-500">*</span></label>
               <Input
-                type="date"
-                value={reqPayDialog.date}
-                onChange={(e) => setReqPayDialog((d) => ({ ...d, date: e.target.value }))}
+                type="month"
+                value={(reqPayDialog.date || '').slice(0, 7)}
+                onChange={(e) => setReqPayDialog((d) => ({ ...d, date: e.target.value ? `${e.target.value}-01` : '' }))}
                 disabled={reqPayDialog.submitting}
-                data-testid="req-pay-date-input"
+                data-testid="req-pay-month-input"
               />
-              <p className="text-[11px] text-gray-500 mt-1">CRE board will show this in the schedule and can filter requests by this month.</p>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Pick the month you expect this payment. The exact day can be set later from the Payment Schedule view.
+              </p>
             </div>
           </div>
           <DialogFooter>
