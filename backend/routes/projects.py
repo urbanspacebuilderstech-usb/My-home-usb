@@ -2398,8 +2398,8 @@ async def request_payment(stage_id: str, body: Optional[PaymentRequestBody] = No
     """Planning/PM requests payment from CRE - updates workflow_status to 'requested'.
 
     Optionally accepts an expected_payment_date so CRE can prioritize / filter by month."""
-    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only Planning can request payments")
+    if user.role not in [UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.SUPER_ADMIN, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Planning / PM / GM can request payments")
     
     stage = await db.payment_stages.find_one({"stage_id": stage_id}, {"_id": 0})
     if not stage:

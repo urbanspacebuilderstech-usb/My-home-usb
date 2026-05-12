@@ -1444,20 +1444,25 @@ export default function PlanningBoard({ embedded = false }) {
                               <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Amount</th>
                               <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Received</th>
                               <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Balance</th>
+                              <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">Release Date</th>
                               <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                               <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y">
                             {(monthlySchedule.entries || []).length === 0 ? (
-                              <tr><td colSpan="7" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
+                              <tr><td colSpan="8" className="p-8 text-center text-gray-400">No stages scheduled for {MONTH_NAMES[scheduleMonth]} {scheduleYear}.</td></tr>
                             ) : (monthlySchedule.entries || []).map((e) => {
                               const balance = (e.amount || 0) - (e.amount_received || 0);
                               const hasPendingApproval = (e.pending_approval_count || 0) > 0;
                               const stageStatusConfig = { pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' }, partial: { label: 'Partially', cls: 'bg-amber-100 text-amber-700' }, paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' }, collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' } };
                               const cfg = hasPendingApproval
                                 ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
+                                : e.workflow_status === 'requested'
+                                ? { label: 'Requested — Awaiting CRE / Accountant', cls: 'bg-blue-100 text-blue-700' }
                                 : (stageStatusConfig[e.status] || stageStatusConfig.pending);
+                              const releaseDate = (e.expected_payment_date || '').slice(0, 10);
+                              const isCollected = e.status === 'paid' || e.status === 'collected';
                               return (
                                 <tr key={e.entry_id} className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
                                   <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
@@ -1470,6 +1475,29 @@ export default function PlanningBoard({ embedded = false }) {
                                     )}
                                   </td>
                                   <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(balance)}</td>
+                                  <td className="px-4 py-2.5 text-center">
+                                    {/* Release Date — when set/changed, triggers the existing Request Payment flow
+                                        so the stage goes to CRE → Accountant approval automatically. */}
+                                    <input
+                                      type="date"
+                                      defaultValue={releaseDate}
+                                      disabled={isCollected}
+                                      className="border border-gray-300 rounded px-2 py-1 text-xs w-[140px] focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100"
+                                      data-testid={`release-date-${e.stage_id}`}
+                                      onBlur={async (ev) => {
+                                        const newDate = ev.target.value;
+                                        if (!newDate || newDate === releaseDate) return;
+                                        try {
+                                          await axios.patch(`${API}/payment-stages/${e.stage_id}/request`, { expected_payment_date: newDate });
+                                          toast.success(`Released for ${new Date(newDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })} — sent to Accountant approval`);
+                                          fetchMonthlyScheduleFor(scheduleMonth, scheduleYear);
+                                        } catch (err) {
+                                          toast.error(err.response?.data?.detail || 'Failed to set release date');
+                                          ev.target.value = releaseDate;
+                                        }
+                                      }}
+                                    />
+                                  </td>
                                   <td className="px-4 py-2.5 text-center"><Badge variant="outline" className={`text-xs ${cfg.cls}`}>{cfg.label}</Badge></td>
                                   <td className="px-4 py-2.5 text-center"><Button size="sm" variant="ghost" className="h-7 text-xs text-red-500" onClick={() => handleRemoveScheduleEntry(e.entry_id)} data-testid={`remove-entry-${e.entry_id}`}><Trash2 className="h-3 w-3" /></Button></td>
                                 </tr>

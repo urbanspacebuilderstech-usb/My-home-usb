@@ -1762,6 +1762,8 @@ async def get_monthly_schedule(
             "stage_status": stage.get("status", "pending"),
             "workflow_status": stage.get("workflow_status", "approved"),
             "due_date": stage.get("due_date"),
+            "expected_payment_date": stage.get("expected_payment_date") or stage.get("due_date"),
+            "requested_at": stage.get("requested_at"),
             "project_name": proj.get("name", "Unknown"),
             "client_name": proj.get("client_name", ""),
             "project_value": proj.get("total_value", 0),
