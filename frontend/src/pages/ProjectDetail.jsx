@@ -468,7 +468,7 @@ export default function ProjectDetail() {
   const [stageTemplates, setStageTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showAddStages, setShowAddStages] = useState(false);
-  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]);
   const [saveTemplateDialog, setSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
@@ -1722,7 +1722,38 @@ export default function ProjectDetail() {
   };
 
   const addNewStageRow = () => {
-    setNewStages(prev => [...prev, { stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+    setNewStages(prev => [...prev, {
+      stage_name: '',
+      start_date: '',
+      target_date: '',
+      status: 'yet_to_start',
+      remarks: '',
+      hindrances: '',
+      sl_no: '',
+      section_title: '',
+      is_section_header: false,
+      actual_start_date: '',
+      actual_finish_date: '',
+      duration_days: '',
+      progress: 0,
+    }]);
+  };
+  const addNewTitleRow = () => {
+    setNewStages(prev => [...prev, {
+      stage_name: '',
+      section_title: '',
+      is_section_header: true,
+      status: 'yet_to_start',
+      sl_no: '',
+      start_date: '',
+      target_date: '',
+      actual_start_date: '',
+      actual_finish_date: '',
+      duration_days: '',
+      progress: 0,
+      remarks: '',
+      hindrances: '',
+    }]);
   };
   const removeNewStageRow = (idx) => {
     setNewStages(prev => prev.filter((_, i) => i !== idx));
@@ -1738,7 +1769,7 @@ export default function ProjectDetail() {
       await axios.post(`${API}/projects/${projectId}/project-stages/bulk`, valid);
       toast.success(`Added ${valid.length} stages`);
       setShowAddStages(false);
-      setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]);
+      setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]);
       fetchData(false);
     } catch (error) { toast.error('Failed to add stages'); }
   };
@@ -3316,82 +3347,157 @@ export default function ProjectDetail() {
                         </div>
                       </div>
 
-                      {/* Stage Rows */}
-                      <div className="space-y-2">
-                        {newStages.map((stage, idx) => (
-                          stage.is_section_header ? (
-                            <div key={idx} className="flex items-center justify-between gap-2 bg-slate-200 px-3 py-2 rounded-lg border border-slate-300" data-testid={`new-section-row-${idx}`}>
-                              <input
-                                type="text"
-                                placeholder="Section title"
-                                className="flex-1 bg-transparent text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide outline-none"
-                                value={stage.section_title || stage.stage_name}
-                                onChange={(e) => {
-                                  updateNewStage(idx, 'section_title', e.target.value);
-                                  updateNewStage(idx, 'stage_name', e.target.value);
-                                }}
-                              />
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeNewStageRow(idx)}>
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                          <div key={idx} className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-lg border" data-testid={`new-stage-row-${idx}`}>
-                            <span className="text-sm font-medium text-gray-500 w-10 whitespace-nowrap">{stage.sl_no || `${idx + 1}.`}</span>
-                            <input
-                              type="text"
-                              placeholder="Stage name"
-                              className="flex-1 min-w-[150px] border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.stage_name}
-                              onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
-                              data-testid={`stage-name-input-${idx}`}
-                            />
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-400">Start</label>
-                              <input
-                                type="date"
-                                className="border rounded-lg px-2 py-1.5 text-sm"
-                                value={stage.start_date}
-                                onChange={(e) => updateNewStage(idx, 'start_date', e.target.value)}
-                              />
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <label className="text-[10px] text-gray-400">End</label>
-                              <input
-                                type="date"
-                                className="border rounded-lg px-2 py-1.5 text-sm"
-                                value={stage.target_date}
-                                onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
-                              />
-                            </div>
-                            <select
-                              className={`border rounded-lg px-3 py-1.5 text-sm ${stageStatusConfig[stage.status]?.color || ''}`}
-                              value={stage.status}
-                              onChange={(e) => updateNewStage(idx, 'status', e.target.value)}
-                            >
-                              <option value="yet_to_start">Yet to Start</option>
-                              <option value="started">Started</option>
-                              <option value="finished">Finished</option>
-                            </select>
-                            <input
-                              type="text"
-                              placeholder="Remarks"
-                              className="flex-1 min-w-[100px] border rounded-lg px-3 py-1.5 text-sm"
-                              value={stage.remarks}
-                              onChange={(e) => updateNewStage(idx, 'remarks', e.target.value)}
-                            />
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => removeNewStageRow(idx)}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          )
-                        ))}
+                      {/* Stage Rows — same 9-column format as the saved Project Stages table */}
+                      <div className="overflow-x-auto border rounded-lg bg-white">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50 border-b">
+                            <tr>
+                              <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Sl.No</th>
+                              <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Stage Name</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Planned Start</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Planned Finish</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Duration<br/><span className="text-[10px] normal-case text-gray-400">(days)</span></th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
+                              <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {newStages.map((stage, idx) => (
+                              stage.is_section_header ? (
+                                <tr key={idx} className="bg-slate-100" data-testid={`new-section-row-${idx}`}>
+                                  <td colSpan={9} className="px-2 py-2">
+                                    <input
+                                      type="text"
+                                      placeholder="SECTION TITLE (e.g. Foundation work)"
+                                      className="w-full bg-transparent text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide outline-none border-0"
+                                      value={stage.section_title || stage.stage_name || ''}
+                                      onChange={(e) => {
+                                        updateNewStage(idx, 'section_title', e.target.value);
+                                        updateNewStage(idx, 'stage_name', e.target.value);
+                                      }}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeNewStageRow(idx)}>
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ) : (
+                                <tr key={idx} className="hover:bg-gray-50" data-testid={`new-stage-row-${idx}`}>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="text"
+                                      placeholder="PO1"
+                                      className="w-16 border rounded px-2 py-1 text-xs"
+                                      value={stage.sl_no || ''}
+                                      onChange={(e) => updateNewStage(idx, 'sl_no', e.target.value)}
+                                      data-testid={`stage-slno-input-${idx}`}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Stage name"
+                                      className="w-full min-w-[160px] border rounded px-2 py-1 text-sm"
+                                      value={stage.stage_name}
+                                      onChange={(e) => updateNewStage(idx, 'stage_name', e.target.value)}
+                                      data-testid={`stage-name-input-${idx}`}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="date"
+                                      className="border rounded px-2 py-1 text-xs"
+                                      value={stage.start_date || ''}
+                                      onChange={(e) => updateNewStage(idx, 'start_date', e.target.value)}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="date"
+                                      className="border rounded px-2 py-1 text-xs"
+                                      value={stage.target_date || ''}
+                                      onChange={(e) => updateNewStage(idx, 'target_date', e.target.value)}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      placeholder={String(daysBetween(stage.start_date, stage.target_date) || '')}
+                                      className="w-16 border rounded px-2 py-1 text-xs text-center"
+                                      value={stage.duration_days ?? ''}
+                                      onChange={(e) => updateNewStage(idx, 'duration_days', e.target.value === '' ? '' : Number(e.target.value))}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="date"
+                                      className="border rounded px-2 py-1 text-xs"
+                                      value={stage.actual_start_date || ''}
+                                      onChange={(e) => updateNewStage(idx, 'actual_start_date', e.target.value)}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="date"
+                                      className="border rounded px-2 py-1 text-xs"
+                                      value={stage.actual_finish_date || ''}
+                                      onChange={(e) => updateNewStage(idx, 'actual_finish_date', e.target.value)}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <div className="flex items-center gap-1 justify-center">
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        step="5"
+                                        placeholder="0"
+                                        className="w-14 border rounded px-2 py-1 text-xs text-center"
+                                        value={stage.progress ?? ''}
+                                        onChange={(e) => {
+                                          const pct = e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value)));
+                                          const auto_status = pct === '' ? stage.status : pct >= 100 ? 'finished' : pct > 0 ? 'started' : 'yet_to_start';
+                                          updateNewStage(idx, 'progress', pct);
+                                          updateNewStage(idx, 'status', auto_status);
+                                        }}
+                                      />
+                                      <span className="text-[10px] text-gray-500">%</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-2 py-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Delays, blockers, issues..."
+                                      className="w-full min-w-[140px] border rounded px-2 py-1 text-xs"
+                                      value={stage.hindrances ?? stage.remarks ?? ''}
+                                      onChange={(e) => { updateNewStage(idx, 'hindrances', e.target.value); updateNewStage(idx, 'remarks', e.target.value); }}
+                                    />
+                                  </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeNewStageRow(idx)}>
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              )
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
 
                       {/* Add row + Action buttons */}
                       <div className="flex flex-wrap gap-2 pt-2">
                         <Button variant="outline" size="sm" onClick={addNewStageRow} data-testid="add-stage-row-btn">
-                          <Plus className="h-3 w-3 mr-1" /> Add Row
+                          <Plus className="h-3 w-3 mr-1" /> Add Stage Row
+                        </Button>
+                        <Button variant="outline" size="sm" className="border-slate-400 text-slate-700 hover:bg-slate-100" onClick={addNewTitleRow} data-testid="add-title-row-btn">
+                          <Plus className="h-3 w-3 mr-1" /> Add Title Row
                         </Button>
                         <div className="flex-1" />
                         <Button variant="outline" size="sm" onClick={() => { setSaveTemplateDialog(true); }} data-testid="save-as-template-btn">
@@ -3400,7 +3506,7 @@ export default function ProjectDetail() {
                         <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={handleSaveStages} data-testid="save-stages-btn">
                           <Check className="h-3 w-3 mr-1" /> Save Stages
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '' }]); }}>
+                        <Button variant="outline" size="sm" onClick={() => { setShowAddStages(false); setNewStages([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]); }}>
                           Cancel
                         </Button>
                       </div>
