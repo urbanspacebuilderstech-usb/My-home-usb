@@ -3586,6 +3586,11 @@ class ProjectStageCreate(BaseModel):
     stage_name: str
     start_date: Optional[str] = None
     target_date: Optional[str] = None
+    duration_days: Optional[int] = None
+    actual_start_date: Optional[str] = None
+    actual_finish_date: Optional[str] = None
+    progress: Optional[int] = None
+    hindrances: Optional[str] = None
     status: str = "yet_to_start"  # yet_to_start, started, finished
     remarks: Optional[str] = None
     order: Optional[int] = None
@@ -3594,8 +3599,13 @@ class ProjectStageUpdate(BaseModel):
     stage_name: Optional[str] = None
     start_date: Optional[str] = None
     target_date: Optional[str] = None
+    duration_days: Optional[int] = None
+    actual_start_date: Optional[str] = None
+    actual_finish_date: Optional[str] = None
+    progress: Optional[int] = None       # 0–100
+    hindrances: Optional[str] = None      # delays / blockers (replaces "remarks" semantically)
     status: Optional[str] = None
-    remarks: Optional[str] = None
+    remarks: Optional[str] = None         # kept for backward compatibility
     order: Optional[int] = None
 
 class StageTemplateCreate(BaseModel):
@@ -3638,6 +3648,11 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "stage_name": data.stage_name,
         "start_date": data.start_date,
         "target_date": data.target_date,
+        "duration_days": data.duration_days,
+        "actual_start_date": data.actual_start_date,
+        "actual_finish_date": data.actual_finish_date,
+        "progress": data.progress if data.progress is not None else 0,
+        "hindrances": data.hindrances,
         "status": data.status,
         "remarks": data.remarks,
         "order": data.order if data.order is not None else count + 1,
@@ -3665,6 +3680,11 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "stage_name": s.stage_name,
             "start_date": s.start_date,
             "target_date": s.target_date,
+            "duration_days": s.duration_days,
+            "actual_start_date": s.actual_start_date,
+            "actual_finish_date": s.actual_finish_date,
+            "progress": s.progress if s.progress is not None else 0,
+            "hindrances": s.hindrances,
             "status": s.status or "yet_to_start",
             "remarks": s.remarks,
             "order": existing + i + 1,

@@ -38,6 +38,15 @@ const API = `${BACKEND_URL}/api`;
 
 // Inline editable rate (%) — used on the virtual Auto-collected (Sales) row in
 // the Payment Schedule. Click to edit, type a number, Enter / blur to save.
+
+// Helper: inclusive day-count between two ISO dates (YYYY-MM-DD). Returns '' if missing.
+const daysBetween = (start, end) => {
+  if (!start || !end) return '';
+  const a = new Date(start), b = new Date(end);
+  if (isNaN(a) || isNaN(b)) return '';
+  const ms = b.getTime() - a.getTime();
+  return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24)) + 1);
+};
 const InlineEditRate = ({ initial, onSave, mode = 'percent' }) => {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(String(initial ?? ''));
@@ -3409,13 +3418,16 @@ export default function ProjectDetail() {
                       <thead className="bg-gray-50 border-b">
                         <tr>
                           <th className="px-1 py-3 w-8"></th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Stage Name</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Start Date</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Target Date</th>
-                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
-                          {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
+                          <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">S.No</th>
+                          <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Stage Name</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Planned Start</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Planned Finish</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Duration (days)</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
+                          <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
+                          {canManage && <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -3430,47 +3442,108 @@ export default function ProjectDetail() {
                             <td className="px-1 py-3 text-center">
                               {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
                             </td>
-                            <td className="px-4 py-3 text-sm font-medium">{idx + 1}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-3 py-3 text-sm font-medium">{idx + 1}</td>
+                            <td className="px-3 py-3">
                               {editingStageId === stage.stage_id ? (
                                 <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
                               ) : (
                                 <span className="font-medium">{stage.stage_name}</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            {/* Planned Start */}
+                            <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
                                 <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => setEditStageData(d => ({...d, start_date: e.target.value}))} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            {/* Planned Finish */}
+                            <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
                                 <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => setEditStageData(d => ({...d, target_date: e.target.value}))} />
                               ) : (
                                 <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-center">
+                            {/* Duration (days) — placeholder field, auto-computed from Planned Start/Finish but editable */}
+                            <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <select className="border rounded px-2 py-1 text-sm" value={editStageData.status || 'yet_to_start'} onChange={e => setEditStageData(d => ({...d, status: e.target.value}))}>
-                                  <option value="yet_to_start">Yet to Start</option>
-                                  <option value="started">Started</option>
-                                  <option value="finished">Finished</option>
-                                </select>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="border rounded px-2 py-1 text-sm w-20 text-center"
+                                  placeholder={String(daysBetween(editStageData.start_date, editStageData.target_date) || '')}
+                                  value={editStageData.duration_days ?? ''}
+                                  onChange={e => setEditStageData(d => ({...d, duration_days: e.target.value === '' ? '' : Number(e.target.value)}))}
+                                />
                               ) : (
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${stageStatusConfig[stage.status]?.color || 'bg-gray-100 text-gray-600'}`}>
-                                  {stage.status === 'finished' && <Check className="h-3 w-3 mr-1" />}
-                                  {stageStatusConfig[stage.status]?.label || stage.status}
+                                <span className="text-sm text-gray-600">
+                                  {stage.duration_days || daysBetween(stage.start_date, stage.target_date) || '-'}
                                 </span>
                               )}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            {/* Actual Start */}
+                            <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.remarks || ''} onChange={e => setEditStageData(d => ({...d, remarks: e.target.value}))} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_start_date || ''} onChange={e => setEditStageData(d => ({...d, actual_start_date: e.target.value}))} />
                               ) : (
-                                stage.remarks || '-'
+                                <span className="text-sm">{stage.actual_start_date ? new Date(stage.actual_start_date).toLocaleDateString('en-IN') : '-'}</span>
+                              )}
+                            </td>
+                            {/* Actual Finish */}
+                            <td className="px-3 py-3 text-center">
+                              {editingStageId === stage.stage_id ? (
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_finish_date || ''} onChange={e => setEditStageData(d => ({...d, actual_finish_date: e.target.value}))} />
+                              ) : (
+                                <span className="text-sm">{stage.actual_finish_date ? new Date(stage.actual_finish_date).toLocaleDateString('en-IN') : '-'}</span>
+                              )}
+                            </td>
+                            {/* Progress (% complete) — also doubles as Status indicator */}
+                            <td className="px-3 py-3 text-center">
+                              {editingStageId === stage.stage_id ? (
+                                <div className="flex items-center gap-1 justify-center">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="5"
+                                    className="border rounded px-2 py-1 text-sm w-16 text-center"
+                                    value={editStageData.progress ?? ''}
+                                    onChange={e => {
+                                      const pct = e.target.value === '' ? '' : Math.max(0, Math.min(100, Number(e.target.value)));
+                                      const auto_status = pct === '' ? editStageData.status : pct >= 100 ? 'finished' : pct > 0 ? 'started' : 'yet_to_start';
+                                      setEditStageData(d => ({...d, progress: pct, status: auto_status}));
+                                    }}
+                                  />
+                                  <span className="text-xs text-gray-500">%</span>
+                                </div>
+                              ) : (() => {
+                                const pct = Number(stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0));
+                                const tone = pct >= 100 ? 'bg-green-500' : pct > 0 ? 'bg-amber-500' : 'bg-gray-300';
+                                return (
+                                  <div className="flex flex-col items-center gap-0.5 min-w-[80px]">
+                                    <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                                      <div className={`h-full ${tone}`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <span className="text-[11px] text-gray-600">{pct}%</span>
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            {/* Hindrances */}
+                            <td className="px-3 py-3 text-sm text-gray-600 max-w-[200px]">
+                              {editingStageId === stage.stage_id ? (
+                                <input
+                                  className="border rounded px-2 py-1 text-sm w-full"
+                                  placeholder="Delays, blockers, issues..."
+                                  value={editStageData.hindrances ?? editStageData.remarks ?? ''}
+                                  onChange={e => setEditStageData(d => ({...d, hindrances: e.target.value, remarks: e.target.value}))}
+                                />
+                              ) : (
+                                <span className="line-clamp-2" title={stage.hindrances || stage.remarks || ''}>
+                                  {stage.hindrances || stage.remarks || '-'}
+                                </span>
                               )}
                             </td>
                             {canManage && (
@@ -3482,7 +3555,7 @@ export default function ProjectDetail() {
                                   </div>
                                 ) : (
                                   <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', status: stage.status, remarks: stage.remarks || '' }); }}>
+                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '' }); }}>
                                       <Edit className="h-3 w-3" />
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
