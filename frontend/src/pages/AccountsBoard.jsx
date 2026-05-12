@@ -1512,6 +1512,13 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
       setDrilldown({ type: 'suspense' });
       return;
     }
+    // Petty Cash mode = jump straight to the Petty Cash Management drilldown
+    // so PM-approved requests are visible. The "mode breakdown" view only shows
+    // transactions already paid via cash, which is empty until cash is issued.
+    if (mode === 'petty_cash') {
+      setDrilldown({ type: 'petty_cash_mgmt' });
+      return;
+    }
     // Show income entries for this mode
     const modeIncome = incomeEntries.filter(e => classifyMode(e.payment_mode) === mode);
     const modeExpense = allExpenseEntries.filter(e => classifyMode(e.payment_method || e.payment_mode) === mode);
