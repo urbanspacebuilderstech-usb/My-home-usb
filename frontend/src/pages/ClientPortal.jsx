@@ -4,7 +4,8 @@ import axios from 'axios';
 import { 
   Building2, LogOut, Home, DollarSign, Image, FileText, Clock, 
   Printer, ChevronLeft, CheckCircle2, Circle, ArrowRight,
-  Wallet, TrendingUp, Package
+  Wallet, TrendingUp, Package, MapPin, Calendar, CalendarCheck,
+  User, Receipt, Layers, IndianRupee, TrendingDown, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -399,66 +400,158 @@ export default function ClientPortal() {
             </CardHeader>
 
             {/* Overview Tab */}
-            <TabsContent value="overview" className="p-6 print:break-inside-avoid">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-lg font-bold mb-4">Project Details</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Project Name</span>
-                      <span className="font-medium">{project.name}</span>
+            <TabsContent value="overview" className="p-4 sm:p-6 print:break-inside-avoid">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+                {/* Project Details Card */}
+                <div className="rounded-2xl border bg-gradient-to-br from-white to-blue-50/30 p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-5 pb-4 border-b border-blue-100">
+                    <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-blue-600" />
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Client</span>
-                      <span className="font-medium">{project.client_name}</span>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900">Project Details</h3>
+                      <p className="text-xs text-gray-500">Site & timeline information</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Location</span>
-                      <span className="font-medium">{project.location}</span>
+                  </div>
+                  <dl className="space-y-3.5">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                        <Home className="h-3.5 w-3.5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Project Name</dt>
+                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.name || '—'}</dd>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                        <User className="h-3.5 w-3.5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Client</dt>
+                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.client_name || '—'}</dd>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                        <MapPin className="h-3.5 w-3.5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Location</dt>
+                        <dd className="text-sm font-semibold text-gray-900 truncate">{project.location || '—'}</dd>
+                      </div>
                     </div>
                     {project.start_date && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Start Date</span>
-                        <span className="font-medium">{new Date(project.start_date).toLocaleDateString('en-IN')}</span>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                          <Calendar className="h-3.5 w-3.5 text-gray-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Start Date</dt>
+                          <dd className="text-sm font-semibold text-gray-900">{new Date(project.start_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</dd>
+                        </div>
                       </div>
                     )}
                     {project.expected_completion && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Expected Completion</span>
-                        <span className="font-medium">{new Date(project.expected_completion).toLocaleDateString('en-IN')}</span>
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                          <CalendarCheck className="h-3.5 w-3.5 text-gray-500" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Expected Completion</dt>
+                          <dd className="text-sm font-semibold text-gray-900">{new Date(project.expected_completion).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</dd>
+                        </div>
                       </div>
                     )}
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Status</span>
-                      <Badge variant={project.status === 'active' ? 'default' : 'secondary'}>
-                        {project.status}
-                      </Badge>
+                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+                      <div className="w-8 h-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0">
+                        <AlertCircle className="h-3.5 w-3.5 text-gray-500" />
+                      </div>
+                      <div className="flex-1 flex items-center justify-between gap-2">
+                        <dt className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Status</dt>
+                        <dd>
+                          <Badge className={`capitalize font-medium ${
+                            project.status === 'active' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' :
+                            project.status === 'completed' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                            project.status === 'in_planning' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                            'bg-gray-100 text-gray-700 border-gray-200'
+                          }`}>
+                            {(project.status || 'unknown').replace(/_/g, ' ')}
+                          </Badge>
+                        </dd>
+                      </div>
+                    </div>
+                  </dl>
+                </div>
+
+                {/* Financial Summary Card */}
+                <div className="rounded-2xl border bg-gradient-to-br from-white to-emerald-50/30 p-5 sm:p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-5 pb-4 border-b border-emerald-100">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+                      <IndianRupee className="h-5 w-5 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900">Financial Summary</h3>
+                      <p className="text-xs text-gray-500">Payments at a glance</p>
                     </div>
                   </div>
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold mb-4">Financial Summary</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Project Value</span>
-                      <span className="font-medium">₹{(project.total_value || 0).toLocaleString()}</span>
+
+                  {/* Mini KPI tiles */}
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="rounded-xl bg-blue-50 border border-blue-100 px-3 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-blue-600 font-semibold mb-0.5">Total Project Value</p>
+                      <p className="text-base sm:text-lg font-bold text-blue-900">₹{((project.total_value || 0) / 100000).toFixed(2)}L</p>
+                      <p className="text-[10px] text-blue-500 mt-0.5">₹{(project.total_value || 0).toLocaleString('en-IN')}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Payment Scheduled</span>
-                      <span className="font-medium">₹{totalScheduled.toLocaleString()}</span>
+                    <div className="rounded-xl bg-violet-50 border border-violet-100 px-3 py-3">
+                      <p className="text-[10px] uppercase tracking-wide text-violet-600 font-semibold mb-0.5">Payment Scheduled</p>
+                      <p className="text-base sm:text-lg font-bold text-violet-900">₹{(totalScheduled / 100000).toFixed(2)}L</p>
+                      <p className="text-[10px] text-violet-500 mt-0.5">₹{totalScheduled.toLocaleString('en-IN')}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Amount Received</span>
-                      <span className="font-medium text-green-600">₹{totalReceived.toLocaleString()}</span>
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-3">
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <TrendingUp className="h-3 w-3 text-emerald-600" />
+                        <p className="text-[10px] uppercase tracking-wide text-emerald-600 font-semibold">Received</p>
+                      </div>
+                      <p className="text-base sm:text-lg font-bold text-emerald-700">₹{(totalReceived / 100000).toFixed(2)}L</p>
+                      <p className="text-[10px] text-emerald-500 mt-0.5">₹{totalReceived.toLocaleString('en-IN')}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Balance Due</span>
-                      <span className="font-medium text-orange-600">₹{balance.toLocaleString()}</span>
+                    <div className="rounded-xl bg-orange-50 border border-orange-100 px-3 py-3">
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <TrendingDown className="h-3 w-3 text-orange-600" />
+                        <p className="text-[10px] uppercase tracking-wide text-orange-600 font-semibold">Balance Due</p>
+                      </div>
+                      <p className="text-base sm:text-lg font-bold text-orange-700">₹{(balance / 100000).toFixed(2)}L</p>
+                      <p className="text-[10px] text-orange-500 mt-0.5">₹{balance.toLocaleString('en-IN')}</p>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Payment Milestones</span>
-                      <span className="font-medium">{paymentStages.length}</span>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="rounded-xl bg-white border border-gray-200 px-3 py-3 mb-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium text-gray-700">Payment Progress</p>
+                      <p className="text-sm font-bold text-gray-900">{progressPercent}%</p>
                     </div>
+                    <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-500"
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Milestones summary */}
+                  <div className="flex items-center justify-between rounded-xl bg-white border border-gray-200 px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                        <Layers className="h-4 w-4 text-purple-600" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500">Payment Milestones</p>
+                        <p className="text-sm font-bold text-gray-900">{paymentStages.length} stages</p>
+                      </div>
+                    </div>
+                    <Badge className="bg-purple-100 text-purple-700 border-purple-200 font-semibold">{paymentStages.length}</Badge>
                   </div>
                 </div>
               </div>
