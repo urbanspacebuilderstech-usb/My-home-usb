@@ -3623,6 +3623,9 @@ class ProjectStageCreate(BaseModel):
     status: str = "yet_to_start"  # yet_to_start, started, finished
     remarks: Optional[str] = None
     order: Optional[int] = None
+    sl_no: Optional[str] = None             # e.g. "PO1", "FW1" — display code from template
+    section_title: Optional[str] = None     # bold group title (e.g. "Foundation work")
+    is_section_header: Optional[bool] = None  # True for non-task header rows
 
 class ProjectStageUpdate(BaseModel):
     stage_name: Optional[str] = None
@@ -3636,6 +3639,9 @@ class ProjectStageUpdate(BaseModel):
     status: Optional[str] = None
     remarks: Optional[str] = None         # kept for backward compatibility
     order: Optional[int] = None
+    sl_no: Optional[str] = None
+    section_title: Optional[str] = None
+    is_section_header: Optional[bool] = None
 
 class StageTemplateCreate(BaseModel):
     template_name: str
@@ -3685,6 +3691,9 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "status": data.status,
         "remarks": data.remarks,
         "order": data.order if data.order is not None else count + 1,
+        "sl_no": data.sl_no,
+        "section_title": data.section_title,
+        "is_section_header": bool(data.is_section_header) if data.is_section_header is not None else False,
         "created_by": user.user_id,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -3717,6 +3726,9 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "status": s.status or "yet_to_start",
             "remarks": s.remarks,
             "order": existing + i + 1,
+            "sl_no": s.sl_no,
+            "section_title": s.section_title,
+            "is_section_header": bool(s.is_section_header) if s.is_section_header is not None else False,
             "created_by": user.user_id,
             "created_at": datetime.now(timezone.utc).isoformat()
         }

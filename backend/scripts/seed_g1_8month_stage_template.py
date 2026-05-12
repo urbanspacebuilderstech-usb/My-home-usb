@@ -1,12 +1,13 @@
 """Seed: 'G+1 / 8 Months — Independent House' project-stage template.
 
-Built from the actual schedule provided by the Diwakar / Thiruporur project so
-Planning can load it on any new project with one click from the
-"Load Template" dropdown on the Stages - Project Stages tab.
+Built from Diwakar's overall schedule. Each section header (e.g. "Boomi pooja
+and Project start date", "Foundation work", "Basement Work" …) is stored as a
+non-task `is_section_header=True` row so the Planning Project Stages table can
+render bold group titles. Actual stages carry a short `sl_no` code (PO1, FW1,
+BW1, GF1, …) plus a day-offset start/end. Frontend converts those offsets to
+real calendar dates once the project start date is set.
 
-Idempotent: safe to re-run (upserts on `template_name`). Dates use Day-N offsets
-from project start; the frontend converts these to actual calendar dates when
-the project's start date is captured.
+Idempotent: safe to re-run (upserts on `template_name`).
 """
 import asyncio
 import os
@@ -27,148 +28,189 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 
 TEMPLATE_NAME = "G+1 - 8 Months (Independent House)"
-TEMPLATE_DESCRIPTION = "Standard 8-month G+1 independent house schedule covering pre-construction, foundation, ground floor, first floor, plastering, flooring, electrical, carpentry, painting and handover."
+TEMPLATE_DESCRIPTION = (
+    "Standard 8-month G+1 independent house schedule covering pre-construction, "
+    "foundation, ground floor, first floor, plastering, flooring, electrical, "
+    "carpentry, painting and handover. Grouped into bold sections."
+)
 
-# (stage_name, start_day_offset, end_day_offset, remarks)
-STAGES = [
-    # ---------- Stage 1: Pre-construction & Foundation ----------
-    ("Bhoomi Pooja & Project Start",                0,   1, "Advance payment for project confirmation (token advance)"),
-    ("Soil Test",                                   2,   2, ""),
-    ("Architectural Design Finalization",           3,   3, ""),
-    ("Structural Drawings",                        20,  26, ""),
-    ("Approvals & Permits",                        28,  36, ""),
-    ("Foundation Work",                            38,  99, ""),
-    # ---------- Stage 2: Foundation + Plinth Beam + GF + FF roof ----------
-    ("Advance Payment — Foundation, Plinth & Basement", 38, 38, ""),
-    ("Excavation",                                 40,  40, ""),
-    ("PCC (Plain Cement Concrete)",                42,  42, ""),
-    ("Footing Reinforcement",                      44,  44, ""),
-    ("Footing Concrete",                           46,  46, ""),
-    ("Column up to Plinth Beam",                   48,  50, ""),
-    ("Backfilling",                                51,  53, ""),
-    ("Basement Work",                              55,  57, ""),
-    ("Plinth Beam Reinforcement",                  59,  59, ""),
-    ("Plinth Beam Concrete Casting",               60,  62, ""),
-    ("Brickwork",                                  63,  65, ""),
-    ("Tie Beam",                                   67,  67, ""),
-    ("Backfilling (Floor Level)",                  69,  71, ""),
-    ("Floor PCC Completion",                       73,  75, ""),
-    ("Ground Floor — Column Starter",              75,  75, ""),
-    ("Ground Floor — Column Reinforcement",        77,  77, ""),
-    ("Ground Floor — Column Concrete Casting",     80,  82, ""),
-    ("Ground Floor — Brickwork up to Lintel",      81,  81, ""),
-    ("Staircase Work (GF)",                        82,  84, ""),
-    ("Ground Floor — Brickwork above Lintel",      85,  87, ""),
-    ("Ground Floor — Roof Slab Shuttering",        88,  89, ""),
-    ("Ground Floor — Roof Slab Reinforcement",     91,  92, ""),
-    ("Ground Floor — Roof Slab Concrete Casting",  93,  96, ""),
-    # ---------- First Floor structure ----------
-    ("First Floor — Column Starter",               98,  98, ""),
-    ("First Floor — Column Reinforcement",        100, 100, ""),
-    ("First Floor — Column Concrete Casting",     101, 103, ""),
-    ("First Floor — Brickwork up to Lintel",      103, 103, ""),
-    ("Staircase Work (FF)",                       105, 107, ""),
-    ("First Floor — Brickwork above Lintel",      107, 109, ""),
-    ("First Floor — Roof Slab Shuttering",        112, 113, ""),
-    ("First Floor — Roof Slab Reinforcement",     114, 115, ""),
-    ("First Floor — Roof Slab Concrete Casting",  116, 119, ""),
-    # ---------- Headroom ----------
-    ("Headroom — Column Starter",                 123, 123, ""),
-    ("Headroom — Column Reinforcement",           124, 124, ""),
-    ("Headroom — Column Concrete Casting",        125, 125, ""),
-    ("Headroom — Brickwork",                      126, 128, ""),
-    ("Headroom — Roof Slab Shuttering",           129, 131, ""),
-    ("Headroom — Roof Slab Reinforcement",        134, 134, ""),
-    ("Headroom — Roof Slab Concrete Casting",     136, 136, ""),
-    # ---------- Stage 3: Super Structure Ground Floor ----------
-    ("Advance Payment — Super Structure (GF)",    106, 106, ""),
-    ("Parapet Wall",                              107, 107, ""),
-    ("GF — Electrical Conduit Fixing",            109, 109, ""),
-    ("GF — Cupboard / Shelves Brickwork",         109, 109, ""),
-    ("GF — Door & Window Frame Fixing",           109, 109, ""),
-    ("GF — Toilet Plumbing Work",                 109, 109, ""),
-    ("GF — Internal Plastering",                  112, 120, ""),
-    # ---------- First Floor finishing ----------
-    ("FF — Electrical Conduit Fixing",            114, 114, ""),
-    ("FF — Cupboard / Shelves Brickwork",         115, 115, ""),
-    ("FF — Door & Window Frame Fixing",           116, 116, ""),
-    ("FF — Toilet Plumbing Work",                 117, 117, ""),
-    ("FF — Internal Plastering",                  119, 126, ""),
-    # ---------- Terrace ----------
-    ("Terrace — Electrical Conduit Fixing",       129, 129, ""),
-    # ---------- Stage 4: Super Structure First Floor ----------
-    ("Advance Payment — Super Structure (FF)",    106, 106, ""),
-    ("Terrace — Cupboard / Shelves Brickwork",    137, 137, ""),
-    ("Terrace — Door & Window Frame Fixing",      137, 137, ""),
-    ("Terrace — Toilet Plumbing Work",            137, 137, ""),
-    ("Terrace — Internal Plastering",             137, 141, ""),
-    ("External Plastering",                       143, 153, ""),
-    # ---------- Stage 7: Block work & Finishing ----------
-    ("Advance Payment — Blockwork & Plastering",  146, 146, ""),
-    ("Plastering on All Sides",                   147, 150, ""),
-    ("Outer Pipeline Work",                       150, 150, ""),
-    # Flooring
-    ("Ground Floor Tiles",                        152, 152, ""),
-    ("First Floor Tiles",                         153, 153, ""),
-    ("Terrace Tiles",                             153, 153, ""),
-    ("Staircase Tiles",                           153, 153, ""),
-    # Carpentry
-    ("Door Fixing",                               155, 155, ""),
-    ("Window Fixing",                             156, 156, ""),
-    # Electrical
-    ("Inner Electrical Wiring (GF/FF/Headroom)",  158, 158, ""),
-    # Painting
-    ("Putty Works",                               162, 164, ""),
-    ("Primer — One Coat",                         165, 165, ""),
-    ("Paint — Two Coat Colour",                   166, 167, ""),
-    # Handover
-    ("Handover & Project Completion",             168, 168, ""),
+# Each entry: (section_title, code_prefix, [(stage_name, start_day, end_day), ...])
+SECTIONS = [
+    ("Boomi pooja and Project start date", "PO", [
+        ("Soil test",                                0,  2),
+        ("Architectural Design Finalization",        3,  6),
+        ("Structural drawings",                      7, 13),
+        ("Approvals & Permits",                     14, 21),
+    ]),
+    ("Foundation work", "FW", [
+        ("Excavation",                              22, 24),
+        ("PCC (Plain Cement Reinforcement)",        25, 26),
+        ("Footing Reinforcement",                   27, 28),
+        ("Footing Concrete",                        29, 30),
+        ("Column upto Plinth beam",                 31, 34),
+        ("Backfilling",                             35, 36),
+    ]),
+    ("Basement Work", "BW", [
+        ("Plinth beam reinforcement",               37, 38),
+        ("Plinth beam Concrete Casting",            39, 41),
+        ("Brickwork",                               42, 45),
+        ("Tie Beam",                                46, 47),
+        ("Backfilling",                             48, 50),
+        ("Floor PCC Completion",                    51, 53),
+    ]),
+    ("Ground floor (Brickwork and Roof slab)", "GF", [
+        ("Column Starter",                          54, 55),
+        ("Column Reinforcement",                    56, 57),
+        ("Concrete Casting",                        58, 60),
+        ("Brickwork upto Lintel level",             61, 63),
+        ("Staircase work",                          64, 66),
+        ("Brickwork above Lintel",                  67, 69),
+        ("Roof slab Shuttering",                    70, 72),
+        ("Roof Slab Reinforcement",                 73, 74),
+        ("Roof slab concrete casting",              75, 77),
+    ]),
+    ("First floor (Brickwork and Roof slab)", "FF", [
+        ("Column Starter",                          78, 79),
+        ("Column Reinforcement",                    80, 81),
+        ("Concrete Casting",                        82, 84),
+        ("Brickwork upto Lintel level",             85, 87),
+        ("Staircase work",                          88, 90),
+        ("Brickwork above Lintel",                  91, 93),
+        ("Roof slab Shuttering",                    94, 96),
+        ("Roof Slab Reinforcement",                 97, 98),
+        ("Roof slab concrete casting",              99, 101),
+    ]),
+    ("Headroom", "HR", [
+        ("Column starter",                         102, 103),
+        ("Column Reinforcement",                   104, 105),
+        ("Concrete Casting",                       106, 107),
+        ("Brickwork headroom",                     108, 110),
+        ("Roof slab Shuttering",                   111, 112),
+        ("Roof Slab Reinforcement",                113, 114),
+        ("Roof slab concrete casting",             115, 116),
+        ("Parapet wall",                           117, 119),
+    ]),
+    ("Plastering — Inner Plastering Ground Floor", "GP", [
+        ("Electrical conduit fixing in wall",      120, 121),
+        ("Cupboard / Shelves brickwork",           122, 123),
+        ("Door / Window frame fixing",             124, 125),
+        ("Toilet Plumbing work",                   126, 127),
+        ("Plastering work — Internal",             128, 132),
+    ]),
+    ("Plastering — Inner Plastering First Floor", "FP", [
+        ("Electrical conduit fixing in wall",      133, 134),
+        ("Cupboard / Shelves brickwork",           135, 136),
+        ("Door / Window frame fixing",             137, 138),
+        ("Toilet Plumbing work",                   139, 140),
+        ("Plastering work — Internal",             141, 145),
+    ]),
+    ("Plastering — Inner Plastering Terrace Floor", "TP", [
+        ("Electrical conduit fixing in wall",      146, 147),
+        ("Cupboard / Shelves brickwork",           148, 149),
+        ("Door / Window frame fixing",             150, 151),
+        ("Toilet Plumbing work",                   152, 153),
+        ("Plastering work — Internal",             154, 158),
+    ]),
+    ("Outer Plastering", "OP", [
+        ("Plastering on all sides",                159, 163),
+        ("Outer pipeline work",                    164, 166),
+    ]),
+    ("Flooring work", "FL", [
+        ("Ground Floor tiles work",                167, 170),
+        ("First Floor tiles work",                 171, 174),
+        ("Terrace Tiles work",                     175, 177),
+        ("Staircase tiles work",                   178, 180),
+    ]),
+    ("Carpentary work", "CP", [
+        ("Doors fixing",                           181, 183),
+        ("Windows Fixing",                         184, 186),
+    ]),
+    ("Inner Electrical work", "EL", [
+        ("Ground floor, 1st floor and headroom electrical wiring", 187, 192),
+    ]),
+    ("Painting works", "PW", [
+        ("Putty works",                            193, 197),
+        ("Primer one coat",                        198, 199),
+        ("Two Coat Colour",                        200, 203),
+        ("Handing over and completion",            204, 205),
+    ]),
 ]
+
+
+def build_stages_payload():
+    """Flatten SECTIONS into a single ordered list with section-header rows + stages."""
+    payload = []
+    for section_title, prefix, stages in SECTIONS:
+        # Section header row (no dates, not a real task)
+        payload.append({
+            "id": f"st_{uuid.uuid4().hex[:8]}",
+            "stage_name": section_title,
+            "section_title": section_title,
+            "is_section_header": True,
+            "sl_no": "",
+            "start_day": None,
+            "end_day": None,
+            "duration_days": None,
+            "remarks": "",
+            "status": "yet_to_start",
+        })
+        # Stage rows
+        for idx, (name, start, end) in enumerate(stages, start=1):
+            payload.append({
+                "id": f"st_{uuid.uuid4().hex[:8]}",
+                "stage_name": name,
+                "section_title": section_title,
+                "is_section_header": False,
+                "sl_no": f"{prefix}{idx}",
+                "start_day": start,
+                "end_day": end,
+                "duration_days": max(1, end - start + 1),
+                "remarks": "",
+                "status": "yet_to_start",
+            })
+    return payload
 
 
 async def main() -> None:
     client = AsyncIOMotorClient(MONGO_URL)
     db = client[DB_NAME]
-    
-    stages_payload = [
-        {
-            "id": f"st_{uuid.uuid4().hex[:8]}",
-            "stage_name": name,
-            "start_day": start,
-            "end_day": end,
-            "duration_days": max(1, end - start + 1),
-            "remarks": remarks,
-            "status": "Yet to Start",
-        }
-        for (name, start, end, remarks) in STAGES
-    ]
-    
+
+    stages_payload = build_stages_payload()
+    real_stage_count = sum(1 for s in stages_payload if not s["is_section_header"])
+
     template_doc = {
         "template_id": f"tpl_{uuid.uuid4().hex[:8]}",
         "template_name": TEMPLATE_NAME,
         "description": TEMPLATE_DESCRIPTION,
         "stages": stages_payload,
-        "stage_count": len(stages_payload),
+        "stage_count": real_stage_count,
+        "section_count": len(SECTIONS),
         "duration_months": 8,
         "is_active": True,
         "created_by": "system_seed",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    
-    existing = await db.stage_templates.find_one({"template_name": TEMPLATE_NAME}, {"_id": 0, "template_id": 1})
+
+    existing = await db.stage_templates.find_one(
+        {"template_name": TEMPLATE_NAME}, {"_id": 0, "template_id": 1}
+    )
     if existing:
-        # Preserve existing template_id; just refresh fields
         template_doc["template_id"] = existing["template_id"]
         await db.stage_templates.update_one(
-            {"template_name": TEMPLATE_NAME},
-            {"$set": template_doc}
+            {"template_name": TEMPLATE_NAME}, {"$set": template_doc}
         )
-        print(f"✓ Updated existing template '{TEMPLATE_NAME}' with {len(stages_payload)} stages")
+        print(
+            f"✓ Updated '{TEMPLATE_NAME}' — {len(SECTIONS)} sections, "
+            f"{real_stage_count} stages ({len(stages_payload)} rows incl. headers)"
+        )
     else:
         await db.stage_templates.insert_one(template_doc)
-        print(f"✓ Inserted new template '{TEMPLATE_NAME}' with {len(stages_payload)} stages")
-    
+        print(
+            f"✓ Inserted '{TEMPLATE_NAME}' — {len(SECTIONS)} sections, "
+            f"{real_stage_count} stages ({len(stages_payload)} rows incl. headers)"
+        )
+
     client.close()
 
 

@@ -1708,12 +1708,15 @@ export default function ProjectDetail() {
         start_date: s.start_date || '',
         target_date: s.target_date || '',
         status: s.status || 'yet_to_start',
-        remarks: s.remarks || ''
+        remarks: s.remarks || '',
+        sl_no: s.sl_no || '',
+        section_title: s.section_title || '',
+        is_section_header: !!s.is_section_header,
       }));
       if (tmplStages.length > 0) {
         setNewStages(tmplStages);
         setShowAddStages(true);
-        toast.success(`Loaded "${name}" template with ${tmplStages.length} stages`);
+        toast.success(`Loaded "${name}" template with ${tmplStages.length} rows`);
       }
     } catch { toast.error('Failed to load template'); }
   };
@@ -3316,8 +3319,25 @@ export default function ProjectDetail() {
                       {/* Stage Rows */}
                       <div className="space-y-2">
                         {newStages.map((stage, idx) => (
+                          stage.is_section_header ? (
+                            <div key={idx} className="flex items-center justify-between gap-2 bg-slate-200 px-3 py-2 rounded-lg border border-slate-300" data-testid={`new-section-row-${idx}`}>
+                              <input
+                                type="text"
+                                placeholder="Section title"
+                                className="flex-1 bg-transparent text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide outline-none"
+                                value={stage.section_title || stage.stage_name}
+                                onChange={(e) => {
+                                  updateNewStage(idx, 'section_title', e.target.value);
+                                  updateNewStage(idx, 'stage_name', e.target.value);
+                                }}
+                              />
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => removeNewStageRow(idx)}>
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
                           <div key={idx} className="flex flex-wrap items-center gap-2 bg-white p-3 rounded-lg border" data-testid={`new-stage-row-${idx}`}>
-                            <span className="text-sm font-medium text-gray-500 w-6">{idx + 1}.</span>
+                            <span className="text-sm font-medium text-gray-500 w-10 whitespace-nowrap">{stage.sl_no || `${idx + 1}.`}</span>
                             <input
                               type="text"
                               placeholder="Stage name"
@@ -3364,6 +3384,7 @@ export default function ProjectDetail() {
                               <X className="h-4 w-4" />
                             </Button>
                           </div>
+                          )
                         ))}
                       </div>
 
@@ -3436,13 +3457,31 @@ export default function ProjectDetail() {
                           onReorder={handleStageReorder}
                         >
                         {projectStages.map((stage, idx) => (
-                          <SortableTableRow key={stage.stage_id} id={stage.stage_id} className="hover:bg-gray-50">
-                            {({ listeners, attributes }) => (
+                          <SortableTableRow key={stage.stage_id} id={stage.stage_id} className={stage.is_section_header ? 'bg-slate-100' : 'hover:bg-gray-50'}>
+                            {({ listeners, attributes }) => stage.is_section_header ? (
+                              <>
+                                <td className="px-1 py-2 text-center">
+                                  {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
+                                </td>
+                                <td colSpan={canManage ? 10 : 9} className="px-3 py-2.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide">
+                                      {stage.section_title || stage.stage_name}
+                                    </span>
+                                    {canManage && (
+                                      <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)} title="Delete section header">
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </td>
+                              </>
+                            ) : (
                               <>
                             <td className="px-1 py-3 text-center">
                               {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
                             </td>
-                            <td className="px-3 py-3 text-sm font-medium">{idx + 1}</td>
+                            <td className="px-3 py-3 text-sm font-medium whitespace-nowrap">{stage.sl_no || (idx + 1)}</td>
                             <td className="px-3 py-3">
                               {editingStageId === stage.stage_id ? (
                                 <input className="border rounded px-2 py-1 text-sm w-full" value={editStageData.stage_name || ''} onChange={e => setEditStageData(d => ({...d, stage_name: e.target.value}))} />
