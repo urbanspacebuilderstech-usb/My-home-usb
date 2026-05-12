@@ -2942,6 +2942,35 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
         update_fields["expected_payment_date"] = expected_date
     await db.additional_costs.update_one({"cost_id": cost_id}, {"$set": update_fields})
     
+    # Auto-create a monthly_schedule_entries row so the additional work
+    # shows up on the Planning Dashboard's Monthly Payment Schedule.
+    # Mirrors the logic in `/payment-stages/{stage_id}/request`.
+    if expected_date:
+        try:
+            dt = datetime.strptime(expected_date, "%Y-%m-%d")
+            existing_entry = await db.monthly_schedule_entries.find_one(
+                {"stage_id": stage_id, "month": dt.month, "year": dt.year},
+                {"_id": 0, "entry_id": 1},
+            )
+            if not existing_entry:
+                # Drop any prior month entry for this stage so it appears only once
+                await db.monthly_schedule_entries.delete_many({"stage_id": stage_id})
+                await db.monthly_schedule_entries.insert_one({
+                    "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+                    "month": dt.month,
+                    "year": dt.year,
+                    "project_id": cost["project_id"],
+                    "stage_id": stage_id,
+                    "expected_payment_date": expected_date,
+                    "is_addition": True,
+                    "linked_addition_id": cost_id,
+                    "added_by": user.user_id,
+                    "added_at": now_iso,
+                })
+        except (ValueError, TypeError):
+            # Bad date format — silently skip schedule entry; main request still succeeds
+            pass
+    
     # Notify CRE users
     cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(10)
     for cre in cre_users:

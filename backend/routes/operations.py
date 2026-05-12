@@ -1673,6 +1673,49 @@ async def get_monthly_schedule(
         {"month": month, "year": year}, {"_id": 0}
     ).sort("added_at", 1).to_list(1000)
     
+    # 1b. Backfill: ensure any Additional Work payment_stages that were "Requested"
+    # with an expected_payment_date in/before this month have a monthly_schedule_entries
+    # row. Older entries may pre-date the auto-create logic in request_additional_payment.
+    try:
+        month_end = (datetime(year, month, 28) + timedelta(days=4)).replace(day=1).isoformat()
+        addition_stages = await db.payment_stages.find(
+            {
+                "is_addition": True,
+                "expected_payment_date": {"$ne": None, "$lt": month_end},
+                "status": {"$nin": ["paid", "collected"]},
+            },
+            {"_id": 0},
+        ).to_list(2000)
+        existing_stage_ids_global = await db.monthly_schedule_entries.distinct("stage_id")
+        existing_global_set = set(existing_stage_ids_global)
+        for s in addition_stages:
+            sid = s.get("stage_id")
+            if not sid or sid in existing_global_set:
+                continue
+            try:
+                dt = datetime.strptime(s["expected_payment_date"][:10], "%Y-%m-%d")
+            except (ValueError, TypeError):
+                continue
+            await db.monthly_schedule_entries.insert_one({
+                "entry_id": f"mse_{uuid.uuid4().hex[:12]}",
+                "month": dt.month,
+                "year": dt.year,
+                "project_id": s["project_id"],
+                "stage_id": sid,
+                "expected_payment_date": s["expected_payment_date"],
+                "is_addition": True,
+                "linked_addition_id": s.get("linked_addition_id"),
+                "added_by": "system_backfill",
+                "added_at": datetime.now(timezone.utc).isoformat(),
+            })
+        # Re-fetch this month's entries after backfill
+        entries = await db.monthly_schedule_entries.find(
+            {"month": month, "year": year}, {"_id": 0}
+        ).sort("added_at", 1).to_list(1000)
+    except Exception:
+        # Backfill is best-effort; never block the main response
+        pass
+    
     # 2. Get all uncollected entries from ALL previous months (carryover)
     prev_entries = await db.monthly_schedule_entries.find(
         {"$or": [
