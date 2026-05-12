@@ -343,7 +343,7 @@ export default function AccountantModule() {
       material: materialRequests.filter(r => ['pending_accounts_approval', 'procurement_approved'].includes(r.status)).length,
       labour: labourRequests.filter(r => ['pending_accounts_approval', 'planning_approved'].includes(r.status)).length,
       labour_payments: labourPaymentsCount,
-      petty_cash: pettyCashRequests.filter(r => ['requested', 'pending_settlement'].includes(r.status)).length,
+      petty_cash: pettyCashRequests.filter(r => ['requested', 'pm_approved', 'pending_settlement'].includes(r.status)).length,
       total: 0
     };
   };
@@ -614,36 +614,45 @@ export default function AccountantModule() {
                 )}
 
                 {/* Petty Cash Requests */}
-                {(requestFilter === 'all' || requestFilter === 'petty_cash') && pettyCashRequests.filter(r => ['requested', 'pending_settlement'].includes(r.status)).length > 0 && (
+                {(requestFilter === 'all' || requestFilter === 'petty_cash') && pettyCashRequests.filter(r => ['requested', 'pm_approved', 'pending_settlement'].includes(r.status)).length > 0 && (
                   <div className="p-4">
                     <h3 className="text-sm font-semibold text-violet-700 mb-3 flex items-center gap-2">
                       <Wallet className="h-4 w-4" /> Petty Cash Verification
                     </h3>
                     <div className="space-y-3">
-                      {pettyCashRequests.filter(r => ['requested', 'pending_settlement'].includes(r.status)).map(req => (
+                      {pettyCashRequests.filter(r => ['requested', 'pm_approved', 'pending_settlement'].includes(r.status)).map(req => (
                         <Card key={req.petty_cash_id} className="border-violet-200" data-testid={`petty-cash-${req.petty_cash_id}`}>
                           <CardContent className="p-4 flex items-center justify-between">
                             <div>
                               <p className="font-semibold">{req.purpose}</p>
                               <p className="text-sm text-gray-600">Project: {req.project_name}</p>
                               <p className="text-sm">Requested by: {req.requested_by_name}</p>
+                              {req.status === 'pm_approved' && req.pm_approved_by_name && (
+                                <p className="text-xs text-emerald-700">PM approved by: {req.pm_approved_by_name}{req.pm_remarks ? ` — "${req.pm_remarks}"` : ''}</p>
+                              )}
                               <div className="flex gap-4 mt-1">
                                 <p className="text-lg font-bold text-violet-600">{formatCurrency(req.amount_requested)}</p>
                                 {req.status === 'pending_settlement' && (
                                   <p className="text-sm text-gray-600">Spent: {formatCurrency(req.amount_spent)}</p>
                                 )}
                               </div>
-                              <Badge className={req.status === 'requested' ? 'bg-yellow-100 text-yellow-700' : 'bg-orange-100 text-orange-700'}>
-                                {req.status === 'requested' ? 'New Request' : 'Pending Settlement'}
+                              <Badge className={
+                                req.status === 'requested' ? 'bg-yellow-100 text-yellow-700' :
+                                req.status === 'pm_approved' ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-orange-100 text-orange-700'
+                              }>
+                                {req.status === 'requested' ? 'New Request (Awaiting PM)' :
+                                 req.status === 'pm_approved' ? 'PM Approved — Issue Cash' :
+                                 'Pending Settlement'}
                               </Badge>
                             </div>
                             <div className="flex gap-2">
-                              {req.status === 'requested' && (
+                              {(req.status === 'requested' || req.status === 'pm_approved') && (
                                 <>
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => openVerifyDialog(req, 'petty_cash')}>
+                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => openVerifyDialog(req, 'petty_cash')} data-testid={`pc-issue-${req.petty_cash_id}`}>
                                     <Wallet className="h-4 w-4 mr-1" /> Issue Cash
                                   </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => openRejectDialog(req, 'petty_cash')}>
+                                  <Button size="sm" variant="destructive" onClick={() => openRejectDialog(req, 'petty_cash')} data-testid={`pc-reject-${req.petty_cash_id}`}>
                                     <XCircle className="h-4 w-4 mr-1" /> Reject
                                   </Button>
                                 </>
