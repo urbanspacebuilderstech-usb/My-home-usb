@@ -63,7 +63,6 @@ const TAB_META = {
   credit:          { label: 'Credit Settlement', Icon: Banknote, color: 'purple',  pillActive: 'bg-purple-50 text-purple-700 border-purple-300', badgeBg: 'bg-purple-100 text-purple-700' },
   labour_stages:   { label: 'Labour Stages',   Icon: Users,      color: 'amber',   pillActive: 'bg-amber-50 text-amber-700 border-amber-300',    badgeBg: 'bg-amber-100 text-amber-700' },
   labour_payments: { label: 'Labour Payments', Icon: CreditCard, color: 'cyan',    pillActive: 'bg-cyan-50 text-cyan-700 border-cyan-300',       badgeBg: 'bg-cyan-100 text-cyan-700' },
-  petty:           { label: 'Petty Cash',      Icon: Wallet,     color: 'emerald', pillActive: 'bg-emerald-50 text-emerald-700 border-emerald-300', badgeBg: 'bg-emerald-100 text-emerald-700' },
 };
 
 // ---- Field accessors per type ----
@@ -184,8 +183,8 @@ export default function PlanningRequestsTab({ projects = [], onCountChange }) {
     [creditEntries]
   );
 
-  const counts = { material: planningPendingMaterials, credit: fCreditPending.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length, petty: fPettyPMApproved.length };
-  const totalRequests = counts.material + counts.credit + counts.labour_stages + counts.labour_payments + counts.petty;
+  const counts = { material: planningPendingMaterials, credit: fCreditPending.length, labour_stages: fLabourStages.length, labour_payments: fLabourPayments.length };
+  const totalRequests = counts.material + counts.credit + counts.labour_stages + counts.labour_payments;
   // Bubble the count up to PlanningBoard so the "Requests" tab badge stays in sync
   useEffect(() => {
     if (typeof onCountChange === 'function') onCountChange(totalRequests);
