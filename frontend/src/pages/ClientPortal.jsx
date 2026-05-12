@@ -210,6 +210,16 @@ export default function ClientPortal() {
   const totalAdditionalReceived = additionalCosts.reduce((sum, c) => sum + (c.income_received || 0), 0);
   const totalDeductions = deductions.reduce((sum, d) => sum + (d.amount || 0), 0);
 
+  // Pending payment dues — stages with remaining balance > 0 (i.e. not fully paid)
+  const pendingDueStages = paymentStages.filter(s => ((s.amount || 0) - (s.amount_received || 0)) > 0);
+  const pendingDueCount = pendingDueStages.length;
+  // Nearest upcoming due date among pending stages
+  const nearestDueDate = pendingDueStages
+    .filter(s => s.due_date)
+    .map(s => new Date(s.due_date))
+    .filter(d => !isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+
   // Get current construction stage
   const currentStageIndex = CONSTRUCTION_STAGES.findIndex(s => s.id === project.construction_stage);
 
@@ -325,20 +335,34 @@ export default function ClientPortal() {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+          <Card
+            className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => setActiveTab('payments')}
+            data-testid="pending-dues-card"
+          >
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-gray-600 flex items-center gap-2">
-                <Clock className="h-4 w-4" /> Payment Progress
+                <Clock className="h-4 w-4" /> Pending Dues
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-700">{progressPercent}%</div>
-              <div className="w-full bg-purple-200 rounded-full h-2 mt-2">
-                <div 
-                  className="bg-purple-600 h-2 rounded-full transition-all" 
-                  style={{ width: `${progressPercent}%` }}
-                />
+              <div className="flex items-baseline gap-2">
+                <div className="text-2xl font-bold text-purple-700">{pendingDueCount}</div>
+                <div className="text-xs text-purple-600">/ {paymentStages.length} stages</div>
               </div>
+              <div className="text-xs text-gray-500 mt-1.5 truncate">
+                {pendingDueCount > 0 ? (
+                  <>
+                    <span className="font-semibold text-purple-700">₹{(balance / 100000).toFixed(2)}L</span> remaining
+                    {nearestDueDate && (
+                      <span className="ml-1 text-purple-600">· next due {nearestDueDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-emerald-700 font-medium">All payments cleared</span>
+                )}
+              </div>
+              <div className="text-[10px] text-purple-500 mt-1.5 font-medium hover:text-purple-700">View schedule →</div>
             </CardContent>
           </Card>
         </div>
