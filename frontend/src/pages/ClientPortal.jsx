@@ -102,6 +102,28 @@ export default function ClientPortal() {
     fetchProjectData(proj.project_id);
   };
 
+  // Approve / reject Additional Work line items
+  const handleClientApproveAddition = async (costId) => {
+    try {
+      const res = await axios.post(`${API}/client-portal/additional-costs/${costId}/approve`);
+      toast.success(res.data?.message || 'Approved');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to approve');
+    }
+  };
+  const handleClientRejectAddition = async (costId) => {
+    const reason = window.prompt('Please share a brief reason for rejecting this work:', '');
+    if (reason === null) return;
+    try {
+      const res = await axios.post(`${API}/client-portal/additional-costs/${costId}/reject`, { reason });
+      toast.success(res.data?.message || 'Rejection recorded');
+      if (projectId) fetchProjectData(projectId);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to reject');
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -673,12 +695,13 @@ export default function ClientPortal() {
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
                       <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase print:hidden">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {additionalCosts.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-8 text-center text-gray-500">No additional work recorded</td>
+                        <td colSpan="7" className="px-6 py-8 text-center text-gray-500">No additional work recorded</td>
                       </tr>
                     ) : (
                       additionalCosts.map((cost, idx) => {
@@ -688,13 +711,30 @@ export default function ClientPortal() {
                         const isPaid = bal <= 0 && amt > 0;
                         const isPartial = rcv > 0 && bal > 0;
                         const requested = cost.payment_requested;
+                        const clientApproved = cost.client_approved;
+                        const clientRejected = cost.client_rejected;
+                        const creApproved = cost.cre_approved;
+                        // Determine display badge based on the full approval lifecycle
+                        let statusBadge;
+                        if (isPaid) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>;
+                        else if (isPartial) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial Received</span>;
+                        else if (clientRejected) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700">You Rejected</span>;
+                        else if (creApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Approved · Pending Payment</span>;
+                        else if (clientApproved) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">You Approved</span>;
+                        else if (requested) statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Your Approval</span>;
+                        else statusBadge = <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>;
+                        // Show action buttons only when request is pending the client's decision
+                        const showApproveActions = requested && !clientApproved && !clientRejected && !isPaid;
                         return (
-                          <tr key={cost.cost_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`} data-testid={`client-addn-row-${cost.cost_id}`}>
+                          <tr key={cost.cost_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : clientRejected ? 'bg-rose-50/50' : ''}`} data-testid={`client-addn-row-${cost.cost_id}`}>
                             <td className="px-4 py-3 text-sm">{idx + 1}</td>
                             <td className="px-4 py-3">
                               <p className="font-medium">{cost.description || cost.name || 'Additional Work'}</p>
                               {cost.qty && cost.price && (
                                 <p className="text-xs text-gray-500">{cost.qty} × ₹{Number(cost.price).toLocaleString()}</p>
+                              )}
+                              {clientRejected && cost.client_rejection_reason && (
+                                <p className="text-xs text-rose-600 mt-1 italic">Your reason: {cost.client_rejection_reason}</p>
                               )}
                             </td>
                             <td className="px-4 py-3 text-right font-semibold">₹{amt.toLocaleString()}</td>
@@ -702,15 +742,30 @@ export default function ClientPortal() {
                             <td className="px-4 py-3 text-right">
                               <span className={bal > 0 ? 'text-orange-600 font-semibold' : 'text-green-600 font-semibold'}>₹{bal.toLocaleString()}</span>
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              {isPaid ? (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>
-                              ) : isPartial ? (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial</span>
-                              ) : requested ? (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Requested</span>
+                            <td className="px-4 py-3 text-center">{statusBadge}</td>
+                            <td className="px-4 py-3 text-center print:hidden">
+                              {showApproveActions ? (
+                                <div className="flex items-center justify-center gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white h-8"
+                                    onClick={() => handleClientApproveAddition(cost.cost_id)}
+                                    data-testid={`client-approve-addn-${cost.cost_id}`}
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Approve
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="border-rose-300 text-rose-600 hover:bg-rose-50 h-8"
+                                    onClick={() => handleClientRejectAddition(cost.cost_id)}
+                                    data-testid={`client-reject-addn-${cost.cost_id}`}
+                                  >
+                                    Reject
+                                  </Button>
+                                </div>
                               ) : (
-                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>
+                                <span className="text-xs text-gray-400">—</span>
                               )}
                             </td>
                           </tr>
@@ -725,7 +780,7 @@ export default function ClientPortal() {
                         <td className="px-4 py-3 text-right font-bold">₹{totalAdditional.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-green-600">₹{totalAdditionalReceived.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-orange-600">₹{(totalAdditional - totalAdditionalReceived).toLocaleString()}</td>
-                        <td></td>
+                        <td colSpan="2"></td>
                       </tr>
                     </tfoot>
                   )}

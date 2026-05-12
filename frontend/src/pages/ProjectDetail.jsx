@@ -1840,11 +1840,22 @@ export default function ProjectDetail() {
       await axios.patch(`${API}/additional-costs/${costId}/request-payment`, {
         expected_payment_date: expectedDate || null,
       });
-      toast.success('Additional payment requested! Goes to CRE for processing and shows in the Payment Schedule.');
+      toast.success('Additional payment requested! Goes to the Client for approval next.');
       fetchData(false);
     } catch (error) {
       toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to request payment');
       throw error;
+    }
+  };
+
+  const handleCREApproveAddition = async (costId) => {
+    if (!window.confirm('Approve this Additional Work for collection? The Accountant will be notified once you confirm.')) return;
+    try {
+      const res = await axios.post(`${API}/additional-costs/${costId}/cre-approve`);
+      toast.success(res.data?.message || 'CRE approved');
+      fetchData(false);
+    } catch (error) {
+      toast.error(typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Failed to approve');
     }
   };
 
@@ -4841,8 +4852,32 @@ export default function ProjectDetail() {
                                       <Send className="h-3 w-3" /> Req Payment
                                     </Button>
                                   )}
-                                  {cost.payment_requested && balance > 0 && (
-                                    <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Requested</span>
+                                  {cost.payment_requested && balance > 0 && !cost.client_approved && !cost.client_rejected && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-medium">Awaiting Client</span>
+                                  )}
+                                  {cost.client_rejected && balance > 0 && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-rose-100 text-rose-700 font-medium" title={cost.client_rejection_reason || ''}>
+                                      Client Rejected
+                                    </span>
+                                  )}
+                                  {cost.client_approved && !cost.cre_approved && balance > 0 && (
+                                    <>
+                                      <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">Client Approved</span>
+                                      {(user?.role === 'cre' || user?.role === 'super_admin') && (
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 gap-1 border-blue-500 text-blue-700 hover:bg-blue-50 text-xs"
+                                          onClick={() => handleCREApproveAddition(cost.cost_id)}
+                                          data-testid={`cre-approve-addition-${cost.cost_id}`}
+                                        >
+                                          <CheckCircle2 className="h-3 w-3" /> CRE Approve
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                  {cost.cre_approved && balance > 0 && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 font-medium">Approved · With Accountant</span>
                                   )}
                                   <Button
                                     variant="ghost"

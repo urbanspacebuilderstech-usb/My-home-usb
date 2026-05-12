@@ -2592,6 +2592,13 @@ async def collect_stage_payment(stage_id: str, collection: PaymentCollectionInpu
     if not stage:
         raise HTTPException(status_code=404, detail="Payment stage not found")
     
+    # Additional Work payment stages require client + CRE approval before collection
+    if stage.get("is_addition"):
+        if not stage.get("client_approved"):
+            raise HTTPException(status_code=400, detail="Client has not approved this Additional Work yet")
+        if not stage.get("cre_approved"):
+            raise HTTPException(status_code=400, detail="CRE has not approved this Additional Work yet")
+    
     project = await db.projects.find_one({"project_id": stage["project_id"]}, {"_id": 0})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found for this payment stage")
@@ -2993,6 +3000,166 @@ async def request_additional_payment(cost_id: str, request: Request, user: User 
     
     await create_audit_log(user.user_id, "request_payment", "additional_cost", cost_id, {"amount": balance, "expected_date": expected_date})
     return {"message": "Payment request sent to CRE", "cost_id": cost_id, "stage_id": stage_id}
+
+
+# ==================== ADDITIONAL WORK MULTI-STEP APPROVAL ====================
+# Flow: Req Payment (Planning) → Client approves (Client Portal) → CRE approves → Accountant collects.
+
+async def _notify_cre_for_collection(cost: dict, project: dict, balance: float):
+    """Send CRE users a notification that an additional cost is approved and ready to collect."""
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for cre in cre_users:
+        await create_notification(
+            cre["user_id"],
+            f"Additional Work approved by client: ₹{balance:,.0f} - {project.get('name', 'Project')} ({cost.get('description', 'Additional Work')[:60]}). Please verify and forward to Accountant."
+        )
+
+
+@router.post("/client-portal/additional-costs/{cost_id}/approve")
+async def client_approve_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
+    """Client approves an additional cost line item from the client portal."""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    project = await db.projects.find_one({"project_id": cost["project_id"], "client_user_id": user.user_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=403, detail="You can only approve work on your own project")
+    if not cost.get("payment_requested"):
+        raise HTTPException(status_code=400, detail="Payment hasn't been requested yet for this item")
+    if cost.get("client_approved"):
+        return {"message": "Already approved", "cost_id": cost_id}
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "client_approved": True,
+            "client_approved_at": now_iso,
+            "client_approved_by": user.user_id,
+            "client_rejected": False,
+        }, "$unset": {"client_rejected_at": "", "client_rejection_reason": ""}}
+    )
+    # Mirror onto the linked payment_stages so Planning + CRE + Accountant see the same state
+    if cost.get("linked_stage_id"):
+        await db.payment_stages.update_one(
+            {"stage_id": cost["linked_stage_id"]},
+            {"$set": {
+                "client_approved": True,
+                "client_approved_at": now_iso,
+                "workflow_status": "client_approved",
+            }}
+        )
+    
+    # Notify CRE users so they can do their approval step
+    balance = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0)) - (cost.get("income_received", 0) or 0)
+    cre_users = await db.users.find({"role": "cre"}, {"_id": 0, "user_id": 1}).to_list(50)
+    for cre in cre_users:
+        await create_notification(
+            cre["user_id"],
+            f"Client approved Additional Work: ₹{balance:,.0f} for {project.get('name', 'Project')} - {cost.get('description', 'Additional Work')[:60]}. Please review and approve for collection."
+        )
+    
+    await create_audit_log(user.user_id, "client_approve", "additional_cost", cost_id, {"project_id": cost["project_id"]})
+    return {"message": "Approved. CRE will be notified for the next step.", "cost_id": cost_id}
+
+
+@router.post("/client-portal/additional-costs/{cost_id}/reject")
+async def client_reject_additional_cost(cost_id: str, request: Request, user: User = Depends(get_current_user)):
+    """Client rejects an additional cost line item."""
+    if user.role != UserRole.CLIENT:
+        raise HTTPException(status_code=403, detail="Client access only")
+    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    project = await db.projects.find_one({"project_id": cost["project_id"], "client_user_id": user.user_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=403, detail="You can only reject work on your own project")
+    
+    reason = ""
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            reason = (body.get("reason") or "").strip()
+    except Exception:
+        pass
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "client_rejected": True,
+            "client_rejected_at": now_iso,
+            "client_rejected_by": user.user_id,
+            "client_rejection_reason": reason,
+            "client_approved": False,
+        }}
+    )
+    if cost.get("linked_stage_id"):
+        await db.payment_stages.update_one(
+            {"stage_id": cost["linked_stage_id"]},
+            {"$set": {"workflow_status": "client_rejected", "client_rejection_reason": reason}}
+        )
+    
+    # Notify Planning + CRE
+    planning_users = await db.users.find({"role": {"$in": ["planning", "cre"]}}, {"_id": 0, "user_id": 1}).to_list(50)
+    for u in planning_users:
+        await create_notification(
+            u["user_id"],
+            f"Client rejected Additional Work for {project.get('name', 'Project')}: {cost.get('description', '')[:60]}. Reason: {reason or 'No reason provided'}"
+        )
+    await create_audit_log(user.user_id, "client_reject", "additional_cost", cost_id, {"reason": reason})
+    return {"message": "Rejection recorded", "cost_id": cost_id}
+
+
+@router.post("/additional-costs/{cost_id}/cre-approve")
+async def cre_approve_additional_cost(cost_id: str, user: User = Depends(get_current_user)):
+    """CRE approves an additional cost AFTER the client has approved it.
+    Until CRE approves, the Accountant cannot collect this payment."""
+    if user.role not in [UserRole.CRE, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only CRE / Super Admin can approve for collection")
+    
+    cost = await db.additional_costs.find_one({"cost_id": cost_id}, {"_id": 0})
+    if not cost:
+        raise HTTPException(status_code=404, detail="Additional cost not found")
+    if not cost.get("client_approved"):
+        raise HTTPException(status_code=400, detail="Client has not approved this work yet")
+    if cost.get("cre_approved"):
+        return {"message": "Already approved by CRE", "cost_id": cost_id}
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.additional_costs.update_one(
+        {"cost_id": cost_id},
+        {"$set": {
+            "cre_approved": True,
+            "cre_approved_at": now_iso,
+            "cre_approved_by": user.user_id,
+        }}
+    )
+    if cost.get("linked_stage_id"):
+        await db.payment_stages.update_one(
+            {"stage_id": cost["linked_stage_id"]},
+            {"$set": {
+                "cre_approved": True,
+                "cre_approved_at": now_iso,
+                "workflow_status": "approved_for_collection",
+            }}
+        )
+    
+    # Notify Accountant
+    accountants = await db.users.find({"role": "accountant"}, {"_id": 0, "user_id": 1}).to_list(50)
+    project = await db.projects.find_one({"project_id": cost["project_id"]}, {"_id": 0}) or {}
+    balance = (cost.get("estimated_amount", 0) or cost.get("actual_amount", 0)) - (cost.get("income_received", 0) or 0)
+    for a in accountants:
+        await create_notification(
+            a["user_id"],
+            f"Additional Work ready for collection: ₹{balance:,.0f} - {project.get('name', 'Project')} ({cost.get('description', '')[:60]})"
+        )
+    await create_audit_log(user.user_id, "cre_approve", "additional_cost", cost_id, {"project_id": cost["project_id"]})
+    return {"message": "Approved for collection. Accountant has been notified.", "cost_id": cost_id}
 
 
 
