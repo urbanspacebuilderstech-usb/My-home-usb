@@ -1455,14 +1455,29 @@ export default function PlanningBoard({ embedded = false }) {
                             ) : (monthlySchedule.entries || []).map((e) => {
                               const balance = (e.amount || 0) - (e.amount_received || 0);
                               const hasPendingApproval = (e.pending_approval_count || 0) > 0;
-                              const stageStatusConfig = { pending: { label: 'Not Collected', cls: 'bg-gray-100 text-gray-700' }, partial: { label: 'Partially', cls: 'bg-amber-100 text-amber-700' }, paid: { label: 'Collected', cls: 'bg-green-100 text-green-700' }, collected: { label: 'Collected', cls: 'bg-green-100 text-green-700' } };
+                              // Derive an effective status from the actual received-vs-amount math
+                              // so rounding-edge cases (e.g. balance ₹159 of ₹9.5L) and fully-collected
+                              // rows don't show as "Not Collected" when stage.status hasn't been
+                              // refreshed yet by the Accountant approval flow.
+                              const TOLERANCE = 1000; // ₹1k rounding tolerance — anything within is "Collected"
+                              const received = e.amount_received || 0;
+                              const amount = e.amount || 0;
+                              const isFullyCollected = amount > 0 && balance <= TOLERANCE;
+                              const isPartial = received > 0 && balance > TOLERANCE;
+                              const effectiveStatus = isFullyCollected ? 'collected' : isPartial ? 'partial' : (e.status || 'pending');
+                              const stageStatusConfig = {
+                                pending:   { label: 'Not Collected',           cls: 'bg-gray-100 text-gray-700' },
+                                partial:   { label: 'Partially Collected',    cls: 'bg-amber-100 text-amber-700' },
+                                paid:      { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
+                                collected: { label: 'Collected',               cls: 'bg-green-100 text-green-700' },
+                              };
                               const cfg = hasPendingApproval
                                 ? { label: 'Pending Accountant Approval', cls: 'bg-orange-100 text-orange-700' }
-                                : e.workflow_status === 'requested'
+                                : e.workflow_status === 'requested' && !isFullyCollected
                                 ? { label: 'Requested — Awaiting CRE / Accountant', cls: 'bg-blue-100 text-blue-700' }
-                                : (stageStatusConfig[e.status] || stageStatusConfig.pending);
+                                : (stageStatusConfig[effectiveStatus] || stageStatusConfig.pending);
                               const releaseDate = (e.expected_payment_date || '').slice(0, 10);
-                              const isCollected = e.status === 'paid' || e.status === 'collected';
+                              const isCollected = isFullyCollected;
                               return (
                                 <tr key={e.entry_id} className="hover:bg-gray-50" data-testid={`schedule-row-${e.entry_id}`}>
                                   <td className="px-4 py-2.5"><p className="font-medium text-sm">{e.project_name}</p></td>
