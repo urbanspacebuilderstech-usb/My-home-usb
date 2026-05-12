@@ -623,6 +623,16 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     
     documents = await db.documents.find({"project_id": project_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
 
+    # Additional Work (variations) + Deductions — same data Planning team manages.
+    additional_costs = await db.additional_costs.find(
+        {"project_id": project_id},
+        {"_id": 0, "internal_notes": 0},
+    ).sort("sort_order", 1).to_list(500)
+    deductions = await db.deductions.find(
+        {"project_id": project_id},
+        {"_id": 0, "internal_notes": 0},
+    ).sort("sort_order", 1).to_list(500)
+
     # Income entries (read-only, dates + amounts only — no internal fields)
     raw_income = await db.income.find({"project_id": project_id}, {"_id": 0}).sort("payment_date", -1).to_list(1000)
     income_entries = []
@@ -682,6 +692,8 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
         "stages": stages,
         "photos": photos,
         "documents": documents,
+        "additional_costs": additional_costs,
+        "deductions": deductions,
         "income_entries": income_entries,
         "total_income": total_income,
         "pre_construction": pre_construction,

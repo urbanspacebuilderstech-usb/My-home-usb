@@ -195,6 +195,8 @@ export default function ClientPortal() {
   const project = projectData.project;
   const paymentStages = projectData.payment_stages || [];
   const scopeItems = projectData.scope_items || [];
+  const additionalCosts = projectData.additional_costs || [];
+  const deductions = projectData.deductions || [];
   const photos = projectData.photos || [];
   const documents = projectData.documents || [];
 
@@ -203,6 +205,9 @@ export default function ClientPortal() {
   const totalReceived = paymentStages.reduce((sum, s) => sum + (s.amount_received || 0), 0);
   const balance = totalScheduled - totalReceived;
   const progressPercent = totalScheduled > 0 ? Math.min(100, Math.round((totalReceived / totalScheduled) * 100)) : 0;
+  const totalAdditional = additionalCosts.reduce((sum, c) => sum + (c.estimated_amount || c.actual_amount || 0), 0);
+  const totalAdditionalReceived = additionalCosts.reduce((sum, c) => sum + (c.income_received || 0), 0);
+  const totalDeductions = deductions.reduce((sum, d) => sum + (d.amount || 0), 0);
 
   // Get current construction stage
   const currentStageIndex = CONSTRUCTION_STAGES.findIndex(s => s.id === project.construction_stage);
@@ -385,6 +390,8 @@ export default function ClientPortal() {
               <TabsList>
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="payments">Payment Schedule</TabsTrigger>
+                <TabsTrigger value="additional">Additional Work</TabsTrigger>
+                <TabsTrigger value="deductions">Deductions</TabsTrigger>
                 <TabsTrigger value="scope">Scope of Work</TabsTrigger>
                 <TabsTrigger value="photos">Photos</TabsTrigger>
                 <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -527,6 +534,124 @@ export default function ClientPortal() {
                         <td className="px-4 py-3 text-right font-bold text-green-600">₹{totalReceived.toLocaleString()}</td>
                         <td className="px-4 py-3 text-right font-bold text-orange-600">₹{balance.toLocaleString()}</td>
                         <td></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </TabsContent>
+
+            {/* Additional Work Tab */}
+            <TabsContent value="additional" className="p-0 print:break-inside-avoid">
+              <div className="hidden print:block p-4 border-b">
+                <h3 className="text-lg font-bold">Additional Work</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Work Description</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Received</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Balance</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {additionalCosts.length === 0 ? (
+                      <tr>
+                        <td colSpan="6" className="px-6 py-8 text-center text-gray-500">No additional work recorded</td>
+                      </tr>
+                    ) : (
+                      additionalCosts.map((cost, idx) => {
+                        const amt = cost.estimated_amount || cost.actual_amount || 0;
+                        const rcv = cost.income_received || 0;
+                        const bal = amt - rcv;
+                        const isPaid = bal <= 0 && amt > 0;
+                        const isPartial = rcv > 0 && bal > 0;
+                        const requested = cost.payment_requested;
+                        return (
+                          <tr key={cost.cost_id} className={`hover:bg-gray-50 ${isPaid ? 'bg-green-50' : ''}`} data-testid={`client-addn-row-${cost.cost_id}`}>
+                            <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                            <td className="px-4 py-3">
+                              <p className="font-medium">{cost.description || cost.name || 'Additional Work'}</p>
+                              {cost.qty && cost.price && (
+                                <p className="text-xs text-gray-500">{cost.qty} × ₹{Number(cost.price).toLocaleString()}</p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right font-semibold">₹{amt.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right text-green-600 font-semibold">₹{rcv.toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className={bal > 0 ? 'text-orange-600 font-semibold' : 'text-green-600 font-semibold'}>₹{bal.toLocaleString()}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              {isPaid ? (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>
+                              ) : isPartial ? (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Partial</span>
+                              ) : requested ? (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Requested</span>
+                              ) : (
+                                <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Pending</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                  {additionalCosts.length > 0 && (
+                    <tfoot className="bg-amber-50 border-t-2">
+                      <tr>
+                        <td colSpan="2" className="px-4 py-3 text-right font-bold">Totals:</td>
+                        <td className="px-4 py-3 text-right font-bold">₹{totalAdditional.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{totalAdditionalReceived.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-orange-600">₹{(totalAdditional - totalAdditionalReceived).toLocaleString()}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </TabsContent>
+
+            {/* Deductions Tab */}
+            <TabsContent value="deductions" className="p-0 print:break-inside-avoid">
+              <div className="hidden print:block p-4 border-b">
+                <h3 className="text-lg font-bold">Deductions</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">S.No</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Description</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Remarks</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 uppercase">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {deductions.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">No deductions applied</td>
+                      </tr>
+                    ) : (
+                      deductions.map((ded, idx) => (
+                        <tr key={ded.deduction_id} className="hover:bg-gray-50" data-testid={`client-ded-row-${ded.deduction_id}`}>
+                          <td className="px-4 py-3 text-sm">{idx + 1}</td>
+                          <td className="px-4 py-3 font-medium">{ded.description || ded.name || 'Deduction'}</td>
+                          <td className="px-4 py-3 text-sm text-gray-600">{ded.remarks || '-'}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-rose-600">- ₹{(ded.amount || 0).toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {deductions.length > 0 && (
+                    <tfoot className="bg-rose-50 border-t-2">
+                      <tr>
+                        <td colSpan="3" className="px-4 py-3 text-right font-bold">Total Deductions:</td>
+                        <td className="px-4 py-3 text-right font-bold text-rose-600">- ₹{totalDeductions.toLocaleString()}</td>
                       </tr>
                     </tfoot>
                   )}
