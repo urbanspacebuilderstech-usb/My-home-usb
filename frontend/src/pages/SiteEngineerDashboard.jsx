@@ -1221,7 +1221,7 @@ export default function SiteEngineerDashboard() {
             </div>
             
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
               <Card className="bg-green-50 border-green-200"><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-green-600 font-medium uppercase">Cash in Hand</p>
                 <p className="text-lg font-bold text-green-700" data-testid="pc-cash-in-hand">₹{pettyCashSummary.total_cash_in_hand?.toLocaleString('en-IN') || '0'}</p>
@@ -1229,6 +1229,12 @@ export default function SiteEngineerDashboard() {
               <Card className="bg-red-50 border-red-200"><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-red-600 font-medium uppercase">Expenses</p>
                 <p className="text-lg font-bold text-red-700" data-testid="pc-expenses">₹{pettyCashSummary.total_expenses?.toLocaleString('en-IN') || '0'}</p>
+              </CardContent></Card>
+              <Card className="bg-emerald-50 border-emerald-200"><CardContent className="p-3 text-center">
+                <p className="text-[10px] text-emerald-600 font-medium uppercase">Balance</p>
+                <p className="text-lg font-bold text-emerald-700" data-testid="pc-balance">
+                  ₹{Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0)).toLocaleString('en-IN')}
+                </p>
               </CardContent></Card>
               <Card className="bg-amber-50 border-amber-200"><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-amber-600 font-medium uppercase">Pending Req</p>
