@@ -1489,9 +1489,18 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
     overall: allExpenseEntries.reduce((s, e) => s + (e.amount || 0), 0),
     material: allExpenseEntries.filter(e => e.expense_type === 'material').reduce((s, e) => s + (e.amount || 0), 0),
     labour: allExpenseEntries.filter(e => e.expense_type === 'labour').reduce((s, e) => s + (e.amount || 0), 0),
-    petty_cash: overview?.petty_cash?.spent || 0,
+    // Petty Cash = expenses recorded with category=petty_cash (cash actually
+    // released by the accountant). Falls back to the live SE "spent" tracker
+    // only when no expense rows exist yet.
+    petty_cash: (
+      allExpenseEntries.filter(e => e.expense_type === 'petty_cash').reduce((s, e) => s + (e.amount || 0), 0)
+      || overview?.petty_cash?.spent
+      || 0
+    ),
     suspense: overview?.suspense_balance || 0,
-    other: allExpenseEntries.filter(e => !['material', 'labour'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
+    // "Other" must exclude petty_cash too, otherwise petty cash double-counts
+    // (once in its own tile, once in Other).
+    other: allExpenseEntries.filter(e => !['material', 'labour', 'petty_cash'].includes(e.expense_type)).reduce((s, e) => s + (e.amount || 0), 0),
   };
   const EXP_CATEGORIES = [
     { key: 'overall', label: 'Overall Expense', icon: DollarSign, color: 'bg-red-50 text-red-700 border-red-200' },
