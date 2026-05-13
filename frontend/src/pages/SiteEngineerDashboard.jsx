@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import { Label } from '@/components/ui/label';
-import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, RefreshCw, Eye, Trash2, Boxes, Ruler } from 'lucide-react';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { AppHeader } from '../components/AppHeader';
@@ -343,6 +343,9 @@ export default function SiteEngineerDashboard() {
   const [matReqSelected, setMatReqSelected] = useState('');
   const [matReqQty, setMatReqQty] = useState('');
   const [matReqRemarks, setMatReqRemarks] = useState('');
+  // Multi-line item entries — every request can include multiple materials.
+  // Each row: { id, material_id, quantity, diameter, rod_count, remarks }
+  const [matReqLines, setMatReqLines] = useState([]);
   const [matReqLoading, setMatReqLoading] = useState(false);
   const [matReqFetching, setMatReqFetching] = useState(false);
 
@@ -548,11 +551,59 @@ export default function SiteEngineerDashboard() {
   };
 
   // ============ MATERIAL REQUEST FUNCTIONS ============
+  // Steel rod weight per piece (kg) — based on 40 ft (12m) standard rod and
+  // ρ = (d² × L) / 162 where d=mm, L=metres. Lookup for common diameters,
+  // falls back to formula for any other diameter the SE enters.
+  const STEEL_ROD_WEIGHTS_40FT = {
+    6: 2.71, 8: 4.82, 10: 7.53, 12: 10.83,
+    16: 19.27, 20: 30.10, 25: 47.05, 32: 77.00,
+  };
+  const steelWeightPerRod = (diameterMm) => {
+    const d = Number(diameterMm);
+    if (!d || d <= 0) return 0;
+    if (STEEL_ROD_WEIGHTS_40FT[d] != null) return STEEL_ROD_WEIGHTS_40FT[d];
+    // d²/162 × 12 m = standard formula
+    return Number(((d * d) / 162 * 12).toFixed(2));
+  };
+
+  // Detect a steel/TMT/rod material so we show the diameter + rod-count helper
+  const isSteelMaterial = (mat) => {
+    if (!mat) return false;
+    const haystack = `${mat.name || ''} ${mat.brand || ''} ${mat.category || ''}`.toLowerCase();
+    return /(steel|tmt|rebar|rod|reinforcement)/.test(haystack);
+  };
+
+  const blankMatLine = () => ({
+    id: `ln_${Math.random().toString(36).slice(2, 9)}`,
+    material_id: '',
+    quantity: '',
+    diameter: '',
+    rod_count: '',
+    remarks: '',
+  });
+
+  const addMatLine = () => setMatReqLines(prev => [...prev, blankMatLine()]);
+  const removeMatLine = (id) => setMatReqLines(prev => prev.length > 1 ? prev.filter(l => l.id !== id) : prev);
+  const updateMatLine = (id, patch) => {
+    setMatReqLines(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      const next = { ...l, ...patch };
+      // Auto-calc quantity in kg for steel rods when diameter + rod_count are set
+      const mat = matReqMaterials.find(m => m.material_id === next.material_id);
+      if (mat && isSteelMaterial(mat) && next.diameter && next.rod_count) {
+        const totalKg = Number((steelWeightPerRod(next.diameter) * Number(next.rod_count)).toFixed(2));
+        if (!Number.isNaN(totalKg) && totalKg > 0) next.quantity = String(totalKg);
+      }
+      return next;
+    }));
+  };
+
   const openMatReqDialog = async (project) => {
     setMatReqProject(project);
     setMatReqSelected('');
     setMatReqQty('');
     setMatReqRemarks('');
+    setMatReqLines([blankMatLine()]);
     setMatReqDialog(true);
     setMatReqFetching(true);
     try {
@@ -563,23 +614,35 @@ export default function SiteEngineerDashboard() {
   };
 
   const handleMatReqSubmit = async () => {
-    if (!matReqSelected) { toast.error('Select a material'); return; }
-    if (!matReqQty || parseFloat(matReqQty) <= 0) { toast.error('Enter valid quantity'); return; }
-    const mat = matReqMaterials.find(m => m.material_id === matReqSelected);
-    if (!mat) { toast.error('Material not found'); return; }
+    const validLines = matReqLines.filter(l => l.material_id && l.quantity && parseFloat(l.quantity) > 0);
+    if (validLines.length === 0) {
+      toast.error('Add at least one material with quantity');
+      return;
+    }
     setMatReqLoading(true);
     try {
-      await axios.post(`${API}/site-engineer/material-requests`, {
-        project_id: matReqProject.project_id,
-        material_id: mat.material_id,
-        material_name: mat.name,
-        brand: mat.brand || '',
-        is_approved_material: true,
-        quantity: parseFloat(matReqQty),
-        unit: mat.unit || 'unit',
-        remarks: matReqRemarks || null,
-      });
-      toast.success(`Material requested! ${mat.name} x ${matReqQty} ${mat.unit || ''}`);
+      let successCount = 0;
+      for (const line of validLines) {
+        const mat = matReqMaterials.find(m => m.material_id === line.material_id);
+        if (!mat) continue;
+        const isSteel = isSteelMaterial(mat);
+        const lineRemarks = [
+          line.remarks,
+          isSteel && line.diameter ? `Ø ${line.diameter}mm × ${line.rod_count || 0} rods (≈ ${line.quantity} kg)` : null,
+        ].filter(Boolean).join(' · ');
+        await axios.post(`${API}/site-engineer/material-requests`, {
+          project_id: matReqProject.project_id,
+          material_id: mat.material_id,
+          material_name: mat.name,
+          brand: mat.brand || '',
+          is_approved_material: true,
+          quantity: parseFloat(line.quantity),
+          unit: isSteel ? 'kg' : (mat.unit || 'unit'),
+          remarks: lineRemarks || null,
+        });
+        successCount += 1;
+      }
+      toast.success(successCount > 1 ? `${successCount} materials requested!` : 'Material requested!');
       setMatReqDialog(false);
       fetchData(false);
     } catch (e) { toast.error(e.response?.data?.detail || 'Request failed'); }
@@ -2083,12 +2146,12 @@ export default function SiteEngineerDashboard() {
 
       {/* Material Request Dialog */}
       <Dialog open={matReqDialog} onOpenChange={setMatReqDialog}>
-        <DialogContent className="max-w-md" data-testid="material-request-dialog">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="material-request-dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <Package className="h-4 w-4 text-blue-600" /> Request Material
             </DialogTitle>
-            <DialogDescription>Request materials assigned by Planning for this project.</DialogDescription>
+            <DialogDescription>Request materials assigned by Planning for this project. Add multiple items to a single request.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {/* Project (auto-selected) */}
@@ -2099,53 +2162,149 @@ export default function SiteEngineerDashboard() {
               </div>
             </div>
 
-            {/* Material Dropdown */}
-            <div>
-              <Label className="text-xs">Select Material <span className="text-red-500">*</span></Label>
-              {matReqFetching ? (
-                <div className="text-xs text-gray-400 py-2">Loading materials...</div>
-              ) : matReqMaterials.length === 0 ? (
-                <div className="text-xs text-amber-600 py-2 bg-amber-50 rounded px-2">No materials added by Planning for this project yet.</div>
-              ) : (
-                <Select value={matReqSelected} onValueChange={setMatReqSelected}>
-                  <SelectTrigger data-testid="matreq-material-select" className="mt-1">
-                    <SelectValue placeholder="Choose material..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {matReqMaterials.map(m => (
-                      <SelectItem key={m.material_id} value={m.material_id}>
-                        {m.name} {m.brand ? `— ${m.brand}` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+            {/* Multi-line material entries */}
+            {matReqFetching ? (
+              <div className="text-xs text-gray-400 py-3 text-center">Loading materials...</div>
+            ) : matReqMaterials.length === 0 ? (
+              <div className="text-xs text-amber-600 py-2 bg-amber-50 rounded px-2 text-center">No materials added by Planning for this project yet.</div>
+            ) : (
+              <div className="space-y-2.5">
+                {matReqLines.map((line, idx) => {
+                  const mat = matReqMaterials.find(m => m.material_id === line.material_id);
+                  const isSteel = mat && isSteelMaterial(mat);
+                  const computedKg = isSteel && line.diameter && line.rod_count
+                    ? Number((steelWeightPerRod(line.diameter) * Number(line.rod_count)).toFixed(2))
+                    : 0;
+                  return (
+                    <div key={line.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm" data-testid={`matreq-line-${idx}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded bg-blue-100 flex items-center justify-center">
+                            <Boxes className="h-3.5 w-3.5 text-blue-600" />
+                          </div>
+                          <span className="text-xs font-semibold text-gray-700">Item {idx + 1}</span>
+                          {isSteel && (
+                            <span className="text-[10px] uppercase tracking-wide bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-medium">Steel</span>
+                          )}
+                        </div>
+                        {matReqLines.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:bg-red-50"
+                            onClick={() => removeMatLine(line.id)}
+                            data-testid={`matreq-remove-line-${idx}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
 
-            {/* Selected Material Info */}
-            {matReqSelected && (() => {
-              const mat = matReqMaterials.find(m => m.material_id === matReqSelected);
-              if (!mat) return null;
-              return (
-                <div className="p-2 bg-blue-50 border border-blue-200 rounded-md text-xs space-y-1" data-testid="matreq-material-info">
-                  <div className="flex justify-between"><span className="text-gray-500">Material</span><span className="font-medium">{mat.name}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Brand</span><span className="font-medium">{mat.brand || '—'}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Unit</span><span className="font-medium">{mat.unit || '—'}</span></div>
-                </div>
-              );
-            })()}
+                      {/* Material selector */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="sm:col-span-3">
+                          <Label className="text-[11px] text-gray-500">Material <span className="text-red-500">*</span></Label>
+                          <Select value={line.material_id} onValueChange={v => updateMatLine(line.id, { material_id: v })}>
+                            <SelectTrigger className="mt-1 h-9 text-sm" data-testid={`matreq-line-material-${idx}`}>
+                              <SelectValue placeholder="Choose material..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {matReqMaterials.map(m => (
+                                <SelectItem key={m.material_id} value={m.material_id}>
+                                  {m.name} {m.brand ? `— ${m.brand}` : ''}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
 
-            {/* Quantity */}
-            <div>
-              <Label className="text-xs">Quantity Required <span className="text-red-500">*</span></Label>
-              <NumericInput value={matReqQty} onChange={e => setMatReqQty(e.target.value)} placeholder="Enter quantity" className="mt-1" data-testid="matreq-qty" />
-            </div>
+                        {/* Steel-specific helper: diameter + rod count → kg */}
+                        {isSteel && (
+                          <>
+                            <div>
+                              <Label className="text-[11px] text-gray-500 flex items-center gap-1">
+                                <Ruler className="h-3 w-3" /> Diameter (mm) <span className="text-red-500">*</span>
+                              </Label>
+                              <Select value={String(line.diameter || '')} onValueChange={v => updateMatLine(line.id, { diameter: v })}>
+                                <SelectTrigger className="mt-1 h-9 text-sm" data-testid={`matreq-line-dia-${idx}`}>
+                                  <SelectValue placeholder="Ø" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {[6, 8, 10, 12, 16, 20, 25, 32].map(d => (
+                                    <SelectItem key={d} value={String(d)}>{d} mm</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-gray-500">No. of Rods (40 ft) <span className="text-red-500">*</span></Label>
+                              <NumericInput
+                                value={line.rod_count}
+                                onChange={e => updateMatLine(line.id, { rod_count: e.target.value })}
+                                placeholder="e.g. 10"
+                                className="mt-1 h-9 text-sm"
+                                data-testid={`matreq-line-rods-${idx}`}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-gray-500">Calculated Weight (kg)</Label>
+                              <div className="mt-1 h-9 px-3 flex items-center bg-orange-50 border border-orange-200 rounded-md text-sm font-semibold text-orange-700" data-testid={`matreq-line-wt-${idx}`}>
+                                {computedKg > 0 ? `${computedKg.toLocaleString('en-IN')} kg` : '—'}
+                              </div>
+                            </div>
+                          </>
+                        )}
 
-            {/* Remarks */}
-            <div>
-              <Label className="text-xs">Remarks (optional)</Label>
-              <Textarea value={matReqRemarks} onChange={e => setMatReqRemarks(e.target.value)} placeholder="Any notes..." className="mt-1 h-16 text-sm" data-testid="matreq-remarks" />
-            </div>
+                        {/* Quantity row (always shown — auto-filled in kg for steel, manual entry for others) */}
+                        {!isSteel && (
+                          <>
+                            <div className="sm:col-span-2">
+                              <Label className="text-[11px] text-gray-500">Quantity Required <span className="text-red-500">*</span></Label>
+                              <NumericInput
+                                value={line.quantity}
+                                onChange={e => updateMatLine(line.id, { quantity: e.target.value })}
+                                placeholder="Enter quantity"
+                                className="mt-1 h-9 text-sm"
+                                data-testid={`matreq-line-qty-${idx}`}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-gray-500">Unit</Label>
+                              <div className="mt-1 h-9 px-3 flex items-center bg-gray-100 rounded-md text-sm text-gray-600">{mat?.unit || '—'}</div>
+                            </div>
+                          </>
+                        )}
+
+                        {/* Per-line remarks */}
+                        <div className="sm:col-span-3">
+                          <Label className="text-[11px] text-gray-500">Item Remarks (optional)</Label>
+                          <Input
+                            value={line.remarks}
+                            onChange={e => updateMatLine(line.id, { remarks: e.target.value })}
+                            placeholder="Any notes for this item..."
+                            className="mt-1 h-9 text-sm"
+                            data-testid={`matreq-line-remarks-${idx}`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Add Another Item */}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 h-9"
+                  onClick={addMatLine}
+                  data-testid="matreq-add-item-btn"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Another Item
+                </Button>
+              </div>
+            )}
 
             {/* 48 Hours Notice */}
             <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md">
@@ -2155,8 +2314,13 @@ export default function SiteEngineerDashboard() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setMatReqDialog(false)}>Cancel</Button>
-            <Button onClick={handleMatReqSubmit} className="bg-blue-600 hover:bg-blue-700" disabled={matReqLoading || !matReqSelected} data-testid="matreq-submit">
-              {matReqLoading ? 'Submitting...' : 'Request Material'}
+            <Button
+              onClick={handleMatReqSubmit}
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={matReqLoading || matReqMaterials.length === 0}
+              data-testid="matreq-submit"
+            >
+              {matReqLoading ? 'Submitting...' : `Request ${matReqLines.filter(l => l.material_id && l.quantity).length > 0 ? `(${matReqLines.filter(l => l.material_id && l.quantity).length})` : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>
