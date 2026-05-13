@@ -36,9 +36,9 @@ import AccountantCreditSettlements from '../components/AccountantCreditSettlemen
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const MODE_LABELS = {
-  cash: 'Cash', current_account: 'Current A/c', savings_account: 'Savings A/c',
+  cash: 'Cash', current_account: 'HDFC CURRENT', savings_account: 'HDFC SAVINGS',
   cheque: 'Cheque', petty_cash: 'Petty Cash', miscellaneous: 'Miscellaneous',
-  direct_transfer: 'Cash DT', suspense_account: 'Suspense A/c'
+  direct_transfer: 'CASH D/T', suspense_account: 'Suspense A/c'
 };
 const MODE_ICONS = {
   cash: Banknote, current_account: Landmark, savings_account: PiggyBank,
@@ -770,10 +770,11 @@ function PettyCashManagement({ onBack }) {
                   <Select value={payForm.payment_mode} onValueChange={v => setPayForm({...payForm, payment_mode: v})}>
                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                      <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                      <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                       <SelectItem value="cash">Cash</SelectItem>
                       <SelectItem value="cheque">Cheque</SelectItem>
-                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                      <SelectItem value="savings_account">Savings A/c</SelectItem>
                       <SelectItem value="upi">UPI</SelectItem>
                     </SelectContent>
                   </Select>
@@ -823,8 +824,12 @@ function PettyCashManagement({ onBack }) {
 
 // ============ INDIRECT EXPENSE SECTION ============
 const INDIRECT_PAYMENT_METHODS = [
-  { value: 'cash', label: 'Cash' }, { value: 'cheque', label: 'Cheque' },
-  { value: 'bank_transfer', label: 'Bank Transfer' }, { value: 'upi', label: 'UPI' }
+  { value: 'savings_account', label: 'HDFC SAVINGS' },
+  { value: 'current_account', label: 'HDFC CURRENT' },
+  { value: 'direct_transfer', label: 'CASH D/T' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'cheque', label: 'Cheque' },
+  { value: 'upi', label: 'UPI' },
 ];
 
 function IndirectExpenseSection({ userRole }) {
@@ -849,7 +854,7 @@ function IndirectExpenseSection({ userRole }) {
 
   const [createForm, setCreateForm] = useState({
     category: '', description: '', amount: '',
-    payment_method: 'bank_transfer', vendor_name: '',
+    payment_method: 'savings_account', vendor_name: '',
     invoice_number: '', invoice_date: '', remarks: ''
   });
   const [confirmForm, setConfirmForm] = useState({ payment_date: '', reference_number: '', remarks: '' });
@@ -896,7 +901,7 @@ function IndirectExpenseSection({ userRole }) {
       });
       toast.success('Indirect cost created. Goes to GM for approval.');
       setCreateDialog(false);
-      setCreateForm({ category: '', description: '', amount: '', payment_method: 'bank_transfer', vendor_name: '', invoice_number: '', invoice_date: '', remarks: '' });
+      setCreateForm({ category: '', description: '', amount: '', payment_method: 'savings_account', vendor_name: '', invoice_number: '', invoice_date: '', remarks: '' });
       setDistributionPreview(null);
       fetchIndirect(false);
     } catch (error) {
@@ -2094,9 +2099,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                           <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
                             <SelectTrigger className="h-7 text-[11px] w-24 bg-white"><SelectValue /></SelectTrigger>
                             <SelectContent>
+                              <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                              <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                              <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                               <SelectItem value="cash">Cash</SelectItem>
-                              <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                              <SelectItem value="savings_account">Savings A/c</SelectItem>
                               <SelectItem value="cheque">Cheque</SelectItem>
                               <SelectItem value="upi">UPI</SelectItem>
                             </SelectContent>
@@ -2235,12 +2241,12 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                     <Select value={editIncomeForm.payment_mode} onValueChange={v => setEditIncomeForm(f => ({ ...f, payment_mode: v }))}>
                       <SelectTrigger className="h-8 text-xs mt-1" data-testid="income-edit-mode"><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                        <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                        <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="savings_account">Savings A/c</SelectItem>
                         <SelectItem value="upi">UPI</SelectItem>
-                        <SelectItem value="direct_transfer">Direct Transfer (DT)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2336,9 +2342,10 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 <Select value={newExpense.payment_method} onValueChange={v => setNewExpense(p => ({...p, payment_method: v}))}>
                   <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                    <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                    <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="savings_account">Savings A/c</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="upi">UPI</SelectItem>
                   </SelectContent>
