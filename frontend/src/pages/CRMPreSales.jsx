@@ -1656,8 +1656,9 @@ export default function CRMPreSales() {
                   </Button>
                 </div>
               )}
-              <TabsList className="grid grid-cols-5 w-full">
+              <TabsList className="grid grid-cols-6 w-full">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="history" data-testid="lead-detail-history-tab">History</TabsTrigger>
                 <TabsTrigger value="timeline">Timeline</TabsTrigger>
                 <TabsTrigger value="remarks">Remarks</TabsTrigger>
                 <TabsTrigger value="followup">Follow-up</TabsTrigger>
@@ -1799,6 +1800,107 @@ export default function CRMPreSales() {
                 
                 {/* Stage Change - MOVED TO FOOTER */}
 
+              </TabsContent>
+
+              {/* ====== History Tab — unified Remarks + Follow-up notes + Stage moves ====== */}
+              <TabsContent value="history" className="space-y-3 mt-4">
+                {(() => {
+                  const items = [];
+                  const sHistory = (selectedLead?.stage_history) || [];
+                  const remarks = (selectedLead?.remarks) || [];
+                  const followUps = (selectedLead?.follow_ups) || [];
+                  const stageName = (sid) => {
+                    if (!sid) return 'Unknown';
+                    const match = stages.find(x => x.stage_id === sid);
+                    return match?.name || sid;
+                  };
+                  // Stage history entries with remarks/notes/lost_reason
+                  sHistory.forEach((s, i) => {
+                    if (s.remark || s.lost_reason || s.notes) {
+                      items.push({
+                        kind: 'stage',
+                        at: s.moved_at || s.date,
+                        icon: 'stage',
+                        title: `Moved to ${stageName(s.stage_id)}`,
+                        body: s.remark || s.lost_reason || s.notes,
+                        by: s.moved_by,
+                        key: `stg_${i}`,
+                      });
+                    }
+                  });
+                  // Standalone remarks
+                  remarks.forEach((r, i) => {
+                    items.push({
+                      kind: 'remark',
+                      at: r.date || r.created_at,
+                      icon: 'remark',
+                      title: 'Remark',
+                      body: r.text || r.note || r.remark,
+                      by: r.by_name || r.by,
+                      key: `rmk_${i}`,
+                    });
+                  });
+                  // Follow-up entries — schedule + completion both
+                  followUps.forEach((f, i) => {
+                    if (f.notes || f.note) {
+                      items.push({
+                        kind: 'followup',
+                        at: f.scheduled_at || f.created_at || f.date,
+                        icon: 'followup',
+                        title: f.completed ? 'Follow-up Completed' : `Follow-up Scheduled${f.followup_date ? ` for ${f.followup_date}` : ''}${f.followup_time ? ` ${f.followup_time}` : ''}`,
+                        body: f.notes || f.note,
+                        by: f.created_by_name || f.completed_by_name,
+                        key: `fu_${i}`,
+                      });
+                    }
+                  });
+                  // Lead's own initial summary/notes
+                  if (selectedLead?.summary) {
+                    items.push({ kind: 'summary', at: selectedLead.created_at, icon: 'remark', title: 'Initial Summary', body: selectedLead.summary, key: 'summary' });
+                  }
+                  // Sort newest first
+                  items.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+
+                  if (items.length === 0) {
+                    return (
+                      <Card><CardContent className="py-8 text-center text-sm text-gray-400">No remarks, follow-ups, or notes yet.</CardContent></Card>
+                    );
+                  }
+
+                  const ICON_MAP = {
+                    stage: { Icon: ArrowUpDown, bg: 'bg-indigo-100', color: 'text-indigo-600', label: 'STAGE' },
+                    remark: { Icon: MessageSquare, bg: 'bg-amber-100', color: 'text-amber-600', label: 'REMARK' },
+                    followup: { Icon: Calendar, bg: 'bg-emerald-100', color: 'text-emerald-600', label: 'FOLLOW-UP' },
+                  };
+
+                  return (
+                    <div className="space-y-2.5" data-testid="lead-history-list">
+                      <div className="text-xs text-gray-500 mb-1">{items.length} entr{items.length === 1 ? 'y' : 'ies'} · newest first</div>
+                      {items.map(it => {
+                        const meta = ICON_MAP[it.icon] || ICON_MAP.remark;
+                        const I = meta.Icon;
+                        return (
+                          <div key={it.key} className="flex gap-3 p-3 rounded-lg border bg-white shadow-sm" data-testid={`history-item-${it.key}`}>
+                            <div className={`w-8 h-8 rounded-full ${meta.bg} flex items-center justify-center shrink-0`}>
+                              <I className={`h-4 w-4 ${meta.color}`} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-gray-900">{it.title}</p>
+                                <span className={`text-[10px] uppercase tracking-wide font-medium ${meta.color}`}>{meta.label}</span>
+                              </div>
+                              <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">{it.body}</p>
+                              <div className="mt-1.5 text-[11px] text-gray-400 flex items-center gap-2">
+                                {it.at && <span>{new Date(it.at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>}
+                                {it.by && <span>· by {it.by}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </TabsContent>
 
               {/* Timeline Tab */}
