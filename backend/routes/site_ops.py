@@ -2557,6 +2557,33 @@ async def accountant_process_payment(petty_cash_id: str, request: Request, user:
             "payment_processed_at": now,
         }}
     )
+    
+    # Record as an expense in recorded_expenses so it shows up in the
+    # Accountant Cashbook (Direct Expense list + Expense Breakdown - Petty Cash tile).
+    # Idempotent: skip if we already inserted one for this petty_cash_id.
+    existing_exp = await db.recorded_expenses.find_one({"petty_cash_id": petty_cash_id, "category": "petty_cash"}, {"_id": 0, "expense_id": 1})
+    if not existing_exp:
+        await db.recorded_expenses.insert_one({
+            "expense_id": f"exp_{secrets.token_hex(6)}",
+            "project_id": pc.get("project_id") or "",
+            "project_name": pc.get("project_name", ""),
+            "category": "petty_cash",
+            "description": f"Petty cash issued to {pc.get('requested_by_name')} - {pc.get('purpose', '')}",
+            "amount": payment_details["amount_paid"],
+            "payment_method": payment_details.get("payment_mode", "cash"),
+            "payment_mode": payment_details.get("payment_mode", "cash"),
+            "bank_name": payment_details.get("bank_name", ""),
+            "cheque_number": payment_details.get("cheque_number", ""),
+            "reference_number": payment_details.get("reference_number", ""),
+            "vendor_name": pc.get("requested_by_name"),
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "recorded",
+            "source": "approval",
+            "petty_cash_id": petty_cash_id,
+            "created_at": now,
+        })
+    
     await create_notification(pc["requested_by"], f"Petty cash payment processed: ₹{payment_details['amount_paid']:,.0f} via {payment_details['payment_mode']}")
     return {"message": "Payment processed", "status": "payment_done", "payment_details": payment_details}
 
