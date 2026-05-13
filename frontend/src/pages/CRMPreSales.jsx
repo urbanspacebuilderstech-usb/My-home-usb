@@ -696,27 +696,36 @@ export default function CRMPreSales() {
       <AppHeader user={user} />
 
       <div className="max-w-full mx-auto px-2 py-2 sm:px-6 sm:py-3">
-        {/* Stats Cards - Single row */}
+        {/* Stats Cards - Single row (clickable to filter the list) */}
         <div className="flex gap-1.5 sm:gap-3 mb-3 overflow-x-auto pb-1">
-          <div className="flex-1 min-w-0 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-2 py-3 sm:py-5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => { setActiveStage('all'); setViewMode('list'); }}
+            className={`flex-1 min-w-0 flex flex-col items-center justify-center bg-emerald-500 text-white rounded-2xl px-2 py-3 sm:py-5 shadow-sm transition-transform hover:-translate-y-0.5 ${activeStage === 'all' ? 'ring-2 ring-emerald-700 ring-offset-1' : ''}`}
+            data-testid="filter-tile-all"
+          >
             <span className="text-[8px] sm:text-xs font-medium opacity-90">Total Leads</span>
             <span className="text-lg sm:text-3xl font-bold mt-0.5">{dashboard?.total_leads || 0}</span>
-          </div>
+          </button>
           {stages.map(stage => {
             const count = dashboard?.stages?.find(s => s.stage_id === stage.stage_id)?.lead_count || 0;
+            const active = activeStage === stage.stage_id;
             return (
-            <div 
+            <button
+              type="button"
               key={stage.stage_id}
-              className="flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-1 py-3 sm:py-5 shadow-sm border"
+              onClick={() => { setActiveStage(stage.stage_id); setViewMode('list'); }}
+              className={`flex-1 min-w-0 flex flex-col items-center justify-center rounded-2xl px-1 py-3 sm:py-5 shadow-sm border transition-transform hover:-translate-y-0.5 ${active ? 'ring-2 ring-offset-1' : ''}`}
               style={{ 
                 backgroundColor: stage.color + '15',
-                borderColor: stage.color + '30'
+                borderColor: stage.color + '30',
+                ...(active ? { '--tw-ring-color': stage.color } : {})
               }}
               data-testid={`stage-count-${stage.stage_id}`}
             >
               <span className="text-[6px] sm:text-[11px] font-medium text-center leading-tight truncate w-full px-0.5" style={{ color: stage.color }}>{stage.name}</span>
               <span className="text-base sm:text-3xl font-bold mt-0.5" style={{ color: stage.color }}>{count}</span>
-            </div>
+            </button>
             );
           })}
         </div>

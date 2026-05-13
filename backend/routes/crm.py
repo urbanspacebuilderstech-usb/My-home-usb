@@ -1115,13 +1115,24 @@ async def update_lead_stage(lead_id: str, data: LeadStageUpdate, user: User = De
         lead.get("stage_type") == "pre_sales"
         and old_stage_id == "stg_appointment"
         and data.stage_id != "stg_appointment"
-        and lead.get("transferred_to_lead_id")
     ):
-        sales_lead_id = lead["transferred_to_lead_id"]
-        sales_lead = await db.leads.find_one(
-            {"lead_id": sales_lead_id},
-            {"_id": 0, "current_stage_id": 1, "project_id": 1, "assigned_to": 1, "name": 1}
-        )
+        # Look up the paired sales lead — first by the forward link, then fall
+        # back to the reverse link (legacy leads where the pre-sales doc never
+        # got `transferred_to_lead_id` set due to historical bugs).
+        sales_lead_id = lead.get("transferred_to_lead_id")
+        sales_lead = None
+        if sales_lead_id:
+            sales_lead = await db.leads.find_one(
+                {"lead_id": sales_lead_id},
+                {"_id": 0, "lead_id": 1, "current_stage_id": 1, "project_id": 1, "assigned_to": 1, "name": 1}
+            )
+        if not sales_lead:
+            sales_lead = await db.leads.find_one(
+                {"stage_type": "sales", "transferred_from_lead_id": lead_id},
+                {"_id": 0, "lead_id": 1, "current_stage_id": 1, "project_id": 1, "assigned_to": 1, "name": 1}
+            )
+            if sales_lead:
+                sales_lead_id = sales_lead["lead_id"]
         if sales_lead:
             # Block rollback if Sales has already progressed the lead
             advanced_beyond_intake = (
