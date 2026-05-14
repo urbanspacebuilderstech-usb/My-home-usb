@@ -3805,6 +3805,9 @@ class ProjectStageCreate(BaseModel):
     sl_no: Optional[str] = None             # e.g. "PO1", "FW1" — display code from template
     section_title: Optional[str] = None     # bold group title (e.g. "Foundation work")
     is_section_header: Optional[bool] = None  # True for non-task header rows
+    depends_on: Optional[str] = None        # Predecessor stage_id (or sl_no)
+    hindrance_type: Optional[str] = None    # 'internal' | 'external' | 'neutral'
+    hindrance_reason: Optional[str] = None  # e.g. 'Drawing', 'Rain', 'Others'
 
 class ProjectStageUpdate(BaseModel):
     stage_name: Optional[str] = None
@@ -3821,6 +3824,9 @@ class ProjectStageUpdate(BaseModel):
     sl_no: Optional[str] = None
     section_title: Optional[str] = None
     is_section_header: Optional[bool] = None
+    depends_on: Optional[str] = None
+    hindrance_type: Optional[str] = None
+    hindrance_reason: Optional[str] = None
 
 class StageTemplateCreate(BaseModel):
     template_name: str
@@ -3873,6 +3879,9 @@ async def add_project_stage(project_id: str, data: ProjectStageCreate, user: Use
         "sl_no": data.sl_no,
         "section_title": data.section_title,
         "is_section_header": bool(data.is_section_header) if data.is_section_header is not None else False,
+        "depends_on": data.depends_on,
+        "hindrance_type": data.hindrance_type,
+        "hindrance_reason": data.hindrance_reason,
         "created_by": user.user_id,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
@@ -3908,6 +3917,9 @@ async def add_project_stages_bulk(project_id: str, stages: List[ProjectStageCrea
             "sl_no": s.sl_no,
             "section_title": s.section_title,
             "is_section_header": bool(s.is_section_header) if s.is_section_header is not None else False,
+            "depends_on": s.depends_on,
+            "hindrance_type": s.hindrance_type,
+            "hindrance_reason": s.hindrance_reason,
             "created_by": user.user_id,
             "created_at": datetime.now(timezone.utc).isoformat()
         }

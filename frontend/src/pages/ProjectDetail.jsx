@@ -182,6 +182,98 @@ const WorkflowBadge = ({ status }) => {
 
 // ============ PAYMENT SUMMARY SECTION WITH INCOME/EXPENSE VIEWS ============
 const fmtFull = (n) => n ? `₹${Number(n).toLocaleString('en-IN')}` : '₹0';
+// =====================================================================
+// Hindrance taxonomy — used by the inline Hindrances picker in Project Stages
+// =====================================================================
+const HINDRANCE_REASONS = {
+  internal: ['Drawing', 'Staff', 'Material', 'Labour', 'Machinery', 'Payment to Vendor', 'Petty Cash Delay', 'Others'],
+  external: ['Approval', 'Drawing Change', 'Client New Design', 'Cost', 'Others'],
+  neutral:  ['Rain', 'Local Issue', 'Approvals', '3rd Party Dependency', 'Others'],
+};
+const HINDRANCE_TYPE_LABEL = { internal: 'Internal', external: 'External', neutral: 'Neutral' };
+const HINDRANCE_TYPE_COLOR = {
+  internal: 'bg-rose-100 text-rose-700 border-rose-200',
+  external: 'bg-amber-100 text-amber-700 border-amber-200',
+  neutral:  'bg-sky-100 text-sky-700 border-sky-200',
+};
+
+// Inline picker: 3 type pills → reason dropdown → optional "Others" text input.
+// Calls `onChange({hindrance_type, hindrance_reason, hindrances})`.
+function HindrancePicker({ value, onChange, compact = false }) {
+  const hType = value?.hindrance_type || '';
+  const hReason = value?.hindrance_reason || '';
+  const hNotes = value?.hindrances || '';
+  const isOthers = hReason === 'Others';
+
+  const clear = () => onChange({ hindrance_type: '', hindrance_reason: '', hindrances: '' });
+
+  return (
+    <div className={`flex flex-col gap-1 ${compact ? '' : 'min-w-[180px]'}`}>
+      <div className="flex gap-1">
+        {Object.keys(HINDRANCE_REASONS).map(t => (
+          <button
+            type="button"
+            key={t}
+            className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${hType === t ? HINDRANCE_TYPE_COLOR[t] + ' font-semibold' : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+            onClick={() => onChange({ hindrance_type: t, hindrance_reason: '', hindrances: '' })}
+            data-testid={`hindrance-type-${t}`}
+          >
+            {HINDRANCE_TYPE_LABEL[t]}
+          </button>
+        ))}
+        {(hType || hReason) && (
+          <button type="button" className="text-[10px] px-1.5 py-0.5 text-gray-400 hover:text-rose-500" onClick={clear} title="Clear">×</button>
+        )}
+      </div>
+      {hType && (
+        <select
+          className="border rounded px-2 py-1 text-xs"
+          value={hReason}
+          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: e.target.value, hindrances: hNotes })}
+          data-testid="hindrance-reason"
+        >
+          <option value="">— select reason —</option>
+          {HINDRANCE_REASONS[hType].map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+      )}
+      {isOthers && (
+        <input
+          type="text"
+          placeholder="Describe the hindrance..."
+          className="border rounded px-2 py-1 text-xs"
+          value={hNotes}
+          onChange={e => onChange({ hindrance_type: hType, hindrance_reason: 'Others', hindrances: e.target.value })}
+          data-testid="hindrance-other-text"
+        />
+      )}
+    </div>
+  );
+}
+// Read-only badge view used in the saved table
+function HindranceBadge({ stage }) {
+  const t = stage?.hindrance_type;
+  const r = stage?.hindrance_reason;
+  const notes = stage?.hindrances || stage?.remarks;
+  if (!t && !r && !notes) return <span className="text-gray-300">-</span>;
+  const tone = HINDRANCE_TYPE_COLOR[t] || 'bg-gray-100 text-gray-700 border-gray-200';
+  return (
+    <div className="flex flex-col gap-0.5">
+      {(t || r) && (
+        <span className={`inline-flex items-center gap-1 self-start text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded-full border ${tone}`}>
+          {t ? HINDRANCE_TYPE_LABEL[t] : ''}{t && r ? ' · ' : ''}{r || ''}
+        </span>
+      )}
+      {notes && r === 'Others' && (
+        <span className="text-[11px] text-gray-600 line-clamp-2" title={notes}>{notes}</span>
+      )}
+      {notes && !t && !r && (
+        <span className="text-[11px] text-gray-600 line-clamp-2" title={notes}>{notes}</span>
+      )}
+    </div>
+  );
+}
+
+
 
 function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency, getPaymentStatusBadge, openCollectDialog }) {
   const [incomeData, setIncomeData] = useState(null);
@@ -468,7 +560,7 @@ export default function ProjectDetail() {
   const [stageTemplates, setStageTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [showAddStages, setShowAddStages] = useState(false);
-  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0 }]);
+  const [newStages, setNewStages] = useState([{ stage_name: '', start_date: '', target_date: '', status: 'yet_to_start', remarks: '', hindrances: '', sl_no: '', section_title: '', is_section_header: false, actual_start_date: '', actual_finish_date: '', duration_days: '', progress: 0, depends_on: '', hindrance_type: '', hindrance_reason: '' }]);
   const [saveTemplateDialog, setSaveTemplateDialog] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
@@ -1736,6 +1828,9 @@ export default function ProjectDetail() {
       actual_finish_date: '',
       duration_days: '',
       progress: 0,
+      depends_on: '',
+      hindrance_type: '',
+      hindrance_reason: '',
     }]);
   };
   const addNewTitleRow = () => {
@@ -1753,6 +1848,9 @@ export default function ProjectDetail() {
       progress: 0,
       remarks: '',
       hindrances: '',
+      depends_on: '',
+      hindrance_type: '',
+      hindrance_reason: '',
     }]);
   };
   const removeNewStageRow = (idx) => {
@@ -3371,6 +3469,7 @@ export default function ProjectDetail() {
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
+                              <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Depends On</th>
                               <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
                               <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Action</th>
                             </tr>
@@ -3379,7 +3478,7 @@ export default function ProjectDetail() {
                             {newStages.map((stage, idx) => (
                               stage.is_section_header ? (
                                 <tr key={idx} className="bg-slate-100" data-testid={`new-section-row-${idx}`}>
-                                  <td colSpan={9} className="px-2 py-2">
+                                  <td colSpan={10} className="px-2 py-2">
                                     <input
                                       type="text"
                                       placeholder="SECTION TITLE (e.g. Foundation work)"
@@ -3481,13 +3580,31 @@ export default function ProjectDetail() {
                                       <span className="text-[10px] text-gray-500">%</span>
                                     </div>
                                   </td>
+                                  <td className="px-2 py-2 text-center">
+                                    <select
+                                      className="border rounded px-1.5 py-1 text-xs w-full max-w-[110px]"
+                                      value={stage.depends_on || ''}
+                                      onChange={(e) => updateNewStage(idx, 'depends_on', e.target.value)}
+                                    >
+                                      <option value="">—</option>
+                                      {newStages
+                                        .map((s, i) => ({ s, i }))
+                                        .filter(({ s, i }) => !s.is_section_header && i !== idx && s.sl_no)
+                                        .map(({ s, i }) => <option key={i} value={s.sl_no}>{s.sl_no}</option>)}
+                                    </select>
+                                  </td>
                                   <td className="px-2 py-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Delays, blockers, issues..."
-                                      className="w-full min-w-[140px] border rounded px-2 py-1 text-xs"
-                                      value={stage.hindrances ?? stage.remarks ?? ''}
-                                      onChange={(e) => { updateNewStage(idx, 'hindrances', e.target.value); updateNewStage(idx, 'remarks', e.target.value); }}
+                                    <HindrancePicker
+                                      value={stage}
+                                      onChange={(patch) => {
+                                        if (patch.hindrance_type !== undefined) updateNewStage(idx, 'hindrance_type', patch.hindrance_type);
+                                        if (patch.hindrance_reason !== undefined) updateNewStage(idx, 'hindrance_reason', patch.hindrance_reason);
+                                        if (patch.hindrances !== undefined) {
+                                          updateNewStage(idx, 'hindrances', patch.hindrances);
+                                          updateNewStage(idx, 'remarks', patch.hindrances);
+                                        }
+                                      }}
+                                      compact
                                     />
                                   </td>
                                   <td className="px-2 py-2 text-center">
@@ -3564,6 +3681,7 @@ export default function ProjectDetail() {
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Start</th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Actual Finish</th>
                           <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Progress</th>
+                          <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Depends On</th>
                           <th className="px-3 py-3 text-left text-xs font-semibold text-gray-600 uppercase whitespace-nowrap">Hindrances</th>
                           {canManage && <th className="px-3 py-3 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>}
                         </tr>
@@ -3580,7 +3698,7 @@ export default function ProjectDetail() {
                                 <td className="px-1 py-2 text-center">
                                   {canManage && <DragHandle listeners={listeners} attributes={attributes} />}
                                 </td>
-                                <td colSpan={canManage ? 10 : 9} className="px-3 py-2.5">
+                                <td colSpan={canManage ? 11 : 10} className="px-3 py-2.5">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-sm sm:text-base font-bold text-slate-800 uppercase tracking-wide">
                                       {stage.section_title || stage.stage_name}
@@ -3687,19 +3805,37 @@ export default function ProjectDetail() {
                                 );
                               })()}
                             </td>
-                            {/* Hindrances */}
-                            <td className="px-3 py-3 text-sm text-gray-600 max-w-[200px]">
+                            {/* Depends On (predecessor stage) */}
+                            <td className="px-3 py-3 text-center text-xs">
                               {editingStageId === stage.stage_id ? (
-                                <input
-                                  className="border rounded px-2 py-1 text-sm w-full"
-                                  placeholder="Delays, blockers, issues..."
-                                  value={editStageData.hindrances ?? editStageData.remarks ?? ''}
-                                  onChange={e => setEditStageData(d => ({...d, hindrances: e.target.value, remarks: e.target.value}))}
+                                <select
+                                  className="border rounded px-2 py-1 text-xs w-full"
+                                  value={editStageData.depends_on || ''}
+                                  onChange={e => setEditStageData(d => ({...d, depends_on: e.target.value}))}
+                                >
+                                  <option value="">— none —</option>
+                                  {projectStages
+                                    .filter(s => s.stage_id !== stage.stage_id && !s.is_section_header)
+                                    .map(s => <option key={s.stage_id} value={s.stage_id}>{s.sl_no || s.stage_name}</option>)}
+                                </select>
+                              ) : (
+                                (() => {
+                                  if (!stage.depends_on) return <span className="text-gray-300">-</span>;
+                                  const dep = projectStages.find(s => s.stage_id === stage.depends_on);
+                                  return <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">{dep?.sl_no || dep?.stage_name || stage.depends_on}</span>;
+                                })()
+                              )}
+                            </td>
+                            {/* Hindrances */}
+                            <td className="px-3 py-3 text-sm text-gray-600 max-w-[220px]">
+                              {editingStageId === stage.stage_id ? (
+                                <HindrancePicker
+                                  value={editStageData}
+                                  onChange={(patch) => setEditStageData(d => ({...d, ...patch, remarks: patch.hindrances ?? d.remarks}))}
+                                  compact
                                 />
                               ) : (
-                                <span className="line-clamp-2" title={stage.hindrances || stage.remarks || ''}>
-                                  {stage.hindrances || stage.remarks || '-'}
-                                </span>
+                                <HindranceBadge stage={stage} />
                               )}
                             </td>
                             {canManage && (
@@ -3711,7 +3847,7 @@ export default function ProjectDetail() {
                                   </div>
                                 ) : (
                                   <div className="flex justify-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '' }); }}>
+                                    <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '' }); }}>
                                       <Edit className="h-3 w-3" />
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
