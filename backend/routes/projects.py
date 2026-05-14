@@ -3938,8 +3938,21 @@ async def update_project_stage(project_id: str, stage_id: str, data: ProjectStag
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     
+    # Capture the human-friendly fields that changed so the UI can show
+    # "Last edited: Planned Start, Hindrance · by Diwakar on 14 May 2026 4:12 PM"
+    FIELD_LABELS = {
+        "stage_name": "Stage name", "start_date": "Planned Start", "target_date": "Planned Finish",
+        "duration_days": "Duration", "actual_start_date": "Actual Start",
+        "actual_finish_date": "Actual Finish", "progress": "Progress", "hindrances": "Hindrance notes",
+        "hindrance_type": "Hindrance type", "hindrance_reason": "Hindrance reason",
+        "depends_on": "Depends on", "status": "Status", "remarks": "Remarks",
+        "sl_no": "Sl.No", "section_title": "Section",
+    }
+    changed_labels = sorted({FIELD_LABELS[k] for k in updates.keys() if k in FIELD_LABELS})
     updates["updated_by"] = user.user_id
+    updates["updated_by_name"] = user.name
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["last_changed_fields"] = changed_labels
     
     result = await db.project_stages.update_one(
         {"stage_id": stage_id, "project_id": project_id},
@@ -3948,6 +3961,66 @@ async def update_project_stage(project_id: str, stage_id: str, data: ProjectStag
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Stage not found")
     return {"message": "Stage updated"}
+
+
+class InsertStageInput(BaseModel):
+    after_stage_id: Optional[str] = None  # None → insert at top
+    stage: ProjectStageCreate
+
+
+@router.post("/projects/{project_id}/project-stages/insert")
+async def insert_project_stage(project_id: str, body: InsertStageInput, user: User = Depends(get_current_user)):
+    """Insert a new stage anywhere in the existing order, automatically shifting
+    every subsequent stage's `order` down by 1 so the table stays consistent."""
+    # Determine target order
+    if body.after_stage_id:
+        anchor = await db.project_stages.find_one(
+            {"stage_id": body.after_stage_id, "project_id": project_id},
+            {"_id": 0, "order": 1},
+        )
+        if not anchor:
+            raise HTTPException(status_code=404, detail="Anchor stage not found")
+        new_order = (anchor.get("order") or 0) + 1
+    else:
+        new_order = 1
+    
+    # Shift every existing stage with order >= new_order down by 1
+    await db.project_stages.update_many(
+        {"project_id": project_id, "order": {"$gte": new_order}},
+        {"$inc": {"order": 1}},
+    )
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_stage = {
+        "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
+        "project_id": project_id,
+        "stage_name": body.stage.stage_name,
+        "start_date": body.stage.start_date,
+        "target_date": body.stage.target_date,
+        "duration_days": body.stage.duration_days,
+        "actual_start_date": body.stage.actual_start_date,
+        "actual_finish_date": body.stage.actual_finish_date,
+        "progress": body.stage.progress if body.stage.progress is not None else 0,
+        "hindrances": body.stage.hindrances,
+        "status": body.stage.status or "yet_to_start",
+        "remarks": body.stage.remarks,
+        "order": new_order,
+        "sl_no": body.stage.sl_no,
+        "section_title": body.stage.section_title,
+        "is_section_header": bool(body.stage.is_section_header) if body.stage.is_section_header is not None else False,
+        "depends_on": body.stage.depends_on,
+        "hindrance_type": body.stage.hindrance_type,
+        "hindrance_reason": body.stage.hindrance_reason,
+        "created_by": user.user_id,
+        "created_at": now_iso,
+        "updated_by": user.user_id,
+        "updated_by_name": user.name,
+        "updated_at": now_iso,
+        "last_changed_fields": ["Created"],
+    }
+    await db.project_stages.insert_one(new_stage)
+    new_stage.pop("_id", None)
+    return new_stage
 
 @router.delete("/projects/{project_id}/project-stages/{stage_id}")
 async def delete_project_stage(project_id: str, stage_id: str, user: User = Depends(get_current_user)):

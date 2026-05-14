@@ -256,18 +256,22 @@ function HindranceBadge({ stage }) {
   const notes = stage?.hindrances || stage?.remarks;
   if (!t && !r && !notes) return <span className="text-gray-300">-</span>;
   const tone = HINDRANCE_TYPE_COLOR[t] || 'bg-gray-100 text-gray-700 border-gray-200';
+  // Single compact pill — never wraps inside; horizontally truncates with ellipsis
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col items-start gap-0.5 min-w-0">
       {(t || r) && (
-        <span className={`inline-flex items-center gap-1 self-start text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded-full border ${tone}`}>
-          {t ? HINDRANCE_TYPE_LABEL[t] : ''}{t && r ? ' · ' : ''}{r || ''}
+        <span
+          className={`inline-flex items-center max-w-full text-[10px] uppercase tracking-wide font-medium px-2 py-0.5 rounded-full border whitespace-nowrap leading-tight ${tone}`}
+          title={`${t ? HINDRANCE_TYPE_LABEL[t] : ''}${t && r ? ' · ' : ''}${r || ''}${notes && r === 'Others' ? ` — ${notes}` : ''}`}
+        >
+          <span className="truncate">{t ? HINDRANCE_TYPE_LABEL[t] : ''}{t && r ? ' · ' : ''}{r || ''}</span>
         </span>
       )}
       {notes && r === 'Others' && (
-        <span className="text-[11px] text-gray-600 line-clamp-2" title={notes}>{notes}</span>
+        <span className="text-[11px] text-gray-600 line-clamp-1 max-w-full" title={notes}>{notes}</span>
       )}
       {notes && !t && !r && (
-        <span className="text-[11px] text-gray-600 line-clamp-2" title={notes}>{notes}</span>
+        <span className="text-[11px] text-gray-600 line-clamp-2 max-w-full" title={notes}>{notes}</span>
       )}
     </div>
   );
@@ -1902,6 +1906,30 @@ export default function ProjectDetail() {
       toast.success('Stage deleted');
       fetchData(false);
     } catch { toast.error('Failed to delete'); }
+  };
+
+  // Insert a new stage immediately below the given anchor row. Prompts for
+  // basic info, then POSTs to /project-stages/insert which auto-shifts every
+  // subsequent stage's `order` down by 1 so the table stays consistent.
+  const handleInsertStageBelow = async (anchorStage) => {
+    const stageName = window.prompt('New stage name:', '');
+    if (!stageName || !stageName.trim()) return;
+    const slNo = window.prompt('Sl.No (optional, e.g. PO5 or leave blank):', '') || '';
+    try {
+      await axios.post(`${API}/projects/${projectId}/project-stages/insert`, {
+        after_stage_id: anchorStage.stage_id,
+        stage: {
+          stage_name: stageName.trim(),
+          sl_no: slNo.trim() || null,
+          section_title: anchorStage.section_title || null,
+          status: 'yet_to_start',
+        },
+      });
+      toast.success(`Inserted "${stageName.trim()}" below ${anchorStage.sl_no || anchorStage.stage_name}`);
+      fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to insert stage');
+    }
   };
 
   const stageStatusConfig = {
@@ -3846,13 +3874,33 @@ export default function ProjectDetail() {
                                     <Button size="sm" variant="outline" className="h-7" onClick={() => setEditingStageId(null)}><X className="h-3 w-3" /></Button>
                                   </div>
                                 ) : (
-                                  <div className="flex justify-center gap-1">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div className="flex justify-center gap-1">
                                     <Button size="sm" variant="ghost" className="h-7" onClick={() => { setEditingStageId(stage.stage_id); setEditStageData({ stage_name: stage.stage_name, start_date: stage.start_date || '', target_date: stage.target_date || '', duration_days: stage.duration_days ?? '', actual_start_date: stage.actual_start_date || '', actual_finish_date: stage.actual_finish_date || '', progress: stage.progress ?? (stage.status === 'finished' ? 100 : stage.status === 'started' ? 50 : 0), status: stage.status, hindrances: stage.hindrances || stage.remarks || '', remarks: stage.hindrances || stage.remarks || '', depends_on: stage.depends_on || '', hindrance_type: stage.hindrance_type || '', hindrance_reason: stage.hindrance_reason || '' }); }}>
                                       <Edit className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-blue-600"
+                                      onClick={() => handleInsertStageBelow(stage)}
+                                      title="Insert new stage below this row"
+                                      data-testid={`insert-stage-below-${stage.stage_id}`}
+                                    >
+                                      <Plus className="h-3 w-3" />
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
                                       <Trash2 className="h-3 w-3" />
                                     </Button>
+                                    </div>
+                                    {stage.updated_at && (
+                                      <span
+                                        className="text-[9px] text-gray-400 cursor-help"
+                                        title={`Last edited ${new Date(stage.updated_at).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}${stage.updated_by_name ? ' by ' + stage.updated_by_name : ''}${stage.last_changed_fields?.length ? '\nFields: ' + stage.last_changed_fields.join(', ') : ''}`}
+                                      >
+                                        ✎ {new Date(stage.updated_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </td>
