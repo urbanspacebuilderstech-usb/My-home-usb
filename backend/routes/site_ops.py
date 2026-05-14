@@ -2699,6 +2699,49 @@ async def record_direct_expense(request: Request, user: User = Depends(get_curre
     }
     await db.direct_expenses.insert_one(record)
     record.pop("_id", None)
+    
+    # Mirror every line item into recorded_expenses so the Accountant Cashbook
+    # (Expense Breakdown — Petty Cash tile, Direct Expense list, Overall Expense)
+    # reflects the spend. Category is forced to 'petty_cash' because these expenses
+    # are funded out of the SE's petty cash issued by the accountant. The bug
+    # was: the SE could log a ₹3,650 spend that never reached the accountant board.
+    for raw_item in record["items"]:
+        await db.recorded_expenses.insert_one({
+            "expense_id": f"exp_{secrets.token_hex(6)}",
+            "project_id": project_id,
+            "project_name": record["project_name"],
+            "category": "petty_cash",
+            "description": raw_item.get("expense_name") or raw_item.get("category", "Direct Expense"),
+            "amount": raw_item["amount"],
+            "payment_method": "cash",
+            "payment_mode": "cash",
+            "bill_file_id": raw_item.get("bill_file_id"),
+            "bill_filename": raw_item.get("bill_filename"),
+            "vendor_name": raw_item.get("category", ""),
+            "recorded_by": user.user_id,
+            "recorded_by_name": user.name,
+            "status": "recorded",
+            "source": "site_engineer_direct",
+            "direct_expense_id": expense_id,
+            "direct_expense_item_id": raw_item["item_id"],
+            "created_at": now,
+        })
+    
+    # Increment amount_spent on the SE's most recent open petty cash entry
+    # so the SE Dashboard "Balance" tile + Accountant Petty Cash Management
+    # SE balance both stay accurate.
+    open_pc = await db.petty_cash.find_one(
+        {"requested_by": user.user_id, "status": {"$in": ["payment_done", "acknowledged", "issued", "partially_spent"]}},
+        sort=[("created_at", -1)],
+        projection={"_id": 0, "petty_cash_id": 1, "amount_spent": 1, "amount_issued": 1},
+    )
+    if open_pc:
+        new_spent = (open_pc.get("amount_spent") or 0) + total
+        new_status = "partially_spent" if new_spent < (open_pc.get("amount_issued") or 0) else "settled"
+        await db.petty_cash.update_one(
+            {"petty_cash_id": open_pc["petty_cash_id"]},
+            {"$set": {"amount_spent": new_spent, "status": new_status}},
+        )
     return record
 
 
