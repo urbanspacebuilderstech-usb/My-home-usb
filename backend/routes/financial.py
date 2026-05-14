@@ -844,52 +844,94 @@ async def create_manual_expense(data: ManualExpenseCreate, user: User = Depends(
 
 @router.get("/suspense/overview")
 async def get_suspense_overview(user: User = Depends(get_current_user)):
-    """Get suspense account overview - petty cash, materials, labour balances"""
+    """Get suspense account overview - petty cash, materials (vendor credit), labour balances.
+    
+    Pulls from the ACTUAL data sources used by the app:
+      - Petty Cash: db.petty_cash (status payment_done/acknowledged/partially_spent/issued)
+      - Material Suspense: db.vendor_credit_ledger + db.credit_ledger (pending credit purchases)
+      - Labour Suspense: db.labour_expenses (status pm_approved — approved but awaiting accountant payout)
+    """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    (petty_cash, suspense_entries, projects_list) = await asyncio.gather(
-        db.petty_cash_requests.find({}, {"_id": 0}).sort("created_at", -1).to_list(500),
-        db.suspense_entries.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000),
+    PETTY_ACTIVE_STATUSES = ["payment_done", "acknowledged", "partially_spent", "issued"]
+    VENDOR_OPEN_STATUSES = ["pending", "active", "overdue", "partially_paid"]
+    LABOUR_OPEN_STATUSES = ["pm_approved", "accounts_pending"]
+    
+    (petty_cash, vendor_credits_v2, credit_ledger_v1, labour_expenses, projects_list) = await asyncio.gather(
+        db.petty_cash.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000),
+        db.vendor_credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
+        db.credit_ledger.find({"status": {"$in": VENDOR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
+        db.labour_expenses.find({"status": {"$in": LABOUR_OPEN_STATUSES}}, {"_id": 0}).to_list(1000),
         db.projects.find({}, {"_id": 0, "project_id": 1, "name": 1}).to_list(1000),
     )
     
-    project_map = {p["project_id"]: p["name"] for p in projects_list}
+    # ---- Petty Cash ----
+    petty_active = [p for p in petty_cash if p.get("status") in PETTY_ACTIVE_STATUSES]
+    petty_total_issued = sum(p.get("amount_issued", 0) or 0 for p in petty_active)
+    petty_total_spent = sum(p.get("amount_spent", 0) or 0 for p in petty_active)
+    petty_balance = petty_total_issued - petty_total_spent
     
-    # Calculate petty cash summary
-    petty_active = [p for p in petty_cash if p.get("status") in ["issued", "partially_settled"]]
-    petty_total_issued = sum(p.get("amount_issued", 0) for p in petty_active)
-    petty_total_spent = sum(p.get("amount_spent", 0) for p in petty_active)
+    # ---- Material Suspense (vendor credit) ----
+    material_suspense = {}  # vendor_name -> { balance, entries:[] }
+    for entry in vendor_credits_v2 + credit_ledger_v1:
+        vendor = entry.get("vendor_name") or "Unknown Vendor"
+        outstanding = entry.get("balance")
+        if outstanding is None or outstanding == 0:
+            outstanding = entry.get("amount", 0) or 0
+        if outstanding <= 0:
+            continue
+        bucket = material_suspense.setdefault(vendor, {"name": vendor, "balance": 0, "entries": []})
+        bucket["balance"] += outstanding
+        bucket["entries"].append({
+            "ledger_id": entry.get("ledger_id"),
+            "material": entry.get("material") or entry.get("material_name", ""),
+            "project_id": entry.get("project_id"),
+            "amount": entry.get("amount", 0),
+            "balance": outstanding,
+            "due_date": entry.get("due_date"),
+            "status": entry.get("status"),
+        })
     
-    # Group suspense by type and vendor/contractor
-    material_suspense = {}
+    # ---- Labour Suspense ----
     labour_suspense = {}
-    for entry in suspense_entries:
-        etype = entry.get("type")
-        key = entry.get("vendor_name") or entry.get("contractor_name") or "Unknown"
-        amt = entry.get("amount", 0)
-        if etype == "material":
-            material_suspense[key] = material_suspense.get(key, 0) + amt
-        elif etype == "labour":
-            labour_suspense[key] = labour_suspense.get(key, 0) + amt
+    for exp in labour_expenses:
+        contractor = exp.get("contractor_name") or "Unknown Contractor"
+        outstanding = (exp.get("total_amount", 0) or 0) - (exp.get("paid_amount", 0) or 0)
+        if outstanding <= 0:
+            continue
+        bucket = labour_suspense.setdefault(contractor, {"name": contractor, "balance": 0, "entries": []})
+        bucket["balance"] += outstanding
+        bucket["entries"].append({
+            "labour_expense_id": exp.get("labour_expense_id"),
+            "description": exp.get("description"),
+            "project_id": exp.get("project_id"),
+            "amount": exp.get("total_amount", 0),
+            "balance": outstanding,
+            "status": exp.get("status"),
+        })
     
     return {
         "petty_cash": {
             "active_requests": petty_active,
             "total_issued": petty_total_issued,
             "total_spent": petty_total_spent,
-            "balance": petty_total_issued - petty_total_spent,
+            "balance": petty_balance,
             "all_requests": petty_cash,
         },
         "material_suspense": {
-            "balances": [{"name": k, "balance": v} for k, v in material_suspense.items()],
-            "total": sum(material_suspense.values()),
+            "balances": list(material_suspense.values()),
+            "total": sum(b["balance"] for b in material_suspense.values()),
         },
         "labour_suspense": {
-            "balances": [{"name": k, "balance": v} for k, v in labour_suspense.items()],
-            "total": sum(labour_suspense.values()),
+            "balances": list(labour_suspense.values()),
+            "total": sum(b["balance"] for b in labour_suspense.values()),
         },
-        "entries": suspense_entries,
+        "total_suspense_balance": (
+            petty_balance
+            + sum(b["balance"] for b in material_suspense.values())
+            + sum(b["balance"] for b in labour_suspense.values())
+        ),
         "projects": projects_list,
     }
 
