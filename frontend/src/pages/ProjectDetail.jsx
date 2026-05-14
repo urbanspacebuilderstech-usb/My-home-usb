@@ -1893,11 +1893,30 @@ export default function ProjectDetail() {
 
   const handleUpdateStage = async (stageId) => {
     try {
-      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, editStageData);
+      // Sanitize the payload — Pydantic's Optional[int]/Optional[bool] reject
+      // empty strings, so coerce them to null. Pydantic skips null fields
+      // via the existing `if v is not None` filter on the backend.
+      const NUMERIC_FIELDS = ['duration_days', 'progress'];
+      const cleaned = {};
+      for (const [k, v] of Object.entries(editStageData)) {
+        if (NUMERIC_FIELDS.includes(k)) {
+          cleaned[k] = (v === '' || v === null || v === undefined) ? null : Number(v);
+        } else {
+          cleaned[k] = (v === '' || v === undefined) ? null : v;
+        }
+      }
+      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, cleaned);
       toast.success('Stage updated');
       setEditingStageId(null);
       fetchData(false);
-    } catch { toast.error('Failed to update'); }
+    } catch (e) {
+      // Surface the actual backend error so the user sees WHY the save failed
+      const detail = e.response?.data?.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(d => `${(d.loc || []).slice(-1)[0]}: ${d.msg}`).join(' · ')
+        : (typeof detail === 'string' ? detail : 'Failed to update');
+      toast.error(msg);
+    }
   };
 
   const handleDeleteStage = async (stageId) => {
