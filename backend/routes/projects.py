@@ -3949,14 +3949,36 @@ async def update_project_stage(project_id: str, stage_id: str, data: ProjectStag
         "sl_no": "Sl.No", "section_title": "Section",
     }
     changed_labels = sorted({FIELD_LABELS[k] for k in updates.keys() if k in FIELD_LABELS})
+    now_iso = datetime.now(timezone.utc).isoformat()
     updates["updated_by"] = user.user_id
     updates["updated_by_name"] = user.name
-    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updates["updated_at"] = now_iso
     updates["last_changed_fields"] = changed_labels
+    
+    # Build a per-field before/after snapshot so the Timeline can show
+    # "Progress: 0% → 30%" etc.
+    existing = await db.project_stages.find_one(
+        {"stage_id": stage_id, "project_id": project_id},
+        {"_id": 0},
+    ) or {}
+    changes_detailed = []
+    for k in list(updates.keys()):
+        if k in {"updated_by", "updated_by_name", "updated_at", "last_changed_fields"}:
+            continue
+        before = existing.get(k)
+        after = updates[k]
+        if before != after:
+            changes_detailed.append({"field": k, "label": FIELD_LABELS.get(k, k), "from": before, "to": after})
+    history_entry = {
+        "at": now_iso,
+        "by": user.user_id,
+        "by_name": user.name,
+        "changes": changes_detailed,
+    }
     
     result = await db.project_stages.update_one(
         {"stage_id": stage_id, "project_id": project_id},
-        {"$set": updates}
+        {"$set": updates, "$push": {"edit_history": {"$each": [history_entry], "$slice": -200}}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Stage not found")

@@ -569,6 +569,7 @@ export default function ProjectDetail() {
   const [templateName, setTemplateName] = useState('');
   const [editingStageId, setEditingStageId] = useState(null);
   const [editStageData, setEditStageData] = useState({});
+  const [timelineStage, setTimelineStage] = useState(null);  // null | stage object — opens the Timeline dialog
   const [stagesView, setStagesView] = useState('table'); // 'table' or 'gantt'
   
   // Bulk form data
@@ -1906,30 +1907,6 @@ export default function ProjectDetail() {
       toast.success('Stage deleted');
       fetchData(false);
     } catch { toast.error('Failed to delete'); }
-  };
-
-  // Insert a new stage immediately below the given anchor row. Prompts for
-  // basic info, then POSTs to /project-stages/insert which auto-shifts every
-  // subsequent stage's `order` down by 1 so the table stays consistent.
-  const handleInsertStageBelow = async (anchorStage) => {
-    const stageName = window.prompt('New stage name:', '');
-    if (!stageName || !stageName.trim()) return;
-    const slNo = window.prompt('Sl.No (optional, e.g. PO5 or leave blank):', '') || '';
-    try {
-      await axios.post(`${API}/projects/${projectId}/project-stages/insert`, {
-        after_stage_id: anchorStage.stage_id,
-        stage: {
-          stage_name: stageName.trim(),
-          sl_no: slNo.trim() || null,
-          section_title: anchorStage.section_title || null,
-          status: 'yet_to_start',
-        },
-      });
-      toast.success(`Inserted "${stageName.trim()}" below ${anchorStage.sl_no || anchorStage.stage_name}`);
-      fetchData(false);
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Failed to insert stage');
-    }
   };
 
   const stageStatusConfig = {
@@ -3882,12 +3859,12 @@ export default function ProjectDetail() {
                                     <Button
                                       size="sm"
                                       variant="ghost"
-                                      className="h-7 text-blue-600"
-                                      onClick={() => handleInsertStageBelow(stage)}
-                                      title="Insert new stage below this row"
-                                      data-testid={`insert-stage-below-${stage.stage_id}`}
+                                      className="h-7 text-indigo-600 hover:bg-indigo-50"
+                                      onClick={() => setTimelineStage(stage)}
+                                      title="View edit timeline"
+                                      data-testid={`timeline-stage-${stage.stage_id}`}
                                     >
-                                      <Plus className="h-3 w-3" />
+                                      <Clock className="h-3 w-3" />
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-7 text-red-500" onClick={() => handleDeleteStage(stage.stage_id)}>
                                       <Trash2 className="h-3 w-3" />
@@ -7637,6 +7614,60 @@ export default function ProjectDetail() {
             >
               {locationSaving ? 'Saving...' : 'Save Location'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stage Timeline Dialog — shows the full edit history for one Project Stage */}
+      <Dialog open={!!timelineStage} onOpenChange={(o) => !o && setTimelineStage(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="stage-timeline-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-indigo-600" /> Timeline — {timelineStage?.sl_no ? `${timelineStage.sl_no} · ` : ''}{timelineStage?.stage_name}
+            </DialogTitle>
+            <DialogDescription>Every edit to this stage, newest first.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {(() => {
+              const history = (timelineStage?.edit_history || []).slice().reverse();
+              if (!history.length) {
+                return (
+                  <div className="text-xs text-gray-400 py-6 text-center bg-gray-50 rounded">
+                    No edits recorded yet. This stage hasn&apos;t been modified since it was created.
+                  </div>
+                );
+              }
+              const fmt = (v) => {
+                if (v === null || v === undefined || v === '') return <span className="text-gray-300 italic">empty</span>;
+                if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+                return String(v);
+              };
+              return history.map((h, i) => (
+                <div key={i} className="border-l-2 border-indigo-200 pl-3 py-2 bg-white rounded-r-md" data-testid={`timeline-entry-${i}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-gray-900">{h.by_name || h.by || 'Unknown user'}</span>
+                    <span className="text-xs text-gray-500">{h.at ? new Date(h.at).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—'}</span>
+                  </div>
+                  {h.changes && h.changes.length > 0 ? (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {h.changes.map((c, ci) => (
+                        <li key={ci} className="text-xs flex gap-2 items-baseline">
+                          <span className="font-medium text-gray-700 min-w-[110px]">{c.label || c.field}</span>
+                          <span className="text-gray-400">{fmt(c.from)}</span>
+                          <span className="text-indigo-500">→</span>
+                          <span className="text-emerald-700 font-medium">{fmt(c.to)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1">No field-level details captured.</p>
+                  )}
+                </div>
+              ));
+            })()}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTimelineStage(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
