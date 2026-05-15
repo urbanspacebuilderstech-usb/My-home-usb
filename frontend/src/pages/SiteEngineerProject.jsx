@@ -780,17 +780,7 @@ export default function SiteEngineerProject() {
           </div>
         </div>
 
-        {/* Quick Attendance Button */}
-        <div className="flex items-center justify-end mb-2">
-          <Button
-            size="sm"
-            className="gap-1.5 text-xs bg-blue-600 hover:bg-blue-700"
-            onClick={() => { setActiveTab('work_orders'); setQuickAttPopup(true); }}
-            data-testid="quick-attendance-btn"
-          >
-            <ClipboardList className="h-3.5 w-3.5" /> Daily Attendance
-          </Button>
-        </div>
+        {/* Quick Attendance Button — REMOVED (DLR & DPR tab now handles attendance via DLR popup) */}
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'materials') setMaterialsSubTab('requests'); }}>

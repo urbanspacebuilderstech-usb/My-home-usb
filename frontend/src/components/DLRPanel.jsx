@@ -362,11 +362,16 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
                     <SelectValue placeholder={projectStages.length ? "Select current stage..." : "No stages configured for this project"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {projectStages.map(s => (
-                      <SelectItem key={s.stage_id} value={s.stage_id}>
-                        {s.stage_name}{s.status ? ` — ${s.status}` : ''}
-                      </SelectItem>
-                    ))}
+                    {projectStages
+                      .filter(s => !s.is_section_header)
+                      .map((s, idx) => {
+                        const code = s.sl_no || `PO${idx + 1}`;
+                        return (
+                          <SelectItem key={s.stage_id} value={s.stage_id}>
+                            {code} {s.stage_name}
+                          </SelectItem>
+                        );
+                      })}
                   </SelectContent>
                 </Select>
               </div>

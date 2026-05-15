@@ -3025,3 +3025,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/552.pack
+frontend/node_modules/.cache/default-development/555.pack
