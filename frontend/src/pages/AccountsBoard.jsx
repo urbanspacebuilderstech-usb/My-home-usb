@@ -1798,7 +1798,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                 </div>
               );
             })()}
-            {Object.keys(MODE_LABELS).filter(m => m !== 'suspense_account').map(mode => {
+            {Object.keys(MODE_LABELS).filter(m => m !== 'suspense_account' && m !== 'petty_cash').map(mode => {
               const Icon = MODE_ICONS[mode];
               const net = (inc[mode] || 0) - (exp[mode] || 0);
               return (
