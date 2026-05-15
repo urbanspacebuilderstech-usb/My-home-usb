@@ -784,7 +784,7 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'materials') setMaterialsSubTab('requests'); }}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-5">
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
             <TabsTrigger value="dlr_dpr" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-dlr-dpr">
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">DLR &amp; DPR</span>
@@ -799,10 +799,6 @@ export default function SiteEngineerProject() {
               <ClipboardList className="h-4 w-4" />
               <span className="hidden sm:inline">Work Order (Labour)</span>
               <span className="sm:hidden">WO (Labour)</span>
-            </TabsTrigger>
-            <TabsTrigger value="daily_progress" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-daily-progress">
-              <Calendar className="h-4 w-4" />
-              <span>Progress</span>
             </TabsTrigger>
             <TabsTrigger value="curing" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-curing-video">
               <Video className="h-4 w-4" />
@@ -869,7 +865,7 @@ export default function SiteEngineerProject() {
                     <Button
                       size="sm"
                       className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 w-full sm:w-auto"
-                      onClick={() => setActiveTab('daily_progress')}
+                      onClick={() => setActiveTab('work_orders')}
                       data-testid="open-dpr-btn"
                     >
                       <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s Progress
