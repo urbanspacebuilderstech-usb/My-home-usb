@@ -1919,6 +1919,21 @@ export default function ProjectDetail() {
     }
   };
 
+  // Auto-save a single stage field (used by date pickers + Depends On while editing)
+  // — keeps the user in edit mode, silently PATCHes and refreshes the stage list.
+  const autoSaveStageField = async (stageId, patch) => {
+    try {
+      await axios.patch(`${API}/projects/${projectId}/project-stages/${stageId}`, patch);
+      fetchData(false);
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      const msg = Array.isArray(detail)
+        ? detail.map(d => `${(d.loc || []).slice(-1)[0]}: ${d.msg}`).join(' · ')
+        : (typeof detail === 'string' ? detail : 'Auto-save failed');
+      toast.error(msg);
+    }
+  };
+
   const handleDeleteStage = async (stageId) => {
     if (!confirm('Delete this stage?')) return;
     try {
@@ -3751,7 +3766,7 @@ export default function ProjectDetail() {
                             {/* Planned Start */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => setEditStageData(d => ({...d, start_date: e.target.value}))} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.start_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, start_date: v})); autoSaveStageField(stage.stage_id, { start_date: v || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.start_date ? new Date(stage.start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
@@ -3759,7 +3774,7 @@ export default function ProjectDetail() {
                             {/* Planned Finish */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => setEditStageData(d => ({...d, target_date: e.target.value}))} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.target_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, target_date: v})); autoSaveStageField(stage.stage_id, { target_date: v || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.target_date ? new Date(stage.target_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
@@ -3784,7 +3799,7 @@ export default function ProjectDetail() {
                             {/* Actual Start */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_start_date || ''} onChange={e => setEditStageData(d => ({...d, actual_start_date: e.target.value}))} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_start_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, actual_start_date: v})); autoSaveStageField(stage.stage_id, { actual_start_date: v || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.actual_start_date ? new Date(stage.actual_start_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
@@ -3792,7 +3807,7 @@ export default function ProjectDetail() {
                             {/* Actual Finish */}
                             <td className="px-3 py-3 text-center">
                               {editingStageId === stage.stage_id ? (
-                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_finish_date || ''} onChange={e => setEditStageData(d => ({...d, actual_finish_date: e.target.value}))} />
+                                <input type="date" className="border rounded px-2 py-1 text-sm" value={editStageData.actual_finish_date || ''} onChange={e => { const v = e.target.value; setEditStageData(d => ({...d, actual_finish_date: v})); autoSaveStageField(stage.stage_id, { actual_finish_date: v || null }); }} />
                               ) : (
                                 <span className="text-sm">{stage.actual_finish_date ? new Date(stage.actual_finish_date).toLocaleDateString('en-IN') : '-'}</span>
                               )}
@@ -3832,20 +3847,22 @@ export default function ProjectDetail() {
                             {/* Depends On (predecessor stage) */}
                             <td className="px-3 py-3 text-center text-xs">
                               {editingStageId === stage.stage_id ? (
-                                <select
-                                  className="border rounded px-2 py-1 text-xs w-full"
+                                <input
+                                  type="text"
+                                  className="border rounded px-2 py-1 text-xs w-24 text-center uppercase"
+                                  placeholder="e.g. PO3"
                                   value={editStageData.depends_on || ''}
                                   onChange={e => setEditStageData(d => ({...d, depends_on: e.target.value}))}
-                                >
-                                  <option value="">— none —</option>
-                                  {projectStages
-                                    .filter(s => s.stage_id !== stage.stage_id && !s.is_section_header)
-                                    .map(s => <option key={s.stage_id} value={s.stage_id}>{s.sl_no || s.stage_name}</option>)}
-                                </select>
+                                  onBlur={e => autoSaveStageField(stage.stage_id, { depends_on: e.target.value || null })}
+                                />
                               ) : (
                                 (() => {
                                   if (!stage.depends_on) return <span className="text-gray-300">-</span>;
-                                  const dep = projectStages.find(s => s.stage_id === stage.depends_on);
+                                  const depUpper = String(stage.depends_on).trim().toUpperCase();
+                                  const dep = projectStages.find(s =>
+                                    s.stage_id === stage.depends_on
+                                    || String(s.sl_no || '').toUpperCase() === depUpper
+                                  );
                                   return <span className="inline-flex items-center gap-1 text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200 rounded px-1.5 py-0.5">{dep?.sl_no || dep?.stage_name || stage.depends_on}</span>;
                                 })()
                               )}
