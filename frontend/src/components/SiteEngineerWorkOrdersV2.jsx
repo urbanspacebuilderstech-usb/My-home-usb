@@ -980,6 +980,9 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [rows, setRows] = useState(initRows());
   const [notes, setNotes] = useState('');
+  const [stageId, setStageId] = useState('');
+  const [workSummary, setWorkSummary] = useState('');
+  const [projectStages, setProjectStages] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -987,9 +990,22 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
       setDate(new Date().toISOString().split('T')[0]);
       setRows(initRows());
       setNotes('');
+      setStageId('');
+      setWorkSummary('');
     }
     /* eslint-disable-next-line */
   }, [open, workOrder?.work_order_id]);
+
+  // Fetch project stages whenever dialog opens
+  useEffect(() => {
+    if (!open || !projectId) return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
+        setProjectStages(Array.isArray(res.data) ? res.data : []);
+      } catch { setProjectStages([]); }
+    })();
+  }, [open, projectId]);
 
   const calcRow = (r) => (Number(r.count) || 0) * (Number(r.day_value) || 1) * (Number(r.rate_per_day) || 0);
   const totalWorkers = rows.reduce((s, r) => s + (Number(r.count) || 0), 0);
@@ -1003,10 +1019,13 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
     const valid = rows.filter(r => Number(r.count) > 0);
     if (!valid.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!date) { toast.error('Select a date'); return; }
+    if (!stageId) { toast.error('Select Current Project Stage'); return; }
+    if (!workSummary.trim()) { toast.error('Work Summary is required'); return; }
     const missing = valid.filter(r => !Number(r.rate_per_day));
     if (missing.length) {
       toast.error(`Rate not set for: ${missing.map(r => r.label).join(', ')}. Update Work Order rates.`); return;
     }
+    const selectedStage = projectStages.find(s => s.stage_id === stageId);
     setSubmitting(true);
     try {
       await axios.post(`${API}/projects/${projectId}/work-orders/${workOrder.work_order_id}/dlr`, {
@@ -1016,8 +1035,11 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
           day_value: Number(r.day_value), rate_per_day: Number(r.rate_per_day),
         })),
         notes,
+        stage_id: stageId,
+        stage_name: selectedStage?.stage_name || '',
+        work_summary: workSummary.trim(),
       });
-      toast.success('DLR recorded');
+      toast.success('DLR & DPR recorded');
       onSaved();
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to save DLR');
@@ -1086,6 +1108,38 @@ function DLRRecordDialog({ open, onOpenChange, projectId, workOrder, onSaved }) 
             <Label className="text-xs">Notes (optional)</Label>
             <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} className="text-sm mt-1" />
           </div>
+
+          {/* === Daily Progress Report (DPR) fields — unified into DLR === */}
+          <div className="border-t pt-3 mt-1 space-y-3 bg-teal-50/30 -mx-6 px-6 py-3">
+            <p className="text-[11px] font-semibold text-teal-700 uppercase tracking-wide">Daily Progress Report (DPR)</p>
+            <div>
+              <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span></Label>
+              <Select value={stageId} onValueChange={setStageId}>
+                <SelectTrigger className="mt-1 h-9 text-xs" data-testid="wov2-dlr-form-stage">
+                  <SelectValue placeholder={projectStages.length ? "Select current stage..." : "No stages configured for this project"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {projectStages.map(s => (
+                    <SelectItem key={s.stage_id} value={s.stage_id}>
+                      {s.stage_name}{s.status ? ` — ${s.status}` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Work Summary <span className="text-red-500">*</span></Label>
+              <Textarea
+                rows={3}
+                value={workSummary}
+                onChange={(e) => setWorkSummary(e.target.value)}
+                placeholder="Describe work done today (e.g. Slab shuttering completed on 2nd floor, brick work continued at level 1...)"
+                className="text-sm mt-1"
+                data-testid="wov2-dlr-form-work-summary"
+              />
+            </div>
+          </div>
+
           {(!rates.skilled && !rates.semi_skilled && !rates.unskilled) && (
             <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
               Labour day rates are not set on this Work Order. Ask Planning to update rates so totals auto-fill.
