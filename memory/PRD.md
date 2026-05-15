@@ -13,6 +13,22 @@ Full-stack Construction CRM (React + FastAPI + MongoDB) for managing pre-sales l
 
 ## What's Been Implemented
 
+### Session — Feb 15, 2026 — DLR + DPR Unified + SE Logout Enforcement
+- **Backend** (`/app/backend/routes/projects.py`):
+  - Extended `DLRCreate` model with mandatory `stage_id`, `stage_name`, `work_summary` fields. Empty values rejected with 400 + clear error message.
+  - DLR endpoint now verifies `stage_id` actually belongs to the project and re-resolves `stage_name` from `db.project_stages`.
+  - On successful DLR creation, a mirror entry is auto-written to `db.daily_progress` (DPR) with `source: 'dlr'` + `dlr_id` linkage so Planning's DPR view stays unified.
+  - DLR delete cascades to remove the linked DPR mirror.
+- **Backend** (`/app/backend/routes/site_ops.py`):
+  - `POST /api/attendance/logout`: SE logout now **blocked** until at least one DLR (with stage + work_summary) is recorded for that project on today's date. Returns 400 with explicit instruction. GPS-lost-auto-logout safeguard remains unrestricted.
+- **Frontend** (`/app/frontend/src/components/DLRPanel.jsx`):
+  - Fetches project stages and renders mandatory "Current Project Stage" dropdown + mandatory "Work Summary" textarea inside the existing "Record Daily Labour Report" dialog, visually grouped under a teal DPR section.
+  - DLR list cards now display Stage + Work Summary inline.
+  - Client-side validation blocks submission with toast errors if either field is empty.
+- **Tested**: Backend curl (3 cases — missing stage 400, missing summary 400, valid 200 with DPR mirror), DPR mirror verified, cascade delete verified, frontend smoke screenshot clean.
+
+
+
 ### Session — May 8, 2026 — PM Dashboard: Read-Only Requests + Petty Cash Income/Expense Sub-tabs
 - **Frontend** (`/app/frontend/src/components/PMReadOnlyLifecycle.jsx` — NEW):
   - Two read-only viewer components mirroring the Planning Board's lifecycle pattern: `PMMaterialReadOnlyList` (7 buckets: All / New Request / Planning Awaiting / Revision / Awaiting Accountant / Transit / Delivered) and `PMLabourReadOnlyList` (5 buckets: All / New Request / Planning Awaiting / Awaiting Accountant / Paid). Both are explicitly **(VIEW-ONLY)** — no Approve/Reject buttons rendered. PM cannot approve material or labour at this stage; they can only see lifecycle progress.

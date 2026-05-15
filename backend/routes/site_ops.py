@@ -3605,6 +3605,23 @@ async def attendance_logout(data: AttendanceLogout, user: User = Depends(get_cur
     if not record:
         raise HTTPException(status_code=400, detail="No attendance record for today")
 
+    # Enforce: SE must record at least one DLR (with stage + work summary i.e. DPR) for this project today before logout
+    dlr_today = await db.daily_labour_reports.find_one({
+        "project_id": data.project_id,
+        "date": today,
+        "created_by": user.user_id,
+    }, {"_id": 0, "dlr_id": 1, "stage_id": 1, "work_summary": 1})
+    if not dlr_today:
+        raise HTTPException(
+            status_code=400,
+            detail="DLR & DPR entry is mandatory before logout. Please record Daily Labour Report (with Stage & Work Summary) for this project first."
+        )
+    if not (dlr_today.get("stage_id") and (dlr_today.get("work_summary") or "").strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="DPR fields missing in today's DLR. Please update DLR with Current Project Stage & Work Summary before logout."
+        )
+
     entries = record.get("entries", [])
     updated = False
     for i, entry in enumerate(entries):

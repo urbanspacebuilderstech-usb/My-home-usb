@@ -5714,6 +5714,9 @@ class DLRCreate(BaseModel):
     date: str  # YYYY-MM-DD
     entries: List[DLREntry] = []
     notes: Optional[str] = ""
+    stage_id: Optional[str] = None
+    stage_name: Optional[str] = None
+    work_summary: Optional[str] = ""
 
 @router.post("/projects/{project_id}/work-orders/{wo_id}/dlr")
 async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = Depends(get_current_user)):
@@ -5758,6 +5761,23 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
     if not entries:
         raise HTTPException(status_code=400, detail="At least one entry with count > 0 is required")
 
+    # Mandatory: Stage + Work Summary (DPR fields unified into DLR)
+    stage_id = (data.stage_id or "").strip()
+    stage_name = (data.stage_name or "").strip()
+    work_summary = (data.work_summary or "").strip()
+    if not stage_id or not stage_name:
+        raise HTTPException(status_code=400, detail="Current Project Stage is required")
+    if not work_summary:
+        raise HTTPException(status_code=400, detail="Work Summary is required")
+
+    # Verify the stage belongs to this project
+    stage_doc = await db.project_stages.find_one(
+        {"stage_id": stage_id, "project_id": project_id}, {"_id": 0, "stage_name": 1}
+    )
+    if not stage_doc:
+        raise HTTPException(status_code=400, detail="Selected stage does not belong to this project")
+    stage_name = stage_doc.get("stage_name") or stage_name
+
     dlr = {
         "dlr_id": f"dlr_{uuid.uuid4().hex[:8]}",
         "project_id": project_id,
@@ -5770,12 +5790,40 @@ async def create_dlr(project_id: str, wo_id: str, data: DLRCreate, user: User = 
         "total_day_units": round(total_day_units, 2),
         "total_cost": round(total_cost, 2),
         "notes": data.notes or "",
+        "stage_id": stage_id,
+        "stage_name": stage_name,
+        "work_summary": work_summary,
         "created_by": user.user_id,
         "created_by_name": user.name,
         "created_at": now,
     }
     await db.daily_labour_reports.insert_one(dlr)
     dlr.pop("_id", None)
+
+    # Mirror to daily_progress (DPR) collection for unified reporting under Planning
+    try:
+        project_doc = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "name": 1})
+        dpr_entry = {
+            "progress_id": f"dp_{uuid.uuid4().hex[:12]}",
+            "project_id": project_id,
+            "project_name": project_doc.get("name") if project_doc else "",
+            "site_engineer_id": user.user_id,
+            "site_engineer_name": user.name,
+            "date": data.date,
+            "day": datetime.strptime(data.date, "%Y-%m-%d").strftime("%A") if data.date else "",
+            "summary": work_summary,
+            "current_stage": stage_name,
+            "stage_id": stage_id,
+            "source": "dlr",
+            "dlr_id": dlr["dlr_id"],
+            "work_order_id": wo_id,
+            "created_at": now,
+        }
+        await db.daily_progress.insert_one(dpr_entry)
+    except Exception as _e:
+        # DPR mirror failure should not block DLR creation
+        pass
+
     return dlr
 
 
@@ -5797,6 +5845,8 @@ async def delete_dlr(project_id: str, wo_id: str, dlr_id: str, user: User = Depe
     result = await db.daily_labour_reports.delete_one({"dlr_id": dlr_id, "project_id": project_id, "work_order_id": wo_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="DLR not found")
+    # Remove mirrored DPR entry (if any)
+    await db.daily_progress.delete_many({"dlr_id": dlr_id})
     return {"message": "DLR deleted"}
 
 

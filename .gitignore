@@ -3005,3 +3005,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/546.pack
+frontend/node_modules/.cache/default-development/548.pack

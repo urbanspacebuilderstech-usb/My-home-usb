@@ -31,6 +31,7 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
   const [showDialog, setShowDialog] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [filterDate, setFilterDate] = useState('');
+  const [projectStages, setProjectStages] = useState([]);
 
   const rates = labourRates || {};
 
@@ -45,6 +46,8 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
     date: new Date().toISOString().split('T')[0],
     rows: initRows(),
     notes: '',
+    stage_id: '',
+    work_summary: '',
   });
 
   const fetchDLR = async () => {
@@ -59,11 +62,24 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
 
   useEffect(() => { if (projectId && workOrderId) fetchDLR(); }, [projectId, workOrderId, filterDate]);
 
+  // Fetch project stages for the Current Stage dropdown
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/projects/${projectId}/project-stages`);
+        setProjectStages(Array.isArray(res.data) ? res.data : []);
+      } catch { setProjectStages([]); }
+    })();
+  }, [projectId]);
+
   const openDialog = () => {
     setForm({
       date: new Date().toISOString().split('T')[0],
       rows: initRows(),
       notes: '',
+      stage_id: '',
+      work_summary: '',
     });
     setShowDialog(true);
   };
@@ -84,6 +100,8 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
     const validEntries = form.rows.filter(r => Number(r.count) > 0);
     if (!validEntries.length) { toast.error('Enter worker count for at least one type'); return; }
     if (!form.date) { toast.error('Select a date'); return; }
+    if (!form.stage_id) { toast.error('Select Current Project Stage'); return; }
+    if (!form.work_summary?.trim()) { toast.error('Work Summary is required'); return; }
 
     // Check rates are set
     const missingRates = validEntries.filter(r => !Number(r.rate_per_day));
@@ -91,6 +109,8 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
       toast.error(`Rate/Day not set for: ${missingRates.map(r => FIXED_ROWS.find(f => f.type === r.type)?.label).join(', ')}. Set rates in Work Order settings.`);
       return;
     }
+
+    const selectedStage = projectStages.find(s => s.stage_id === form.stage_id);
 
     setSubmitting(true);
     try {
@@ -103,8 +123,11 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
           rate_per_day: Number(r.rate_per_day),
         })),
         notes: form.notes,
+        stage_id: form.stage_id,
+        stage_name: selectedStage?.stage_name || '',
+        work_summary: form.work_summary.trim(),
       });
-      toast.success('DLR recorded successfully');
+      toast.success('DLR & DPR recorded successfully');
       setShowDialog(false);
       fetchDLR();
       onDlrChange?.();
@@ -214,6 +237,16 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
                   </tr>
                 </tfoot>
               </table>
+              {dlr.stage_name && (
+                <div className="px-3 py-1.5 text-[11px] border-t bg-teal-50/40">
+                  <span className="font-semibold text-teal-700">Stage:</span> <span className="text-gray-700">{dlr.stage_name}</span>
+                </div>
+              )}
+              {dlr.work_summary && (
+                <div className="px-3 py-1.5 text-[11px] text-gray-700 border-t bg-teal-50/20">
+                  <span className="font-semibold text-teal-700">Work Summary:</span> {dlr.work_summary}
+                </div>
+              )}
               {dlr.notes && <p className="px-3 py-1.5 text-[11px] text-gray-500 border-t bg-gray-50">Note: {dlr.notes}</p>}
               <p className="px-3 py-1 text-[10px] text-gray-400 border-t">By {dlr.created_by_name} at {new Date(dlr.created_at).toLocaleString()}</p>
             </div>
@@ -316,6 +349,39 @@ const DLRPanel = ({ projectId, workOrderId, labourRates, canRecord = false, onDl
             <div>
               <Label className="text-xs">Notes (optional)</Label>
               <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any remarks for this day..." rows={2} className="mt-1 text-xs" data-testid="dlr-form-notes" />
+            </div>
+
+            {/* === Daily Progress Report (DPR) fields — now unified into DLR === */}
+            <div className="border-t pt-3 mt-1 space-y-3 bg-teal-50/30 -mx-6 px-6 py-3">
+              <p className="text-[11px] font-semibold text-teal-700 uppercase tracking-wide">Daily Progress Report (DPR)</p>
+
+              <div>
+                <Label className="text-xs">Current Project Stage <span className="text-red-500">*</span></Label>
+                <Select value={form.stage_id} onValueChange={v => setForm(f => ({ ...f, stage_id: v }))}>
+                  <SelectTrigger className="mt-1 h-9 text-xs" data-testid="dlr-form-stage">
+                    <SelectValue placeholder={projectStages.length ? "Select current stage..." : "No stages configured for this project"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projectStages.map(s => (
+                      <SelectItem key={s.stage_id} value={s.stage_id}>
+                        {s.stage_name}{s.status ? ` — ${s.status}` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-xs">Work Summary <span className="text-red-500">*</span></Label>
+                <Textarea
+                  value={form.work_summary}
+                  onChange={e => setForm(f => ({ ...f, work_summary: e.target.value }))}
+                  placeholder="Describe work done today (e.g. Slab shuttering completed on 2nd floor, brick work continued at level 1...)"
+                  rows={3}
+                  className="mt-1 text-xs"
+                  data-testid="dlr-form-work-summary"
+                />
+              </div>
             </div>
           </div>
 
