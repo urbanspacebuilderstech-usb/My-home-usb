@@ -280,6 +280,9 @@ export default function SiteEngineerDashboard() {
   
   // Petty Cash states
   const [pettyCashList, setPettyCashList] = useState([]);
+  // Filter for the Petty Cash list — set by clicking the Pending Req / Waiting Approval tiles.
+  // 'all' shows everything; 'pending' = requested (awaiting PM); 'waiting' = pm_approved/accountant_processing.
+  const [pcStatusFilter, setPcStatusFilter] = useState('all');
   const [pettyCashDialog, setPettyCashDialog] = useState(false);
   const [pettyCashExpenseDialog, setPettyCashExpenseDialog] = useState(false);
   const [selectedPettyCash, setSelectedPettyCash] = useState(null);
@@ -1299,11 +1302,19 @@ export default function SiteEngineerDashboard() {
                   ₹{Math.max(0, (pettyCashSummary.total_cash_in_hand || 0) - (pettyCashSummary.total_expenses || 0)).toLocaleString('en-IN')}
                 </p>
               </CardContent></Card>
-              <Card className="bg-amber-50 border-amber-200"><CardContent className="p-3 text-center">
+              <Card
+                className={`bg-amber-50 border-amber-200 cursor-pointer transition-shadow hover:shadow-md ${pcStatusFilter === 'pending' ? 'ring-2 ring-amber-500' : ''}`}
+                onClick={() => setPcStatusFilter(f => f === 'pending' ? 'all' : 'pending')}
+                data-testid="pc-pending-tile"
+              ><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-amber-600 font-medium uppercase">Pending Req</p>
                 <p className="text-lg font-bold text-amber-700" data-testid="pc-pending">{pettyCashSummary.pending_requests || 0}</p>
               </CardContent></Card>
-              <Card className="bg-blue-50 border-blue-200"><CardContent className="p-3 text-center">
+              <Card
+                className={`bg-blue-50 border-blue-200 cursor-pointer transition-shadow hover:shadow-md ${pcStatusFilter === 'waiting' ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => setPcStatusFilter(f => f === 'waiting' ? 'all' : 'waiting')}
+                data-testid="pc-waiting-tile"
+              ><CardContent className="p-3 text-center">
                 <p className="text-[10px] text-blue-600 font-medium uppercase">Waiting Approval</p>
                 <p className="text-lg font-bold text-blue-700" data-testid="pc-waiting">{pettyCashSummary.waiting_approval || 0}</p>
               </CardContent></Card>
@@ -1320,11 +1331,32 @@ export default function SiteEngineerDashboard() {
 
               {/* REQUEST STATUS */}
               <TabsContent value="request_status">
-                {pettyCashList.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400"><Wallet className="h-10 w-10 mx-auto mb-2 opacity-40" /><p className="text-sm">No petty cash requests</p></div>
-                ) : (
-                  <div className="space-y-3">
-                    {pettyCashList.map((pc) => (
+                {(() => {
+                  const filteredPC = pettyCashList.filter(pc => {
+                    if (pcStatusFilter === 'pending') return pc.status === 'requested';
+                    if (pcStatusFilter === 'waiting') return ['pm_approved', 'accountant_processing'].includes(pc.status);
+                    return true;
+                  });
+                  return (
+                    <>
+                      {pcStatusFilter !== 'all' && (
+                        <div className="mb-3 flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+                          <span className="text-xs text-slate-600">
+                            Filtered to <span className="font-semibold text-slate-800">
+                              {pcStatusFilter === 'pending' ? 'Pending Req (Awaiting PM)' : 'Waiting Approval (Accountant)'}
+                            </span> — {filteredPC.length} entr{filteredPC.length === 1 ? 'y' : 'ies'}
+                          </span>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-600" onClick={() => setPcStatusFilter('all')}>Clear filter</Button>
+                        </div>
+                      )}
+                      {filteredPC.length === 0 ? (
+                        <div className="text-center py-8 text-gray-400">
+                          <Wallet className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                          <p className="text-sm">{pcStatusFilter === 'all' ? 'No petty cash requests' : 'Nothing matches this filter'}</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {filteredPC.map((pc) => (
                       <Card key={pc.petty_cash_id} className="border-l-4 border-l-green-500" data-testid={`pc-card-${pc.petty_cash_id}`}>
                         <CardContent className="p-3">
                           <div className="flex justify-between items-start mb-2">
@@ -1366,7 +1398,10 @@ export default function SiteEngineerDashboard() {
                       </Card>
                     ))}
                   </div>
-                )}
+                      )}
+                    </>
+                  );
+                })()}
               </TabsContent>
 
               {/* INCOME HISTORY */}
