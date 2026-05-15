@@ -67,7 +67,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         {"status": None},
     ]}
 
-    (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries) = await asyncio.gather(
+    (incomes, recorded_exps, labour_exps, material_reqs, petty_cash_list, projects_list, suspense_txns, petty_requests, suspense_entries, vendor_credits_v2, credit_ledger_v1, labour_open_exps) = await asyncio.gather(
         db.income.find(income_status_filter, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.recorded_expenses.find({}, {"_id": 0}).sort("created_at", -1).to_list(5000),
         db.labour_expenses.find({"status": "accounts_approved"}, {"_id": 0}).sort("created_at", -1).to_list(5000),
@@ -77,6 +77,9 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         db.suspense_transactions.find({}, {"_id": 0}).to_list(5000),
         db.petty_cash_requests.find({}, {"_id": 0}).to_list(2000),
         db.suspense_entries.find({}, {"_id": 0}).to_list(5000),
+        db.vendor_credit_ledger.find({"status": {"$in": ["pending", "active", "overdue", "partially_paid"]}}, {"_id": 0}).to_list(2000),
+        db.credit_ledger.find({"status": {"$in": ["pending", "active", "overdue", "partially_paid"]}}, {"_id": 0}).to_list(2000),
+        db.labour_expenses.find({"status": {"$in": ["pm_approved", "accounts_pending"]}}, {"_id": 0}).to_list(2000),
     )
     
     project_map = {p["project_id"]: p["name"] for p in projects_list}
@@ -138,13 +141,32 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
     petty_total_spent = sum(pc.get("amount_spent", 0) for pc in petty_cash_list)
     
     # Suspense balance = Petty Cash (issued − spent) + Material Suspense + Labour Suspense
+    # Compute from the same data sources used by /suspense/overview so the
+    # Accountant Dashboard tile matches the Suspense A/c page exactly.
     legacy_suspense_total = sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "credit") - sum(t.get("amount", 0) for t in suspense_txns if t.get("type") == "debit")
 
-    petty_active = [p for p in petty_requests if p.get("status") in ("issued", "partially_settled")]
-    petty_cash_suspense = sum(p.get("amount_issued", 0) for p in petty_active) - sum(p.get("amount_spent", 0) for p in petty_active)
+    # Petty Cash suspense — active petty cash (from db.petty_cash collection)
+    PETTY_ACTIVE_STATUSES = ("payment_done", "acknowledged", "partially_spent", "issued")
+    petty_active_v2 = [p for p in petty_cash_list if p.get("status") in PETTY_ACTIVE_STATUSES]
+    petty_cash_suspense = sum(p.get("amount_issued", 0) or 0 for p in petty_active_v2) - sum(p.get("amount_spent", 0) or 0 for p in petty_active_v2)
 
+    # Material suspense — outstanding vendor credit (both v1 + v2 collections)
     material_suspense_total = 0.0
+    for entry in (vendor_credits_v2 + credit_ledger_v1):
+        outstanding = entry.get("balance")
+        if outstanding is None or outstanding == 0:
+            outstanding = entry.get("amount", 0) or 0
+        if outstanding > 0:
+            material_suspense_total += outstanding
+
+    # Labour suspense — open labour expenses awaiting accountant payout
     labour_suspense_total = 0.0
+    for exp in labour_open_exps:
+        outstanding = (exp.get("total_amount", 0) or 0) - (exp.get("paid_amount", 0) or 0)
+        if outstanding > 0:
+            labour_suspense_total += outstanding
+
+    # Legacy collection (kept for back-compat; usually 0)
     for entry in suspense_entries:
         amt = entry.get("amount", 0) or 0
         etype = (entry.get("type") or "").lower()
