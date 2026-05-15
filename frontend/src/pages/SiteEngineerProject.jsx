@@ -6,7 +6,7 @@ import {
   Clock, CheckCircle, XCircle, Truck, Camera, AlertTriangle, Send,
   Calendar, ClipboardList, Warehouse, Save, Trash2, History,
   ChevronRight, Banknote, ArrowRight, Eye, Circle,
-  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video
+  ListChecks, FileClock, Wallet, PackageCheck, CheckCircle2, Video, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -97,7 +97,7 @@ export default function SiteEngineerProject() {
   const [labourTypes, setLabourTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  const [activeTab, setActiveTab] = useState('materials');
+  const [activeTab, setActiveTab] = useState('dlr_dpr');
   const [materialsSubTab, setMaterialsSubTab] = useState('requests'); // requests | inventory
   const [materialBucket, setMaterialBucket] = useState('all'); // lifecycle filter
   const [labourSubTab, setLabourSubTab] = useState('orders');
@@ -794,7 +794,12 @@ export default function SiteEngineerProject() {
 
         {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'materials') setMaterialsSubTab('requests'); }}>
-          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-4">
+          <TabsList className="mb-3 sm:mb-6 w-full grid grid-cols-5">
+            <TabsTrigger value="dlr_dpr" className="gap-1 sm:gap-2 text-sm sm:text-base" data-testid="tab-dlr-dpr">
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">DLR &amp; DPR</span>
+              <span className="sm:hidden">DLR/DPR</span>
+            </TabsTrigger>
             <TabsTrigger value="materials" className="gap-1 sm:gap-2 text-sm sm:text-base">
               <Package className="h-4 w-4" />
               <span className="hidden sm:inline">Materials</span>
@@ -814,6 +819,96 @@ export default function SiteEngineerProject() {
               <span>Curing</span>
             </TabsTrigger>
           </TabsList>
+
+          {/* DLR & DPR TAB — Daily Labour Report + Daily Progress Report */}
+          <TabsContent value="dlr_dpr">
+            <Card>
+              <CardHeader className="p-3 sm:p-6">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-indigo-600" /> DLR &amp; DPR
+                    </CardTitle>
+                    <CardDescription className="text-xs sm:text-sm">Daily Labour Report &amp; Daily Progress Report submitted by Site Engineer</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-3 sm:p-6 pt-0 space-y-4">
+                {/* Two reports side-by-side on desktop, stacked on mobile */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* DLR card — points to Work Order daily attendance */}
+                  <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4 sm:p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <ClipboardList className="h-4 w-4 text-amber-700" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Daily Labour Report (DLR)</h3>
+                        <p className="text-[11px] text-gray-500">Headcount, in-time, out-time, contractor split</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3">
+                      Capture today&apos;s labour deployment for every active contractor on this project.
+                      Marks attendance, computes overtime and the running wage liability automatically.
+                    </p>
+                    <Button
+                      size="sm"
+                      className="bg-amber-600 hover:bg-amber-700 text-white gap-1 w-full sm:w-auto"
+                      onClick={() => setActiveTab('work_orders')}
+                      data-testid="open-dlr-btn"
+                    >
+                      <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s Attendance
+                    </Button>
+                  </div>
+
+                  {/* DPR card — points to Daily Progress Report tab */}
+                  <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white p-4 sm:p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center">
+                        <FileText className="h-4 w-4 text-emerald-700" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-gray-900">Daily Progress Report (DPR)</h3>
+                        <p className="text-[11px] text-gray-500">Activities done, photos, blockers, weather</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-3">
+                      Submit a structured update of work executed today — quantities, photos, hindrances,
+                      weather conditions and tomorrow&apos;s plan.
+                    </p>
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 w-full sm:w-auto"
+                      onClick={() => setActiveTab('daily_progress')}
+                      data-testid="open-dpr-btn"
+                    >
+                      <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s Progress
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Quick metric strip — today's summary */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="rounded-xl border bg-white px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Today&apos;s Labour</p>
+                    <p className="text-base font-bold text-amber-700 mt-0.5">{(typeof dailyLabourCount !== 'undefined' ? dailyLabourCount : '—')}</p>
+                  </div>
+                  <div className="rounded-xl border bg-white px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Last DPR</p>
+                    <p className="text-base font-bold text-emerald-700 mt-0.5">{(typeof lastDPRDate !== 'undefined' && lastDPRDate ? new Date(lastDPRDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—')}</p>
+                  </div>
+                  <div className="rounded-xl border bg-white px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Active Contractors</p>
+                    <p className="text-base font-bold text-blue-700 mt-0.5">{(typeof activeContractorsCount !== 'undefined' ? activeContractorsCount : '—')}</p>
+                  </div>
+                  <div className="rounded-xl border bg-white px-3 py-2.5">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Open Hindrances</p>
+                    <p className="text-base font-bold text-rose-700 mt-0.5">{(typeof openHindrancesCount !== 'undefined' ? openHindrancesCount : '—')}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* MATERIALS TAB (with Requests | Inventory sub-tabs) */}
           <TabsContent value="materials">
