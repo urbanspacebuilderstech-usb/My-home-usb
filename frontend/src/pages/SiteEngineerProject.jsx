@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
 import MetaDateFilter from '../components/MetaDateFilter';
 import ProjectCuringTab from '../components/ProjectCuringTab';
+import ProjectDLRDPRList from '../components/ProjectDLRDPRList';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { NumericInput } from '../components/NumericInput';
 import { UnitSelect } from '../components/UnitSelect';
@@ -820,57 +821,29 @@ export default function SiteEngineerProject() {
                 </div>
               </CardHeader>
               <CardContent className="p-3 sm:p-6 pt-0 space-y-4">
-                {/* Two reports side-by-side on desktop, stacked on mobile */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* DLR card — points to Work Order daily attendance */}
-                  <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4 sm:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
-                        <ClipboardList className="h-4 w-4 text-amber-700" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-gray-900">Daily Labour Report (DLR)</h3>
-                        <p className="text-[11px] text-gray-500">Headcount, in-time, out-time, contractor split</p>
-                      </div>
+                {/* DLR card — single unified entry point (DPR captured inside DLR popup) */}
+                <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50/60 to-white p-4 sm:p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+                      <ClipboardList className="h-4 w-4 text-amber-700" />
                     </div>
-                    <p className="text-xs text-gray-600 mb-3">
-                      Capture today&apos;s labour deployment for every active contractor on this project.
-                      Marks attendance, computes overtime and the running wage liability automatically.
-                    </p>
-                    <Button
-                      size="sm"
-                      className="bg-amber-600 hover:bg-amber-700 text-white gap-1 w-full sm:w-auto"
-                      onClick={() => setActiveTab('work_orders')}
-                      data-testid="open-dlr-btn"
-                    >
-                      <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s Attendance
-                    </Button>
-                  </div>
-
-                  {/* DPR card — points to Daily Progress Report tab */}
-                  <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white p-4 sm:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center">
-                        <FileText className="h-4 w-4 text-emerald-700" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-bold text-gray-900">Daily Progress Report (DPR)</h3>
-                        <p className="text-[11px] text-gray-500">Activities done, photos, blockers, weather</p>
-                      </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">Daily Labour Report (DLR) &amp; Daily Progress Report (DPR)</h3>
+                      <p className="text-[11px] text-gray-500">Labour headcount + Current stage + Work summary — captured in one form</p>
                     </div>
-                    <p className="text-xs text-gray-600 mb-3">
-                      Submit a structured update of work executed today — quantities, photos, hindrances,
-                      weather conditions and tomorrow&apos;s plan.
-                    </p>
-                    <Button
-                      size="sm"
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 w-full sm:w-auto"
-                      onClick={() => setActiveTab('work_orders')}
-                      data-testid="open-dpr-btn"
-                    >
-                      <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s Progress
-                    </Button>
                   </div>
+                  <p className="text-xs text-gray-600 mb-3">
+                    Open the Work Order → click <span className="font-semibold">+ DLR</span> to capture today&apos;s
+                    labour deployment along with the Current Project Stage and Work Summary (DPR).
+                  </p>
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white gap-1 w-full sm:w-auto"
+                    onClick={() => setActiveTab('work_orders')}
+                    data-testid="open-dlr-btn"
+                  >
+                    <Calendar className="h-3.5 w-3.5" /> Open Today&apos;s DLR &amp; DPR
+                  </Button>
                 </div>
 
                 {/* Quick metric strip — today's summary */}
@@ -892,6 +865,9 @@ export default function SiteEngineerProject() {
                     <p className="text-base font-bold text-rose-700 mt-0.5">{(typeof openHindrancesCount !== 'undefined' ? openHindrancesCount : '—')}</p>
                   </div>
                 </div>
+
+                {/* Overall DLR & DPR submissions list */}
+                <ProjectDLRDPRList projectId={projectId} />
               </CardContent>
             </Card>
           </TabsContent>
