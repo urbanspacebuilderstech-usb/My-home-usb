@@ -142,6 +142,12 @@ export default function SiteEngineerProject() {
   const [loadingPWO, setLoadingPWO] = useState(false);
   const [expandedDlr, setExpandedDlr] = useState(null);
 
+  // DLR & DPR tab metrics
+  const [dailyLabourCount, setDailyLabourCount] = useState('—');
+  const [lastDPRDate, setLastDPRDate] = useState(null);
+  const [activeContractorsCount, setActiveContractorsCount] = useState('—');
+  const [openHindrancesCount, setOpenHindrancesCount] = useState('—');
+
   // Stock Register / Inventory state
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
   const [stockEntries, setStockEntries] = useState({});
@@ -217,6 +223,39 @@ export default function SiteEngineerProject() {
 
   useEffect(() => {
     if (activeTab === 'work_orders') fetchProjectWorkOrders();
+  }, [activeTab, projectId]);
+
+  // Fetch DLR & DPR tab metrics
+  const fetchDLRDPRMetrics = async () => {
+    if (!projectId) return;
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      // Today's labour total + active contractors from today's DLR
+      const todayRes = await axios.get(`${API}/projects/${projectId}/dlr/summary?date=${today}`);
+      setDailyLabourCount(todayRes.data?.total_workers ?? 0);
+      setActiveContractorsCount(Object.keys(todayRes.data?.by_contractor || {}).length);
+    } catch {
+      setDailyLabourCount(0); setActiveContractorsCount(0);
+    }
+    try {
+      // Last DPR date — most recent DLR entry across project (any date)
+      const allRes = await axios.get(`${API}/projects/${projectId}/dlr/summary`);
+      const entries = allRes.data?.entries || [];
+      if (entries.length > 0) setLastDPRDate(entries[0].date);
+      else setLastDPRDate(null);
+    } catch { setLastDPRDate(null); }
+    try {
+      // Open hindrances — from project stages
+      const stagesRes = await axios.get(`${API}/projects/${projectId}/project-stages`);
+      const stages = stagesRes.data || [];
+      const open = stages.filter(s => (s.hindrance_type || s.hindrance_reason) && s.status !== 'finished').length;
+      setOpenHindrancesCount(open);
+    } catch { setOpenHindrancesCount(0); }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'dlr_dpr') fetchDLRDPRMetrics();
+    /* eslint-disable-next-line */
   }, [activeTab, projectId]);
 
   const handleRequestStagePaymentNew = async (woId, stageId) => {
@@ -850,19 +889,19 @@ export default function SiteEngineerProject() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="rounded-xl border bg-white px-3 py-2.5">
                     <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Today&apos;s Labour</p>
-                    <p className="text-base font-bold text-amber-700 mt-0.5">{(typeof dailyLabourCount !== 'undefined' ? dailyLabourCount : '—')}</p>
+                    <p className="text-base font-bold text-amber-700 mt-0.5">{dailyLabourCount}</p>
                   </div>
                   <div className="rounded-xl border bg-white px-3 py-2.5">
                     <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Last DPR</p>
-                    <p className="text-base font-bold text-emerald-700 mt-0.5">{(typeof lastDPRDate !== 'undefined' && lastDPRDate ? new Date(lastDPRDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—')}</p>
+                    <p className="text-base font-bold text-emerald-700 mt-0.5">{lastDPRDate ? new Date(lastDPRDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—'}</p>
                   </div>
                   <div className="rounded-xl border bg-white px-3 py-2.5">
                     <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Active Contractors</p>
-                    <p className="text-base font-bold text-blue-700 mt-0.5">{(typeof activeContractorsCount !== 'undefined' ? activeContractorsCount : '—')}</p>
+                    <p className="text-base font-bold text-blue-700 mt-0.5">{activeContractorsCount}</p>
                   </div>
                   <div className="rounded-xl border bg-white px-3 py-2.5">
                     <p className="text-[10px] uppercase tracking-wide text-gray-500 font-medium">Open Hindrances</p>
-                    <p className="text-base font-bold text-rose-700 mt-0.5">{(typeof openHindrancesCount !== 'undefined' ? openHindrancesCount : '—')}</p>
+                    <p className="text-base font-bold text-rose-700 mt-0.5">{openHindrancesCount}</p>
                   </div>
                 </div>
 
