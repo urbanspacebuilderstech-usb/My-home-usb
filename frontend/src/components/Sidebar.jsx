@@ -1,4 +1,4 @@
-import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText, Target, UserCheck, Shield, UserCog } from 'lucide-react';
+import { Building2, LayoutDashboard, FolderKanban, ClipboardList, CheckSquare, ShoppingCart, Camera, DollarSign, Users, Bell, LogOut, X, Calculator, Briefcase, FileText, Target, UserCheck, Shield, UserCog, FolderPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -24,6 +24,7 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'CRM Sales', icon: Target, path: '/crm-sales', roles: ['super_admin', 'sales', 'cre'] },
     { name: 'RE Projects', icon: Calculator, path: '/crm/re-projects', roles: ['super_admin', 'planning', 'general_manager', 'sales'] },
     { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cre', 'general_manager'] },
+    { name: 'Add Project', icon: FolderPlus, path: '/admin/add-project', roles: ['super_admin', 'planning', 'sales'] },
     { name: 'Work Orders', icon: ClipboardList, path: '/work-orders', roles: ['super_admin', 'project_manager', 'procurement'] },
     { name: 'Approvals', icon: CheckSquare, path: '/approvals', roles: ['accountant'] },
     { name: 'Procurement', icon: ShoppingCart, path: '/procurement', roles: ['super_admin', 'procurement'] },

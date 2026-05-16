@@ -5860,3 +5860,195 @@ async def get_financial_control_dashboard(user: User = Depends(get_current_user)
 
 
 # ==================== END FINANCIAL CONTROL ENDPOINTS ====================
+
+
+# ==================== ADMIN: QUICK CREATE PROJECT (Pre-Sales + Sales + Project in one) ====================
+
+class QuickCreateProjectInput(BaseModel):
+    # Pre-Sales
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    alternative_phone: Optional[str] = None
+    source: Optional[str] = "walk_in"
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    custom_fields: Optional[Dict[str, Any]] = None  # budget, sqft, requirements, etc.
+
+    # Sales
+    project_name: str
+    location: Optional[str] = None
+    sqft: Optional[float] = 0
+    building_type: Optional[str] = "residential"
+    total_value: float = 0
+    expected_handover_months: Optional[int] = 12
+
+    # Advance / booking
+    advance_amount: float = 0
+    advance_payment_mode: Optional[str] = "cash"
+    advance_payment_reference: Optional[str] = None
+
+    # Stages template
+    stage_template_name: Optional[str] = None  # If provided, auto-seed stages from this template
+
+
+@router.post("/admin/quick-create-project")
+async def admin_quick_create_project(data: QuickCreateProjectInput, user: User = Depends(get_current_user)):
+    """SUPER ADMIN / PLANNING / SALES: Create a full project end-to-end —
+    Lead (Pre-Sales) → marks as booked/converted → Project → seeds Stages from template.
+    Useful for backfilling legacy projects or fast-tracking VIP deals.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.SALES]:
+        raise HTTPException(status_code=403, detail="Only Super Admin, Planning or Sales can use this")
+
+    if not data.name.strip() or not data.project_name.strip():
+        raise HTTPException(status_code=400, detail="Lead name and Project name are required")
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    # ---------- 1) Create the Lead (Pre-Sales) ----------
+    lead_id = f"lead_{secrets.token_hex(6)}"
+    lead_doc = {
+        "lead_id": lead_id,
+        "name": data.name.strip(),
+        "email": (data.email or "").strip() or None,
+        "phone": (data.phone or "").strip() or None,
+        "alternative_phone": (data.alternative_phone or "").strip() or None,
+        "source": data.source or "walk_in",
+        "city": data.city or "",
+        "state": data.state or "",
+        "pincode": data.pincode or "",
+        "address": data.address or "",
+        "notes": data.notes or "",
+        "custom_fields": data.custom_fields or {},
+        "stage_type": "pre_sales",
+        "current_stage_id": "stg_booked",
+        "stage_history": [
+            {"stage_id": "stg_new_lead", "moved_at": now_iso, "moved_by": user.user_id, "action": "admin_quick_create"},
+            {"stage_id": "stg_booked", "moved_at": now_iso, "moved_by": user.user_id, "action": "admin_quick_create"},
+        ],
+        "assigned_to": user.user_id,
+        "assigned_to_name": user.name,
+        "created_by": user.user_id,
+        "created_by_name": user.name,
+        "created_at": now,
+        "updated_at": now,
+        "project_created": False,
+    }
+    await db.leads.insert_one(lead_doc)
+
+    # ---------- 2) Create the Project ----------
+    project_id = f"proj_{secrets.token_hex(6)}"
+    project_code = await generate_project_code()
+    expected_completion = now + timedelta(days=(data.expected_handover_months or 12) * 30)
+
+    project_doc = {
+        "project_id": project_id,
+        "project_code": project_code,
+        "name": data.project_name.strip(),
+        "client_name": data.name.strip(),
+        "client_email": data.email,
+        "client_phone": data.phone,
+        "location": data.location or "",
+        "sqft": data.sqft or 0,
+        "building_type": data.building_type or "residential",
+        "total_value": data.total_value or 0,
+        "advance_amount": data.advance_amount or 0,
+        "advance_payment_mode": data.advance_payment_mode or "cash",
+        "advance_payment_reference": data.advance_payment_reference,
+        "advance_received_at": now if data.advance_amount else None,
+        "advance_collected_by": user.user_id,
+        "additional_cost": 0,
+        "income_project": data.advance_amount or 0,
+        "income_additional": 0,
+        "total_expense": 0,
+        "current_stage": "yet_to_start",
+        "stage_history": [],
+        "materials_locked": False,
+        "start_date": now,
+        "expected_completion": expected_completion,
+        "status": "active",
+        "accountant_verified": True,
+        "planning_status": "in_planning",
+        "lead_id": lead_id,
+        "created_by": user.user_id,
+        "created_at": now,
+        "converted_by_cre": user.user_id,
+        "converted_at": now,
+        "source": "admin_quick_create",
+    }
+    await db.projects.insert_one(project_doc)
+
+    # Mark the lead as converted now that the project exists
+    await db.leads.update_one(
+        {"lead_id": lead_id},
+        {"$set": {"project_created": True, "project_id": project_id, "converted_at": now}},
+    )
+
+    # ---------- 3) Record Advance Income (if any) ----------
+    if (data.advance_amount or 0) > 0:
+        income_record = {
+            "income_id": f"inc_{secrets.token_hex(6)}",
+            "project_id": project_id,
+            "project_name": data.project_name.strip(),
+            "category": "advance_payment",
+            "sub_category": f"Advance - {(data.advance_payment_mode or 'cash').replace('_', ' ').title()}",
+            "amount": float(data.advance_amount),
+            "payment_mode": data.advance_payment_mode or "cash",
+            "payment_reference": data.advance_payment_reference or "",
+            "payment_date": now_iso,
+            "stage": "Advance Payment",
+            "description": f"Advance payment via admin quick-create — {data.name}",
+            "remarks": f"Project created via Admin Quick-Create by {user.name}",
+            "collected_by": user.user_id,
+            "collected_by_name": user.name,
+            "status": "approved",
+            "source": "admin_quick_create",
+            "created_at": now_iso,
+        }
+        await db.income.insert_one(income_record)
+
+    # ---------- 4) Seed Project Stages from template (if requested) ----------
+    stages_created = 0
+    if data.stage_template_name:
+        template = await db.stage_templates.find_one({"template_name": data.stage_template_name}, {"_id": 0})
+        if template and template.get("stages"):
+            stage_docs = []
+            for i, s in enumerate(template["stages"]):
+                stage_docs.append({
+                    "stage_id": f"pstg_{uuid.uuid4().hex[:12]}",
+                    "project_id": project_id,
+                    "stage_name": s.get("stage_name", f"Stage {i+1}"),
+                    "sl_no": s.get("sl_no", ""),
+                    "section_title": s.get("section_title", ""),
+                    "is_section_header": bool(s.get("is_section_header", False)),
+                    "start_date": s.get("start_date"),
+                    "target_date": s.get("target_date"),
+                    "duration_days": s.get("duration_days"),
+                    "status": s.get("status", "yet_to_start"),
+                    "remarks": s.get("remarks", ""),
+                    "progress": 0,
+                    "order": i,
+                    "created_at": now_iso,
+                    "created_by": user.user_id,
+                })
+            if stage_docs:
+                await db.project_stages.insert_many(stage_docs)
+                stages_created = len(stage_docs)
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "project_code": project_code,
+        "lead_id": lead_id,
+        "stages_created": stages_created,
+        "message": f"Project '{data.project_name}' created with Lead + Stages",
+    }
+
+
+# ==================== END ADMIN QUICK CREATE ====================
+
