@@ -1178,6 +1178,14 @@ export default function PlanningBoard({ embedded = false }) {
                   <CardTitle className="text-base flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-indigo-600" />All Projects
                   </CardTitle>
+                  <Button
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5"
+                    onClick={() => navigate('/admin/add-project')}
+                    data-testid="planning-add-project-btn"
+                  >
+                    <Plus className="h-4 w-4" /> Add New Project
+                  </Button>
                 </div>
                 {/* Sub-tabs */}
                 <div className="flex gap-1 mt-3 border-b">
