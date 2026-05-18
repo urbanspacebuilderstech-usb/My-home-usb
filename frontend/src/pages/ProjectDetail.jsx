@@ -2513,7 +2513,7 @@ export default function ProjectDetail() {
                   onClick={async () => {
                     if (!window.confirm(`Hand over "${project.name}" to the client?\n\nThis moves the project to Delivered Projects. You can revert from the Planning Board if needed.`)) return;
                     try {
-                      await axios.patch(`${API}/projects/${projectId}/planning-status`, { planning_status: 'delivered' });
+                      await axios.patch(`${API}/planning/projects/${projectId}/planning-status`, { planning_status: 'delivered' });
                       toast.success('Project handed over — moved to Delivered');
                       fetchProject();
                     } catch (err) {
