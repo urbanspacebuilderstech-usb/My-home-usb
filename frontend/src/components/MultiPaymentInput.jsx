@@ -24,7 +24,8 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
 
   const addEntry = () => {
     const remaining = totalAmount - entries.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-    onChange([...entries, { amount: remaining > 0 ? String(remaining) : '', payment_mode: 'cash', reference: '', cheque_details: [] }]);
+    const today = new Date().toISOString().split('T')[0];
+    onChange([...entries, { amount: remaining > 0 ? String(remaining) : '', payment_mode: 'cash', reference: '', payment_date: today, cheque_details: [] }]);
     setExpandedIdx(entries.length);
   };
 
@@ -118,6 +119,14 @@ export function MultiPaymentInput({ totalAmount, entries, onChange, allowPartial
                 <NumericInput placeholder="Amount" className="h-7 flex-1 text-xs font-semibold"
                   value={entry.amount} onChange={(e) => updateEntry(idx, 'amount', e.target.value)}
                   data-testid={`payment-amount-${idx}`} />
+                <Input
+                  type="date"
+                  className="h-7 w-[125px] text-[11px]"
+                  value={entry.payment_date || ''}
+                  onChange={(e) => updateEntry(idx, 'payment_date', e.target.value)}
+                  title="Payment date (defaults to today)"
+                  data-testid={`payment-date-${idx}`}
+                />
                 {entry.payment_mode !== 'cheque' && (
                   <Input placeholder="Ref / Txn ID" className="h-7 w-[120px] text-xs"
                     value={entry.reference} onChange={(e) => updateEntry(idx, 'reference', e.target.value)} />

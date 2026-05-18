@@ -292,7 +292,17 @@ async def convert_deal_to_project(
         entry_amount = float(entry.get("amount", 0))
         entry_ref = entry.get("reference", "")
         entry_cheques = entry.get("cheque_details")
-        
+        # Per-entry payment date — defaults to today if absent
+        entry_pdate = entry.get("payment_date") or now.date().isoformat()
+        # Normalise to ISO datetime for storage; accept YYYY-MM-DD from frontend
+        try:
+            if len(entry_pdate) == 10:
+                entry_pdate_iso = f"{entry_pdate}T00:00:00+00:00"
+            else:
+                entry_pdate_iso = entry_pdate
+        except Exception:
+            entry_pdate_iso = now.isoformat()
+
         # Create income record first so we can link cheques to it
         income_id = f"inc_{secrets.token_hex(6)}"
         if entry_amount > 0:
@@ -305,7 +315,7 @@ async def convert_deal_to_project(
                 "amount": entry_amount,
                 "payment_mode": entry_mode,
                 "payment_reference": entry_ref,
-                "payment_date": now.isoformat(),
+                "payment_date": entry_pdate_iso,
                 "stage": "Advance Payment",
                 "description": f"Advance payment ({entry_mode.replace('_', ' ')}) from deal conversion - {client_name}",
                 "remarks": f"Deal closed by CRE. Client: {client_name}",
@@ -327,7 +337,7 @@ async def convert_deal_to_project(
                     "bank_name": chq.get("bank_name", ""),
                     "branch_name": chq.get("branch_name", ""),
                     "amount": float(chq.get("amount", 0)),
-                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_date": chq.get("cheque_date", entry_pdate_iso),
                     "cheque_type": "incoming",
                     "party_name": client_name,
                     "party_type": "client",
@@ -577,7 +587,12 @@ async def convert_re_project_to_project(
         entry_amount = float(entry.get("amount", 0))
         entry_ref = entry.get("reference", "")
         entry_cheques = entry.get("cheque_details")
-        
+        entry_pdate = entry.get("payment_date") or now.date().isoformat()
+        try:
+            entry_pdate_iso = f"{entry_pdate}T00:00:00+00:00" if len(entry_pdate) == 10 else entry_pdate
+        except Exception:
+            entry_pdate_iso = now.isoformat()
+
         # Create income record first so we can link cheques to it
         income_id = f"inc_{secrets.token_hex(6)}"
         if entry_amount > 0:
@@ -590,7 +605,7 @@ async def convert_re_project_to_project(
                 "amount": entry_amount,
                 "payment_mode": entry_mode,
                 "payment_reference": entry_ref,
-                "payment_date": now.isoformat(),
+                "payment_date": entry_pdate_iso,
                 "stage": "Advance Payment",
                 "description": f"RE advance payment ({entry_mode.replace('_', ' ')}) - {client_name}",
                 "collected_by": user.user_id,
@@ -609,7 +624,7 @@ async def convert_re_project_to_project(
                     "cheque_number": chq.get("cheque_number", ""),
                     "bank_name": chq.get("bank_name", ""),
                     "amount": float(chq.get("amount", 0)),
-                    "cheque_date": chq.get("cheque_date", now.isoformat()),
+                    "cheque_date": chq.get("cheque_date", entry_pdate_iso),
                     "cheque_type": "incoming",
                     "party_name": client_name,
                     "party_type": "client",

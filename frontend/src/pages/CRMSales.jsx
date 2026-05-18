@@ -797,6 +797,7 @@ export default function CRMSales() {
           amount: parseFloat(e.amount) || 0,
           payment_mode: e.payment_mode,
           reference: e.reference || '',
+          payment_date: e.payment_date || new Date().toISOString().split('T')[0],
           cheque_details: e.payment_mode === 'cheque' ? e.cheque_details : null
         })),
         payment_mode: convertPaymentEntries[0]?.payment_mode || 'cash',
