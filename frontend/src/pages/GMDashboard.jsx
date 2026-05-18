@@ -355,6 +355,37 @@ const GMDashboard = () => {
     }
   };
 
+  const handleDeleteREProject = async (re) => {
+    const label = re.re_number || re.project_name || re.re_project_id;
+    if (!window.confirm(`Delete Rough Estimate "${label}"?\n\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/crm/re-projects/${re.re_project_id}`);
+      toast.success(`Deleted "${label}"`);
+      setReProjects(prev => prev.filter(p => p.re_project_id !== re.re_project_id));
+      return;
+    } catch (e) {
+      if (e.response?.status === 409) {
+        const second = window.confirm(
+          `⚠ This RE has already been converted into a Project.\n\n` +
+          `Force delete will ALSO permanently delete:\n` +
+          `  • The linked Project\n` +
+          `  • All Stages, Work Orders, DLRs, Materials, Expenses & Income\n\n` +
+          `This is irreversible. Continue?`
+        );
+        if (!second) return;
+        try {
+          const res = await axios.delete(`${API}/crm/re-projects/${re.re_project_id}?force=true`);
+          toast.success(res.data?.message || `Force-deleted "${label}"`);
+          setReProjects(prev => prev.filter(p => p.re_project_id !== re.re_project_id));
+        } catch (e2) {
+          toast.error(e2.response?.data?.detail || 'Failed to force-delete RE project');
+        }
+        return;
+      }
+      toast.error(e.response?.data?.detail || 'Failed to delete RE project');
+    }
+  };
+
   if (loading && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -672,6 +703,21 @@ const GMDashboard = () => {
                             data-testid={`view-re-${re.re_project_id}`}
                           >
                             <Eye className="h-4 w-4 mr-1" /> View
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDeleteREProject(re);
+                            }}
+                            data-testid={`delete-re-${re.re_project_id}`}
+                            title="Delete this Rough Estimate"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </Button>
                           {(re.status === 're_submitted' || re.status === 're_in_progress') && (
                             <>
