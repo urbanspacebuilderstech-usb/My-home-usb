@@ -335,9 +335,28 @@ export default function REProjectsPage({ embedded = false }) {
     try {
       await axios.delete(`${API}/crm/re-projects/${project.re_project_id}`);
       toast.success(`Deleted "${label}"`);
-      // Refresh local list — remove from cache
       setProjects(prev => prev.filter(p => p.re_project_id !== project.re_project_id));
+      return;
     } catch (e) {
+      // 409 = needs force flag (converted RE → cascading delete required)
+      if (e.response?.status === 409) {
+        const second = window.confirm(
+          `⚠ This RE has already been converted into a Project.\n\n` +
+          `Force delete will ALSO permanently delete:\n` +
+          `  • The linked Project\n` +
+          `  • All Stages, Work Orders, DLRs, Materials, Expenses & Income\n\n` +
+          `This is irreversible. Continue?`
+        );
+        if (!second) return;
+        try {
+          const res = await axios.delete(`${API}/crm/re-projects/${project.re_project_id}?force=true`);
+          toast.success(res.data?.message || `Force-deleted "${label}"`);
+          setProjects(prev => prev.filter(p => p.re_project_id !== project.re_project_id));
+        } catch (e2) {
+          toast.error(e2.response?.data?.detail || 'Failed to force-delete RE project');
+        }
+        return;
+      }
       toast.error(e.response?.data?.detail || 'Failed to delete RE project');
     }
   };

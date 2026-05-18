@@ -2879,10 +2879,11 @@ async def get_re_project(re_project_id: str, user: User = Depends(get_current_us
 
 
 @router.delete("/crm/re-projects/{re_project_id}")
-async def delete_re_project(re_project_id: str, user: User = Depends(get_current_user)):
+async def delete_re_project(re_project_id: str, force: bool = False, user: User = Depends(get_current_user)):
     """Delete an RE project. Super Admin / Planning / GM only.
-    Blocks delete if the RE has already been converted into a real project
-    (status = 'converted') to preserve financial traceability.
+    If the RE has already been converted into a real project, the caller
+    must pass `?force=true` to confirm cascading deletion of the linked Project
+    and its dependent records.
     """
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
         raise HTTPException(status_code=403, detail="Only Super Admin, Planning or GM can delete RE projects")
@@ -2891,19 +2892,41 @@ async def delete_re_project(re_project_id: str, user: User = Depends(get_current
     if not project:
         raise HTTPException(status_code=404, detail="RE Project not found")
 
-    if project.get("status") == "converted" or project.get("converted_to_project_id"):
+    linked_project_id = project.get("converted_to_project_id")
+    is_converted = project.get("status") == "converted" or bool(linked_project_id)
+
+    if is_converted and not force:
         raise HTTPException(
-            status_code=400,
-            detail="This RE has already been converted into a Project. Delete the linked Project first."
+            status_code=409,
+            detail="This RE has already been converted into a Project. Pass force=true to also delete the linked Project & its data."
         )
 
+    # Cascade-delete the linked Project (and its dependent docs) when forced
+    if is_converted and linked_project_id and force:
+        await db.projects.delete_one({"project_id": linked_project_id})
+        # Wipe collections that key off project_id
+        for coll in [
+            "project_stages", "work_orders", "material_requests", "petty_cash",
+            "recorded_expenses", "labour_expenses", "daily_labour_reports",
+            "daily_progress", "income", "vendor_credit_ledger", "credit_ledger",
+            "se_attendance", "monthly_payment_schedule",
+        ]:
+            try:
+                await db[coll].delete_many({"project_id": linked_project_id})
+            except Exception:
+                pass
+
     await db.re_projects.delete_one({"re_project_id": re_project_id})
-    # Clean any RE change-logs that might exist
     try:
         await db.re_project_change_logs.delete_many({"re_project_id": re_project_id})
     except Exception:
         pass
-    return {"message": "Rough Estimate deleted", "re_project_id": re_project_id}
+
+    return {
+        "message": "Rough Estimate deleted" + (" (linked Project also removed)" if (is_converted and linked_project_id) else ""),
+        "re_project_id": re_project_id,
+        "linked_project_deleted": bool(is_converted and linked_project_id),
+    }
 
 
 class REProjectUpdate(BaseModel):
