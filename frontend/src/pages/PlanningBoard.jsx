@@ -485,8 +485,9 @@ export default function PlanningBoard({ embedded = false }) {
   const handlePlanningStatusChange = async (projectId, newStatus) => {
     try {
       await axios.patch(`${API}/planning/projects/${projectId}/planning-status`, { planning_status: newStatus });
-      toast.success(newStatus === 'active' ? 'Moved to Current Projects' : newStatus === 'delivered' ? 'Marked as Delivered' : 'Status updated');
+      toast.success(newStatus === 'active' ? 'Moved to Current Projects' : newStatus === 'delivered' ? 'Marked as Delivered' : newStatus === 'new' ? 'Moved back to New Projects' : 'Status updated');
       fetchSubTabProjects(projectSubTab, projectDateFilter);
+      fetchSubTabCounts(projectDateFilter);
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to update'); }
   };
 
@@ -1346,7 +1347,38 @@ export default function PlanningBoard({ embedded = false }) {
                                       <ArrowRight className="h-3 w-3 mr-1" />Ready to Construction
                                     </Button>
                                   )}
-                                  {projectSubTab === 'active' && null /* "Mark Delivered" moved to project detail page header (Hand Over button) */}
+                                  {projectSubTab === 'active' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-indigo-700 hover:bg-indigo-50 border border-indigo-200"
+                                      onClick={() => {
+                                        if (window.confirm(`Move "${p.name}" back to New Projects?`)) {
+                                          handlePlanningStatusChange(p.project_id, 'new');
+                                        }
+                                      }}
+                                      data-testid={`move-to-new-${p.project_id}`}
+                                      title="Move this project back to New Projects"
+                                    >
+                                      ↩ Move to New
+                                    </Button>
+                                  )}
+                                  {projectSubTab === 'delivered' && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 text-xs text-amber-700 hover:bg-amber-50 border border-amber-200"
+                                      onClick={() => {
+                                        if (window.confirm(`Move "${p.name}" back to Current Projects?`)) {
+                                          handlePlanningStatusChange(p.project_id, 'active');
+                                        }
+                                      }}
+                                      data-testid={`move-to-current-${p.project_id}`}
+                                      title="Move this project back to Current Projects"
+                                    >
+                                      ↩ Move to Current
+                                    </Button>
+                                  )}
                                   {projectSubTab !== 'archived' && user?.role === 'super_admin' && (
                                     <Button
                                       size="sm"
