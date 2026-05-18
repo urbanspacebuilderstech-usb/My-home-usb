@@ -2878,6 +2878,34 @@ async def get_re_project(re_project_id: str, user: User = Depends(get_current_us
     return result
 
 
+@router.delete("/crm/re-projects/{re_project_id}")
+async def delete_re_project(re_project_id: str, user: User = Depends(get_current_user)):
+    """Delete an RE project. Super Admin / Planning / GM only.
+    Blocks delete if the RE has already been converted into a real project
+    (status = 'converted') to preserve financial traceability.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.GENERAL_MANAGER]:
+        raise HTTPException(status_code=403, detail="Only Super Admin, Planning or GM can delete RE projects")
+
+    project = await db.re_projects.find_one({"re_project_id": re_project_id}, {"_id": 0})
+    if not project:
+        raise HTTPException(status_code=404, detail="RE Project not found")
+
+    if project.get("status") == "converted" or project.get("converted_to_project_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="This RE has already been converted into a Project. Delete the linked Project first."
+        )
+
+    await db.re_projects.delete_one({"re_project_id": re_project_id})
+    # Clean any RE change-logs that might exist
+    try:
+        await db.re_project_change_logs.delete_many({"re_project_id": re_project_id})
+    except Exception:
+        pass
+    return {"message": "Rough Estimate deleted", "re_project_id": re_project_id}
+
+
 class REProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     location: Optional[str] = None

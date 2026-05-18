@@ -325,8 +325,22 @@ export default function REProjectsPage({ embedded = false }) {
 
   const canEdit = user?.role === 'planning' || user?.role === 'super_admin' || user?.role === 'general_manager';
   const canApprove = user?.role === 'general_manager' || user?.role === 'super_admin';
+  const canDelete = canEdit; // Same roles can delete
   const [changeLogs, setChangeLogs] = useState([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  const handleDeleteREProject = async (project) => {
+    const label = project.re_number || project.project_name || project.re_project_id;
+    if (!window.confirm(`Delete Rough Estimate "${label}"?\n\nThis cannot be undone.`)) return;
+    try {
+      await axios.delete(`${API}/crm/re-projects/${project.re_project_id}`);
+      toast.success(`Deleted "${label}"`);
+      // Refresh local list — remove from cache
+      setProjects(prev => prev.filter(p => p.re_project_id !== project.re_project_id));
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to delete RE project');
+    }
+  };
 
   if (loading && !user) {
     return (
@@ -401,13 +415,13 @@ export default function REProjectsPage({ embedded = false }) {
         </div>
 
         {/* Search Bar */}
-        <div className="relative" data-testid="re-search-bar">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <div className="relative flex items-center" data-testid="re-search-bar">
+          <Search className="absolute left-3 h-4 w-4 text-gray-400 pointer-events-none z-10" />
           <Input
             placeholder="Search by RE number (USB-RE0001), project name, or client..."
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
-            className="pl-10"
+            className="pl-10 h-11 text-sm"
             data-testid="re-search-input"
           />
           {searchResults && searchResults.length > 0 && (
@@ -605,6 +619,18 @@ export default function REProjectsPage({ embedded = false }) {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
+                        {canDelete && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => handleDeleteREProject(project)}
+                            data-testid={`delete-re-${project.re_project_id}`}
+                            title="Delete this Rough Estimate"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>
