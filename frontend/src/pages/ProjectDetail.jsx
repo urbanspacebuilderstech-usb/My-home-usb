@@ -543,6 +543,7 @@ export default function ProjectDetail() {
     percentage: '',
     expected_payment_date: '',
     generate_remaining: true,
+    remaining_template_id: '__default__',
     submitting: false,
   });
   
@@ -1943,14 +1944,14 @@ export default function ProjectDetail() {
 
   // === Payment Schedule Templates ===
   useEffect(() => {
-    if (!chooseTemplateDialog) return;
+    if (!chooseTemplateDialog && !advanceDialog.open) return;
     (async () => {
       try {
         const res = await axios.get(`${API}/payment-schedule-templates`);
         setPsTemplates(Array.isArray(res.data) ? res.data : []);
       } catch { setPsTemplates([]); }
     })();
-  }, [chooseTemplateDialog]);
+  }, [chooseTemplateDialog, advanceDialog.open]);
 
   const applyPaymentTemplate = async () => {
     if (!selectedTemplateId) { toast.error('Pick a template first'); return; }
@@ -4518,21 +4519,47 @@ export default function ProjectDetail() {
                             </div>
                           </div>
                         )}
-                        {/* Auto-schedule remaining (100 − %) — only when first creating */}
+                        {/* Auto-schedule remaining (100 − %) using a saved Payment Schedule template */}
                         {!advanceDialog.editing_stage_id && (
-                          <label className="flex items-start gap-2 text-xs text-gray-700 select-none cursor-pointer" data-testid="adv-dialog-gen-rest-label">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 h-4 w-4 rounded border-gray-300"
-                              checked={advanceDialog.generate_remaining}
-                              onChange={(e) => setAdvanceDialog((s) => ({ ...s, generate_remaining: e.target.checked }))}
-                              data-testid="adv-dialog-gen-rest"
-                            />
-                            <span>
-                              Also schedule the remaining <strong>{validPct ? (100 - pctNum).toFixed(2) : '—'}%</strong> automatically
-                              using the standard milestone template (Foundation, Slab, Plastering, Flooring, etc.).
-                            </span>
-                          </label>
+                          <div className="rounded-md border border-indigo-200 bg-indigo-50/40 p-3 space-y-2">
+                            <label className="flex items-start gap-2 text-xs text-gray-700 select-none cursor-pointer" data-testid="adv-dialog-gen-rest-label">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 rounded border-gray-300"
+                                checked={advanceDialog.generate_remaining}
+                                onChange={(e) => setAdvanceDialog((s) => ({ ...s, generate_remaining: e.target.checked }))}
+                                data-testid="adv-dialog-gen-rest"
+                              />
+                              <span>
+                                Also schedule the remaining <strong>{validPct ? (100 - pctNum).toFixed(2) : '—'}%</strong> automatically
+                                using a Payment Schedule template (the template's % values are scaled to fit the remaining balance).
+                              </span>
+                            </label>
+                            {advanceDialog.generate_remaining && (
+                              <div>
+                                <Label className="text-[11px]">Choose Template</Label>
+                                <Select
+                                  value={advanceDialog.remaining_template_id || ''}
+                                  onValueChange={(v) => setAdvanceDialog((s) => ({ ...s, remaining_template_id: v }))}
+                                >
+                                  <SelectTrigger className="h-8 text-xs mt-1" data-testid="adv-dialog-template-select">
+                                    <SelectValue placeholder={psTemplates.length ? 'Pick a template…' : 'Use built-in default'} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="__default__">Built-in default (Foundation, Slab, Plastering...)</SelectItem>
+                                    {psTemplates.map((t) => (
+                                      <SelectItem key={t.template_id} value={t.template_id}>
+                                        {t.template_name} ({(t.rows || []).length} rows)
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-[10px] text-gray-500 mt-1">
+                                  Manage templates → <button type="button" className="text-indigo-600 hover:underline" onClick={() => navigate('/payment-schedule-templates')}>Payment Templates page</button>
+                                </p>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     );
@@ -4565,11 +4592,12 @@ export default function ProjectDetail() {
                               stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
                               expected_payment_date: advanceDialog.expected_payment_date || null,
                               generate_remaining_schedule: !!advanceDialog.generate_remaining,
+                              remaining_template_id: (advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '__default__') ? advanceDialog.remaining_template_id : null,
                             });
                             const extras = (res.data?.generated_remaining_stages || []).length;
                             toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
                           }
-                          setAdvanceDialog({ open: false, editing_stage_id: null, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, submitting: false });
+                          setAdvanceDialog({ open: false, editing_stage_id: null, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, remaining_template_id: '__default__', submitting: false });
                           fetchData(false);
                         } catch (e) {
                           toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to save advance');

@@ -2243,6 +2243,7 @@ class MaterializeAdvanceBody(BaseModel):
     stage_name: Optional[str] = None  # default "Advance (Sales)"
     expected_payment_date: Optional[str] = None  # ISO date (YYYY-MM-DD) — when balance is expected
     generate_remaining_schedule: bool = False  # If true, auto-create the remaining (100 - %) template rows
+    remaining_template_id: Optional[str] = None  # If set, use this saved Payment Schedule template's rows instead of DEFAULT_PAYMENT_SCHEDULE
 
 
 @router.post("/projects/{project_id}/materialize-advance-stage")
@@ -2358,16 +2359,33 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     
     await db.payment_stages.insert_one(stage_dict)
     
-    # Optionally generate remaining schedule from DEFAULT_PAYMENT_SCHEDULE
+    # Optionally generate remaining schedule from DEFAULT_PAYMENT_SCHEDULE or a saved template
     extra_stages = []
     if data.generate_remaining_schedule:
         remaining_pct = max(0, 100 - percentage)
-        # Sum percentages from the template, skipping the first row (which is the advance we just created)
-        template_rows = DEFAULT_PAYMENT_SCHEDULE[1:]
-        template_total = sum(r["percentage"] for r in template_rows) or 1
+
+        # Resolve which rows to use: a saved template (if provided) or fall back to the built-in default
+        template_rows = None
+        if data.remaining_template_id:
+            tpl_doc = await db.payment_schedule_templates.find_one(
+                {"template_id": data.remaining_template_id}, {"_id": 0, "rows": 1}
+            )
+            if tpl_doc and tpl_doc.get("rows"):
+                # Skip any row that's just the advance placeholder (already created)
+                template_rows = [
+                    {"stage_name": r.get("stage_name", ""), "percentage": r.get("percentage") or 0, "remarks": r.get("notes", "")}
+                    for r in tpl_doc["rows"]
+                    if not (r.get("stage_name", "") or "").lower().startswith("advance")
+                ]
+        if template_rows is None:
+            # Fallback: built-in default template, skipping its first (advance) row
+            template_rows = [{**r} for r in DEFAULT_PAYMENT_SCHEDULE[1:]]
+
+        template_total = sum((r.get("percentage") or 0) for r in template_rows) or 1
         # Build & insert the remaining rows scaled so their sum == remaining_pct
         for idx, tpl in enumerate(template_rows, start=2):
-            row_pct = round((tpl["percentage"] / template_total) * remaining_pct, 2) if tpl["percentage"] else 0
+            tpl_pct = tpl.get("percentage") or 0
+            row_pct = round((tpl_pct / template_total) * remaining_pct, 2) if tpl_pct else 0
             row_amount = round((total_value * row_pct) / 100) if total_value > 0 else 0
             new_stage = PaymentStage(
                 project_id=project_id,
