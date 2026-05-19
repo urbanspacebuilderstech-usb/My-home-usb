@@ -2318,19 +2318,58 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     if amount < 0:
         raise HTTPException(status_code=400, detail="Amount must be non-negative")
     
-    # Refuse if an explicit advance stage already exists
-    existing_advance = await db.payment_stages.find_one(
-        {"project_id": project_id, "$or": [{"is_advance": True}, {"linked_income_id": {"$exists": True, "$ne": None}}]},
+    # Refuse if a TRULY-collected advance stage already exists. We only block
+    # if the existing "advance" has actually received money (linked income or
+    # amount_received > 0). Template-seeded rows that merely START with "Advance"
+    # or are flagged is_advance:True with 0 received should NOT block — they
+    # will be auto-cleared below before the new advance stage is inserted.
+    existing_real_advance = await db.payment_stages.find_one(
+        {
+            "project_id": project_id,
+            "$or": [
+                {"linked_income_id": {"$exists": True, "$nin": [None, "", False]}},
+                {"amount_received": {"$gt": 0}, "is_advance": True},
+            ],
+        },
         {"_id": 0}
     )
-    if existing_advance:
-        raise HTTPException(status_code=400, detail="An advance payment stage already exists for this project.")
+    if existing_real_advance:
+        raise HTTPException(status_code=400, detail="An advance payment stage with collected money already exists for this project.")
+
+    # Clean up any leftover template-seeded "advance" rows or "Stage 01 Payment"
+    # placeholder rows so the new advance stage takes their place cleanly.
+    await db.payment_stages.delete_many({
+        "project_id": project_id,
+        "amount_received": {"$in": [0, None]},
+        "$or": [
+            {"is_advance": True},
+            {"stage_name": {"$regex": r"^stage\s*0?1\s*payment\s*$", "$options": "i"}},
+            {"stage_name": {"$regex": r"^advance\b", "$options": "i"}},
+        ],
+    })
     
-    # Validate combined percentage stays <= 100
+    # Validate combined percentage stays <= 100 — re-read AFTER cleanup above
+    # so the deleted template-seeded rows are no longer counted.
     other_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "percentage": 1}).to_list(200)
     other_pct = sum(s.get("percentage", 0) for s in other_stages)
-    if other_pct + percentage > 100:
-        raise HTTPException(status_code=400, detail=f"Total percentage would be {other_pct + percentage}%. Reduce the rate so it fits within 100%.")
+    # If "generate_remaining_schedule" is true, we'll be wiping pending non-collected rows
+    # before inserting the new template, so only count rows that have been collected
+    # (i.e. amount_received > 0).
+    if data.generate_remaining_schedule:
+        collected_only = await db.payment_stages.find(
+            {"project_id": project_id, "amount_received": {"$gt": 0}}, {"_id": 0, "percentage": 1}
+        ).to_list(200)
+        other_pct = sum(s.get("percentage", 0) for s in collected_only)
+    if other_pct + percentage > 100.01:
+        raise HTTPException(status_code=400, detail=f"Total percentage would be {round(other_pct + percentage, 2)}%. Reduce the rate so it fits within 100%.")
+
+    # When auto-generating the remaining schedule, first wipe all pending (non-collected) rows
+    # so the new template can be laid down cleanly.
+    if data.generate_remaining_schedule:
+        await db.payment_stages.delete_many({
+            "project_id": project_id,
+            "amount_received": {"$in": [0, None]},
+        })
     
     stage = PaymentStage(
         project_id=project_id,
@@ -2390,11 +2429,11 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
             new_stage = PaymentStage(
                 project_id=project_id,
                 stage_number=idx,
-                stage_label=tpl.get("stage_label"),
-                stage_name=tpl["stage_name"],
+                stage_label=str(tpl.get("stage_label") or idx),
+                stage_name=tpl.get("stage_name", "") or f"Stage {idx}",
                 percentage=row_pct,
                 amount=row_amount,
-                remarks=tpl.get("remarks"),
+                remarks=tpl.get("remarks") or "",
                 workflow_status="draft",
                 created_by=user.user_id,
             )
