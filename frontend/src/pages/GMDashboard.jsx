@@ -36,6 +36,9 @@ const GMDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('planning');  // Default to Rough Estimate
   const lastActiveTabRef = React.useRef('overview');
+
+  // Project Drill-down dialog (opened when a stats card is clicked)
+  const [drillDialog, setDrillDialog] = useState({ open: false, title: '', items: [], emptyText: '' });
   
   // Dashboard Data
   const [stats, setStats] = useState({});
@@ -406,44 +409,78 @@ const GMDashboard = () => {
       <AppHeader user={user} hideNav />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Stats Overview */}
+        {/* Stats Overview — each card is clickable to drill into the underlying list */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-          <Card className="bg-gradient-to-br from-gray-700 to-gray-800 text-white">
+          <Card
+            className="bg-gradient-to-br from-gray-700 to-gray-800 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-total-projects"
+            onClick={() => setDrillDialog({ open: true, title: 'All Projects', items: projects, emptyText: 'No projects yet.' })}
+          >
             <CardContent className="p-4">
               <Building2 className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.totalProjects}</p>
               <p className="text-xs opacity-80">Total Projects</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-green-500 to-green-600 text-white">
+          <Card
+            className="bg-gradient-to-br from-green-500 to-green-600 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-active-projects"
+            onClick={() => setDrillDialog({
+              open: true,
+              title: 'Active Projects',
+              items: (projects || []).filter(p => ['active', 'working', 'gm_approved'].includes(p.status)),
+              emptyText: 'No active projects.'
+            })}
+          >
             <CardContent className="p-4">
               <TrendingUp className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.activeProjects}</p>
               <p className="text-xs opacity-80">Active Projects</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white">
+          <Card
+            className="bg-gradient-to-br from-orange-500 to-orange-600 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-pending-approvals"
+            onClick={() => setActiveTab('final_estimate')}
+          >
             <CardContent className="p-4">
               <ClipboardCheck className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.pendingApprovals}</p>
               <p className="text-xs opacity-80">Pending Approvals</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
+          <Card
+            className="bg-gradient-to-br from-purple-500 to-purple-600 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-re-approvals"
+            onClick={() => setActiveTab('planning')}
+          >
             <CardContent className="p-4">
               <Calculator className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.pendingREApprovals}</p>
               <p className="text-xs opacity-80">RE Approvals</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white">
+          <Card
+            className="bg-gradient-to-br from-amber-500 to-amber-600 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-site-requests"
+            onClick={() => setActiveTab('planning_board')}
+          >
             <CardContent className="p-4">
               <HardHat className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.pendingSiteRequests}</p>
               <p className="text-xs opacity-80">Site Requests</p>
             </CardContent>
           </Card>
-          <Card className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white">
+          <Card
+            className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white cursor-pointer hover:scale-[1.02] active:scale-100 transition-transform"
+            data-testid="gm-stat-completed"
+            onClick={() => setDrillDialog({
+              open: true,
+              title: 'Completed Projects',
+              items: (projects || []).filter(p => p.status === 'completed'),
+              emptyText: 'No completed projects yet.'
+            })}
+          >
             <CardContent className="p-4">
               <CheckCircle className="h-6 w-6 mb-2 opacity-80" />
               <p className="text-2xl font-bold">{stats.completedProjects}</p>
@@ -1104,7 +1141,7 @@ const GMDashboard = () => {
                               )}
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2">
-                              <Button size="sm" variant="outline" onClick={() => window.open(`/project/${p.project_id}`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
+                              <Button size="sm" variant="outline" onClick={() => window.open(`/projects/${p.project_id}`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
                                 <Eye className="h-3.5 w-3.5 mr-1" /> View FE
                               </Button>
                               {!isRejected && (
@@ -1784,6 +1821,50 @@ const GMDashboard = () => {
             <Button onClick={handleSaveReProject} variant="outline" data-testid="gm-save-re-btn">
               <Save className="h-4 w-4 mr-1" /> Save
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* GM Stats Drill-down Dialog */}
+      <Dialog open={drillDialog.open} onOpenChange={(o) => !o && setDrillDialog({ open: false, title: '', items: [], emptyText: '' })}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto" data-testid="gm-drill-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-violet-600" /> {drillDialog.title}
+              <Badge variant="outline" className="ml-2">{(drillDialog.items || []).length}</Badge>
+            </DialogTitle>
+            <DialogDescription>Click any project to open its detail page.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 mt-2">
+            {(drillDialog.items || []).length === 0 ? (
+              <p className="text-center text-gray-400 text-sm py-8">{drillDialog.emptyText}</p>
+            ) : (
+              (drillDialog.items || []).map(p => (
+                <div
+                  key={p.project_id}
+                  className="border rounded-md p-3 hover:bg-violet-50 cursor-pointer transition"
+                  onClick={() => window.open(`/projects/${p.project_id}`, '_blank')}
+                  data-testid={`gm-drill-item-${p.project_id}`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{p.name || p.client_name || 'Untitled Project'}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {p.client_name || '—'} {p.client_phone ? `· ${p.client_phone}` : ''} {p.location ? `· ${p.location}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-[10px] capitalize">{(p.status || '').replace(/_/g, ' ') || 'unknown'}</Badge>
+                      {p.total_value ? <span className="text-xs font-semibold text-violet-700">{formatCurrency(p.total_value)}</span> : null}
+                      <ArrowRight className="h-3.5 w-3.5 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDrillDialog({ open: false, title: '', items: [], emptyText: '' })}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
