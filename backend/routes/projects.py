@@ -2244,6 +2244,7 @@ class MaterializeAdvanceBody(BaseModel):
     expected_payment_date: Optional[str] = None  # ISO date (YYYY-MM-DD) — when balance is expected
     generate_remaining_schedule: bool = False  # If true, auto-create the remaining (100 - %) template rows
     remaining_template_id: Optional[str] = None  # If set, use this saved Payment Schedule template's rows instead of DEFAULT_PAYMENT_SCHEDULE
+    remaining_template_rows_override: Optional[List[Dict[str, Any]]] = None  # If set, USE THESE rows directly (e.g. user edited the template inline before applying)
 
 
 @router.post("/projects/{project_id}/materialize-advance-stage")
@@ -2403,21 +2404,25 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
     if data.generate_remaining_schedule:
         remaining_pct = max(0, 100 - percentage)
 
-        # Resolve which rows to use: a saved template (if provided) or fall back to the built-in default
+        # Resolve which rows to use: user-edited override, saved template, or built-in default
         template_rows = None
-        if data.remaining_template_id:
+        if data.remaining_template_rows_override:
+            template_rows = [
+                {"stage_name": r.get("stage_name", ""), "percentage": float(r.get("percentage") or 0), "remarks": r.get("notes", "") or r.get("remarks", "")}
+                for r in data.remaining_template_rows_override
+                if (r.get("stage_name") or "").strip() and not (r.get("stage_name", "") or "").lower().startswith("advance")
+            ]
+        elif data.remaining_template_id:
             tpl_doc = await db.payment_schedule_templates.find_one(
                 {"template_id": data.remaining_template_id}, {"_id": 0, "rows": 1}
             )
             if tpl_doc and tpl_doc.get("rows"):
-                # Skip any row that's just the advance placeholder (already created)
                 template_rows = [
                     {"stage_name": r.get("stage_name", ""), "percentage": r.get("percentage") or 0, "remarks": r.get("notes", "")}
                     for r in tpl_doc["rows"]
                     if not (r.get("stage_name", "") or "").lower().startswith("advance")
                 ]
         if template_rows is None:
-            # Fallback: built-in default template, skipping its first (advance) row
             template_rows = [{**r} for r in DEFAULT_PAYMENT_SCHEDULE[1:]]
 
         template_total = sum((r.get("percentage") or 0) for r in template_rows) or 1

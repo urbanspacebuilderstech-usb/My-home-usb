@@ -4536,26 +4536,126 @@ export default function ProjectDetail() {
                               </span>
                             </label>
                             {advanceDialog.generate_remaining && (
-                              <div>
-                                <Label className="text-[11px]">Choose Template</Label>
-                                <Select
-                                  value={advanceDialog.remaining_template_id || ''}
-                                  onValueChange={(v) => setAdvanceDialog((s) => ({ ...s, remaining_template_id: v }))}
-                                >
-                                  <SelectTrigger className="h-8 text-xs mt-1" data-testid="adv-dialog-template-select">
-                                    <SelectValue placeholder={psTemplates.length ? 'Pick a template…' : 'Use built-in default'} />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="__default__">Built-in default (Foundation, Slab, Plastering...)</SelectItem>
-                                    {psTemplates.map((t) => (
-                                      <SelectItem key={t.template_id} value={t.template_id}>
-                                        {t.template_name} ({(t.rows || []).length} rows)
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <p className="text-[10px] text-gray-500 mt-1">
-                                  Manage templates → <button type="button" className="text-indigo-600 hover:underline" onClick={() => navigate('/payment-schedule-templates')}>Payment Templates page</button>
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={advanceDialog.remaining_template_id || ''}
+                                    onValueChange={(v) => {
+                                      const tpl = psTemplates.find(t => t.template_id === v);
+                                      setAdvanceDialog((s) => ({
+                                        ...s,
+                                        remaining_template_id: v,
+                                        editable_template_rows: tpl ? (tpl.rows || []).map(r => ({ ...r })) : [],
+                                      }));
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs flex-1" data-testid="adv-dialog-template-select">
+                                      <SelectValue placeholder={psTemplates.length ? 'Pick a template…' : 'Use built-in default'} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="__default__">Built-in default (Foundation, Slab, Plastering...)</SelectItem>
+                                      {psTemplates.map((t) => (
+                                        <SelectItem key={t.template_id} value={t.template_id}>
+                                          {t.template_name} ({(t.rows || []).length} rows)
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs gap-1 shrink-0 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                    onClick={() => window.open('/payment-schedule-templates', '_blank')}
+                                    data-testid="adv-dialog-new-template-btn"
+                                    title="Open Templates Manager in a new tab"
+                                  >
+                                    <Plus className="h-3 w-3" /> New Template
+                                  </Button>
+                                </div>
+
+                                {/* Editable preview of selected template's rows */}
+                                {advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '__default__' && Array.isArray(advanceDialog.editable_template_rows) && advanceDialog.editable_template_rows.length > 0 && (
+                                  <div className="rounded-md border bg-white p-2">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <span className="text-[11px] font-semibold text-gray-700">Template Rows (edit before applying)</span>
+                                      <span className="text-[10px] text-gray-500">
+                                        Sum: {advanceDialog.editable_template_rows.reduce((s, r) => s + (parseFloat(r.percentage) || 0), 0).toFixed(2)}%
+                                      </span>
+                                    </div>
+                                    <div className="max-h-44 overflow-y-auto">
+                                      <table className="w-full text-[11px]">
+                                        <thead className="bg-gray-50 border-b text-gray-500">
+                                          <tr>
+                                            <th className="px-1.5 py-1 text-left">#</th>
+                                            <th className="px-1.5 py-1 text-left">Stage Name</th>
+                                            <th className="px-1.5 py-1 text-right w-16">%</th>
+                                            <th className="px-1.5 py-1 w-6"></th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {advanceDialog.editable_template_rows.map((r, i) => (
+                                            <tr key={i}>
+                                              <td className="px-1.5 py-1 text-gray-400">{i + 1}</td>
+                                              <td className="px-1 py-0.5">
+                                                <Input
+                                                  value={r.stage_name || ''}
+                                                  onChange={(e) => {
+                                                    const rows = [...advanceDialog.editable_template_rows];
+                                                    rows[i] = { ...rows[i], stage_name: e.target.value };
+                                                    setAdvanceDialog(s => ({ ...s, editable_template_rows: rows }));
+                                                  }}
+                                                  className="h-6 text-[11px] px-1.5"
+                                                />
+                                              </td>
+                                              <td className="px-1 py-0.5">
+                                                <Input
+                                                  type="number"
+                                                  step="0.01"
+                                                  min="0"
+                                                  value={r.percentage ?? ''}
+                                                  onChange={(e) => {
+                                                    const rows = [...advanceDialog.editable_template_rows];
+                                                    rows[i] = { ...rows[i], percentage: e.target.value };
+                                                    setAdvanceDialog(s => ({ ...s, editable_template_rows: rows }));
+                                                  }}
+                                                  className="h-6 text-[11px] px-1.5 text-right"
+                                                />
+                                              </td>
+                                              <td className="text-center">
+                                                <button
+                                                  type="button"
+                                                  className="text-red-500 hover:text-red-700"
+                                                  onClick={() => {
+                                                    const rows = advanceDialog.editable_template_rows.filter((_, k) => k !== i);
+                                                    setAdvanceDialog(s => ({ ...s, editable_template_rows: rows }));
+                                                  }}
+                                                  title="Remove row"
+                                                >×</button>
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className="mt-1 h-6 text-[11px] text-indigo-600 hover:bg-indigo-50"
+                                      onClick={() => {
+                                        const rows = [...(advanceDialog.editable_template_rows || []), { stage_name: '', percentage: '', notes: '' }];
+                                        setAdvanceDialog(s => ({ ...s, editable_template_rows: rows }));
+                                      }}
+                                    >
+                                      + Add Row
+                                    </Button>
+                                  </div>
+                                )}
+
+                                <p className="text-[10px] text-gray-500">
+                                  Edits made here apply to <em>this</em> save only. To save changes back to the template, use{' '}
+                                  <button type="button" className="text-indigo-600 hover:underline" onClick={() => navigate('/payment-schedule-templates')}>Payment Templates</button>.
                                 </p>
                               </div>
                             )}
@@ -4587,12 +4687,18 @@ export default function ProjectDetail() {
                             toast.success('Advance stage updated');
                           } else {
                             // CREATE from the virtual auto-collected row
+                            const editedRows = Array.isArray(advanceDialog.editable_template_rows) && advanceDialog.editable_template_rows.length > 0
+                              ? advanceDialog.editable_template_rows
+                                  .filter(r => (r.stage_name || '').trim())
+                                  .map(r => ({ stage_name: r.stage_name.trim(), percentage: Number(r.percentage) || 0, notes: r.notes || '' }))
+                              : null;
                             const res = await axios.post(`${API}/projects/${projectId}/materialize-advance-stage`, {
                               percentage: pct,
                               stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
                               expected_payment_date: advanceDialog.expected_payment_date || null,
                               generate_remaining_schedule: !!advanceDialog.generate_remaining,
                               remaining_template_id: (advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '__default__') ? advanceDialog.remaining_template_id : null,
+                              remaining_template_rows_override: editedRows,
                             });
                             const extras = (res.data?.generated_remaining_stages || []).length;
                             toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
