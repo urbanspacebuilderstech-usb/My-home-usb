@@ -48,7 +48,7 @@ const PAYMENT_METHODS = [
   { value: 'bank_transfer', label: 'Bank Transfer' },
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
-  { value: 'upi', label: 'UPI' }
+  { value: 'escrow', label: 'Escrow' }
 ];
 const ALL_ROLES = [
   { value: 'super_admin', label: 'Super Admin' },

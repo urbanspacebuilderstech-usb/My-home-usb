@@ -168,7 +168,7 @@ export default function Income({ embedded = false }) {
       'cash': 'Cash',
       'cheque': 'Cheque',
       'bank_transfer': 'Bank Transfer',
-      'upi': 'UPI',
+      'escrow': 'Escrow',
       'petty_cash': 'Petty Cash'
     };
     return labels[mode] || mode;
@@ -179,7 +179,7 @@ export default function Income({ embedded = false }) {
       case 'cash': return <Banknote className="h-4 w-4 text-green-600" />;
       case 'cheque': return <CreditCard className="h-4 w-4 text-amber-600" />;
       case 'bank_transfer': return <ArrowUpCircle className="h-4 w-4 text-purple-600" />;
-      case 'upi': return <Wallet className="h-4 w-4 text-orange-600" />;
+      case 'escrow': return <Wallet className="h-4 w-4 text-orange-600" />;
       case 'petty_cash': return <PiggyBank className="h-4 w-4 text-cyan-600" />;
       default: return <DollarSign className="h-4 w-4" />;
     }
@@ -288,7 +288,7 @@ export default function Income({ embedded = false }) {
                         <SelectItem value="cheque">Cheque</SelectItem>
                         <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                         <SelectItem value="savings_account">Savings A/c</SelectItem>
-                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="escrow">Escrow</SelectItem>
                         <SelectItem value="petty_cash">Petty Cash</SelectItem>
                       </SelectContent>
                     </Select>
@@ -317,7 +317,7 @@ export default function Income({ embedded = false }) {
                     </div>
                   )}
                   
-                  {(incomeForm.payment_mode === 'bank_transfer' || incomeForm.payment_mode === 'upi') && (
+                  {(incomeForm.payment_mode === 'bank_transfer' || incomeForm.payment_mode === 'escrow') && (
                     <div>
                       <Label>Reference / Transaction ID</Label>
                       <Input
@@ -397,11 +397,11 @@ export default function Income({ embedded = false }) {
           <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <Wallet className="h-3 w-3" />UPI
+                <Wallet className="h-3 w-3" />Escrow
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-xl font-bold text-orange-700">{formatCurrency(summary?.upi)}</div>
+              <div className="text-xl font-bold text-orange-700">{formatCurrency(summary?.escrow)}</div>
             </CardContent>
           </Card>
 
@@ -454,7 +454,7 @@ export default function Income({ embedded = false }) {
                     <SelectItem value="cheque">Cheque</SelectItem>
                     <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                     <SelectItem value="savings_account">Savings A/c</SelectItem>
-                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="escrow">Escrow</SelectItem>
                     <SelectItem value="petty_cash">Petty Cash</SelectItem>
                   </SelectContent>
                 </Select>

@@ -7730,7 +7730,7 @@ export default function ProjectDetail() {
               >
                 <option value="bank_transfer">Bank Transfer</option>
                 <option value="savings_account">Savings A/c</option>
-                <option value="upi">UPI</option>
+                <option value="escrow">Escrow</option>
                 <option value="cheque">Cheque</option>
                 <option value="cash">Cash</option>
               </select>

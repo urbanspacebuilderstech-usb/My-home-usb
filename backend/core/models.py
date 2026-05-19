@@ -429,7 +429,7 @@ class PaymentMode(str, Enum):
     CASH = "cash"
     CHEQUE = "cheque"
     BANK_TRANSFER = "bank_transfer"
-    UPI = "upi"
+    UPI = "escrow"
     CREDIT_CARD = "credit_card"
 
 
@@ -774,7 +774,7 @@ class PaymentMode(str, Enum):
     CASH = "cash"
     CHEQUE = "cheque"
     BANK_TRANSFER = "bank_transfer"
-    UPI = "upi"
+    UPI = "escrow"
     PETTY_CASH = "petty_cash"
     DIRECT_TRANSFER = "direct_transfer"
 
@@ -929,7 +929,7 @@ class PaymentMethodType(str, Enum):
     CASH = "cash"
     CHEQUE = "cheque"
     BANK_TRANSFER = "bank_transfer"
-    UPI = "upi"
+    UPI = "escrow"
     CREDIT_CARD = "credit_card"
 
 

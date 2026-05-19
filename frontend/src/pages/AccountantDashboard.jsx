@@ -231,7 +231,7 @@ export default function AccountantDashboard() {
               <div className="bg-indigo-50 rounded-lg p-3 border border-indigo-100">
                 <div className="flex items-center gap-2 mb-1">
                   <Send className="h-4 w-4 text-indigo-600" />
-                  <span className="text-xs text-indigo-700 font-medium">UPI</span>
+                  <span className="text-xs text-indigo-700 font-medium">Escrow</span>
                 </div>
                 <p className="text-lg font-bold text-indigo-800">{formatLargeNumber(incomeByMethod.upi || 0)}</p>
               </div>

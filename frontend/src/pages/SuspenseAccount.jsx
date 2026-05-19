@@ -147,7 +147,7 @@ export default function SuspenseAccountPage() {
                         <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                         <SelectItem value="savings_account">Savings A/c</SelectItem>
                         <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="escrow">Escrow</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

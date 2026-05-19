@@ -775,7 +775,7 @@ function PettyCashManagement({ onBack }) {
                       <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                       <SelectItem value="cash">Cash</SelectItem>
                       <SelectItem value="cheque">Cheque</SelectItem>
-                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="escrow">Escrow</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -800,7 +800,7 @@ function PettyCashManagement({ onBack }) {
                   <Input className="h-8 text-xs" value={payForm.cheque_number} onChange={e => setPayForm({...payForm, cheque_number: e.target.value})} placeholder="e.g., 123456" />
                 </div>
               )}
-              {(payForm.payment_mode === 'bank_transfer' || payForm.payment_mode === 'savings_account' || payForm.payment_mode === 'upi') && (
+              {(payForm.payment_mode === 'bank_transfer' || payForm.payment_mode === 'savings_account' || payForm.payment_mode === 'escrow') && (
                 <div>
                   <Label className="text-xs">Reference / Transaction Number</Label>
                   <Input className="h-8 text-xs" value={payForm.reference_number} onChange={e => setPayForm({...payForm, reference_number: e.target.value})} placeholder="e.g., TXN001" />
@@ -829,7 +829,7 @@ const INDIRECT_PAYMENT_METHODS = [
   { value: 'direct_transfer', label: 'CASH D/T' },
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
-  { value: 'upi', label: 'UPI' },
+  { value: 'escrow', label: 'Escrow' },
 ];
 
 function IndirectExpenseSection({ userRole }) {
@@ -2113,7 +2113,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                               <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                               <SelectItem value="cash">Cash</SelectItem>
                               <SelectItem value="cheque">Cheque</SelectItem>
-                              <SelectItem value="upi">UPI</SelectItem>
+                              <SelectItem value="escrow">Escrow</SelectItem>
                             </SelectContent>
                           </Select>
                         </td>
@@ -2255,7 +2255,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                         <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="cheque">Cheque</SelectItem>
-                        <SelectItem value="upi">UPI</SelectItem>
+                        <SelectItem value="escrow">Escrow</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2356,7 +2356,7 @@ function CashbookTab({ overview, projects, userRole, onRefresh }) {
                     <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="cheque">Cheque</SelectItem>
-                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="escrow">Escrow</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -3145,7 +3145,7 @@ function ApprovalsTab() {
     const mode = classifyMode(income.payment_mode);
     let verificationMode = 'cash';
     if (mode === 'cheque' || income.payment_mode === 'cheque') verificationMode = 'cheque';
-    else if (['current_account', 'savings_account'].includes(mode) || ['bank_transfer', 'neft', 'upi'].includes(income.payment_mode)) verificationMode = 'bank';
+    else if (['current_account', 'savings_account'].includes(mode) || ['bank_transfer', 'neft', 'escrow'].includes(income.payment_mode)) verificationMode = 'bank';
     else if (mode === 'direct_transfer' || income.payment_mode === 'direct_transfer') verificationMode = 'dt';
 
     setReviewForm({

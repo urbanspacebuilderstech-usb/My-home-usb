@@ -46,7 +46,7 @@ const PAYMENT_MODES = [
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'upi', label: 'UPI' },
+  { value: 'escrow', label: 'Escrow' },
   { value: 'credit_card', label: 'Credit Card' },
   { value: 'direct_transfer', label: 'Direct Transfer (DT)' }
 ];

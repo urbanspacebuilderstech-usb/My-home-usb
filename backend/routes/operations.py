@@ -3128,7 +3128,7 @@ async def get_accountant_comprehensive_dashboard(user: User = Depends(get_curren
     for e in vendor_expenses:
         vend_by_proj[e.get("project_id")] += e.get("amount", 0)
     
-    income_by_method = {"cash": 0, "cheque": 0, "bank_transfer": 0, "upi": 0, "credit_card": 0}
+    income_by_method = {"cash": 0, "cheque": 0, "bank_transfer": 0, "escrow": 0, "credit_card": 0}
     for inc in income_entries:
         method = inc.get("payment_mode", "cash")
         income_by_method[method] = income_by_method.get(method, 0) + inc.get("amount", 0)

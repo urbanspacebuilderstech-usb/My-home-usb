@@ -26,7 +26,7 @@ const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash', icon: Banknote },
   { value: 'cheque', label: 'Cheque', icon: CreditCard },
   { value: 'bank_transfer', label: 'Bank Transfer', icon: Landmark },
-  { value: 'upi', label: 'UPI', icon: Send },
+  { value: 'escrow', label: 'Escrow', icon: Send },
   { value: 'credit_card', label: 'Credit Card', icon: CreditCard }
 ];
 

@@ -42,7 +42,7 @@ const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'upi', label: 'UPI' },
+  { value: 'escrow', label: 'Escrow' },
   { value: 'credit_card', label: 'Credit Card' }
 ];
 
@@ -712,7 +712,7 @@ export default function AccountantModule() {
                     <p className="font-bold text-purple-600">{formatCurrency(incomeSummary.bank_transfer || 0)}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-xs text-gray-600">UPI</p>
+                    <p className="text-xs text-gray-600">Escrow</p>
                     <p className="font-bold text-indigo-600">{formatCurrency(incomeSummary.upi || 0)}</p>
                   </div>
                   <div className="text-center bg-green-100 rounded p-2">

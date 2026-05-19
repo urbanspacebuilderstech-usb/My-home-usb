@@ -301,7 +301,7 @@ export default function Dashboard() {
                 <div className="space-y-1 text-xs">
                   <div className="flex justify-between"><span className="text-gray-500">Cash</span><span className="font-bold text-gray-700">-</span></div>
                   <div className="flex justify-between"><span className="text-gray-500">Bank</span><span className="font-bold text-gray-700">-</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">UPI</span><span className="font-bold text-gray-700">-</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Escrow</span><span className="font-bold text-gray-700">-</span></div>
                 </div>
               </div>
             </div>

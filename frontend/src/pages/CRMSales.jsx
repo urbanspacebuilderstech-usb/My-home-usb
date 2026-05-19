@@ -140,7 +140,7 @@ export default function CRMSales() {
   // Project Onboarding
   const [advanceDialog, setAdvanceDialog] = useState(false);
   const [advanceLead, setAdvanceLead] = useState(null);
-  const [advanceForm, setAdvanceForm] = useState({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
+  const [advanceForm, setAdvanceForm] = useState({ amount: '', payment_mode: 'escrow', payment_reference: '', remarks: '' });
   const [planningDialog, setPlanningDialog] = useState(false);
   const [planningLead, setPlanningLead] = useState(null);
   const [projectDescription, setProjectDescription] = useState('');
@@ -563,7 +563,7 @@ export default function CRMSales() {
   // Advance Payment Collection
   const openAdvanceDialog = (lead) => {
     setAdvanceLead(lead);
-    setAdvanceForm({ amount: '', payment_mode: 'upi', payment_reference: '', remarks: '' });
+    setAdvanceForm({ amount: '', payment_mode: 'escrow', payment_reference: '', remarks: '' });
     setAdvanceDialog(true);
   };
 
@@ -3076,7 +3076,7 @@ export default function CRMSales() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
+                  <SelectItem value="escrow">Escrow</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
                   <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
                   <SelectItem value="savings_account">Savings A/c</SelectItem>

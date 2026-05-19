@@ -25,7 +25,7 @@ const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash' },
   { value: 'cheque', label: 'Cheque' },
   { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'upi', label: 'UPI' }
+  { value: 'escrow', label: 'Escrow' }
 ];
 
 const fmt = (n) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);

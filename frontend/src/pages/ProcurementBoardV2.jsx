@@ -639,13 +639,13 @@ export default function ProcurementBoardV2() {
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="bank">Bank Transfer</SelectItem>
-                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="escrow">Escrow</SelectItem>
                       <SelectItem value="cash">Cash</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 
-                {vendorMasterForm.payment_method === 'upi' && (
+                {vendorMasterForm.payment_method === 'escrow' && (
                   <div>
                     <Label>UPI ID</Label>
                     <Input

@@ -119,7 +119,7 @@ export default function ApprovalQueue() {
     let mode = 'cash';
     const pm = (income.payment_mode || '').toLowerCase();
     if (pm.includes('cheque')) mode = 'cheque';
-    else if (pm.includes('bank') || pm.includes('neft') || pm.includes('upi') || pm.includes('transfer')) mode = 'bank';
+    else if (pm.includes('bank') || pm.includes('neft') || pm.includes('escrow') || pm.includes('transfer')) mode = 'bank';
     else if (pm.includes('dt') || pm === 'direct_transfer') mode = 'dt';
     setReviewForm({
       verification_mode: mode,

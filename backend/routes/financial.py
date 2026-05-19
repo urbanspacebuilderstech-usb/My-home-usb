@@ -93,7 +93,7 @@ async def get_accountant_overview(user: User = Depends(get_current_user)):
         mode = mode.lower().replace(" ", "_")
         mapping = {
             "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
-            "rtgs": "current_account", "imps": "current_account", "upi": "current_account",
+            "rtgs": "current_account", "imps": "current_account", "escrow": "current_account",
             "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
             "savings_account": "savings_account", "current_account": "current_account",
             "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",
@@ -288,7 +288,7 @@ async def get_income_summary(user: User = Depends(get_current_user)):
         "cash": 0,
         "cheque": 0,
         "bank_transfer": 0,
-        "upi": 0,
+        "escrow": 0,
         "petty_cash": 0,
         "entry_count": len(income_entries)
     }
@@ -327,7 +327,7 @@ async def get_project_income(project_id: str, user: User = Depends(get_current_u
         "cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cash"),
         "cheque": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cheque"),
         "bank_transfer": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "bank_transfer"),
-        "upi": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "upi"),
+        "escrow": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "escrow"),
         "petty_cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "petty_cash"),
     }
     
@@ -799,7 +799,7 @@ async def get_cashbook(
     total_expense = sum(e.get("amount", 0) for e in recorded_exps) + sum(l.get("total_amount", 0) for l in labour_exps) + sum(m.get("estimated_price", 0) for m in material_reqs)
     
     # Income by payment mode
-    mode_totals = {"cash": 0, "cheque": 0, "bank_transfer": 0, "upi": 0}
+    mode_totals = {"cash": 0, "cheque": 0, "bank_transfer": 0, "escrow": 0}
     for i in incomes:
         mode = i.get("payment_mode", "cash")
         mode_totals[mode] = mode_totals.get(mode, 0) + i.get("amount", 0)
@@ -1252,7 +1252,7 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         "cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cash"),
         "cheque": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cheque"),
         "bank_transfer": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "bank_transfer"),
-        "upi": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "upi"),
+        "escrow": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "escrow"),
         "petty_cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "petty_cash"),
     }
     
@@ -2968,7 +2968,7 @@ async def get_cashbook_filtered(
         m = str(mode).lower().replace(" ", "_")
         mp = {
             "cash": "cash", "bank_transfer": "current_account", "neft": "current_account",
-            "rtgs": "current_account", "imps": "current_account", "upi": "current_account",
+            "rtgs": "current_account", "imps": "current_account", "escrow": "current_account",
             "cheque": "cheque", "petty_cash": "petty_cash", "savings": "savings_account",
             "savings_account": "savings_account", "current_account": "current_account",
             "miscellaneous": "miscellaneous", "direct_transfer": "direct_transfer",

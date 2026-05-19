@@ -366,7 +366,7 @@ function Step2({ form, update }) {
             <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
             <SelectItem value="current_account">HDFC CURRENT</SelectItem>
             <SelectItem value="cheque">Cheque</SelectItem>
-            <SelectItem value="upi">UPI</SelectItem>
+            <SelectItem value="escrow">Escrow</SelectItem>
             <SelectItem value="neft">NEFT / RTGS</SelectItem>
           </SelectContent>
         </Select>
