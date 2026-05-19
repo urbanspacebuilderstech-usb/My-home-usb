@@ -4550,10 +4550,9 @@ export default function ProjectDetail() {
                                     }}
                                   >
                                     <SelectTrigger className="h-8 text-xs flex-1" data-testid="adv-dialog-template-select">
-                                      <SelectValue placeholder={psTemplates.length ? 'Pick a template…' : 'Use built-in default'} />
+                                      <SelectValue placeholder={psTemplates.length ? 'Pick a template…' : 'No templates yet — create one'} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="__default__">Built-in default (Foundation, Slab, Plastering...)</SelectItem>
                                       {psTemplates.map((t) => (
                                         <SelectItem key={t.template_id} value={t.template_id}>
                                           {t.template_name} ({(t.rows || []).length} rows)
@@ -4575,7 +4574,7 @@ export default function ProjectDetail() {
                                 </div>
 
                                 {/* Editable preview of selected template's rows */}
-                                {advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '__default__' && Array.isArray(advanceDialog.editable_template_rows) && advanceDialog.editable_template_rows.length > 0 && (
+                                {advanceDialog.remaining_template_id && Array.isArray(advanceDialog.editable_template_rows) && advanceDialog.editable_template_rows.length > 0 && (
                                   <div className="rounded-md border bg-white p-2">
                                     <div className="flex items-center justify-between mb-1.5">
                                       <span className="text-[11px] font-semibold text-gray-700">Template Rows (edit before applying)</span>
@@ -4697,13 +4696,13 @@ export default function ProjectDetail() {
                               stage_name: (advanceDialog.stage_name || 'Stage 01 Payment').trim() || 'Stage 01 Payment',
                               expected_payment_date: advanceDialog.expected_payment_date || null,
                               generate_remaining_schedule: !!advanceDialog.generate_remaining,
-                              remaining_template_id: (advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '__default__') ? advanceDialog.remaining_template_id : null,
+                              remaining_template_id: (advanceDialog.remaining_template_id && advanceDialog.remaining_template_id !== '') ? advanceDialog.remaining_template_id : null,
                               remaining_template_rows_override: editedRows,
                             });
                             const extras = (res.data?.generated_remaining_stages || []).length;
                             toast.success(extras ? `Stage 01 saved + ${extras} milestone rows scheduled` : 'Advance stage created');
                           }
-                          setAdvanceDialog({ open: false, editing_stage_id: null, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, remaining_template_id: '__default__', submitting: false });
+                          setAdvanceDialog({ open: false, editing_stage_id: null, income_amount: 0, stage_name: 'Stage 01 Payment', percentage: '', expected_payment_date: '', generate_remaining: true, remaining_template_id: '', submitting: false });
                           fetchData(false);
                         } catch (e) {
                           toast.error(typeof e.response?.data?.detail === 'string' ? e.response.data.detail : 'Failed to save advance');
