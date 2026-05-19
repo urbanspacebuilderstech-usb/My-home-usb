@@ -30,6 +30,7 @@ import Settings from '@/pages/Settings';
 import SlotManagement from '@/pages/SlotManagement';
 import StageManagement from '@/pages/StageManagement';
 import AdminAddProject from '@/pages/AdminAddProject';
+import PaymentScheduleTemplates from '@/pages/PaymentScheduleTemplates';
 import MaterialManagement from '@/pages/MaterialManagement';
 import VendorMasterManagement from '@/pages/VendorMasterManagement';
 import ContractorManagement from '@/pages/ContractorManagement';
@@ -122,6 +123,7 @@ function AppRouter() {
       <Route path="/financial-overview" element={<ProtectedRoute><FinancialOverview /></ProtectedRoute>} />
       <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
       <Route path="/admin/add-project" element={<ProtectedRoute><AdminAddProject /></ProtectedRoute>} />
+      <Route path="/payment-schedule-templates" element={<ProtectedRoute><PaymentScheduleTemplates /></ProtectedRoute>} />
       <Route path="/projects/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
       <Route path="/projects/:projectId/materials" element={<ProtectedRoute><ProjectMaterials /></ProtectedRoute>} />
       <Route path="/projects/:projectId/comprehensive" element={<ProtectedRoute><ComprehensiveProjectView /></ProtectedRoute>} />

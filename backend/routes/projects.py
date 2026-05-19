@@ -5883,3 +5883,148 @@ async def get_project_dlr_summary(project_id: str, date: Optional[str] = None, u
         "entries": entries,
     }
 
+
+
+# ==================== PAYMENT SCHEDULE TEMPLATES ====================
+
+class PaymentTemplateRow(BaseModel):
+    stage_name: str
+    percentage: float = 0
+    notes: Optional[str] = ""
+
+
+class PaymentTemplateInput(BaseModel):
+    template_name: str
+    description: Optional[str] = ""
+    rows: List[PaymentTemplateRow] = []
+
+
+@router.get("/payment-schedule-templates")
+async def list_payment_schedule_templates(user: User = Depends(get_current_user)):
+    """List all saved Payment Schedule templates."""
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.GENERAL_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    docs = await db.payment_schedule_templates.find({}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return docs
+
+
+@router.post("/payment-schedule-templates")
+async def create_payment_schedule_template(data: PaymentTemplateInput, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Super Admin / Planning can create templates")
+    if not data.template_name.strip():
+        raise HTTPException(status_code=400, detail="Template name is required")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "template_id": f"pst_{uuid.uuid4().hex[:10]}",
+        "template_name": data.template_name.strip(),
+        "description": data.description or "",
+        "rows": [r.model_dump() for r in data.rows],
+        "created_by": user.user_id,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.payment_schedule_templates.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.patch("/payment-schedule-templates/{template_id}")
+async def update_payment_schedule_template(template_id: str, data: PaymentTemplateInput, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Super Admin / Planning can update templates")
+    existing = await db.payment_schedule_templates.find_one({"template_id": template_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Template not found")
+    await db.payment_schedule_templates.update_one(
+        {"template_id": template_id},
+        {"$set": {
+            "template_name": data.template_name.strip(),
+            "description": data.description or "",
+            "rows": [r.model_dump() for r in data.rows],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Template updated", "template_id": template_id}
+
+
+@router.delete("/payment-schedule-templates/{template_id}")
+async def delete_payment_schedule_template(template_id: str, user: User = Depends(get_current_user)):
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING]:
+        raise HTTPException(status_code=403, detail="Only Super Admin / Planning can delete templates")
+    res = await db.payment_schedule_templates.delete_one({"template_id": template_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"message": "Template deleted"}
+
+
+class ApplyTemplateInput(BaseModel):
+    template_id: str
+    mode: str = "append"  # "replace" or "append"
+
+
+@router.post("/projects/{project_id}/apply-payment-template")
+async def apply_payment_template_to_project(project_id: str, data: ApplyTemplateInput, user: User = Depends(get_current_user)):
+    """Apply a saved Payment Schedule template to a project.
+    mode='replace' deletes all existing pending payment_stages first.
+    mode='append'  keeps existing rows and validates total ≤ 100%.
+    """
+    if user.role not in [UserRole.SUPER_ADMIN, UserRole.PLANNING, UserRole.PROJECT_MANAGER, UserRole.ACCOUNTANT]:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    tpl = await db.payment_schedule_templates.find_one({"template_id": data.template_id}, {"_id": 0})
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    rows = tpl.get("rows", [])
+    if not rows:
+        raise HTTPException(status_code=400, detail="Template has no rows")
+
+    project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "total_value": 1})
+    total_value = (project.get("total_value", 0) or 0) if project else 0
+
+    # Replace mode: delete all stages that have NOT been collected yet
+    if data.mode == "replace":
+        await db.payment_stages.delete_many({
+            "project_id": project_id,
+            "$or": [
+                {"status": {"$in": ["pending", "requested"]}},
+                {"status": {"$exists": False}},
+            ],
+            "amount_received": {"$in": [0, None]},
+        })
+
+    existing = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "percentage": 1}).to_list(500)
+    existing_pct = sum(s.get("percentage", 0) or 0 for s in existing)
+    new_pct = sum((r.get("percentage") or 0) for r in rows)
+    if existing_pct + new_pct > 100.01:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Total would exceed 100% (existing {existing_pct}% + template {new_pct}%). Use 'Replace' mode or delete some existing rows first.",
+        )
+
+    created = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for r in rows:
+        pct = float(r.get("percentage") or 0)
+        amount = round((total_value * pct) / 100) if total_value > 0 and pct > 0 else 0
+        stage_dict = {
+            "stage_id": f"ps_{uuid.uuid4().hex[:10]}",
+            "project_id": project_id,
+            "stage_name": r.get("stage_name", ""),
+            "percentage": pct,
+            "amount": amount,
+            "amount_received": 0,
+            "status": "pending",
+            "workflow_status": "approved",
+            "notes": r.get("notes", ""),
+            "is_advance": (r.get("stage_name", "") or "").lower().startswith("advance"),
+            "created_by": user.user_id,
+            "created_at": now_iso,
+        }
+        await db.payment_stages.insert_one(stage_dict)
+        stage_dict.pop("_id", None)
+        created.append(stage_dict)
+
+    return {"message": f"Applied template '{tpl.get('template_name')}'", "created": len(created), "mode": data.mode}
+
+# ==================== END PAYMENT SCHEDULE TEMPLATES ====================

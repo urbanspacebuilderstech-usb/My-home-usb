@@ -25,6 +25,7 @@ export default function Sidebar({ open, onClose, user }) {
     { name: 'RE Projects', icon: Calculator, path: '/crm/re-projects', roles: ['super_admin', 'planning', 'general_manager', 'sales'] },
     { name: 'Projects', icon: FolderKanban, path: '/projects', roles: ['super_admin', 'project_manager', 'planning', 'cre', 'general_manager'] },
     { name: 'Add Project', icon: FolderPlus, path: '/admin/add-project', roles: ['super_admin', 'planning', 'sales'] },
+    { name: 'Payment Templates', icon: FileText, path: '/payment-schedule-templates', roles: ['super_admin', 'planning'] },
     { name: 'Work Orders', icon: ClipboardList, path: '/work-orders', roles: ['super_admin', 'project_manager', 'procurement'] },
     { name: 'Approvals', icon: CheckSquare, path: '/approvals', roles: ['accountant'] },
     { name: 'Procurement', icon: ShoppingCart, path: '/procurement', roles: ['super_admin', 'procurement'] },

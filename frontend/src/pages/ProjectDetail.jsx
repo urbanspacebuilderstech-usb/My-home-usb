@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
@@ -523,6 +523,7 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
 
 export default function ProjectDetail() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectData, setProjectData] = useState(null);
@@ -548,6 +549,12 @@ export default function ProjectDetail() {
   // Bulk dialog states
   const [bulkScopeDialog, setBulkScopeDialog] = useState(false);
   const [bulkPaymentDialog, setBulkPaymentDialog] = useState(false);
+  // Choose Payment Schedule Template dialog
+  const [chooseTemplateDialog, setChooseTemplateDialog] = useState(false);
+  const [psTemplates, setPsTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [templateApplyMode, setTemplateApplyMode] = useState('append');
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [bulkAdditionDialog, setBulkAdditionDialog] = useState(false);
   const [bulkDeductionDialog, setBulkDeductionDialog] = useState(false);
   
@@ -1932,6 +1939,35 @@ export default function ProjectDetail() {
         : (typeof detail === 'string' ? detail : 'Auto-save failed');
       toast.error(msg);
     }
+  };
+
+  // === Payment Schedule Templates ===
+  useEffect(() => {
+    if (!chooseTemplateDialog) return;
+    (async () => {
+      try {
+        const res = await axios.get(`${API}/payment-schedule-templates`);
+        setPsTemplates(Array.isArray(res.data) ? res.data : []);
+      } catch { setPsTemplates([]); }
+    })();
+  }, [chooseTemplateDialog]);
+
+  const applyPaymentTemplate = async () => {
+    if (!selectedTemplateId) { toast.error('Pick a template first'); return; }
+    setApplyingTemplate(true);
+    try {
+      const res = await axios.post(`${API}/projects/${projectId}/apply-payment-template`, {
+        template_id: selectedTemplateId,
+        mode: templateApplyMode,
+      });
+      toast.success(`${res.data?.message || 'Template applied'} (${res.data?.created || 0} rows added)`);
+      setChooseTemplateDialog(false);
+      setSelectedTemplateId('');
+      fetchData(false);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to apply template');
+    }
+    setApplyingTemplate(false);
   };
 
   const handleDeleteStage = async (stageId) => {
@@ -4066,6 +4102,85 @@ export default function ProjectDetail() {
                       onClick={handleBulkDeletePayment}
                     >
                       <Trash2 className="h-4 w-4" />Delete Selected ({selectedPaymentIds.length})
+                    </Button>
+                  )}
+                  {/* Choose Template Dialog */}
+                  <Dialog open={chooseTemplateDialog} onOpenChange={setChooseTemplateDialog}>
+                    <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                      <DialogHeader>
+                        <DialogTitle>Apply Payment Schedule Template</DialogTitle>
+                        <DialogDescription>
+                          Pick a saved template to populate the schedule. Rows will become editable after applying.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        {psTemplates.length === 0 ? (
+                          <div className="text-center py-6 text-sm text-gray-500">
+                            No templates yet.
+                            <Button variant="link" size="sm" onClick={() => navigate('/payment-schedule-templates')}>Create one →</Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2 max-h-72 overflow-y-auto">
+                            {psTemplates.map(tpl => {
+                              const total = (tpl.rows || []).reduce((s, r) => s + (parseFloat(r.percentage) || 0), 0);
+                              const isSelected = selectedTemplateId === tpl.template_id;
+                              return (
+                                <button
+                                  key={tpl.template_id}
+                                  type="button"
+                                  onClick={() => setSelectedTemplateId(tpl.template_id)}
+                                  className={`w-full text-left p-3 rounded-lg border-2 transition-colors ${isSelected ? 'border-indigo-500 bg-indigo-50/60' : 'border-gray-200 hover:border-indigo-300'}`}
+                                  data-testid={`pick-tpl-${tpl.template_id}`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900">{tpl.template_name}</p>
+                                      {tpl.description && <p className="text-[11px] text-gray-500 line-clamp-2">{tpl.description}</p>}
+                                      <p className="text-[11px] text-gray-500 mt-1">{(tpl.rows || []).length} milestones · Total {total.toFixed(1)}%</p>
+                                    </div>
+                                    {isSelected && <Check className="h-5 w-5 text-indigo-600 shrink-0" />}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Mode picker */}
+                        {selectedTemplateId && (
+                          <div className="rounded-lg border bg-gray-50 p-3 space-y-2">
+                            <p className="text-xs font-semibold text-gray-700">How should this template be applied?</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <button type="button" onClick={() => setTemplateApplyMode('append')} className={`p-2.5 rounded border-2 text-left ${templateApplyMode === 'append' ? 'border-emerald-500 bg-emerald-50/60' : 'border-gray-200'}`}>
+                                <p className="text-xs font-semibold text-emerald-700">Append</p>
+                                <p className="text-[11px] text-gray-600">Add template rows alongside existing ones</p>
+                              </button>
+                              <button type="button" onClick={() => setTemplateApplyMode('replace')} className={`p-2.5 rounded border-2 text-left ${templateApplyMode === 'replace' ? 'border-red-500 bg-red-50/60' : 'border-gray-200'}`}>
+                                <p className="text-xs font-semibold text-red-700">Replace</p>
+                                <p className="text-[11px] text-gray-600">Delete all pending rows (keeps collected ones), then apply template</p>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => navigate('/payment-schedule-templates')} className="mr-auto">Manage Templates</Button>
+                        <Button variant="outline" onClick={() => setChooseTemplateDialog(false)}>Cancel</Button>
+                        <Button onClick={applyPaymentTemplate} disabled={!selectedTemplateId || applyingTemplate} className="bg-indigo-600 hover:bg-indigo-700" data-testid="apply-template-btn">
+                          {applyingTemplate ? 'Applying...' : `Apply (${templateApplyMode === 'replace' ? 'Replace' : 'Append'})`}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  {canManage && (
+                    <Button
+                      data-testid="choose-template-btn"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                      onClick={() => setChooseTemplateDialog(true)}
+                    >
+                      <FileText className="h-4 w-4" /> Choose Template
                     </Button>
                   )}
                   {canManage && (
