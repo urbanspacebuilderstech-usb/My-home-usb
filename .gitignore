@@ -3234,3 +3234,12 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/575.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
