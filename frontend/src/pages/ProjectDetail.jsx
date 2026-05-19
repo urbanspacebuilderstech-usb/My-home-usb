@@ -4670,7 +4670,14 @@ export default function ProjectDetail() {
                       // the user always sees their advance as the first row even before
                       // the formal payment_stages are entered.
                       const stages = (payment_stages || []);
-                      const hasExplicitAdvance = stages.some(s => s.is_advance === true || s.linked_income_id);
+                      // A row is treated as an EXPLICIT advance only if it has actually
+                      // received money or is linked to an income record. Template-seeded
+                      // rows merely *named* "Advance ..." should NOT suppress the virtual
+                      // "Auto-collected (Sales)" row.
+                      const hasExplicitAdvance = stages.some(s =>
+                        (s.is_advance === true && (Number(s.amount_received) || 0) > 0)
+                        || (s.linked_income_id && s.linked_income_id !== '' && s.linked_income_id !== null)
+                      );
                       const totalValueForRow = summary?.scope_total || projectData?.project?.total_value || 0;
                       const earliestIncome = (projectIncomeEntries || []).slice().sort((a, b) => {
                         const da = new Date(a.received_date || a.created_at || 0).getTime();
