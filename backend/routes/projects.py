@@ -605,11 +605,12 @@ async def get_client_portal_data(project_id: str, user: User = Depends(get_curre
     payments = await db.payments.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
     total_paid = sum(p.get("amount", 0) for p in payments)
     
-    # Get payment stages (schedule) - exclude internal notes
+    # Get payment stages (schedule) - exclude internal notes; honour the
+    # user's manual reorder via the persisted `sort_order` field.
     payment_stages = await db.payment_stages.find(
         {"project_id": project_id}, 
         {"_id": 0, "internal_notes": 0}
-    ).to_list(100)
+    ).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(500)
     
     # Get scope items for client view
     scope_items = await db.scope_items.find(
@@ -2134,7 +2135,7 @@ async def get_comprehensive_project_view(project_id: str, user: User = Depends(g
 # Payment Stage CRUD
 @router.get("/projects/{project_id}/payment-stages")
 async def get_payment_stages(project_id: str, user: User = Depends(get_current_user)):
-    stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(1000)
     for stage in stages:
         if isinstance(stage.get("due_date"), str):
             stage["due_date"] = datetime.fromisoformat(stage["due_date"])

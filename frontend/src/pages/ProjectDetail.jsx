@@ -4434,7 +4434,7 @@ export default function ProjectDetail() {
                   into the first real payment stage. Shows live math:
                     Total Advance @ X% of Final Estimate − Token Collected = Balance Pending */}
               <Dialog open={advanceDialog.open} onOpenChange={(o) => setAdvanceDialog((s) => ({ ...s, open: o }))}>
-                <DialogContent className="max-w-md">
+                <DialogContent className="max-w-xl w-[95vw] sm:w-auto max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>{advanceDialog.editing_stage_id ? 'Edit Advance Payment' : 'Set Advance Payment %'}</DialogTitle>
                     <DialogDescription>
