@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
 import MobileBottomNav from '../components/MobileBottomNav';
+import LabourAdvanceQueue from '../components/LabourAdvanceQueue';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -515,11 +516,17 @@ const GMDashboard = () => {
             <TabsTrigger value="rough_estimate">rough_estimate</TabsTrigger>
             <TabsTrigger value="final_estimate">final_estimate</TabsTrigger>
             <TabsTrigger value="planning_board">planning_board</TabsTrigger>
+            <TabsTrigger value="labour_advance" data-testid="gm-tab-labour-advance">labour advance</TabsTrigger>
           </TabsList>
           
           {/* Embedded Planning Board (rendered for the new Planning outer tab) */}
           <TabsContent value="planning_board" className="space-y-3" data-testid="gm-planning-board-tab">
             <PlanningBoard embedded />
+          </TabsContent>
+
+          {/* Labour Advance Approvals */}
+          <TabsContent value="labour_advance" className="space-y-3" data-testid="gm-labour-advance-tab">
+            <LabourAdvanceQueue role="general_manager" />
           </TabsContent>
 
           {/* Overview Tab */}

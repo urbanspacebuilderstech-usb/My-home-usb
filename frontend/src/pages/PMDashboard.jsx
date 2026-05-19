@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import LabourAdvanceQueue from '../components/LabourAdvanceQueue';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
@@ -223,6 +224,7 @@ export default function PMDashboard() {
             <TabsTrigger value="all_projects" className="text-xs sm:text-sm" data-testid="tab-all-projects">All Projects</TabsTrigger>
             <TabsTrigger value="requests" className="text-xs sm:text-sm" data-testid="tab-requests">Requests<CountBadge count={requestCount} /></TabsTrigger>
             <TabsTrigger value="petty_cash" className="text-xs sm:text-sm" data-testid="tab-petty-cash">Petty Cash<CountBadge count={pendingPcCount} /></TabsTrigger>
+            <TabsTrigger value="labour_advance" className="text-xs sm:text-sm" data-testid="tab-labour-advance">Labour Advance</TabsTrigger>
             <TabsTrigger value="team" className="text-xs sm:text-sm" data-testid="tab-team">Team ({teamMembers.length})</TabsTrigger>
           </TabsList>
 
@@ -310,6 +312,11 @@ export default function PMDashboard() {
           {/* ==================== PETTY CASH ==================== */}
           <TabsContent value="petty_cash" data-testid="pm-petty-cash-tab">
             <PMPettyCashTabs pettyCashRequests={pettyCashRequests} onRefresh={() => fetchData(false)} />
+          </TabsContent>
+
+          {/* ==================== LABOUR ADVANCE ==================== */}
+          <TabsContent value="labour_advance">
+            <LabourAdvanceQueue role={user?.role || 'project_manager'} />
           </TabsContent>
 
           {/* ==================== TEAM ==================== */}

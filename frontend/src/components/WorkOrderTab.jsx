@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Users, ChevronRight, ArrowLeft, Send, Plus,
+  Users, ChevronRight, ArrowLeft, ArrowRight, Send, Plus,
   Clock, CheckCircle, XCircle, AlertCircle, Wallet,
   ClipboardList, ChevronDown, ChevronUp, Banknote, Eye, Pencil, Lock, Calendar
 } from 'lucide-react';
@@ -49,6 +49,13 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
   const [expandedStage, setExpandedStage] = useState(null);
   const [stageAttendance, setStageAttendance] = useState({});
   const [loading, setLoading] = useState(false);
+  const [currentUserRole, setCurrentUserRole] = useState('');
+
+  // Labour Advance Request dialog (Planning → PM → GM → Accountant)
+  const [advanceRequestDialog, setAdvanceRequestDialog] = useState({
+    open: false, stage: null, workOrder: null, amount: '', date: '', reason: '',
+  });
+  const [advanceReqSaving, setAdvanceReqSaving] = useState(false);
 
   // Attendance popup
   const [attendancePopup, setAttendancePopup] = useState(null);
@@ -80,6 +87,41 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
   }, [projectId]);
 
   useEffect(() => { fetchContractors(); }, [fetchContractors]);
+
+  // Fetch current user role for permission-gated UI (Request Advance is Planning-only)
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await axios.get(`${API}/auth/me`);
+        setCurrentUserRole(me.data?.role || '');
+      } catch { setCurrentUserRole(''); }
+    })();
+  }, []);
+
+  const submitAdvanceRequest = async () => {
+    const { stage, workOrder, amount, date, reason } = advanceRequestDialog;
+    if (!amount || Number(amount) <= 0) { toast.error('Amount must be > 0'); return; }
+    if (!(reason || '').trim()) { toast.error('Reason is required'); return; }
+    setAdvanceReqSaving(true);
+    try {
+      await axios.post(`${API}/labour-advance-requests`, {
+        project_id: projectId,
+        work_order_id: workOrder.work_order_id,
+        stage_id: stage.stage_id,
+        stage_name: stage.stage_name,
+        contractor_id: workOrder.contractor_id || null,
+        contractor_name: workOrder.contractor_name || '',
+        amount: Number(amount),
+        request_date: date || new Date().toISOString().split('T')[0],
+        reason: reason.trim(),
+      });
+      toast.success('Advance request submitted — awaiting PM approval');
+      setAdvanceRequestDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to submit request');
+    }
+    setAdvanceReqSaving(false);
+  };
 
   // Handle quick attendance trigger from parent
   useEffect(() => {
@@ -402,6 +444,28 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
                                 )}
                                 {/* Actions */}
                                 <div className="flex gap-2 flex-wrap">
+                                  {/* Planning: Request Advance (Planning → PM → GM → Accountant) */}
+                                  {currentUserRole === 'planning' || currentUserRole === 'super_admin' ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="gap-1 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAdvanceRequestDialog({
+                                          open: true,
+                                          stage,
+                                          workOrder: wo,
+                                          amount: stage.amount ? String(stage.amount) : '',
+                                          date: new Date().toISOString().split('T')[0],
+                                          reason: '',
+                                        });
+                                      }}
+                                      data-testid={`req-advance-${stage.stage_id}`}
+                                    >
+                                      <ArrowRight className="h-3 w-3" /> Request Advance
+                                    </Button>
+                                  ) : null}
                                   {stage.status === 'pending' && (
                                     <>
                                       <Button size="sm" className="gap-1 text-xs bg-blue-600 hover:bg-blue-700"
@@ -557,6 +621,45 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ===== LABOUR ADVANCE REQUEST DIALOG (Planning → PM → GM → Accountant) ===== */}
+      <Dialog open={advanceRequestDialog.open} onOpenChange={(v) => { if (!v) setAdvanceRequestDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' }); }}>
+        <DialogContent className="max-w-[95vw] sm:max-w-md" data-testid="labour-advance-popup">
+          <DialogHeader>
+            <DialogTitle className="text-base">Request Labour Advance</DialogTitle>
+            <DialogDescription className="text-xs">
+              {advanceRequestDialog.stage?.stage_name} · {advanceRequestDialog.workOrder?.contractor_name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded border bg-emerald-50/40 px-3 py-2 text-[11px] text-emerald-800">
+              Flow: <span className="font-semibold">Planning</span> → PM → GM → Accountant. Once fully approved, this advance becomes a Payment Schedule entry under the project.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Amount (₹) <span className="text-red-500">*</span></Label>
+                <Input type="number" min="1" value={advanceRequestDialog.amount} onChange={(e) => setAdvanceRequestDialog((s) => ({ ...s, amount: e.target.value }))} className="text-sm mt-1 font-semibold" data-testid="advance-amount" />
+              </div>
+              <div>
+                <Label className="text-xs">Request Date <span className="text-red-500">*</span></Label>
+                <Input type="date" value={advanceRequestDialog.date} onChange={(e) => setAdvanceRequestDialog((s) => ({ ...s, date: e.target.value }))} className="text-sm mt-1" data-testid="advance-date" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Reason / Description <span className="text-red-500">*</span></Label>
+              <Textarea rows={3} placeholder="Why is this advance needed?" value={advanceRequestDialog.reason} onChange={(e) => setAdvanceRequestDialog((s) => ({ ...s, reason: e.target.value }))} className="text-sm mt-1" data-testid="advance-reason" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setAdvanceRequestDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' })}>Cancel</Button>
+            <Button size="sm" onClick={submitAdvanceRequest} disabled={advanceReqSaving} className="gap-1 bg-emerald-600 hover:bg-emerald-700" data-testid="submit-advance-btn">
+              <Send className="h-3 w-3" /> {advanceReqSaving ? 'Submitting...' : 'Submit Request'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+
 
       {/* ===== REQUEST PAYMENT POPUP ===== */}
       <Dialog open={!!paymentPopup} onOpenChange={(v) => { if (!v) setPaymentPopup(null); }}>

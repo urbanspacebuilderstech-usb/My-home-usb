@@ -4118,3 +4118,191 @@ async def reject_petrol_allowance(allowance_id: str, request: Request, user: Use
     )
     await create_notification(rec["requested_by"], f"Petrol allowance ₹{rec['amount']:,.0f} rejected: {data.get('reason', 'No reason')}")
     return {"message": "Rejected"}
+
+
+# ==================== LABOUR ADVANCE REQUESTS (Planning → PM → GM → Accountant) ====================
+
+class LabourAdvanceCreate(BaseModel):
+    project_id: str
+    work_order_id: str
+    stage_id: str
+    stage_name: str
+    contractor_id: Optional[str] = None
+    contractor_name: Optional[str] = None
+    amount: float
+    request_date: Optional[str] = None  # YYYY-MM-DD
+    reason: str
+
+
+class LabourAdvanceApprovalBody(BaseModel):
+    remarks: Optional[str] = ""
+
+
+@router.post("/labour-advance-requests")
+async def create_labour_advance(data: LabourAdvanceCreate, user: User = Depends(get_current_user)):
+    """PLANNING raises a labour advance request for a Work Order stage.
+    Flow: pending_pm -> pending_gm -> pending_accountant -> approved.
+    """
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can raise labour advance requests")
+    if not data.amount or data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if not (data.reason or "").strip():
+        raise HTTPException(status_code=400, detail="Reason is required")
+    project = await db.projects.find_one({"project_id": data.project_id}, {"_id": 0, "name": 1})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    now = datetime.now(timezone.utc).isoformat()
+    req = {
+        "request_id": f"lar_{uuid.uuid4().hex[:10]}",
+        "project_id": data.project_id,
+        "project_name": project.get("name", ""),
+        "work_order_id": data.work_order_id,
+        "stage_id": data.stage_id,
+        "stage_name": data.stage_name,
+        "contractor_id": data.contractor_id,
+        "contractor_name": data.contractor_name or "",
+        "amount": float(data.amount),
+        "request_date": data.request_date or now[:10],
+        "reason": data.reason.strip(),
+        "status": "pending_pm",
+        "requested_by": user.user_id,
+        "requested_by_name": user.name,
+        "created_at": now,
+        "pm_approved_by": None, "pm_approved_at": None, "pm_remarks": "",
+        "gm_approved_by": None, "gm_approved_at": None, "gm_remarks": "",
+        "accountant_approved_by": None, "accountant_approved_at": None, "accountant_remarks": "",
+    }
+    await db.labour_advance_requests.insert_one(req)
+    # Notify PMs
+    pms = await db.users.find({"role": {"$in": ["project_manager", "associate_pm"]}, "is_active": True}, {"_id": 0, "user_id": 1}).to_list(20)
+    for pm in pms:
+        await create_notification(pm["user_id"], f"New labour advance ₹{req['amount']:,.0f} pending your approval — {req['project_name']}")
+    req.pop("_id", None)
+    return req
+
+
+@router.get("/labour-advance-requests")
+async def list_labour_advance_requests(status: Optional[str] = None, user: User = Depends(get_current_user)):
+    """Role-aware list:
+    - PLANNING / SUPER_ADMIN: sees everything (own raised + all stages)
+    - PM: sees status=pending_pm + their own approved
+    - GM: sees status=pending_gm
+    - ACCOUNTANT: sees status=pending_accountant
+    """
+    role = user.role
+    if status:
+        q = {"status": status}
+    elif role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM):
+        q = {"status": {"$in": ["pending_pm", "pending_gm", "pending_accountant", "approved", "rejected"]}}
+    elif role == UserRole.GENERAL_MANAGER:
+        q = {"status": {"$in": ["pending_gm", "pending_accountant", "approved", "rejected"]}}
+    elif role == UserRole.ACCOUNTANT:
+        q = {"status": {"$in": ["pending_accountant", "approved", "rejected"]}}
+    else:
+        q = {}
+    docs = await db.labour_advance_requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+async def _advance_to_next_status(request_id: str, current_status: str, next_status: str, user: User, remarks: str, role_field_prefix: str):
+    now = datetime.now(timezone.utc).isoformat()
+    upd = {
+        "status": next_status,
+        f"{role_field_prefix}_approved_by": user.user_id,
+        f"{role_field_prefix}_approved_by_name": user.name,
+        f"{role_field_prefix}_approved_at": now,
+        f"{role_field_prefix}_remarks": remarks,
+    }
+    await db.labour_advance_requests.update_one({"request_id": request_id}, {"$set": upd})
+
+
+@router.patch("/labour-advance-requests/{request_id}/approve")
+async def approve_labour_advance(request_id: str, data: LabourAdvanceApprovalBody, user: User = Depends(get_current_user)):
+    req = await db.labour_advance_requests.find_one({"request_id": request_id})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    role = user.role
+    status = req["status"]
+    if status == "pending_pm" and role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN):
+        await _advance_to_next_status(request_id, status, "pending_gm", user, data.remarks, "pm")
+        gms = await db.users.find({"role": "general_manager", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+        for gm in gms:
+            await create_notification(gm["user_id"], f"Labour advance ₹{req['amount']:,.0f} awaiting your approval — {req['project_name']}")
+        return {"message": "Approved by PM, awaiting GM", "status": "pending_gm"}
+    if status == "pending_gm" and role in (UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN):
+        await _advance_to_next_status(request_id, status, "pending_accountant", user, data.remarks, "gm")
+        accs = await db.users.find({"role": "accountant", "is_active": True}, {"_id": 0, "user_id": 1}).to_list(10)
+        for acc in accs:
+            await create_notification(acc["user_id"], f"Labour advance ₹{req['amount']:,.0f} awaiting accountant approval — {req['project_name']}")
+        return {"message": "Approved by GM, awaiting Accountant", "status": "pending_accountant"}
+    if status == "pending_accountant" and role in (UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN):
+        await _advance_to_next_status(request_id, status, "approved", user, data.remarks, "accountant")
+        # On final approval: create a payment-schedule entry visible under the project
+        now_iso = datetime.now(timezone.utc).isoformat()
+        await db.payment_stages.insert_one({
+            "stage_id": f"ps_{uuid.uuid4().hex[:10]}",
+            "project_id": req["project_id"],
+            "stage_name": f"Labour Advance — {req['stage_name']} ({req.get('contractor_name') or 'Labour'})",
+            "percentage": 0,
+            "amount": float(req["amount"]),
+            "amount_received": 0,
+            "status": "approved",
+            "workflow_status": "approved",
+            "notes": f"Labour advance — {req.get('reason','')}",
+            "linked_labour_advance_id": request_id,
+            "linked_work_order_id": req["work_order_id"],
+            "linked_wo_stage_id": req["stage_id"],
+            "created_by": user.user_id,
+            "created_at": now_iso,
+        })
+        # Recorded expense for accountant visibility
+        await db.recorded_expenses.insert_one({
+            "expense_id": f"exp_{uuid.uuid4().hex[:10]}",
+            "project_id": req["project_id"],
+            "project_name": req["project_name"],
+            "category": "labour_advance",
+            "vendor_name": req.get("contractor_name") or "Labour",
+            "amount": float(req["amount"]),
+            "date": req.get("request_date") or now_iso[:10],
+            "description": f"Labour advance — {req['stage_name']}",
+            "remarks": req.get("reason", ""),
+            "payment_mode": "pending",
+            "status": "approved",
+            "source": "labour_advance",
+            "linked_labour_advance_id": request_id,
+            "created_by": user.user_id,
+            "created_at": now_iso,
+        })
+        await create_notification(req["requested_by"], f"Labour advance ₹{req['amount']:,.0f} for {req['stage_name']} has been fully approved")
+        return {"message": "Fully approved", "status": "approved"}
+    raise HTTPException(status_code=403, detail=f"Cannot approve in current status '{status}' with role '{role}'")
+
+
+@router.patch("/labour-advance-requests/{request_id}/reject")
+async def reject_labour_advance(request_id: str, data: LabourAdvanceApprovalBody, user: User = Depends(get_current_user)):
+    req = await db.labour_advance_requests.find_one({"request_id": request_id})
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    role = user.role
+    status = req["status"]
+    allowed = (
+        (status == "pending_pm" and role in (UserRole.PROJECT_MANAGER, UserRole.ASSOCIATE_PM, UserRole.SUPER_ADMIN))
+        or (status == "pending_gm" and role in (UserRole.GENERAL_MANAGER, UserRole.SUPER_ADMIN))
+        or (status == "pending_accountant" and role in (UserRole.ACCOUNTANT, UserRole.SUPER_ADMIN))
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not allowed at this stage")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.labour_advance_requests.update_one({"request_id": request_id}, {"$set": {
+        "status": "rejected",
+        "rejected_by": user.user_id,
+        "rejected_by_name": user.name,
+        "rejected_at": now,
+        "rejection_reason": data.remarks or "Rejected without remarks",
+    }})
+    await create_notification(req["requested_by"], f"Labour advance ₹{req['amount']:,.0f} was rejected by {user.name}")
+    return {"message": "Rejected", "status": "rejected"}
+
+# ==================== END LABOUR ADVANCE REQUESTS ====================
+

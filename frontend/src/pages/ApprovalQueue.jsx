@@ -248,11 +248,12 @@ export default function ApprovalQueue() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid grid-cols-4 w-full" data-testid="approval-tabs">
+          <TabsList className="grid grid-cols-5 w-full" data-testid="approval-tabs">
             <TabsTrigger value="income">Income ({s.income_count || 0})</TabsTrigger>
             <TabsTrigger value="materials">Materials ({s.material_count || 0})</TabsTrigger>
             <TabsTrigger value="labour">Labour ({s.labour_count || 0})</TabsTrigger>
             <TabsTrigger value="vendor">Suppliers ({s.vendor_count || 0})</TabsTrigger>
+            <TabsTrigger value="labour_advance" data-testid="tab-labour-advance-acc">Labour Advance</TabsTrigger>
           </TabsList>
 
           {/* Income Approvals */}
@@ -308,6 +309,11 @@ export default function ApprovalQueue() {
             <ExpenseList items={data.vendor} type="vendor-service" idField="expense_id"
               amountField="amount" descField="vendor_name"
               onApprove={handleApproveExpense} onReject={(id) => setRejectDialog({ open: true, type: 'vendor-service', id, reason: '' })} />
+          </TabsContent>
+
+          {/* Labour Advance Approvals (final step in Planning→PM→GM→Accountant chain) */}
+          <TabsContent value="labour_advance" className="mt-4">
+            <LabourAdvanceQueue role="accountant" />
           </TabsContent>
         </Tabs>
       </div>
