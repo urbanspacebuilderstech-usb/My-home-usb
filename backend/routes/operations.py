@@ -1190,7 +1190,8 @@ async def get_cre_income_collected(user: User = Depends(get_current_user)):
         {"_id": 0, "income_id": 1, "project_id": 1, "project_name": 1,
          "category": 1, "sub_category": 1, "amount": 1, "payment_mode": 1,
          "payment_reference": 1, "payment_date": 1, "stage": 1,
-         "description": 1, "status": 1, "collected_by_name": 1, "created_at": 1}
+         "description": 1, "status": 1, "collected_by_name": 1, "created_at": 1,
+         "rejection_reason": 1, "rejected_by_name": 1, "rejected_at": 1}
     ).sort("created_at", -1).to_list(200)
     return income_records
 

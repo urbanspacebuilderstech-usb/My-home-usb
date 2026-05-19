@@ -602,20 +602,43 @@ async def approve_income(income_id: str, user: User = Depends(get_current_user))
 
 @router.post("/approvals/income/{income_id}/reject")
 async def reject_income(income_id: str, reason: str = "", user: User = Depends(get_current_user)):
-    """Reject an income entry"""
+    """Reject an income entry — sets status='rejected' with reason so it returns to CRE for re-submission."""
     if user.role not in [UserRole.SUPER_ADMIN, UserRole.ACCOUNTANT]:
         raise HTTPException(status_code=403, detail="Only Accountant/Admin can reject income")
-    
+
+    # Look up the income (any unprocessed state) so we know who created it.
+    inc = await db.income.find_one({"income_id": income_id}, {"_id": 0, "status": 1, "created_by": 1, "amount": 1, "project_name": 1})
+    if not inc:
+        raise HTTPException(status_code=404, detail="Income entry not found")
+    if inc.get("status") not in ("pending_approval", None, ""):
+        raise HTTPException(status_code=400, detail=f"Income entry already processed (status={inc.get('status')})")
+
     result = await db.income.find_one_and_update(
-        {"income_id": income_id, "status": "pending_approval"},
-        {"$set": {"status": "rejected", "rejected_by": user.user_id, "rejected_at": datetime.now(timezone.utc).isoformat(), "rejection_reason": reason}},
+        {"income_id": income_id},
+        {"$set": {
+            "status": "rejected",
+            "rejected_by": user.user_id,
+            "rejected_by_name": user.name,
+            "rejected_at": datetime.now(timezone.utc).isoformat(),
+            "rejection_reason": reason or "Rejected without remarks",
+        }},
         return_document=False
     )
     if not result:
         raise HTTPException(status_code=404, detail="Income entry not found or already processed")
-    
+
+    # Notify the originator (CRE/Sales who collected it) so they can fix and resubmit.
+    if inc.get("created_by"):
+        try:
+            await create_notification(
+                inc["created_by"],
+                f"Income ₹{inc.get('amount', 0):,.0f} for {inc.get('project_name', 'project')} was rejected by Accounts. Reason: {reason or 'No remarks'}"
+            )
+        except Exception:
+            pass
+
     await create_audit_log(user.user_id, "reject", "income", income_id, {"reason": reason})
-    return {"message": "Income rejected"}
+    return {"message": "Income rejected and returned for correction"}
 
 
 class IncomeReviewRequest(BaseModel):

@@ -3682,15 +3682,31 @@ function ApprovalsTab() {
                 />
               </div>
 
-              <Button
-                className="w-full bg-green-600 hover:bg-green-700"
-                onClick={handleSubmitReview}
-                disabled={processing}
-                data-testid="submit-review-btn"
-              >
-                {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
-                Record Payment
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={() => {
+                    const inc = reviewDialog.income;
+                    if (!inc) return;
+                    setReviewDialog({ open: false, income: null });
+                    setRejectDialog({ open: true, type: 'income', id: inc.income_id, reason: '' });
+                  }}
+                  disabled={processing}
+                  data-testid="reject-income-btn"
+                >
+                  <XCircle className="h-4 w-4 mr-1" /> Reject
+                </Button>
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={handleSubmitReview}
+                  disabled={processing}
+                  data-testid="submit-review-btn"
+                >
+                  {processing ? <RefreshCw className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                  Record Payment
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>

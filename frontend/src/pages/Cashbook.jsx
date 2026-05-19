@@ -226,8 +226,19 @@ export default function Cashbook() {
                         <td className="px-4 py-3 text-sm font-medium">{inc.project_name}</td>
                         <td className="px-4 py-3"><Badge variant="outline" className="text-xs capitalize">{inc.payment_mode?.replace('_', ' ')}</Badge></td>
                         <td className="px-4 py-3 text-right text-sm font-bold text-green-600">{fmt(inc.amount)}</td>
-                        <td className="px-4 py-3 text-sm text-gray-400 truncate max-w-[200px]">{inc.remarks || '-'}</td>
-                        <td className="px-4 py-3 text-center"><Badge className="bg-green-100 text-green-800 text-[10px]">{inc.status || 'verified'}</Badge></td>
+                        <td className="px-4 py-3 text-sm text-gray-400 truncate max-w-[200px]">
+                          {inc.remarks || '-'}
+                          {inc.status === 'rejected' && inc.rejection_reason && (
+                            <div className="mt-1 text-[11px] text-red-600">
+                              <span className="font-semibold">Rejected:</span> {inc.rejection_reason}{inc.rejected_by_name ? ` (by ${inc.rejected_by_name})` : ''}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge className={`text-[10px] ${inc.status === 'rejected' ? 'bg-red-100 text-red-700' : inc.status === 'pending_approval' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
+                            {inc.status || 'verified'}
+                          </Badge>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
