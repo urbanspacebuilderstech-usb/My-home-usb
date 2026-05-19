@@ -7351,6 +7351,11 @@ export default function ProjectDetail() {
                                   <span>{paidStages}/{totalStages} stages paid</span>
                                   <span>{wo.additional_work?.length || 0} additional</span>
                                 </div>
+                                {wo.notes && (
+                                  <div className="mt-1.5 text-xs text-gray-600" data-testid={`labour-wo-notes-${wo.work_order_id}`}>
+                                    <span className="font-semibold text-gray-500">Notes:</span> <span className="italic">{wo.notes}</span>
+                                  </div>
+                                )}
                               </div>
                               <div className="flex gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                                 {wo.status !== 'frozen' && (
