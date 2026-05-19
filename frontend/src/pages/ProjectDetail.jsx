@@ -7238,6 +7238,20 @@ export default function ProjectDetail() {
                                                   <span className="text-gray-500">Amount: <strong>{formatCurrency(st.amount)}</strong></span>
                                                   {st.approved_amount > 0 && <span className="text-green-600">Paid: <strong>{formatCurrency(st.approved_amount)}</strong></span>}
                                                 </div>
+                                                {/* Labour Advance Summary (Planning → PM → GM → Accountant) */}
+                                                {(st.advance_approved_total > 0 || st.advance_pending_total > 0) && (
+                                                  <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid={`labour-advance-summary-${st.stage_id}`}>
+                                                    <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">Contract <strong>{formatCurrency(st.amount)}</strong></span>
+                                                    <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Advance Approved <strong>{formatCurrency(st.advance_approved_total || 0)}</strong></span>
+                                                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Balance <strong>{formatCurrency(st.advance_balance ?? (st.amount - (st.advance_approved_total || 0)))}</strong></span>
+                                                    {st.advance_pending_total > 0 && (
+                                                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">In Approval <strong>{formatCurrency(st.advance_pending_total)}</strong></span>
+                                                    )}
+                                                    {st.auto_closed_by_advance && (
+                                                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
+                                                    )}
+                                                  </div>
+                                                )}
                                                 {st.status !== 'pending' && (
                                                   <div className="flex flex-wrap gap-1">
                                                     {st.requested_at && <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded">SE Requested</span>}

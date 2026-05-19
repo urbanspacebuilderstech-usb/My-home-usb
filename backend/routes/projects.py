@@ -4440,6 +4440,8 @@ class WorkOrderCreate(BaseModel):
 async def get_project_work_orders(project_id: str, user: User = Depends(get_current_user)):
     """Get all work orders for a project"""
     orders = await db.project_work_orders.find({"project_id": project_id, "is_active": {"$ne": False}}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    from routes.site_ops import attach_advance_summary_to_work_orders
+    await attach_advance_summary_to_work_orders(project_id, orders)
     return orders
 
 @router.get("/projects/{project_id}/work-orders/{work_order_id}")
@@ -4448,6 +4450,8 @@ async def get_project_work_order(project_id: str, work_order_id: str, user: User
     wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
     if not wo:
         raise HTTPException(status_code=404, detail="Work order not found")
+    from routes.site_ops import attach_advance_summary_to_work_orders
+    await attach_advance_summary_to_work_orders(project_id, [wo])
     return wo
 
 @router.post("/projects/{project_id}/work-orders")

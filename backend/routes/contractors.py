@@ -816,4 +816,11 @@ async def get_assigned_contractors_for_project(project_id: str, user: User = Dep
             data["contractor_type"] = contractor.get("contractor_type", data["contractor_type"])
             data["phone"] = contractor.get("phone", "")
 
+    # Attach labour-advance summary onto each WO stage for SE/Planning/PM/GM/Accountant views
+    from routes.site_ops import attach_advance_summary_to_work_orders
+    all_wos = []
+    for data in contractor_map.values():
+        all_wos.extend(data.get("work_orders") or [])
+    await attach_advance_summary_to_work_orders(project_id, all_wos)
+
     return list(contractor_map.values())

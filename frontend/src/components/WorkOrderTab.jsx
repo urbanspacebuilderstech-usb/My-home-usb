@@ -432,6 +432,20 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
                             </div>
                             {expanded && (
                               <div className="border-t p-3 space-y-3 bg-gray-50/50">
+                                {/* Labour Advance Summary (Planning → PM → GM → Accountant) */}
+                                {(stage.advance_approved_total > 0 || stage.advance_pending_total > 0) && (
+                                  <div className="flex flex-wrap gap-1.5 text-[11px]" data-testid={`labour-advance-summary-${stage.stage_id}`}>
+                                    <span className="px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">Contract <strong>{formatCurrency(stage.amount)}</strong></span>
+                                    <span className="px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">Advance Approved <strong>{formatCurrency(stage.advance_approved_total || 0)}</strong></span>
+                                    <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">Balance <strong>{formatCurrency(stage.advance_balance ?? (stage.amount - (stage.advance_approved_total || 0)))}</strong></span>
+                                    {stage.advance_pending_total > 0 && (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">In Approval <strong>{formatCurrency(stage.advance_pending_total)}</strong></span>
+                                    )}
+                                    {stage.auto_closed_by_advance && (
+                                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">Auto-Closed</span>
+                                    )}
+                                  </div>
+                                )}
                                 {/* Labour Rates */}
                                 {stage.labour_rates && stage.labour_rates.length > 0 && (
                                   <div className="flex gap-2 flex-wrap text-[10px]">

@@ -4274,6 +4274,8 @@ async def approve_labour_advance(request_id: str, data: LabourAdvanceApprovalBod
             "created_by": user.user_id,
             "created_at": now_iso,
         })
+        # Auto-close the WO stage if cumulative approved advances >= stage amount
+        await _maybe_auto_close_wo_stage(req["project_id"], req["work_order_id"], req["stage_id"], user)
         await create_notification(req["requested_by"], f"Labour advance ₹{req['amount']:,.0f} for {req['stage_name']} has been fully approved")
         return {"message": "Fully approved", "status": "approved"}
     raise HTTPException(status_code=403, detail=f"Cannot approve in current status '{status}' with role '{role}'")
@@ -4305,4 +4307,92 @@ async def reject_labour_advance(request_id: str, data: LabourAdvanceApprovalBody
     return {"message": "Rejected", "status": "rejected"}
 
 # ==================== END LABOUR ADVANCE REQUESTS ====================
+
+
+async def _sum_approved_advances_for_stage(project_id: str, work_order_id: str, stage_id: str) -> float:
+    """Sum of fully-approved labour advance amounts for a given WO stage."""
+    cursor = db.labour_advance_requests.find(
+        {
+            "project_id": project_id,
+            "work_order_id": work_order_id,
+            "stage_id": stage_id,
+            "status": "approved",
+        },
+        {"_id": 0, "amount": 1},
+    )
+    total = 0.0
+    async for d in cursor:
+        try:
+            total += float(d.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+async def _maybe_auto_close_wo_stage(project_id: str, work_order_id: str, stage_id: str, user: User) -> None:
+    """If cumulative approved advances >= stage amount, mark the WO stage as approved (closed).
+
+    Tries both `project_work_orders` and `labour_work_orders` (legacy / dual storage)."""
+    approved_sum = await _sum_approved_advances_for_stage(project_id, work_order_id, stage_id)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for coll_name in ("project_work_orders", "labour_work_orders"):
+        coll = db[coll_name]
+        wo = await coll.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+        if not wo:
+            continue
+        stages = wo.get("stages") or []
+        changed = False
+        for st in stages:
+            if st.get("stage_id") != stage_id:
+                continue
+            stage_amount = float(st.get("amount") or 0)
+            if stage_amount > 0 and approved_sum + 0.5 >= stage_amount and st.get("status") != "approved":
+                st["status"] = "approved"
+                st["auto_closed_by_advance"] = True
+                st["auto_closed_at"] = now_iso
+                st["approved_amount"] = max(float(st.get("approved_amount") or 0), approved_sum)
+                changed = True
+        if changed:
+            await coll.update_one(
+                {"work_order_id": work_order_id, "project_id": project_id},
+                {"$set": {"stages": stages}},
+            )
+
+
+async def attach_advance_summary_to_work_orders(project_id: str, work_orders: list) -> list:
+    """Mutates and returns `work_orders` with `advance_approved_total`, `advance_pending_total`,
+    `advance_balance` on each `stages[].`."""
+    if not work_orders:
+        return work_orders
+    stage_ids = []
+    for wo in work_orders:
+        for st in (wo.get("stages") or []):
+            sid = st.get("stage_id")
+            if sid:
+                stage_ids.append(sid)
+    if not stage_ids:
+        return work_orders
+    cursor = db.labour_advance_requests.find(
+        {"project_id": project_id, "stage_id": {"$in": stage_ids}},
+        {"_id": 0, "stage_id": 1, "amount": 1, "status": 1},
+    )
+    approved_map: Dict[str, float] = {}
+    pending_map: Dict[str, float] = {}
+    async for d in cursor:
+        sid = d.get("stage_id")
+        amt = float(d.get("amount") or 0)
+        if d.get("status") == "approved":
+            approved_map[sid] = approved_map.get(sid, 0.0) + amt
+        elif d.get("status") in ("pending_pm", "pending_gm", "pending_accountant"):
+            pending_map[sid] = pending_map.get(sid, 0.0) + amt
+    for wo in work_orders:
+        for st in (wo.get("stages") or []):
+            sid = st.get("stage_id")
+            approved = round(approved_map.get(sid, 0.0), 2)
+            pending = round(pending_map.get(sid, 0.0), 2)
+            amount = float(st.get("amount") or 0)
+            st["advance_approved_total"] = approved
+            st["advance_pending_total"] = pending
+            st["advance_balance"] = max(0.0, round(amount - approved, 2))
+    return work_orders
 
