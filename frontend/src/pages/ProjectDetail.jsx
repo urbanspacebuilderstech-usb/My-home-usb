@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { 
   Building2, LogOut, ArrowLeft, ArrowRight, Plus, Edit, Trash2, Save, X,
@@ -524,10 +524,11 @@ function PaymentSummarySection({ user, projectId, paymentSummary, formatCurrency
 export default function ProjectDetail() {
   const { projectId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [projectData, setProjectData] = useState(null);
-  const [activeTab, setActiveTab] = useState('rough-estimate');
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'rough-estimate');
   // Project income (used by the Advance card + auto-injected schedule row).
   // Fetched once per project; refreshed whenever fetchData runs.
   const [projectIncomeEntries, setProjectIncomeEntries] = useState([]);

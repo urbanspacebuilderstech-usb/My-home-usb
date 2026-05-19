@@ -39,6 +39,9 @@ const GMDashboard = () => {
 
   // Project Drill-down dialog (opened when a stats card is clicked)
   const [drillDialog, setDrillDialog] = useState({ open: false, title: '', items: [], emptyText: '' });
+
+  // FE Approve confirmation dialog — GM must type "APPROVE" to confirm
+  const [feApproveDialog, setFeApproveDialog] = useState({ open: false, project: null, typed: '', submitting: false });
   
   // Dashboard Data
   const [stats, setStats] = useState({});
@@ -1141,7 +1144,7 @@ const GMDashboard = () => {
                               )}
                             </div>
                             <div className="flex flex-col sm:flex-row gap-2">
-                              <Button size="sm" variant="outline" onClick={() => window.open(`/projects/${p.project_id}`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
+                              <Button size="sm" variant="outline" onClick={() => window.open(`/projects/${p.project_id}?tab=scope`, '_blank')} data-testid={`fe-view-${p.project_id}`}>
                                 <Eye className="h-3.5 w-3.5 mr-1" /> View FE
                               </Button>
                               {!isRejected && (
@@ -1151,17 +1154,7 @@ const GMDashboard = () => {
                                     className="bg-green-600 hover:bg-green-700"
                                     disabled={feBusy}
                                     data-testid={`fe-approve-${p.project_id}`}
-                                    onClick={async () => {
-                                      if (!window.confirm(`Approve Final Estimate for "${p.name}"?\n\nThis will send it to CRE for review.`)) return;
-                                      setFeBusy(true);
-                                      try {
-                                        await axios.post(`${API}/gm/final-estimates/${p.project_id}/approve`);
-                                        toast.success('Final Estimate approved and sent to CRE');
-                                        fetchDashboardData(false);
-                                      } catch (err) {
-                                        toast.error(err.response?.data?.detail || 'Failed to approve');
-                                      } finally { setFeBusy(false); }
-                                    }}
+                                    onClick={() => setFeApproveDialog({ open: true, project: p, typed: '', submitting: false })}
                                   >
                                     <CheckCircle className="h-3.5 w-3.5 mr-1" /> Approve
                                   </Button>
@@ -1820,6 +1813,51 @@ const GMDashboard = () => {
             <Button variant="outline" onClick={() => setReEditDialog(false)}>Cancel</Button>
             <Button onClick={handleSaveReProject} variant="outline" data-testid="gm-save-re-btn">
               <Save className="h-4 w-4 mr-1" /> Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* FE Approve confirmation — GM must type APPROVE to confirm */}
+      <Dialog open={feApproveDialog.open} onOpenChange={(o) => !o && !feApproveDialog.submitting && setFeApproveDialog({ open: false, project: null, typed: '', submitting: false })}>
+        <DialogContent className="max-w-md" data-testid="gm-fe-approve-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600" /> Approve Final Estimate</DialogTitle>
+            <DialogDescription>
+              You are about to approve <strong>{feApproveDialog.project?.name || 'this project'}</strong>. This will send it forward to CRE. Type <strong>APPROVE</strong> below to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Input
+              autoFocus
+              placeholder='Type "APPROVE" to enable the button'
+              value={feApproveDialog.typed}
+              onChange={(e) => setFeApproveDialog(d => ({ ...d, typed: e.target.value }))}
+              data-testid="gm-fe-approve-typed"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFeApproveDialog({ open: false, project: null, typed: '', submitting: false })} disabled={feApproveDialog.submitting}>Cancel</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              disabled={feApproveDialog.submitting || (feApproveDialog.typed || '').trim().toUpperCase() !== 'APPROVE'}
+              data-testid="gm-fe-approve-confirm"
+              onClick={async () => {
+                const proj = feApproveDialog.project;
+                if (!proj) return;
+                setFeApproveDialog(d => ({ ...d, submitting: true }));
+                try {
+                  await axios.post(`${API}/gm/final-estimates/${proj.project_id}/approve`);
+                  toast.success('Final Estimate approved and sent to CRE');
+                  setFeApproveDialog({ open: false, project: null, typed: '', submitting: false });
+                  fetchDashboardData(false);
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Failed to approve');
+                  setFeApproveDialog(d => ({ ...d, submitting: false }));
+                }
+              }}
+            >
+              <CheckCircle className="h-4 w-4 mr-1" /> {feApproveDialog.submitting ? 'Approving…' : 'Confirm Approve'}
             </Button>
           </DialogFooter>
         </DialogContent>
