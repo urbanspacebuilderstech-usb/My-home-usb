@@ -684,6 +684,9 @@ export default function ProjectDetail() {
   const [labourSubTab, setLabourSubTab] = useState('workorders');
   const [labourWoViewId, setLabourWoViewId] = useState(null);
   const [expandedWoStages, setExpandedWoStages] = useState({});
+  // Planning: Request Labour Advance (Planning → PM → GM → Accountant)
+  const [labourAdvanceDialog, setLabourAdvanceDialog] = useState({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
+  const [labourAdvanceSaving, setLabourAdvanceSaving] = useState(false);
   const [labourAttendance, setLabourAttendance] = useState([]);
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [attForm, setAttForm] = useState({ contractor_id: '', work_order_id: '', stage_id: '', date: new Date().toISOString().split('T')[0], entries: [] });
@@ -1109,6 +1112,33 @@ export default function ProjectDetail() {
       toast.success('Payment requested successfully');
       fetchWorkOrders();
     } catch (e) { toast.error(e.response?.data?.detail || 'Failed to request payment'); }
+  };
+
+  // Planning submits a Labour Advance request → routes to PM → GM → Accountant
+  const submitLabourAdvanceRequest = async () => {
+    const { stage, workOrder, amount, date, reason } = labourAdvanceDialog;
+    if (!amount || Number(amount) <= 0) { toast.error('Amount must be > 0'); return; }
+    if (!(reason || '').trim()) { toast.error('Reason is required'); return; }
+    setLabourAdvanceSaving(true);
+    try {
+      await axios.post(`${API}/labour-advance-requests`, {
+        project_id: projectId,
+        work_order_id: workOrder.work_order_id,
+        stage_id: stage.stage_id,
+        stage_name: stage.name,
+        contractor_id: workOrder.contractor_id || null,
+        contractor_name: workOrder.contractor_name || '',
+        amount: Number(amount),
+        request_date: date || new Date().toISOString().split('T')[0],
+        reason: reason.trim(),
+      });
+      toast.success('Advance request submitted — awaiting PM approval');
+      setLabourAdvanceDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' });
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Failed to submit advance request');
+    } finally {
+      setLabourAdvanceSaving(false);
+    }
   };
 
   const handleOpenStage = async (woId, stageId) => {
@@ -7243,6 +7273,28 @@ export default function ProjectDetail() {
                                                       Request Payment
                                                     </Button>
                                                   )}
+                                                  {/* Planning / Super-Admin: Request Advance (Planning → PM → GM → Accountant) */}
+                                                  {['planning', 'super_admin'].includes(user?.role) && (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className="h-7 text-xs gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                                      data-testid={`labour-wo-stage-request-advance-${st.stage_id}`}
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setLabourAdvanceDialog({
+                                                          open: true,
+                                                          stage: st,
+                                                          workOrder: wo,
+                                                          amount: st.amount ? String(st.amount) : '',
+                                                          date: new Date().toISOString().split('T')[0],
+                                                          reason: '',
+                                                        });
+                                                      }}
+                                                    >
+                                                      <ArrowRight className="h-3 w-3" /> Request Advance
+                                                    </Button>
+                                                  )}
                                                 </div>
                                               </div>
                                             )}
@@ -7955,6 +8007,55 @@ export default function ProjectDetail() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTimelineStage(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Planning → PM → GM → Accountant: Labour Advance Request */}
+      <Dialog open={labourAdvanceDialog.open} onOpenChange={(o) => !o && setLabourAdvanceDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' })}>
+        <DialogContent className="max-w-md" data-testid="labour-advance-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><ArrowRight className="h-5 w-5 text-emerald-600" /> Request Labour Advance</DialogTitle>
+            <DialogDescription>
+              {labourAdvanceDialog.stage?.name ? <>Stage: <b>{labourAdvanceDialog.stage.name}</b> • Contractor: <b>{labourAdvanceDialog.workOrder?.contractor_name || '—'}</b></> : 'Routes to PM → GM → Accountant.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Amount (₹) <span className="text-red-500">*</span></Label>
+              <Input
+                type="number"
+                value={labourAdvanceDialog.amount}
+                onChange={(e) => setLabourAdvanceDialog(d => ({ ...d, amount: e.target.value }))}
+                placeholder="e.g. 25000"
+                data-testid="labour-advance-amount"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Request Date</Label>
+              <Input
+                type="date"
+                value={labourAdvanceDialog.date}
+                onChange={(e) => setLabourAdvanceDialog(d => ({ ...d, date: e.target.value }))}
+                data-testid="labour-advance-date"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Reason <span className="text-red-500">*</span></Label>
+              <Textarea
+                rows={3}
+                value={labourAdvanceDialog.reason}
+                onChange={(e) => setLabourAdvanceDialog(d => ({ ...d, reason: e.target.value }))}
+                placeholder="Why is this advance needed?"
+                data-testid="labour-advance-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLabourAdvanceDialog({ open: false, stage: null, workOrder: null, amount: '', date: '', reason: '' })} disabled={labourAdvanceSaving}>Cancel</Button>
+            <Button onClick={submitLabourAdvanceRequest} disabled={labourAdvanceSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="labour-advance-submit">
+              {labourAdvanceSaving ? 'Submitting…' : (<><ArrowRight className="h-4 w-4 mr-1" /> Submit Request</>)}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
