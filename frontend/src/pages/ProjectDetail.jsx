@@ -146,8 +146,8 @@ const UnitCombobox = ({ value, onChange, units, testId }) => {
   );
 };
 
-// Initial empty rows for bulk add
-const createEmptyRows = (type, count = 3) => {
+// Initial empty rows for bulk add — defaults to 6 rows per the planning team's request
+const createEmptyRows = (type, count = 6) => {
   if (type === 'scope') {
     return Array(count).fill(null).map(() => ({ item_name: '', quantity: '1', unit: 'Nos', unit_rate: '', remarks: '' }));
   } else if (type === 'payment') {
@@ -3261,9 +3261,9 @@ export default function ProjectDetail() {
                               type="button" 
                               variant="outline" 
                               size="sm"
-                              onClick={() => setBulkScopeRows([...bulkScopeRows, ...createEmptyRows('scope', 5)])}
+                              onClick={() => setBulkScopeRows([...bulkScopeRows, ...createEmptyRows('scope', 6)])}
                             >
-                              + Add 5 Rows
+                              + Add 6 Rows
                             </Button>
                           </div>
                           <div className="flex gap-2">
@@ -4332,9 +4332,9 @@ export default function ProjectDetail() {
                               type="button" 
                               variant="outline" 
                               size="sm"
-                              onClick={() => setBulkPaymentRows([...bulkPaymentRows, ...createEmptyRows('payment', 5)])}
+                              onClick={() => setBulkPaymentRows([...bulkPaymentRows, ...createEmptyRows('payment', 6)])}
                             >
-                              + Add 5 Rows
+                              + Add 6 Rows
                             </Button>
                           </div>
                           <div className="flex gap-2">
@@ -5076,8 +5076,8 @@ export default function ProjectDetail() {
                           </table>
                         </div>
                         <div className="flex justify-between items-center">
-                          <Button type="button" variant="outline" onClick={() => setBulkAdditionRows([...bulkAdditionRows, ...createEmptyRows('addition', 5)])}>
-                            + Add More Rows
+                          <Button type="button" variant="outline" onClick={() => setBulkAdditionRows([...bulkAdditionRows, ...createEmptyRows('addition', 6)])}>
+                            + Add 6 Rows
                           </Button>
                           <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setBulkAdditionDialog(false)}>Cancel</Button>
@@ -5320,8 +5320,8 @@ export default function ProjectDetail() {
                           </table>
                         </div>
                         <div className="flex justify-between items-center">
-                          <Button type="button" variant="outline" onClick={() => setBulkDeductionRows([...bulkDeductionRows, ...createEmptyRows('deduction', 5)])}>
-                            + Add More Rows
+                          <Button type="button" variant="outline" onClick={() => setBulkDeductionRows([...bulkDeductionRows, ...createEmptyRows('deduction', 6)])}>
+                            + Add 6 Rows
                           </Button>
                           <div className="flex gap-2">
                             <Button variant="outline" onClick={() => setBulkDeductionDialog(false)}>Cancel</Button>

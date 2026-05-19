@@ -5982,7 +5982,9 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
     project = await db.projects.find_one({"project_id": project_id}, {"_id": 0, "total_value": 1})
     total_value = (project.get("total_value", 0) or 0) if project else 0
 
-    # Replace mode: delete all stages that have NOT been collected yet
+    # Replace mode: delete all stages that have NOT been collected yet AND
+    # are not the advance / sales-auto-collected row (so the Sales advance always
+    # stays at the top of the schedule).
     if data.mode == "replace":
         await db.payment_stages.delete_many({
             "project_id": project_id,
@@ -5991,6 +5993,8 @@ async def apply_payment_template_to_project(project_id: str, data: ApplyTemplate
                 {"status": {"$exists": False}},
             ],
             "amount_received": {"$in": [0, None]},
+            "is_advance": {"$ne": True},
+            "linked_income_id": {"$in": [None, "", False]},
         })
 
     existing = await db.payment_stages.find({"project_id": project_id}, {"_id": 0, "percentage": 1}).to_list(500)
