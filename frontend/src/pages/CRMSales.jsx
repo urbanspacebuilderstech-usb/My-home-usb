@@ -172,7 +172,7 @@ export default function CRMSales() {
   const [convertDealRE, setConvertDealRE] = useState(null);
   const [convertForm, setConvertForm] = useState({ name: '', client_name: '', client_phone: '', client_email: '', location: '', sqft: '', building_type: 'residential', expected_start_date: '' });
   const [convertAdvanceAmount, setConvertAdvanceAmount] = useState('');
-  const [convertPaymentEntries, setConvertPaymentEntries] = useState([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+  const [convertPaymentEntries, setConvertPaymentEntries] = useState([{ amount: '', payment_mode: 'savings_account', reference: '', cheque_details: [] }]);
   const [convertAccountantConfirmed, setConvertAccountantConfirmed] = useState(false);
   
   // Site Visit Dialogs
@@ -750,7 +750,7 @@ export default function CRMSales() {
     setConvertDeal(lead);
     setConvertAdvanceAmount('');
     setConvertAccountantConfirmed(false);
-    setConvertPaymentEntries([{ amount: '', payment_mode: 'bank_transfer', reference: '', cheque_details: [] }]);
+    setConvertPaymentEntries([{ amount: '', payment_mode: 'savings_account', reference: '', cheque_details: [] }]);
     let reData = null;
     if (lead.re_project_id) {
       try { const reRes = await axios.get(`${API}/crm/re-projects/${lead.re_project_id}`); reData = reRes.data; } catch { reData = null; }
@@ -3075,12 +3075,12 @@ export default function CRMSales() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="savings_account">HDFC SAVINGS</SelectItem>
+                  <SelectItem value="current_account">HDFC CURRENT</SelectItem>
+                  <SelectItem value="direct_transfer">CASH D/T</SelectItem>
                   <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="escrow">Escrow</SelectItem>
                   <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                  <SelectItem value="savings_account">Savings A/c</SelectItem>
-                  <SelectItem value="direct_transfer">Direct Transfer (DT)</SelectItem>
+                  <SelectItem value="escrow">Escrow</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -3089,7 +3089,7 @@ export default function CRMSales() {
               <Input
                 value={advanceForm.payment_reference}
                 onChange={(e) => setAdvanceForm({...advanceForm, payment_reference: e.target.value})}
-                placeholder="UPI ID, Cheque No., NEFT Ref..."
+                placeholder="Escrow Ref, Cheque No., NEFT Ref..."
               />
             </div>
             <div>
