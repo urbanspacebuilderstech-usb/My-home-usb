@@ -4973,9 +4973,16 @@ export default function ProjectDetail() {
                     <tfoot className="bg-green-50 border-t-2">
                       <tr>
                         <td colSpan={canManage && !psMonthFilter ? 4 : 3} className="px-4 py-3 text-right font-bold">Totals:</td>
-                        <td className="px-4 py-3 text-right font-bold">₹{(summary.payment_schedule_total || 0).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-green-600">₹{(summary.payment_received || 0).toLocaleString()}</td>
-                        <td className="px-4 py-3 text-right font-bold text-red-600">₹{((summary.payment_schedule_total || 0) - (summary.payment_received || 0)).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold">
+                          {payment_stages.reduce((s, p) => s + (parseFloat(p.percentage) || 0), 0).toFixed(2)}%
+                        </td>
+                        {user?.role !== 'project_manager' && (
+                          <>
+                            <td className="px-4 py-3 text-right font-bold">₹{(summary.payment_schedule_total || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right font-bold text-green-600">₹{(summary.payment_received || 0).toLocaleString()}</td>
+                            <td className="px-4 py-3 text-right font-bold text-red-600">₹{((summary.payment_schedule_total || 0) - (summary.payment_received || 0)).toLocaleString()}</td>
+                          </>
+                        )}
                         <td colSpan={canManage ? 2 : 1}></td>
                       </tr>
                     </tfoot>
