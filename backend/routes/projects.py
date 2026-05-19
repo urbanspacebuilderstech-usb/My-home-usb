@@ -2411,7 +2411,7 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
             template_rows = [
                 {"stage_name": r.get("stage_name", ""), "percentage": float(r.get("percentage") or 0), "remarks": r.get("notes", "") or r.get("remarks", "")}
                 for r in data.remaining_template_rows_override
-                if (r.get("stage_name") or "").strip() and not (r.get("stage_name", "") or "").lower().startswith("advance")
+                if (r.get("stage_name") or "").strip()
             ]
         elif data.remaining_template_id:
             tpl_doc = await db.payment_schedule_templates.find_one(
@@ -2421,9 +2421,10 @@ async def materialize_advance_stage(project_id: str, data: MaterializeAdvanceBod
                 template_rows = [
                     {"stage_name": r.get("stage_name", ""), "percentage": r.get("percentage") or 0, "remarks": r.get("notes", "")}
                     for r in tpl_doc["rows"]
-                    if not (r.get("stage_name", "") or "").lower().startswith("advance")
+                    if (r.get("stage_name") or "").strip()
                 ]
         if template_rows is None:
+            # Built-in default's first row is the "Advance" header which we just materialized — skip it.
             template_rows = [{**r} for r in DEFAULT_PAYMENT_SCHEDULE[1:]]
 
         template_total = sum((r.get("percentage") or 0) for r in template_rows) or 1
