@@ -4105,7 +4105,7 @@ export default function ProjectDetail() {
                       <Trash2 className="h-4 w-4" />Delete Selected ({selectedPaymentIds.length})
                     </Button>
                   )}
-                  {/* Choose Template Dialog */}
+                  {/* Choose Template Dialog (still mounted — opened via Set Advance % flow) */}
                   <Dialog open={chooseTemplateDialog} onOpenChange={setChooseTemplateDialog}>
                     <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
                       <DialogHeader>
@@ -4173,17 +4173,6 @@ export default function ProjectDetail() {
                       </DialogFooter>
                     </DialogContent>
                   </Dialog>
-                  {canManage && (
-                    <Button
-                      data-testid="choose-template-btn"
-                      variant="outline"
-                      size="sm"
-                      className="gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-                      onClick={() => setChooseTemplateDialog(true)}
-                    >
-                      <FileText className="h-4 w-4" /> Choose Template
-                    </Button>
-                  )}
                   {canManage && (
                     <Dialog open={bulkPaymentDialog} onOpenChange={setBulkPaymentDialog}>
                       <DialogTrigger asChild>

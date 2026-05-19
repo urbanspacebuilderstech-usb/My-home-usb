@@ -1210,8 +1210,8 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         if isinstance(item.get("created_at"), str):
             item["created_at"] = datetime.fromisoformat(item["created_at"])
     
-    # Get payment stages
-    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).to_list(1000)
+    # Get payment stages (honour user's manual reorder via sort_order)
+    payment_stages = await db.payment_stages.find({"project_id": project_id}, {"_id": 0}).sort([("sort_order", 1), ("stage_number", 1), ("created_at", 1)]).to_list(1000)
     for stage in payment_stages:
         if isinstance(stage.get("due_date"), str):
             stage["due_date"] = datetime.fromisoformat(stage["due_date"])
