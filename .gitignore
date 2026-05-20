@@ -3481,3 +3481,13 @@ credentials.json
 .credentials
 frontend/node_modules/.cache/default-development/602.pack
 frontend/node_modules/.cache/default-development/603.pack
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+frontend/node_modules/.cache/default-development/604.pack
