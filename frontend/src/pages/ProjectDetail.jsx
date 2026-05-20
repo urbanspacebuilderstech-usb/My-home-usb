@@ -532,6 +532,8 @@ export default function ProjectDetail() {
   // Project income (used by the Advance card + auto-injected schedule row).
   // Fetched once per project; refreshed whenever fetchData runs.
   const [projectIncomeEntries, setProjectIncomeEntries] = useState([]);
+  const [projectIncomeSummary, setProjectIncomeSummary] = useState({});
+  const [projectExpenseSummary, setProjectExpenseSummary] = useState({});
   
   // "Set Advance %" popup — converts the virtual Auto-collected row into a real
   // first payment stage with a user-chosen % and stage name. Also reused for
@@ -732,7 +734,7 @@ export default function ProjectDetail() {
       }
       
       // Run ALL data fetches in parallel
-      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes, incomeRes] = await Promise.all([
+      const [projectRes, summaryRes, stagesRes, templatesRes, filesRes, designRes, teamRes, materialsRes, laboursRes, vendorAssignRes, vendorsRes, vendorCatsRes, poRes, pkgRes, incomeRes, expRes] = await Promise.all([
         axios.get(`${API}/projects/${projectId}/full-details`),
         axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/project-stages`).catch(() => null),
@@ -748,6 +750,7 @@ export default function ProjectDetail() {
         axios.get(`${API}/purchase-orders?project_id=${projectId}`).catch(() => null),
         axios.get(`${API}/packages`).catch(() => null),
         axios.get(`${API}/projects/${projectId}/income`).catch(() => null),
+        axios.get(`${API}/projects/${projectId}/expenses`).catch(() => null),
       ]);
       
       setProjectData(projectRes.data);
@@ -770,6 +773,10 @@ export default function ProjectDetail() {
       if (incomeRes) {
         const ent = incomeRes.data?.entries || incomeRes.data || [];
         setProjectIncomeEntries(Array.isArray(ent) ? ent : []);
+        setProjectIncomeSummary(incomeRes.data?.summary || {});
+      }
+      if (expRes) {
+        setProjectExpenseSummary(expRes.data?.summary || {});
       }
 
       // Load work orders, contractors, attendance, inventory
@@ -4076,20 +4083,20 @@ export default function ProjectDetail() {
                     {/* 2. TOTAL INCOME — sum of approved income for project */}
                     <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200" data-testid="total-income-card">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total Income</p>
-                      <p className="text-xl font-bold text-emerald-700 mt-1">₹{(incomeSummary.total_income || 0).toLocaleString()}</p>
+                      <p className="text-xl font-bold text-emerald-700 mt-1">₹{(projectIncomeSummary.total_income || 0).toLocaleString()}</p>
                       {totalValue > 0 && (
-                        <p className="text-[10px] text-emerald-600 mt-0.5">{(((incomeSummary.total_income || 0) / totalValue) * 100).toFixed(1)}% of value</p>
+                        <p className="text-[10px] text-emerald-600 mt-0.5">{(((projectIncomeSummary.total_income || 0) / totalValue) * 100).toFixed(1)}% of value</p>
                       )}
                     </div>
                     {/* 3. TOTAL EXPENDITURE — material + labour + vendor expenses */}
                     <div className="bg-rose-50 rounded-lg p-4 border border-rose-200" data-testid="total-expenditure-card">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Total Expenditure</p>
-                      <p className="text-xl font-bold text-rose-700 mt-1">₹{(expenseSummary.total_expenses || 0).toLocaleString()}</p>
-                      <p className="text-[10px] text-rose-600 mt-0.5">Paid: ₹{(expenseSummary.total_paid || 0).toLocaleString()}</p>
+                      <p className="text-xl font-bold text-rose-700 mt-1">₹{(projectExpenseSummary.total_expenses || 0).toLocaleString()}</p>
+                      <p className="text-[10px] text-rose-600 mt-0.5">Paid: ₹{(projectExpenseSummary.total_paid || 0).toLocaleString()}</p>
                     </div>
                     {/* 4. YET TO RECEIVE — project value minus total income */}
                     {(() => {
-                      const yetToReceive = Math.max(0, totalValue - (incomeSummary.total_income || 0));
+                      const yetToReceive = Math.max(0, totalValue - (projectIncomeSummary.total_income || 0));
                       const remPct = totalValue > 0 ? (yetToReceive / totalValue * 100) : 0;
                       return (
                         <div className={`rounded-lg p-4 border ${yetToReceive > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`} data-testid="yet-to-receive-card">
