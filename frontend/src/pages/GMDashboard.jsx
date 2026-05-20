@@ -20,7 +20,7 @@ import {
   LayoutDashboard, Building2, ClipboardCheck, Calculator, Users, Package,
   HardHat, DollarSign, CheckCircle, XCircle, Clock, AlertTriangle, Eye,
   ArrowRight, LogOut, FileText, TrendingUp, BarChart3, Shield, Briefcase, Download,
-  Edit2, Plus, Trash2, Save, AlertCircle
+  Edit2, Plus, Trash2, Save, AlertCircle, Wallet
 } from 'lucide-react';
 import { generateREPDF } from '../utils/pdfGenerator';
 import PlanningBoard from './PlanningBoard';
@@ -529,6 +529,16 @@ const GMDashboard = () => {
                 data-testid="gm-tab-planning-board"
               >
                 <Building2 className="h-4 w-4" /> Planning
+              </button>
+              <button
+                onClick={() => setActiveTab('labour_advance')}
+                className={`flex items-center gap-2 px-4 py-2 rounded text-sm font-medium transition-colors ${activeTab === 'labour_advance' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50'}`}
+                data-testid="gm-tab-labour-advance-pill"
+              >
+                <Wallet className="h-4 w-4" /> Labour Advance
+                {stats.pendingLabourAdvances > 0 && (
+                  <Badge className="bg-amber-500 text-white text-xs ml-1">{stats.pendingLabourAdvances}</Badge>
+                )}
               </button>
             </div>
           );
