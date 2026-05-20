@@ -4067,51 +4067,42 @@ export default function ProjectDetail() {
                 const advancePct = totalValue > 0 ? (advanceAmount / totalValue * 100) : 0;
                 const remPct = Math.max(0, 100 - advancePct);
                 return (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6" data-testid="payment-balance-info">
-                    {/* 1. TOTAL PROJECT VALUE */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6" data-testid="payment-balance-info">
+                    {/* 1. PROJECT VALUE */}
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Total Project Value</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Project Value</p>
                       <p className="text-xl font-bold text-blue-700 mt-1">₹{totalValue.toLocaleString()}</p>
                     </div>
-                    {/* 2. ADVANCE (Sales) — small Sales tag, amount, approval status */}
-                    <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200" data-testid="advance-card">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Advance</p>
-                        <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1.5 py-0 h-4">Sales</Badge>
-                        {collectedByCRE && (
-                          <Badge className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0 h-4" title="Collected by CRE on behalf of Sales">via CRE</Badge>
-                        )}
-                      </div>
-                      <p className="text-xl font-bold text-emerald-700">₹{advanceAmount.toLocaleString()}</p>
-                      <div className="mt-1 flex items-center gap-2">
-                        {!hasAdvance ? (
-                          <span className="text-[10px] text-gray-500 italic">Not collected yet</span>
-                        ) : advanceApproved ? (
-                          <Badge className="bg-green-100 text-green-700 text-[9px]" data-testid="advance-status-approved">✓ Accountant Approved</Badge>
-                        ) : (
-                          <Badge className="bg-amber-100 text-amber-700 text-[9px]" data-testid="advance-status-pending">⏳ Pending Approval</Badge>
-                        )}
-                        {hasAdvance && totalValue > 0 && (
-                          <span className="text-[10px] text-gray-500">{advancePct.toFixed(1)}% of total</span>
-                        )}
-                      </div>
-                    </div>
-                    {/* 3. REMAINING — total minus advance, with allocated % subtitle */}
-                    <div className={`rounded-lg p-4 border ${remPct > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Remaining Amount</p>
-                      <div className="flex items-end justify-between mt-1">
-                        <p className={`text-xl font-bold ${remPct > 0 ? 'text-amber-700' : 'text-green-600'}`}>
-                          {!isPM && `₹${remainingAfterAdvance.toLocaleString()}`}
-                        </p>
-                        <span className={`text-sm font-semibold ${remPct > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remPct.toFixed(1)}%</span>
-                      </div>
-                      {!isPM && (
-                        <p className="text-[10px] text-gray-500 mt-0.5">
-                          Allocated <span className="font-medium text-gray-700">₹{totalAmountAllocated.toLocaleString()}</span> ({totalPctAllocated}%)
-                          {remainingPct !== remPct && <span className="text-gray-400"> · Unallocated {remainingPct.toFixed(1)}%</span>}
-                        </p>
+                    {/* 2. TOTAL INCOME — sum of approved income for project */}
+                    <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-200" data-testid="total-income-card">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Total Income</p>
+                      <p className="text-xl font-bold text-emerald-700 mt-1">₹{(incomeSummary.total_income || 0).toLocaleString()}</p>
+                      {totalValue > 0 && (
+                        <p className="text-[10px] text-emerald-600 mt-0.5">{(((incomeSummary.total_income || 0) / totalValue) * 100).toFixed(1)}% of value</p>
                       )}
                     </div>
+                    {/* 3. TOTAL EXPENDITURE — material + labour + vendor expenses */}
+                    <div className="bg-rose-50 rounded-lg p-4 border border-rose-200" data-testid="total-expenditure-card">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700">Total Expenditure</p>
+                      <p className="text-xl font-bold text-rose-700 mt-1">₹{(expenseSummary.total_expenses || 0).toLocaleString()}</p>
+                      <p className="text-[10px] text-rose-600 mt-0.5">Paid: ₹{(expenseSummary.total_paid || 0).toLocaleString()}</p>
+                    </div>
+                    {/* 4. YET TO RECEIVE — project value minus total income */}
+                    {(() => {
+                      const yetToReceive = Math.max(0, totalValue - (incomeSummary.total_income || 0));
+                      const remPct = totalValue > 0 ? (yetToReceive / totalValue * 100) : 0;
+                      return (
+                        <div className={`rounded-lg p-4 border ${yetToReceive > 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`} data-testid="yet-to-receive-card">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-600">Yet To Receive</p>
+                          <div className="flex items-end justify-between mt-1">
+                            <p className={`text-xl font-bold ${yetToReceive > 0 ? 'text-amber-700' : 'text-green-600'}`}>
+                              {!isPM && `₹${yetToReceive.toLocaleString()}`}
+                            </p>
+                            <span className={`text-sm font-semibold ${yetToReceive > 0 ? 'text-amber-600' : 'text-green-600'}`}>{remPct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
