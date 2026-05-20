@@ -538,7 +538,7 @@ const GMDashboard = () => {
         <Tabs
           value={activeTab}
           onValueChange={(value) => {
-            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design', 'rough_estimate', 'final_estimate', 'planning_board'];
+            const validTabs = ['overview', 'planning', 'projects', 'site_engineer', 'accountant', 'design', 'rough_estimate', 'final_estimate', 'planning_board', 'labour_advance'];
             if (validTabs.includes(value)) {
               lastActiveTabRef.current = value;
               setActiveTab(value);
@@ -571,6 +571,9 @@ const GMDashboard = () => {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
+            {/* Labour Advance Approvals (Planning → PM → GM → Accountant) */}
+            <LabourAdvanceQueue role="general_manager" />
+
             {/* Pending Approvals Alert */}
             {(stats.pendingREApprovals > 0 || stats.pendingProjectApprovals > 0) && (
               <Card className="bg-amber-50 border-amber-200">
