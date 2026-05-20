@@ -4031,9 +4031,9 @@ export default function ProjectDetail() {
             </TabsContent>
             {/* ==================== PAYMENTS TAB ==================== */}
             <TabsContent value="payments" className="p-6">
-              {/* Balance Payment Info — 3 cards: Total | Advance (Sales) | Remaining */}
+              {/* Balance Payment Info — 4 cards: Project Value | Total Income | Total Expenditure | Yet To Receive */}
               {(() => {
-                const totalValue = summary?.scope_total || projectData?.project?.total_value || 0;
+                const totalValue = summary?.total_value || ((summary?.scope_total || 0) + (summary?.additions_total || 0)) || projectData?.project?.total_value || 0;
                 const totalPctAllocated = payment_stages.reduce((sum, s) => sum + (s.percentage || 0), 0);
                 const remainingPct = Math.round((100 - totalPctAllocated) * 100) / 100;
                 const totalAmountAllocated = payment_stages.reduce((sum, s) => sum + (s.amount || 0), 0);
