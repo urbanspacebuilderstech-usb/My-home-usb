@@ -32,6 +32,7 @@ import { NumericInput } from '../components/NumericInput';
 import AccountantLabourPayments from '../components/AccountantLabourPayments';
 import AccountantMaterialPayments from '../components/AccountantMaterialPayments';
 import AccountantCreditSettlements from '../components/AccountantCreditSettlements';
+import LabourAdvanceQueue from '../components/LabourAdvanceQueue';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -3453,6 +3454,10 @@ function ApprovalsTab() {
 
         {/* Labour Approvals */}
         <TabsContent value="labour">
+          {/* Labour Advance Requests (Planning → PM → GM → Accountant) — awaiting accountant approval */}
+          <div className="mb-3" data-testid="approvals-labour-advance-queue">
+            <LabourAdvanceQueue role="accountant" />
+          </div>
           {/* SE Work Order V2 stage payments — forwarded by Planning, awaiting accountant release.
               Lives in db.project_work_orders.stages.payment_requests (separate from legacy labour_expenses). */}
           {filteredWoStagePayments.length > 0 && (
