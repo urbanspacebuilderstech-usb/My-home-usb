@@ -630,13 +630,13 @@ function WorkCompleteSection({ stage, wo, projectId, fullyPaid, onSaved }) {
 // requests from this UI; Planning owns the stage-open workflow entirely.)
 // =====================================================================
 function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, onSaved }) {
-  const [subTab, setSubTab] = useState('request');
+  const [subTab, setSubTab] = useState('history');
   const [amount, setAmount] = useState('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (stage) { setAmount(''); setNotes(''); setSubTab('request'); }
+    if (stage) { setAmount(''); setNotes(''); setSubTab('history'); }
   }, [stage]);
 
   if (!stage) return null;
@@ -727,65 +727,15 @@ function StageRequestDialog({ stage, wo, projectId, suspenseBalance, onClose, on
         {/* Sub-tabs */}
         <div className="flex gap-1 border-b">
           <button
-            onClick={() => setSubTab('request')}
-            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'request' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500'}`}
-            data-testid="wov2-subtab-request"
-          >
-            Request Payment
-          </button>
-          <button
             onClick={() => setSubTab('history')}
-            className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${subTab === 'history' ? 'border-amber-600 text-amber-700' : 'border-transparent text-gray-500'}`}
+            className={'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors border-amber-600 text-amber-700'}
             data-testid="wov2-subtab-history"
           >
             Payment Summary {allRequests.length > 0 && <span className="ml-1 text-[10px] opacity-70">({allRequests.length})</span>}
           </button>
         </div>
 
-        {subTab === 'request' && (
-          <div>
-            {!stage.is_open ? (
-              <div className="text-xs bg-gray-50 border rounded p-4 text-gray-700 flex items-start gap-2" data-testid="wov2-stage-locked-notice">
-                <Clock className="h-4 w-4 mt-0.5 text-gray-500 flex-shrink-0" />
-                <div>
-                  <p className="font-semibold text-gray-900 mb-0.5">Stage is locked by Planning</p>
-                  <p className="text-gray-600">Only Planning can open this stage. Once it's opened, the payment request form will appear here.</p>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Amount</Label>
-                  <Input
-                    type="number"
-                    placeholder={`Suggested ${fmt(balance)}`}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="text-sm mt-1"
-                    data-testid="wov2-pr-amount"
-                  />
-                  {parseFloat(amount || 0) > balance + 0.01 && (
-                    <p className="text-[11px] text-orange-700 mt-1">
-                      ⚠ Exceeds current balance by {fmt(parseFloat(amount) - balance)}. Planning may approve, and the overflow will be deducted from the next stage.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs">Remarks (optional)</Label>
-                  <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add a note about this payment request" className="text-sm mt-1" data-testid="wov2-pr-notes" />
-                </div>
-                <div className="flex justify-end gap-2 pt-1">
-                  <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-                  <Button size="sm" className="bg-amber-600 hover:bg-amber-700 gap-1" disabled={submitting} onClick={submit} data-testid="wov2-pr-submit">
-                    <Send className="h-3 w-3" /> {submitting ? 'Sending...' : 'Submit Request'}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {subTab === 'history' && (
+        {(subTab === 'history' || subTab === 'request') && (
           <div className="space-y-1.5 max-h-72 overflow-y-auto">
             {allRequests.length === 0 ? (
               <p className="text-center text-xs text-gray-400 py-6">No payment requests yet for this stage</p>
