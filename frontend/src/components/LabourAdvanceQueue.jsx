@@ -28,17 +28,14 @@ export default function LabourAdvanceQueue({ role }) {
   const [busy, setBusy] = useState(false);
 
   // Map role -> backend status filter so we only pull what this role can act on
-  const statusForRole = (r) => {
-    if (r === 'project_manager' || r === 'associate_pm') return 'pending_pm';
-    if (r === 'general_manager') return 'pending_gm';
-    if (r === 'accountant') return 'pending_accountant';
-    return null;
-  };
+  // Returning null fetches the full audit list (backend already role-scopes the response)
+  // so the user can see where each request currently sits in the pipeline.
+  const statusForRole = () => null;
 
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const status = statusForRole(role);
+      const status = statusForRole();
       const res = await axios.get(`${API}/labour-advance-requests${status ? `?status=${status}` : ''}`);
       setItems(Array.isArray(res.data) ? res.data : []);
     } catch { setItems([]); }
@@ -76,10 +73,11 @@ export default function LabourAdvanceQueue({ role }) {
         {loading ? (
           <p className="text-xs text-gray-400 text-center py-6">Loading…</p>
         ) : items.length === 0 ? (
-          <p className="text-xs text-gray-500 text-center py-6">No pending labour advance requests for your role.</p>
-        ) : (
-          <div className="space-y-2">
-            {items.map((req) => {
+          <p className="text-xs text-gray-500 text-center py-6">No labour advance requests yet.</p>
+        ) : (() => {
+          const actionable = items.filter(canAct);
+          const others = items.filter((r) => !canAct(r));
+          const renderRow = (req) => {
               const cfg = STATUS_CFG[req.status] || { label: req.status, color: 'bg-gray-100 text-gray-700' };
               return (
                 <div key={req.request_id} className="border rounded-lg p-3 hover:bg-gray-50/60" data-testid={`lar-row-${req.request_id}`}>
@@ -115,9 +113,31 @@ export default function LabourAdvanceQueue({ role }) {
                   )}
                 </div>
               );
-            })}
-          </div>
-        )}
+          };
+          return (
+            <div className="space-y-4">
+              {actionable.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-amber-700 uppercase tracking-wide mb-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> Awaiting Your Action ({actionable.length})
+                  </p>
+                  <div className="space-y-2">{actionable.map(renderRow)}</div>
+                </div>
+              )}
+              {others.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
+                    Pipeline & History ({others.length})
+                  </p>
+                  <div className="space-y-2 opacity-90">{others.map(renderRow)}</div>
+                </div>
+              )}
+              {actionable.length === 0 && others.length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-4">Nothing here yet.</p>
+              )}
+            </div>
+          );
+        })()}
 
         <Dialog open={decisionDialog.open} onOpenChange={(v) => { if (!v) setDecisionDialog({ ...decisionDialog, open: false }); }}>
           <DialogContent className="max-w-md">
