@@ -1284,7 +1284,6 @@ export default function PlanningBoard({ embedded = false }) {
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Stage</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500 uppercase">Value</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                         <th className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -1298,7 +1297,6 @@ export default function PlanningBoard({ embedded = false }) {
                             <td className="px-4 py-3"><div className="h-3 w-32 bg-gray-200 rounded" /><div className="h-2.5 w-20 bg-gray-100 rounded mt-1.5" /></td>
                             <td className="px-4 py-3"><div className="h-3 w-24 bg-gray-200 rounded" /></td>
                             <td className="px-4 py-3"><div className="h-5 w-20 bg-gray-200 rounded mx-auto" /></td>
-                            <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded ml-auto" /></td>
                             <td className="px-4 py-3"><div className="h-5 w-16 bg-gray-200 rounded mx-auto" /></td>
                             <td className="px-4 py-3"><div className="h-3 w-16 bg-gray-200 rounded" /></td>
                             <td className="px-4 py-3"><div className="h-7 w-24 bg-gray-200 rounded mx-auto" /></td>
@@ -1311,7 +1309,7 @@ export default function PlanningBoard({ embedded = false }) {
                             (p.client_name || '').toLowerCase().includes(projectSearch.toLowerCase())
                           );
                           if (filtered.length === 0) return (
-                            <tr><td colSpan="7" className="p-8 text-center text-gray-400">
+                            <tr><td colSpan="6" className="p-8 text-center text-gray-400">
                               {projectSubTab === 'new' ? 'No new projects from CRE' : projectSubTab === 'active' ? 'No active construction projects' : projectSubTab === 'archived' ? 'No archived projects' : 'No delivered projects'}
                             </td></tr>
                           );
@@ -1323,7 +1321,6 @@ export default function PlanningBoard({ embedded = false }) {
                               </td>
                               <td className="px-4 py-2.5 text-gray-600">{p.client_name || '-'}</td>
                               <td className="px-4 py-2.5 text-center">{getStageBadge(p.current_stage || 'yet_to_start')}</td>
-                              <td className="px-4 py-2.5 text-right font-medium text-green-600">{formatCurrency(p.total_value)}</td>
                               <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-500">
                                 {projectSubTab === 'new' && p.planning_new_date ? new Date(p.planning_new_date).toLocaleDateString('en-IN') :
