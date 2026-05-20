@@ -5235,6 +5235,7 @@ async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user
 
     now = datetime.now(timezone.utc).isoformat()
     updated = False
+    target_stage_name = None
     for stage in wo.get("stages", []):
         if stage.get("stage_id") == stage_id:
             stage["is_open"] = True
@@ -5244,6 +5245,7 @@ async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user
             # Clear any pending open-request
             stage["open_requested"] = False
             stage["open_request_resolved_at"] = now
+            target_stage_name = stage.get("name")
             updated = True
             break
 
@@ -5254,7 +5256,69 @@ async def wo_open_stage(project_id: str, work_order_id: str, stage_id: str, user
         {"work_order_id": work_order_id, "project_id": project_id},
         {"$set": {"stages": wo["stages"], "updated_at": now}}
     )
+    # Mirror into legacy labour_work_orders (SE WorkOrderTab data source) — match by stage_name.
+    if target_stage_name:
+        await _mirror_stage_open_state(project_id, target_stage_name, is_open=True, user=user, now=now)
     return {"message": "Stage opened for Site Engineer"}
+
+
+async def _mirror_stage_open_state(project_id: str, stage_name: str, is_open: bool, user: User, now: str) -> None:
+    """Match a stage by name across labour_work_orders (legacy SE-facing) and toggle is_open."""
+    legacy_wos = await db.labour_work_orders.find({"project_id": project_id}, {"_id": 0}).to_list(200)
+    for lwo in legacy_wos:
+        changed = False
+        for st in lwo.get("payment_stages") or []:
+            if (st.get("stage_name") or "").strip().lower() == (stage_name or "").strip().lower():
+                st["is_open"] = is_open
+                if is_open:
+                    st["opened_by_name"] = user.name
+                    st["opened_at"] = now
+                else:
+                    st["locked_by_name"] = user.name
+                    st["locked_at"] = now
+                changed = True
+        if changed:
+            await db.labour_work_orders.update_one(
+                {"work_order_id": lwo["work_order_id"], "project_id": project_id},
+                {"$set": {"payment_stages": lwo["payment_stages"], "updated_at": now}}
+            )
+
+
+@router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/lock")
+async def wo_lock_stage(project_id: str, work_order_id: str, stage_id: str, user: User = Depends(get_current_user)):
+    """Planning locks a previously-opened stage so it disappears from SE view."""
+    if user.role not in [UserRole.PLANNING, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Only Planning can lock stages")
+
+    wo = await db.project_work_orders.find_one({"work_order_id": work_order_id, "project_id": project_id}, {"_id": 0})
+    if not wo:
+        raise HTTPException(status_code=404, detail="Work order not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = False
+    target_stage_name = None
+    for stage in wo.get("stages", []):
+        if stage.get("stage_id") == stage_id:
+            if stage.get("status") == "approved":
+                raise HTTPException(status_code=400, detail="Approved (paid) stage cannot be locked")
+            stage["is_open"] = False
+            stage["locked_by"] = user.user_id
+            stage["locked_by_name"] = user.name
+            stage["locked_at"] = now
+            target_stage_name = stage.get("name")
+            updated = True
+            break
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    await db.project_work_orders.update_one(
+        {"work_order_id": work_order_id, "project_id": project_id},
+        {"$set": {"stages": wo["stages"], "updated_at": now}}
+    )
+    if target_stage_name:
+        await _mirror_stage_open_state(project_id, target_stage_name, is_open=False, user=user, now=now)
+    return {"message": "Stage locked"}
 
 
 @router.patch("/projects/{project_id}/work-orders/{work_order_id}/stages/{stage_id}/request-open")

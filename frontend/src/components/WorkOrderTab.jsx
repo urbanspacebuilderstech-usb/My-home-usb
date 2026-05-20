@@ -304,7 +304,8 @@ export default function WorkOrderTab({ projectId, quickAttPopup, onQuickAttClose
           <ClipboardList className="h-10 w-10 mx-auto mb-3 opacity-30" /><p className="text-sm">No work orders</p>
         </CardContent></Card>
       ) : workOrders.map(wo => {
-        const rawStages = wo.payment_stages || [];
+        // SE only sees stages Planning has explicitly unlocked (is_open === true) or that are already completed.
+        const rawStages = (wo.payment_stages || []).filter(s => s.is_open === true || s.status === 'approved' || s.status === 'requested' || s.status === 'pm_approved' || s.status === 'planning_approved');
         const stages = classifyStages(rawStages);
         return (
           <Card key={wo.work_order_id} data-testid={`wo-card-${wo.work_order_id}`}>

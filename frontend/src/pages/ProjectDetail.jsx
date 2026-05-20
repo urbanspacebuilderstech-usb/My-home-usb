@@ -7216,7 +7216,7 @@ export default function ProjectDetail() {
                                   {wo.stages?.length > 0 ? (
                                     <div className="space-y-2">
                                       {wo.stages.map((st, i) => {
-                                        const cfg = getStageStatusConfig(st.status);
+                                        const cfg = getStageStatusConfig(st.status, st.is_open);
                                         const showApprove = canApproveStage(st);
                                         const isExp = expandedWoStages[`l_${st.stage_id}`];
                                         return (
@@ -7263,6 +7263,32 @@ export default function ProjectDetail() {
                                                   </div>
                                                 )}
                                                 <div className="flex gap-1 flex-wrap pt-1">
+                                                  {/* Planning / Super-Admin: Lock Open toggle — controls SE visibility of this stage */}
+                                                  {['planning', 'super_admin'].includes(user?.role) && st.status !== 'approved' && (
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className={`h-7 text-xs gap-1 ${st.is_open ? 'border-emerald-400 text-emerald-700 hover:bg-emerald-50' : 'border-amber-400 text-amber-700 hover:bg-amber-50'}`}
+                                                      data-testid={`labour-wo-stage-lock-toggle-${st.stage_id}`}
+                                                      onClick={async (e) => {
+                                                        e.stopPropagation();
+                                                        try {
+                                                          if (st.is_open) {
+                                                            await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/lock`);
+                                                            toast.success('Stage locked — Site Engineer view removed');
+                                                          } else {
+                                                            await axios.patch(`${API}/projects/${projectId}/work-orders/${wo.work_order_id}/stages/${st.stage_id}/open`);
+                                                            toast.success('Stage unlocked — visible to Site Engineer');
+                                                          }
+                                                          fetchWorkOrders();
+                                                        } catch (err) {
+                                                          toast.error(err.response?.data?.detail || 'Failed to toggle lock');
+                                                        }
+                                                      }}
+                                                    >
+                                                      {st.is_open ? '🔓 Lock' : '🔒 Lock Open'}
+                                                    </Button>
+                                                  )}
                                                   {showApprove && (
                                                     <>
                                                       {user?.role === 'accountant' ? (
