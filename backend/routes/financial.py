@@ -1557,14 +1557,22 @@ async def get_project_full_details(project_id: str, user: User = Depends(get_cur
         if isinstance(entry.get("created_at"), str):
             entry["created_at"] = datetime.fromisoformat(entry["created_at"])
     
-    # Income summary by payment mode
-    income_total = sum(e.get("amount", 0) for e in income_entries)
+    # Income summary by payment mode — APPROVED-only across the board so the
+    # project header Total Income card stops counting rejected / under_correction
+    # / pending entries. Rejected/under_correction rows still appear in
+    # income_entries so the UI can render the per-row correction banner.
+    EXCLUDED_INCOME_STATUSES = ["rejected", "accountant_rejected", "under_correction", "pending_approval"]
+    approved_income_entries = [
+        e for e in income_entries
+        if (e.get("status") or "approved") not in EXCLUDED_INCOME_STATUSES
+    ]
+    income_total = sum(e.get("amount", 0) for e in approved_income_entries)
     income_by_mode = {
-        "cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cash"),
-        "cheque": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "cheque"),
-        "bank_transfer": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "bank_transfer"),
-        "escrow": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "escrow"),
-        "petty_cash": sum(e.get("amount", 0) for e in income_entries if e.get("payment_mode") == "petty_cash"),
+        "cash": sum(e.get("amount", 0) for e in approved_income_entries if e.get("payment_mode") == "cash"),
+        "cheque": sum(e.get("amount", 0) for e in approved_income_entries if e.get("payment_mode") == "cheque"),
+        "bank_transfer": sum(e.get("amount", 0) for e in approved_income_entries if e.get("payment_mode") == "bank_transfer"),
+        "escrow": sum(e.get("amount", 0) for e in approved_income_entries if e.get("payment_mode") == "escrow"),
+        "petty_cash": sum(e.get("amount", 0) for e in approved_income_entries if e.get("payment_mode") == "petty_cash"),
     }
     
     # Payment schedule totals (requested payments - milestones)
