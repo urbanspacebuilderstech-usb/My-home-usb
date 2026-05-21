@@ -2820,9 +2820,20 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
     project_value = project.get("total_value", 0) or 0
     scope_total = project.get("scope_total", 0) or 0
     additional_cost = project.get("additional_cost", 0) or 0
-    
-    # Total project value = scope total + additional cost (if any)
-    total_project_value = scope_total + additional_cost if scope_total > 0 else project_value
+
+    # Authoritative additions / deductions from their respective collections
+    additional_costs_list = await db.additional_costs.find({"project_id": project_id}, {"_id": 0, "estimated_amount": 1, "actual_amount": 1}).to_list(500)
+    additions_total = sum((c.get("estimated_amount") or c.get("actual_amount") or 0) for c in additional_costs_list)
+
+    deductions_list = await db.deductions.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(500)
+    deductions_total = sum(d.get("amount", 0) for d in deductions_list)
+
+    # Total project value = scope total + additions − deductions
+    total_project_value = max(0, (scope_total or project_value) + additions_total - deductions_total)
+
+    # Project-wide expenses (used by the redesigned strip)
+    project_expenses_list = await db.recorded_expenses.find({"project_id": project_id}, {"_id": 0, "amount": 1}).to_list(2000)
+    total_expense = sum(e.get("amount", 0) for e in project_expenses_list)
     
     # Balance = Total Project Value - Total Received
     total_balance = total_project_value - total_received
@@ -2836,7 +2847,10 @@ async def get_payment_summary(project_id: str, user: User = Depends(get_current_
         "project_id": project_id,
         "project_name": project.get("name"),
         "project_value": total_project_value,
-        "scope_total": scope_total,
+        "scope_total": scope_total or project_value,
+        "additions_total": additions_total,
+        "deductions_total": deductions_total,
+        "total_expense": total_expense,
         "additional_cost": additional_cost,
         "advance_payment": advance_payment,
         "payment_stages": payment_stages,

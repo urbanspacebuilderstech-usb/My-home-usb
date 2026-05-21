@@ -378,6 +378,7 @@ function ProjectCostAllocation({ projectId, api }) {
 
 function ProjectCashflowTab({ projectId, isAdmin }) {
   const [data, setData] = useState(null);
+  const [psData, setPsData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(true);
   const [direct, setDirect] = useState(85);
@@ -387,8 +388,12 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
 
   const load = async () => {
     try {
-      const r = await axios.get(`${API}/cashflow/summary?project_id=${projectId}`);
+      const [r, ps] = await Promise.all([
+        axios.get(`${API}/cashflow/summary?project_id=${projectId}`),
+        axios.get(`${API}/projects/${projectId}/payment-summary`).catch(() => ({ data: null })),
+      ]);
       setData(r.data);
+      setPsData(ps?.data || null);
       const split = r.data?.effective_split || { direct_pct: 85, indirect_pct: 15 };
       setDirect(split.direct_pct);
       setIndirect(split.indirect_pct);
@@ -438,8 +443,82 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
   const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
   const net = (data.direct_balance || 0) + (data.indirect_balance || 0);
 
+  // === Redesigned Project Header Strip values ===
+  const scopeTotal = psData?.scope_total || 0;
+  const additionsTotal = psData?.additions_total || 0;
+  const deductionsTotal = psData?.deductions_total || 0;
+  const grandTotal = scopeTotal + additionsTotal - deductionsTotal;
+  const totalIncome = psData?.summary?.total_received || data.income_total || 0;
+  const totalExpense = psData?.total_expense || data.expense_total || 0;
+  const receivableBalance = Math.max(0, grandTotal - totalIncome);
+  const collectionPct = grandTotal > 0 ? (totalIncome / grandTotal) * 100 : 0;
+
   return (
     <div className="space-y-4">
+      {/* === Project Header Strip: Value + Add − Ded = Grand Total | Income − Expense = Receivable === */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3" data-testid="project-strip">
+        {/* LEFT — Project Value Calculation */}
+        <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-violet-50/40">
+          <CardContent className="p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mb-2">Project Value Calculation</p>
+            <div className="grid grid-cols-4 gap-2 items-stretch">
+              {/* Value */}
+              <div className="rounded-md bg-white/80 border border-blue-200 p-2.5">
+                <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>
+                <p className="text-base font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
+              </div>
+              {/* + Additions */}
+              <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5 relative">
+                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-cyan-600 hidden sm:block">+</span>
+                <p className="text-[10px] text-gray-500 uppercase">Additions</p>
+                <p className="text-base font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
+              </div>
+              {/* − Deductions */}
+              <div className="rounded-md bg-white/80 border border-orange-200 p-2.5 relative">
+                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-orange-600 hidden sm:block">−</span>
+                <p className="text-[10px] text-gray-500 uppercase">Deductions</p>
+                <p className="text-base font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
+              </div>
+              {/* = Grand Total (highlighted) */}
+              <div className="rounded-md bg-violet-600 text-white p-2.5 relative">
+                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-violet-700 hidden sm:block">=</span>
+                <p className="text-[10px] uppercase opacity-90">Grand Total</p>
+                <p className="text-base font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* RIGHT — Financial Performance */}
+        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-rose-50/40">
+          <CardContent className="p-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-2">Financial Performance</p>
+            <div className="grid grid-cols-3 gap-2 items-stretch">
+              {/* Total Income */}
+              <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5">
+                <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
+                <p className="text-base font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
+                <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
+              </div>
+              {/* Total Expense */}
+              <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 relative">
+                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-rose-600 hidden sm:block">−</span>
+                <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
+                <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
+                {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
+              </div>
+              {/* Receivable Balance */}
+              <div className={`rounded-md p-2.5 relative ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
+                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-amber-700 hidden sm:block">→</span>
+                <p className="text-[10px] uppercase opacity-90">Receivable</p>
+                <p className="text-base font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
+                <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* 3 Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Card 01 — Project Cashflow Overview */}
