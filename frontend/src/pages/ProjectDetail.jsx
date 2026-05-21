@@ -467,21 +467,18 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
                 <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>
                 <p className="text-base font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
               </div>
-              {/* + Additions */}
-              <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5 relative">
-                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-cyan-600 hidden sm:block">+</span>
+              {/* Additions */}
+              <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5">
                 <p className="text-[10px] text-gray-500 uppercase">Additions</p>
                 <p className="text-base font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
               </div>
-              {/* − Deductions */}
-              <div className="rounded-md bg-white/80 border border-orange-200 p-2.5 relative">
-                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-orange-600 hidden sm:block">−</span>
+              {/* Deductions */}
+              <div className="rounded-md bg-white/80 border border-orange-200 p-2.5">
                 <p className="text-[10px] text-gray-500 uppercase">Deductions</p>
                 <p className="text-base font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
               </div>
-              {/* = Grand Total (highlighted) */}
-              <div className="rounded-md bg-violet-600 text-white p-2.5 relative">
-                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-violet-700 hidden sm:block">=</span>
+              {/* Grand Total (highlighted) */}
+              <div className="rounded-md bg-violet-600 text-white p-2.5">
                 <p className="text-[10px] uppercase opacity-90">Grand Total</p>
                 <p className="text-base font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
               </div>
@@ -501,15 +498,13 @@ function ProjectCashflowTab({ projectId, isAdmin }) {
                 <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
               </div>
               {/* Total Expense */}
-              <div className="rounded-md bg-white/80 border border-rose-200 p-2.5 relative">
-                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-rose-600 hidden sm:block">−</span>
+              <div className="rounded-md bg-white/80 border border-rose-200 p-2.5">
                 <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
                 <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
                 {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
               </div>
               {/* Receivable Balance */}
-              <div className={`rounded-md p-2.5 relative ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
-                <span className="absolute -left-1.5 top-1/2 -translate-y-1/2 text-sm font-bold text-amber-700 hidden sm:block">→</span>
+              <div className={`rounded-md p-2.5 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
                 <p className="text-[10px] uppercase opacity-90">Receivable</p>
                 <p className="text-base font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
                 <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
@@ -3058,86 +3053,70 @@ export default function ProjectDetail() {
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-8">
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />Value
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-amber-700">{formatCurrency(summary.project_value)}</div>
-              <p className="text-xs text-gray-500 hidden sm:block">Scope Total</p>
-            </CardContent>
-          </Card>}
+        {/* Summary Strip — redesigned dual-half layout */}
+        {canSeeFinancials && (() => {
+          const scopeTotal = summary.scope_total || summary.project_value || 0;
+          const additionsTotal = summary.additions_total || 0;
+          const deductionsTotal = summary.deductions_total || 0;
+          const grandTotal = scopeTotal + additionsTotal - deductionsTotal;
+          const totalIncome = summary.income_total || 0;
+          const totalExpense = (summary.material_total || 0) + (summary.labour_total || 0) + (summary.vendor_total || 0) + (summary.expenses_total || 0);
+          const receivableBalance = Math.max(0, grandTotal - totalIncome);
+          const collectionPct = grandTotal > 0 ? (totalIncome / grandTotal) * 100 : 0;
+          const fmtINR = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4 sm:mb-6" data-testid="project-summary-strip">
+              {/* LEFT — Project Value Calculation */}
+              <Card className="border-blue-200 bg-gradient-to-br from-blue-50/60 to-violet-50/40">
+                <CardContent className="p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mb-2">Project Value Calculation</p>
+                  <div className="grid grid-cols-4 gap-2 items-stretch">
+                    <div className="rounded-md bg-white/80 border border-blue-200 p-2.5">
+                      <p className="text-[10px] text-gray-500 uppercase">Scope Value</p>
+                      <p className="text-base font-bold text-blue-700 mt-0.5">{fmtINR(scopeTotal)}</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 border border-cyan-200 p-2.5">
+                      <p className="text-[10px] text-gray-500 uppercase">Additions</p>
+                      <p className="text-base font-bold text-cyan-700 mt-0.5">{fmtINR(additionsTotal)}</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 border border-orange-200 p-2.5">
+                      <p className="text-[10px] text-gray-500 uppercase">Deductions</p>
+                      <p className="text-base font-bold text-orange-700 mt-0.5">{fmtINR(deductionsTotal)}</p>
+                    </div>
+                    <div className="rounded-md bg-violet-600 text-white p-2.5">
+                      <p className="text-[10px] uppercase opacity-90">Grand Total</p>
+                      <p className="text-base font-extrabold mt-0.5">{fmtINR(grandTotal)}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-cyan-50 to-cyan-100 border-cyan-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <Plus className="h-3 w-3" />Additions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-cyan-700">{formatCurrency(summary.additions_total)}</div>
-              <p className="text-xs text-gray-500 hidden sm:block">Extra Work</p>
-            </CardContent>
-          </Card>}
-
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <FileText className="h-3 w-3" />Total
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-purple-700">{formatCurrency(summary.total_value)}</div>
-              <p className="text-xs text-gray-500 hidden sm:block">Scope + Add</p>
-            </CardContent>
-          </Card>}
-
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />Income
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-green-700">{formatCurrency(summary.income_total)}</div>
-              <p className="text-xs text-gray-500 hidden sm:block">
-                <span className="text-amber-600 cursor-pointer hover:underline" onClick={() => window.location.href = '/income'}>
-                  View Income
-                </span>
-              </p>
-            </CardContent>
-          </Card>}
-
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <MinusCircle className="h-3 w-3" />Deductions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className="text-sm sm:text-lg font-bold text-orange-700">{formatCurrency(summary.deductions_total)}</div>
-              <p className="text-xs text-gray-500 hidden sm:block">Adjustments</p>
-            </CardContent>
-          </Card>}
-
-          {canSeeFinancials && <Card className="bg-gradient-to-br from-red-50 to-red-100 border-red-200">
-            <CardHeader className="pb-1 sm:pb-2 p-2 sm:p-6">
-              <CardTitle className="text-xs font-medium text-gray-600 flex items-center gap-1">
-                <Wallet className="h-3 w-3" />Balance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-2 pt-0 sm:p-6 sm:pt-0">
-              <div className={`text-sm sm:text-lg font-bold ${summary.balance >= 0 ? 'text-red-700' : 'text-green-700'}`}>
-                {formatCurrency(summary.balance)}
-              </div>
-              <p className="text-xs text-gray-500 hidden sm:block">Pending</p>
-            </CardContent>
-          </Card>}
-        </div>
+              {/* RIGHT — Financial Performance */}
+              <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-rose-50/40">
+                <CardContent className="p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 mb-2">Financial Performance</p>
+                  <div className="grid grid-cols-3 gap-2 items-stretch">
+                    <div className="rounded-md bg-white/80 border border-emerald-200 p-2.5">
+                      <p className="text-[10px] text-gray-500 uppercase">Total Income</p>
+                      <p className="text-base font-bold text-emerald-700 mt-0.5">{fmtINR(totalIncome)}</p>
+                      <p className="text-[9px] text-emerald-600 mt-0.5">{collectionPct.toFixed(1)}% of value</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 border border-rose-200 p-2.5">
+                      <p className="text-[10px] text-gray-500 uppercase">Total Expense</p>
+                      <p className="text-base font-bold text-rose-600 mt-0.5">{fmtINR(totalExpense)}</p>
+                      {totalIncome > 0 && <p className="text-[9px] text-rose-600 mt-0.5">{((totalExpense / totalIncome) * 100).toFixed(1)}% of income</p>}
+                    </div>
+                    <div className={`rounded-md p-2.5 ${receivableBalance > 0 ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white'}`}>
+                      <p className="text-[10px] uppercase opacity-90">Receivable</p>
+                      <p className="text-base font-extrabold mt-0.5">{fmtINR(receivableBalance)}</p>
+                      <p className="text-[9px] opacity-90 mt-0.5">Yet to receive</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })()}
 
         {/* Main Tabs */}
         <Card>
