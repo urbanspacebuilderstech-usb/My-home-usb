@@ -2385,13 +2385,31 @@ export default function SiteEngineerDashboard() {
         </DialogContent>
       </Dialog>
 
+      {/* Correction Engine — Petty Cash: handles accountant_rejected + under_correction */}
+      <CorrectionDialog
+        open={!!correctionPC}
+        onClose={() => setCorrectionPC(null)}
+        entityType="Petty Cash"
+        doc={correctionPC}
+        resubmitUrl={correctionPC ? `${API}/petty-cash/${correctionPC.petty_cash_id}/resubmit` : ''}
+        editableFields={[
+          { key: 'amount_requested', label: 'Amount Requested (₹)', type: 'number', required: true },
+          { key: 'purpose', label: 'Purpose', type: 'text', full: true },
+          { key: 'remarks', label: 'Remarks / Correction Notes', type: 'textarea', full: true },
+        ]}
+        canEdit={true}
+        onAfterResubmit={async () => {
+          try {
+            const res = await axios.get(`${API}/site-engineer/petty-cash`);
+            setPettyCashList(res.data || []);
+          } catch (e) { /* noop */ }
+        }}
+      />
+
       <MobileBottomNav user={user} />
     </div>
   );
 }
-
-
-// ============ SITE VISITS SECTION ============
 function SiteVisitsSection({ user }) {
   const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2558,27 +2576,8 @@ function SiteVisitsSection({ user }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Correction Engine — Petty Cash: handles accountant_rejected + under_correction */}
-      <CorrectionDialog
-        open={!!correctionPC}
-        onClose={() => setCorrectionPC(null)}
-        entityType="Petty Cash"
-        doc={correctionPC}
-        resubmitUrl={correctionPC ? `${API}/petty-cash/${correctionPC.petty_cash_id}/resubmit` : ''}
-        editableFields={[
-          { key: 'amount_requested', label: 'Amount Requested (₹)', type: 'number', required: true },
-          { key: 'purpose', label: 'Purpose', type: 'text', full: true },
-          { key: 'remarks', label: 'Remarks / Correction Notes', type: 'textarea', full: true },
-        ]}
-        canEdit={true}
-        onAfterResubmit={async () => {
-          try {
-            const res = await axios.get(`${API}/site-engineer/petty-cash`);
-            setPettyCashList(res.data || []);
-          } catch (e) { /* noop */ }
-        }}
-      />
     </div>
   );
 }
+
+// ============ SITE VISITS SECTION ============

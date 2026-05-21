@@ -1,0 +1,39 @@
+{
+  "summary": "Re-tested Petty Cash Correction Engine. Backend pytest still 1/1 PASS (29s). Found and FIXED 2 root-cause bugs that were blocking iter156: (1) <CorrectionDialog/> in /app/frontend/src/pages/SiteEngineerDashboard.jsx was MISPLACED inside the trailing SiteVisitsSection sub-component (lines 2562-2581) instead of inside the main SiteEngineerDashboard component (closes at line 2391). So setCorrectionPC(pc) updated state but no <CorrectionDialog/> with the correct closure was in the render tree to react — that is why no Radix portal ever mounted (iter156 banner-click silent failure). Moved the JSX block to inside SiteEngineerDashboard (just before MobileBottomNav). (2) Backend GET /api/accountant/petty-cash default status filter did not include 'awaiting_accountant', so resubmitted rows never returned from the queue endpoint feeding pendingRequests on /accounts-board — added 'awaiting_accountant' to the $in list in site_ops.py:2237. After both fixes, the full flow works end-to-end: SE banner click → CorrectionDialog mounts → Enable Edit → amount_requested editable → Save & Resubmit → POST /petty-cash/{id}/resubmit succeeds → dialog closes → Accountant /accounts-board → Petty Cash drill-down shows the resubmitted row WITH acc-pc-reject-{id} button alongside pm_approved row.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "what_works": [
+    "Backend pytest test_correction_engine_petty_cash.py: 1 passed in 28.96s.",
+    "SE Dashboard → Petty Cash → red banner [data-testid=pc-correction-banner-{id}] click → CorrectionDialog [data-testid=correction-dialog] MOUNTS with reason banner, history timeline, editable fields, Enable Edit button.",
+    "Enable Edit → amount_requested field becomes editable (disabled attribute removed) → modify value → Save & Resubmit → POST /api/petty-cash/{id}/resubmit succeeds → dialog closes → row pill flips from Rejected to Awaiting Accountant.",
+    "AccountsBoard → Petty Cash Management → primary 'PM-Approved & Resubmitted — Awaiting Payment' table now shows BOTH pm_approved AND awaiting_accountant (resubmitted) rows.",
+    "Reject button [data-testid=acc-pc-reject-{id}] renders on every row in the primary queue table (3 buttons visible in test: pre-existing pc_test_*, seeded pm_approved, and seeded resubmitted-awaiting_accountant rows).",
+    "GET /api/cashbook EXCLUDED_EXPENSE_STATUSES = ['under_correction','rejected','accountant_rejected','accounts_rejected'] confirmed in financial.py:1001 — rows in those statuses are excluded from totals + expenses array.",
+    "GET /api/accountant/petty-cash now includes awaiting_accountant in default status filter (fix applied)."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_correction_engine_petty_cash.py",
+    "/app/test_reports/pytest/iter157_correction_engine.xml",
+    "/app/test_reports/seed_petty_cash_correction.py"
+  ],
+  "action_items": [
+    "Verify the moved CorrectionDialog placement is preserved through any future SE Dashboard refactors. Strong recommendation to split SiteEngineerDashboard.jsx (currently 2585 lines) into PettyCashTab, AttendanceTab, ProjectsTab sub-modules to prevent recurrence of this misplacement bug.",
+    "Consider removing or refactoring SiteVisitsSection (lines 2395-2584) — it appears to be an orphan section (no route renders it from SE Dashboard JSX; it was the host of the misplaced CorrectionDialog before this fix). Confirm with main agent whether SiteVisitsSection is dead code."
+  ],
+  "critical_code_review_comments": [
+    "RCA-level placement bug: CorrectionDialog was nested in the wrong React component scope (SiteVisitsSection has its own selectedVisit/visits state and no correctionPC, but its JSX referenced an undefined `correctionPC` which would have ReferenceError'd at render — it didn't crash because SiteVisitsSection is never reached in the active /site-engineer Petty Cash tab path). This is exactly the kind of regression that prevents Radix portals from mounting silently — a unit test that just asserts setCorrectionPC fires would PASS while the user-visible flow is broken. Recommend an integration test (Playwright) covering banner → dialog mount for every entity in the Correction Engine.",
+    "/app/frontend/src/pages/SiteEngineerDashboard.jsx is still 2587 lines — split into focused modules.",
+    "/app/frontend/src/pages/AccountsBoard.jsx still 4391 lines (carried from iter155/156).",
+    "Backend status-filter union in GET /accountant/petty-cash should be a module-level constant ACCOUNTANT_VISIBLE_PC_STATUSES = [...] instead of an inline list duplicated across endpoints."
+  ],
+  "updated_files": [
+    "/app/frontend/src/pages/SiteEngineerDashboard.jsx (moved CorrectionDialog from SiteVisitsSection back into SiteEngineerDashboard main return; ~25 lines moved)",
+    "/app/backend/routes/site_ops.py (added 'awaiting_accountant' to default status $in list in /accountant/petty-cash endpoint, line 2237)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "engineer@constructionos.com / Demo@1234 (Vikram Singh, SE); accountant@constructionos.com / Demo@1234 (Priya Sharma); admin@constructionos.com / Demo@1234 (super admin).",
+  "seed_data_creation": "Seeded 3 petty_cash rows via /app/test_reports/seed_petty_cash_correction.py (pm_approved, accountant_rejected, issued+cashflow_ledger). All pc_seed_* rows and led_seed_* rows cleaned up at end of testing (3 PC docs + 1 ledger row deleted).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All review items now pass. Two surgical fixes applied: (a) frontend SE Dashboard CorrectionDialog moved to correct component scope; (b) backend accountant petty-cash endpoint status filter widened to include awaiting_accountant. The RCA for the iter156 silent dialog failure was a JSX placement bug (CorrectionDialog nested in trailing SiteVisitsSection sub-component instead of SiteEngineerDashboard main return). Strongly recommend file split for SE Dashboard to prevent recurrence."
+}

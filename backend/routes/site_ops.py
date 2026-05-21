@@ -2234,7 +2234,7 @@ async def get_petty_cash_for_accountant(status: Optional[str] = None, user: User
     if status:
         query["status"] = status
     else:
-        query["status"] = {"$in": ["pm_approved", "accountant_processing", "payment_done", "acknowledged", "issued", "partially_spent", "pending_settlement", "settled", "requested"]}
+        query["status"] = {"$in": ["pm_approved", "awaiting_accountant", "accountant_processing", "payment_done", "acknowledged", "issued", "partially_spent", "pending_settlement", "settled", "requested"]}
     
     petty_cash_list = await db.petty_cash.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     return petty_cash_list

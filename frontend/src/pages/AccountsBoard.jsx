@@ -572,7 +572,7 @@ function PettyCashManagement({ onBack }) {
                           Send for Correction
                         </Button>
                       )}
-                      {pillState(pc.status) === 'awaiting' && pc.status !== 'requested' && (
+                      {pillState(pc.status) === 'awaiting' && (
                         <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300 hover:bg-red-50 ml-1"
                           data-testid={`acc-pc-reject-${pc.petty_cash_id}`}
                           onClick={async () => {
@@ -637,11 +637,11 @@ function PettyCashManagement({ onBack }) {
         </CardContent></Card>
       </div>
 
-      {/* PM-Approved Requests Needing Payment Processing */}
-      {pendingRequests.filter(r => r.status === 'pm_approved').length > 0 && (
+      {/* PM-Approved / Resubmitted Requests Needing Payment Processing */}
+      {pendingRequests.filter(r => r.status === 'pm_approved' || r.status === 'awaiting_accountant').length > 0 && (
         <Card className="border-l-4 border-l-teal-500">
           <CardHeader className="p-3 pb-1">
-            <CardTitle className="text-sm flex items-center gap-2 text-teal-700">PM-Approved — Awaiting Payment ({pendingRequests.filter(r => r.status === 'pm_approved').length})</CardTitle>
+            <CardTitle className="text-sm flex items-center gap-2 text-teal-700">PM-Approved &amp; Resubmitted — Awaiting Payment ({pendingRequests.filter(r => r.status === 'pm_approved' || r.status === 'awaiting_accountant').length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -656,7 +656,7 @@ function PettyCashManagement({ onBack }) {
                   <th className="px-3 py-2 text-center font-medium text-teal-700">Action</th>
                 </tr></thead>
                 <tbody className="divide-y">
-                  {pendingRequests.filter(r => r.status === 'pm_approved').map(pc => (
+                  {pendingRequests.filter(r => r.status === 'pm_approved' || r.status === 'awaiting_accountant').map(pc => (
                     <tr key={pc.petty_cash_id} className="hover:bg-teal-50/50">
                       <td className="px-3 py-2 whitespace-nowrap">{new Date(pc.created_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })}</td>
                       <td className="px-3 py-2 font-medium">{pc.requested_by_name}</td>
@@ -665,10 +665,31 @@ function PettyCashManagement({ onBack }) {
                       <td className="px-3 py-2 text-right font-bold">₹{(pc.amount_requested || 0).toLocaleString('en-IN')}</td>
                       <td className="px-3 py-2 text-center"><Badge className="bg-green-100 text-green-700 text-[10px]">{pc.pm_approved_by_name || 'PM'}</Badge></td>
                       <td className="px-3 py-2 text-center">
-                        <Button size="sm" className="bg-teal-600 hover:bg-teal-700 h-6 text-[10px]" data-testid={`acc-pc-pay-${pc.petty_cash_id}`}
-                          onClick={() => { setPayPC(pc); setPayForm({ ...payForm, amount_paid: pc.amount_requested?.toString() || '' }); setPayDialog(true); }}>
-                          Process Payment
-                        </Button>
+                        <div className="flex gap-1 justify-center flex-wrap">
+                          <Button size="sm" className="bg-teal-600 hover:bg-teal-700 h-6 text-[10px]" data-testid={`acc-pc-pay-${pc.petty_cash_id}`}
+                            onClick={() => { setPayPC(pc); setPayForm({ ...payForm, amount_paid: pc.amount_requested?.toString() || '' }); setPayDialog(true); }}>
+                            Process Payment
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] text-red-600 border-red-300 hover:bg-red-50"
+                            data-testid={`acc-pc-reject-${pc.petty_cash_id}`}
+                            onClick={async () => {
+                              const reason = window.prompt('Reason for rejecting this petty cash request? (will be sent to the SE)');
+                              if (!reason || !reason.trim()) return;
+                              try {
+                                await axios.patch(`${API}/accountant/petty-cash/${pc.petty_cash_id}/reject`, { reason: reason.trim() });
+                                toast.success('Rejected. SE will see the correction banner.');
+                                // Refresh the pending requests list
+                                try {
+                                  const r = await axios.get(`${API}/accountant/petty-cash-management`);
+                                  setPendingRequests(r.data?.pending_requests || []);
+                                } catch (_) {}
+                              } catch (e) {
+                                toast.error(e?.response?.data?.detail || 'Reject failed');
+                              }
+                            }}>
+                            Reject
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}

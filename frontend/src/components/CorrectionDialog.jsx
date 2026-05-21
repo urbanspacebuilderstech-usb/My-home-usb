@@ -6,7 +6,6 @@ import {
   AlertDialogContent,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogCancel,
   AlertDialogAction,
@@ -19,8 +18,6 @@ import { Badge } from "./ui/badge";
 import { StatusPill } from "./StatusPill";
 import { AlertTriangle, Edit3, Clock, User as UserIcon } from "lucide-react";
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-
 /**
  * Unified Correction Dialog — shared across all entities that flow through the
  * Correction Engine (petty cash, material request, lead advance, income, etc.).
@@ -28,10 +25,10 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
  * Props:
  *   open, onClose          — modal state
  *   entityType             — display name (e.g. "Petty Cash", "Material Request")
- *   doc                    — the backend document for the entity (must include status + history)
- *   resubmitUrl            — full URL for the resubmit POST (e.g. `${API}/petty-cash/{id}/resubmit`)
- *   editableFields         — array of { key, label, type, required } describing the editable form
- *   canEdit                — boolean. When false the dialog is read-only (e.g. accountant viewing history)
+ *   doc                    — the backend document for the entity
+ *   resubmitUrl            — full URL for the resubmit POST
+ *   editableFields         — array of { key, label, type, required, full } describing the editable form
+ *   canEdit                — boolean. When false the dialog is read-only.
  *   onAfterResubmit        — callback after successful resubmit; parent should refresh data
  */
 export const CorrectionDialog = ({
@@ -48,32 +45,31 @@ export const CorrectionDialog = ({
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Seed editable fields whenever a new doc is opened.
   useEffect(() => {
-    if (open && doc) {
-      // Seed editable fields with current values for easy correction.
-      const seed = {};
-      editableFields.forEach((f) => {
-        if (doc[f.key] != null) seed[f.key] = doc[f.key];
-      });
-      setEdits(seed);
-      setEditing(false);
-    }
-  }, [open, doc?.[Object.keys(doc || {})[0]]]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!open || !doc) return;
+    const seed = {};
+    editableFields.forEach((f) => {
+      if (doc[f.key] !== undefined && doc[f.key] !== null) seed[f.key] = doc[f.key];
+    });
+    setEdits(seed);
+    setEditing(false);
+    setSubmitting(false);
+  }, [open, doc, editableFields]);
 
-  if (!doc) return null;
-
-  const status = doc.status || "";
-  const isRejected = status === "accountant_rejected" || status === "rejected" || status === "accounts_rejected";
+  // Don't render anything until both open AND doc are truthy.
+  const safeDoc = doc || {};
+  const status = safeDoc.status || "";
+  const isRejected = ["accountant_rejected", "rejected", "accounts_rejected"].includes(status);
   const isCorrection = status === "under_correction";
-  const reasonText = doc.rejection_reason || doc.correction_reason || doc.rejected_reason || "";
-  const rejectorName = doc.rejected_by_name || doc.correction_requested_by_name || "Accountant";
-  const rejectedAt = doc.rejected_at || doc.correction_requested_at;
-  const history = doc.correction_history || [];
+  const reasonText = safeDoc.rejection_reason || safeDoc.correction_reason || safeDoc.rejected_reason || "";
+  const rejectorName = safeDoc.rejected_by_name || safeDoc.correction_requested_by_name || "Accountant";
+  const rejectedAt = safeDoc.rejected_at || safeDoc.correction_requested_at;
+  const history = safeDoc.correction_history || [];
 
   const handleResubmit = async () => {
-    // Validate required fields
     for (const f of editableFields) {
-      if (f.required && (edits[f.key] == null || edits[f.key] === "")) {
+      if (f.required && (edits[f.key] === undefined || edits[f.key] === null || edits[f.key] === "")) {
         toast.error(`${f.label} is required`);
         return;
       }
@@ -92,61 +88,61 @@ export const CorrectionDialog = ({
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <AlertDialog open={open && !!doc} onOpenChange={(v) => { if (!v) onClose(); }}>
       <AlertDialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="correction-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
+          <AlertDialogTitle className="flex items-center gap-2 flex-wrap">
             <AlertTriangle className="h-5 w-5 text-red-600" />
-            {isCorrection
-              ? `${entityType} — Sent Back for Correction`
-              : isRejected
-              ? `${entityType} — Rejected by Accountant`
-              : `${entityType} — Review`}
+            <span>
+              {isCorrection
+                ? `${entityType} — Sent Back for Correction`
+                : isRejected
+                ? `${entityType} — Rejected by Accountant`
+                : `${entityType} — Review`}
+            </span>
             <StatusPill status={status} className="ml-2" />
           </AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="text-left">
-              {/* Rejection / correction reason banner */}
-              {(isRejected || isCorrection) && reasonText && (
-                <div className="mt-2 p-3 rounded-lg bg-red-50 border-2 border-red-300" data-testid="correction-reason-banner">
-                  <div className="flex items-center gap-2 mb-1">
-                    <UserIcon className="h-3.5 w-3.5 text-red-700" />
-                    <span className="text-xs font-bold text-red-800">
-                      {isCorrection ? "Correction requested by" : "Rejected by"}: {rejectorName}
-                    </span>
-                    {rejectedAt && (
-                      <span className="text-xs text-red-600">
-                        <Clock className="h-3 w-3 inline mr-0.5" />
-                        {new Date(rejectedAt).toLocaleString("en-IN")}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-red-900 font-medium">
-                    <span className="font-bold">Reason:</span> {reasonText}
-                  </p>
-                  {isCorrection && (
-                    <p className="text-[11px] text-red-700 mt-1 italic">
-                      ⚠ This entry was already approved. The amount has been removed from Cashbook and Cashflow Engine until you correct & resubmit.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </AlertDialogDescription>
         </AlertDialogHeader>
 
+        {/* Rejection / correction reason banner */}
+        {(isRejected || isCorrection) && reasonText && (
+          <div className="mt-2 p-3 rounded-lg bg-red-50 border-2 border-red-300" data-testid="correction-reason-banner">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <UserIcon className="h-3.5 w-3.5 text-red-700" />
+              <span className="text-xs font-bold text-red-800">
+                {isCorrection ? "Correction requested by" : "Rejected by"}: {rejectorName}
+              </span>
+              {rejectedAt && (
+                <span className="text-xs text-red-600">
+                  <Clock className="h-3 w-3 inline mr-0.5" />
+                  {new Date(rejectedAt).toLocaleString("en-IN")}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-red-900 font-medium">
+              <span className="font-bold">Reason:</span> {reasonText}
+            </p>
+            {isCorrection && (
+              <p className="text-[11px] text-red-700 mt-1 italic">
+                ⚠ This entry was already approved. The amount has been removed from Cashbook and Cashflow Engine until you correct &amp; resubmit.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Editable fields */}
-        {canEdit && (isRejected || isCorrection) && (
-          <div className="mt-4 space-y-3">
+        {canEdit && (isRejected || isCorrection) && editableFields.length > 0 && (
+          <div className="mt-3 space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                 <Edit3 className="h-4 w-4 text-blue-600" />
-                Edit & Resubmit
+                Edit &amp; Resubmit
               </h4>
               {!editing && (
                 <Button
                   size="sm"
                   variant="outline"
+                  type="button"
                   onClick={() => setEditing(true)}
                   className="text-xs"
                   data-testid="correction-edit-btn"
@@ -191,18 +187,18 @@ export const CorrectionDialog = ({
 
         {/* History timeline */}
         {history.length > 0 && (
-          <div className="mt-5">
+          <div className="mt-4">
             <h4 className="text-sm font-bold text-gray-800 mb-2">Correction History</h4>
             <div className="space-y-1.5 max-h-44 overflow-y-auto">
               {history.slice().reverse().map((h, i) => (
                 <div key={i} className="text-xs p-2 rounded bg-gray-50 border border-gray-200">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
                     <Badge variant="outline" className="text-[10px]">
                       {h.action === "rejected" ? "🔴 Rejected" : h.action === "resubmitted" ? "🟡 Resubmitted" : h.action === "sent_for_correction" ? "🔄 Sent for Correction" : h.action}
                     </Badge>
-                    <span className="text-gray-500">{h.by_name} • {new Date(h.at).toLocaleString("en-IN")}</span>
+                    <span className="text-gray-500 text-[10px]">{h.by_name} • {new Date(h.at).toLocaleString("en-IN")}</span>
                   </div>
-                  {h.reason && <p className="text-gray-700 mt-1 italic">"{h.reason}"</p>}
+                  {h.reason && <p className="text-gray-700 mt-1 italic">&quot;{h.reason}&quot;</p>}
                 </div>
               ))}
             </div>
